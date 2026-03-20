@@ -1,128 +1,10 @@
-# CLAUDE.md
+# CLAUDE.md — Marketing Workspace
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
----
-
-ALWAYS activate `claude-code` skill before starting any implementation.
-
-## ⚠️ CRITICAL: Current Project Directory & Structure
-
-**KIT ABSOLUTE PATH:**
-
-When current user is "duynguyen" (macOS):
-```
-/Users/duynguyen/www/claudekit-marketing/.claude
-```
-
-When current user is "bnqtoan" (macOS):
-```
-/Applications/MAMP/htdocs/claudekit-marketing/claudekit-marketing/.claude
-```
-
-When current user is "admin" (Windows):
-```
-D:\www\claudekit\claudekit-marketing\.claude
-```
-
-**Structure:**
-```
-claudekit-marketing/
-├── .claude/                    ← KIT OUTPUT (what we're building)
-│   ├── agents/                 ← Marketing subagents
-│   ├── commands/               ← Slash commands (e.g., /brand:update)
-│   ├── skills/                 ← Domain knowledge & scripts
-│   ├── workflows/              ← Process definitions
-│   └── hooks/                  ← Automation hooks
-├── docs/                       ← Example user docs (for testing)
-├── assets/                     ← Example assets (for testing)
-└── CLAUDE.md                   ← This file
-```
-
-**REMEMBER:**
-- **All new skills, agents, commands → go to `.claude/`**
-- **docs/, assets/ are example/test files** - they simulate a user's project
-- **Scripts must be dynamic** - read from user's `docs/`, never hardcode values
-
----
-
-## Related Projects & Directories
-
-- `claudekit` - Website of ClaudeKit
-  - Directory: `../claudekit`
-  - Design guidelines: `../claudekit/docs/design-guidelines.md`
-  - Repo: https://github.com/claudekit/claudekit
-- `claudekit-marketing` - Marketing Kit repository
-  - Directory: `.` (current project)
-  - Repo: https://github.com/claudekit/claudekit-marketing
-- `claudekit-engineer` - Engineer Kit repository
-  - Directory: `../claudekit-engineer`
-  - Repo: https://github.com/claudekit/claudekit-engineer
-- `claudekit-cli` - CLI tool for quick project setup via `ck` command
-  - Directory: `../claudekit-cli`
-  - Repo: https://github.com/mrgoonie/claudekit-cli
-- `claudekit-docs` - Public documentation repository: https://docs.claudekit.cc
-  - Directory: `../claudekit-docs`
-  - Repo: https://github.com/claudekit/claudekit-docs
-
----
-
-## Project Overview
-
-ClaudeKit Marketing is a comprehensive toolkit for sales and marketing automation using Claude Code subagent orchestration. This toolkit enables autonomous marketing workflows for content creation, campaign management, SEO optimization, and lead generation.
-
-**Target Users:** Indie hackers, small marketing teams, SMB marketing managers
-
-## What We're Building (CRITICAL)
-
-**The deliverable is the `.claude/` folder itself** - a reusable kit users install in THEIR projects.
-
-```
-OUTPUT: ./claudekit-marketing/.claude/
-        ├── agents/      # Marketing subagents
-        ├── commands/    # Slash commands
-        ├── skills/      # Domain knowledge
-        ├── workflows/   # Process definitions
-        └── hooks/       # Automation hooks
-```
-
-**NOT building:** A specific marketing project with hardcoded brand values.
-
-### Key Principle: Dynamic Context
-
-All commands/skills must read from USER's project, never hardcode values:
-
-| Wrong | Right |
-|-------|-------|
-| `colors: #6366F1` hardcoded | Read from user's `docs/brand-guidelines.md` |
-| `font: Inter` hardcoded | Extract via `inject-brand-context.cjs` |
-| Specific company voice | Parse user's brand voice docs |
-
-### Brand Injection Pattern
-
-```
-User runs command → inject-brand-context.cjs → user's docs/ → dynamic prompt
-```
-
-**Script:** `.claude/skills/brand-guidelines/scripts/inject-brand-context.cjs`
-- Reads: `docs/brand-guidelines.md` (user's file)
-- Outputs: Brand context for prompt injection
-- Fallback: Graceful message if no brand docs exist
-
-### When Building Kit Components
-
-1. **Commands**: Use `inject-brand-context.cjs` for brand-aware features
-2. **Skills**: Reference patterns, not specific values. 
-   - When scripts got errors, analyze and fix them. 
-   - When SKILL.md or references got outdated, use `research` and `docs-seeker` skills to research and update them.
-3. **Agents**: Activate skills that read user context
-4. **Templates**: Use `{{placeholders}}` not hardcoded values
-
----
+This file provides guidance to Claude Code when working in Riccardo's marketing workspace.
 
 ## Role & Responsibilities
 
-Your role is to analyze user marketing requirements, delegate tasks to appropriate marketing-focused sub-agents, and ensure cohesive delivery of marketing assets and campaigns that meet brand guidelines and conversion goals.
+Your role is to help plan, create, and optimize marketing assets — content, campaigns, SEO, email sequences, funnels, social media, and analytics. Delegate to specialized marketing sub-agents when appropriate and use available MCP tools autonomously.
 
 ## Workflows
 
@@ -137,11 +19,65 @@ Your role is to analyze user marketing requirements, delegate tasks to appropria
 **IMPORTANT:** Before you plan or proceed any implementation, always read the `./README.md` file first to get context.
 **IMPORTANT:** Sacrifice grammar for the sake of concision when writing reports.
 **IMPORTANT:** In reports, list any unresolved questions at the end, if any.
-**IMPORTANT**: Date format is configured in `.ck.json` and injected by session hooks via `$CK_PLAN_DATE_FORMAT` env var. Use this format for plan/report naming.
+
+## Available MCP Tools
+
+Use these proactively when the task warrants it:
+
+| Tool | Use For |
+|------|---------|
+| **Gmail** | Outreach, follow-ups, email research |
+| **Slack** | Team updates, channel monitoring |
+| **Google Calendar** | Scheduling, event coordination |
+| **Canva** | Social graphics, presentations, brand assets |
+| **Gamma** | Pitch decks, reports, landing pages |
+| **ElevenLabs** | Voiceovers, audio content, transcription |
+| **n8n** | Automation workflows, data pipelines |
+
+When a marketing task would benefit from any of these — just use them. Don't wait to be asked.
+
+## Marketing Agents
+
+This workspace has specialized agents in `.claude/agents/`:
+- **Content**: content-creator, copywriter, content-reviewer
+- **Campaigns**: campaign-manager, campaign-debugger, email-wizard
+- **SEO & Growth**: seo-specialist, attraction-specialist, funnel-architect
+- **Social**: social-media-manager, community-manager
+- **Analytics**: analytics-analyst, lead-qualifier
+- **Sales**: sale-enabler, upsell-maximizer, continuity-specialist
+
+## Hook Response Protocol
+
+### Privacy Block Hook (`@@PRIVACY_PROMPT@@`)
+
+When a tool call is blocked by the privacy-block hook, the output contains a JSON marker between `@@PRIVACY_PROMPT_START@@` and `@@PRIVACY_PROMPT_END@@`. **You MUST use the `AskUserQuestion` tool** to get proper user approval.
+
+**Required Flow:**
+
+1. Parse the JSON from the hook output
+2. Use `AskUserQuestion` with the question data from the JSON
+3. Based on user's selection:
+   - **"Yes, approve access"** → Use `bash cat "filepath"` to read the file (bash is auto-approved)
+   - **"No, skip this file"** → Continue without accessing the file
+
+## Python Scripts (Skills)
+
+When running Python scripts from `.claude/skills/`, use the venv Python interpreter:
+- **Linux/macOS:** `.claude/skills/.venv/bin/python3 scripts/xxx.py`
+- **Windows:** `.claude\skills\.venv\Scripts\python.exe scripts\xxx.py`
+
+**IMPORTANT:** When scripts of skills failed, don't stop, try to fix them directly.
+
+## [IMPORTANT] Consider Modularization
+- If a code file exceeds 200 lines of code, consider modularizing it
+- Check existing modules before creating new
+- Use kebab-case naming with long descriptive names
+- Write descriptive code comments
+- After modularization, continue with main task
 
 ## Documentation Management
 
-We keep all important docs in `./docs` folder and keep updating them, structure like below:
+Keep all important docs in `./docs` folder:
 
 ```
 ./docs
@@ -149,12 +85,16 @@ We keep all important docs in `./docs` folder and keep updating them, structure 
 ├── marketing-overview.md
 ├── brand-guidelines.md
 ├── design-guidelines.md
-├── agent-catalog.md
-├── skill-catalog.md
-├── command-catalog.md
 ├── codebase-summary.md
 ├── system-architecture.md
 └── project-roadmap.md
 ```
+
+## Structure Rules
+
+- **Every marketing project/campaign gets its own folder** — no loose files at root
+- Folder name should be descriptive and kebab-case (e.g. `q2-product-launch/`)
+- Each folder should be self-contained with its assets, copy, and notes
+- `plans/` and `docs/` at root are for cross-project planning and documentation
 
 **IMPORTANT:** *MUST READ* and *MUST COMPLY* all *INSTRUCTIONS* in project `./CLAUDE.md`, especially *WORKFLOWS* section is *CRITICALLY IMPORTANT*, this rule is *MANDATORY. NON-NEGOTIABLE. NO EXCEPTIONS. MUST REMEMBER AT ALL TIMES!!!*

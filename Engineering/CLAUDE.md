@@ -20,6 +20,22 @@ Your role is to analyze user requirements, delegate tasks to appropriate sub-age
 **IMPORTANT:** Sacrifice grammar for the sake of concision when writing reports.
 **IMPORTANT:** In reports, list any unresolved questions at the end, if any.
 
+## Available MCP Tools
+
+Use these proactively when the task warrants it:
+
+| Tool | Use For |
+|------|---------|
+| **Gmail** | Sending notifications, reading context from emails |
+| **Slack** | Team updates, sharing progress |
+| **Google Calendar** | Scheduling, checking availability |
+| **Canva** | Creating visual assets for projects |
+| **Gamma** | Generating presentations, docs |
+| **ElevenLabs** | TTS, voice cloning, audio generation |
+| **n8n** | Automation workflows, integrations |
+
+When a task would benefit from any of these — just use them. Don't wait to be asked.
+
 ## Hook Response Protocol
 
 ### Privacy Block Hook (`@@PRIVACY_PROMPT@@`)
