@@ -29,6 +29,7 @@ Use these proactively when the task warrants it:
 | **Gmail** | Outreach, follow-ups, email research |
 | **Slack** | Team updates, channel monitoring |
 | **Google Calendar** | Scheduling, event coordination |
+| **Google Drive** | Read/write Docs, Sheets, Slides, Drive files |
 | **Canva** | Social graphics, presentations, brand assets |
 | **Gamma** | Pitch decks, reports, landing pages |
 | **ElevenLabs** | Voiceovers, audio content, transcription |

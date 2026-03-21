@@ -21,6 +21,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
 - **Gmail** (`mcp__claude_ai_Gmail__*`) — Search, read, draft emails. Use for outreach, follow-ups, notifications.
 - **Slack** (`mcp__claude_ai_Slack__*`) — Read/send messages, search channels, create canvases. Use for team comms, updates.
 - **Google Calendar** (`mcp__claude_ai_Google_Calendar__*`) — List/create/update events, find free time. Use for scheduling, meeting coordination.
+- **Google Drive** (`mcp__google_drive__*`) — Read/write Google Docs, Sheets, Slides, and Drive files. Use for content calendars, reports, shared documents.
 
 ### Content & Design
 - **Canva** (`mcp__claude_ai_Canva__*`) — Create/edit designs, export assets, manage brand kits. Use for visual content, social graphics, presentations.

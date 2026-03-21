@@ -29,6 +29,7 @@ Use these proactively when the task warrants it:
 | **Gmail** | Sending notifications, reading context from emails |
 | **Slack** | Team updates, sharing progress |
 | **Google Calendar** | Scheduling, checking availability |
+| **Google Drive** | Read/write Docs, Sheets, Slides, Drive files |
 | **Canva** | Creating visual assets for projects |
 | **Gamma** | Generating presentations, docs |
 | **ElevenLabs** | TTS, voice cloning, audio generation |
