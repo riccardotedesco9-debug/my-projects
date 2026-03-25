@@ -13,20 +13,12 @@ My Projects/
 
 Each subdirectory is an independent project with its own `.claude/` config, agents, skills, and workflows. When working in a subdirectory, follow that project's `CLAUDE.md` and rules.
 
-## Skill Architecture
+## Skill Visibility
 
-Skills are organized in three layers — shared core lives globally, domain-specific skills live in each project:
-
-| Layer | Location | Skills | Purpose |
-|---|---|---|---|
-| **Global** | `~/.claude/skills/` | ~42 | Shared core: cook, fix, plan, debug, git, test, research, scout, code-review, copywriting, ai-multimodal, etc. |
-| **Engineering** | `Engineering/.claude/skills/` | ~24 | Domain-specific: backend, frontend, databases, devops, shopify, threejs, tanstack, etc. |
-| **Marketing** | `Marketing/.claude/skills/` | ~37 | Domain-specific: seo, ads, campaigns, email, brand, funnels, social-media, etc. |
-
-- When working in `Engineering/`, you see global + engineering skills
-- When working in `Marketing/`, you see global + marketing skills
-- When working in this root directory, you see only global skills
-- Do not duplicate skills across layers — each skill lives in exactly one location
+Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
+- **Root directory** → global skills only
+- **Engineering/** → global + engineering local skills
+- **Marketing/** → global + marketing local skills
 
 ## Available MCP Integrations (Global)
 
@@ -60,12 +52,25 @@ These tools are available across ALL projects. Use them autonomously when the ta
 ### Automation
 - **n8n** (`mcp__claude_ai_n8n__*`) — Search and execute automation workflows, get workflow details. Use for automation pipelines, data sync, triggered actions.
 
-## When to Use These Tools
+## Tools-First Policy
 
-- **Proactively**: If a task clearly benefits from a tool (e.g., drafting an email → use Gmail, creating a visual → use Canva), go ahead and use it.
-- **Research first**: When unsure what's available, use `mcp-management` skill or `ToolSearch` to discover capabilities.
+Always use available MCP tools before improvising code-based alternatives:
+
+- **Email** → Gmail MCP, not manual drafting or script-based SMTP
+- **Automation** → n8n workflows, not custom scripts or cron jobs
+- **Audio/Sound** → ElevenLabs, not code-based audio generation
+- **Scheduling** → Google Calendar, not manual tracking
+- **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters
+- **Communication** → Slack, not ad-hoc notification scripts
+- **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
+- **File Storage** → Google Drive, not local temp files for shared assets
+
+Only fall back to code-based solutions when the MCP tool lacks a required capability, the task is purely local/dev-only, or the user explicitly requests code.
+
+**Usage guidelines:**
+- **Proactively**: If a task clearly benefits from a tool, just use it.
 - **Combine tools**: Chain tools for complex workflows (e.g., research → write content → design in Canva → schedule via Slack).
-- **Ask when ambiguous**: If a task could go multiple directions, briefly confirm with the user before executing external actions (sending emails, posting messages, creating calendar events).
+- **Ask when ambiguous**: Briefly confirm before executing external actions (sending emails, posting messages, creating events).
 
 ## Cross-Project Rules
 
