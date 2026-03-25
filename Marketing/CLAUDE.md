@@ -20,22 +20,55 @@ Your role is to help plan, create, and optimize marketing assets — content, ca
 **IMPORTANT:** Sacrifice grammar for the sake of concision when writing reports.
 **IMPORTANT:** In reports, list any unresolved questions at the end, if any.
 
+## Skill Architecture
+
+This project uses a two-layer skill system:
+
+- **Global skills** (`~/.claude/skills/`) — Shared core: cook, fix, plan, debug, git, test, research, scout, code-review, copywriting, ai-multimodal, media-processing, sequential-thinking, etc.
+- **Local skills** (`./.claude/skills/`) — Marketing-specific: seo-optimization, ads-management, campaign-management, email-marketing, brand-guidelines, social-media, content-marketing, analytics, paid-ads, slides-design, creativity, design, design-system, marketing-planning, marketing-research, marketing-psychology, marketing-ideas, marketing-dashboard, competitor-alternatives, affiliate-marketing, gamification-marketing, pricing-strategy, referral-program-building, launch-strategy, form-cro, onboarding-cro, free-tool-strategy, ab-test-setup, cip-design, logo-design, content-hub, assets-organizing, kit-builder, storage, test-orchestrator, video-production, youtube-handling
+
+Global skills are inherited automatically. Local skills here are marketing-only and do not appear in Engineering sessions.
+
 ## Available MCP Tools
 
 Use these proactively when the task warrants it:
 
 | Tool | Use For |
 |------|---------|
-| **Gmail** | Outreach, follow-ups, email research |
-| **Slack** | Team updates, channel monitoring |
-| **Google Calendar** | Scheduling, event coordination |
-| **Google Drive** | Read/write Docs, Sheets, Slides, Drive files |
-| **Canva** | Social graphics, presentations, brand assets |
-| **Gamma** | Pitch decks, reports, landing pages |
-| **ElevenLabs** | Voiceovers, audio content, transcription |
-| **n8n** | Automation workflows, data pipelines |
+| **Gmail** | Search/read emails & threads, draft emails, list labels, get profile. Use for outreach, follow-ups, notifications |
+| **Slack** | Send/schedule messages, read channels & threads, search (public + private), create/read/update canvases, read user profiles. Use for team comms, updates |
+| **Google Calendar** | CRUD events, find meeting times, find free time, RSVP. Use for scheduling, event coordination |
+| **Google Drive** | Full CRUD for Docs, Sheets, Slides, Drive files. Permissions, comments, revisions, folders, PDF conversion. Use for content calendars, reports, shared docs |
+| **Canva** | AI design generation, edit via transactions, export, brand kits, folders, comments, resize. Use for social graphics, presentations, brand assets, visual content |
+| **Gamma** | AI-powered presentations, documents, webpages, social posts (create only, no edit). Use for pitch decks, reports, landing pages |
+| **ElevenLabs** | TTS (5+ models), sound effects (0.5–5s, loopable), music composition, voice cloning/design, STT with diarization, voice conversion, audio isolation, conversational AI agents — **primary tool for all audio/sound** |
+| **n8n** | Search/execute automation workflows, get workflow details. Use for automation pipelines, data sync, triggered actions |
 
 When a marketing task would benefit from any of these — just use them. Don't wait to be asked.
+
+### Tools-First Policy
+
+Always use available MCP tools before improvising code-based alternatives:
+
+- **Email** → Gmail MCP, not manual drafting or script-based SMTP
+- **Automation** → n8n workflows, not custom scripts or cron jobs
+- **Audio/Sound** → ElevenLabs (TTS, sound effects, music, voice cloning), not code-based audio generation
+- **Scheduling** → Google Calendar, not manual tracking or local reminders
+- **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters
+- **Communication** → Slack, not ad-hoc notification scripts
+- **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
+- **File Storage** → Google Drive, not local temp files for shared assets
+
+Only fall back to code-based solutions when: the MCP tool lacks a required capability, the task is purely local/dev-only, or the user explicitly requests a code approach.
+
+### Visual Content Priority
+
+**For presentations, decks, visual reports, and designed assets — use Canva or Gamma FIRST**, not code-based alternatives. These tools produce polished, brand-consistent output faster than HTML/CSS slides or manual design.
+
+- **Canva** → Best for editable designs, social graphics, brand assets, multi-format export
+- **Gamma** → Best for quick AI-generated presentations, documents, and webpages
+- **Google Slides (via Drive)** → Use when collaborative editing or specific template compliance is needed
+- Only fall back to code-based slides (`/slides`, HTML) when the task specifically requires code or developer-facing output
 
 ## Marketing Agents
 

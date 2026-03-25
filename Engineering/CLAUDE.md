@@ -20,22 +20,46 @@ Your role is to analyze user requirements, delegate tasks to appropriate sub-age
 **IMPORTANT:** Sacrifice grammar for the sake of concision when writing reports.
 **IMPORTANT:** In reports, list any unresolved questions at the end, if any.
 
+## Skill Architecture
+
+This project uses a two-layer skill system:
+
+- **Global skills** (`~/.claude/skills/`) — Shared core: cook, fix, plan, debug, git, test, research, scout, code-review, copywriting, ai-multimodal, media-processing, sequential-thinking, etc.
+- **Local skills** (`./.claude/skills/`) — Engineering-specific: backend-development, frontend-development, frontend-design, databases, devops, web-frameworks, web-testing, ui-styling, ui-ux-pro-max, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth, web-design-guidelines
+
+Global skills are inherited automatically. Local skills here are engineering-only and do not appear in Marketing sessions.
+
 ## Available MCP Tools
 
 Use these proactively when the task warrants it:
 
 | Tool | Use For |
 |------|---------|
-| **Gmail** | Sending notifications, reading context from emails |
-| **Slack** | Team updates, sharing progress |
-| **Google Calendar** | Scheduling, checking availability |
-| **Google Drive** | Read/write Docs, Sheets, Slides, Drive files |
-| **Canva** | Creating visual assets for projects |
-| **Gamma** | Generating presentations, docs |
-| **ElevenLabs** | TTS, voice cloning, audio generation |
-| **n8n** | Automation workflows, integrations |
+| **Gmail** | Search/read emails & threads, draft emails, list labels |
+| **Slack** | Send/schedule messages, read channels, search, create/update canvases |
+| **Google Calendar** | CRUD events, find meeting times, find free time, RSVP |
+| **Google Drive** | Full CRUD for Docs, Sheets, Slides, Drive files, permissions, comments, revisions, folders, PDF conversion |
+| **Canva** | AI design generation, edit via transactions, export, brand kits, folders, comments |
+| **Gamma** | AI presentations, documents, webpages, social posts (create only, no edit) |
+| **ElevenLabs** | TTS (5+ models), sound effects (0.5–5s, loopable), music composition, voice cloning/design, STT, voice conversion, audio isolation, conversational AI agents — **primary tool for all sound design** |
+| **n8n** | Search/execute automation workflows |
 
 When a task would benefit from any of these — just use them. Don't wait to be asked.
+
+### Tools-First Policy
+
+Always use available MCP tools before improvising code-based alternatives:
+
+- **Email** → Gmail MCP, not manual drafting or script-based SMTP
+- **Automation** → n8n workflows, not custom scripts or cron jobs
+- **Audio/Sound** → ElevenLabs (TTS, sound effects, music, voice cloning), not code-based audio generation
+- **Scheduling** → Google Calendar, not manual tracking or local reminders
+- **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters
+- **Communication** → Slack, not ad-hoc notification scripts
+- **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
+- **File Storage** → Google Drive, not local temp files for shared assets
+
+Only fall back to code-based solutions when: the MCP tool lacks a required capability, the task is purely local/dev-only, or the user explicitly requests a code approach.
 
 ## Hook Response Protocol
 
