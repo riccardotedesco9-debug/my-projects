@@ -8,6 +8,7 @@ This is the parent workspace containing all of Riccardo's projects.
 My Projects/
 ├── Engineering/    — Personal engineering sandbox (experiments, prototypes, tools)
 ├── Marketing/      — Marketing workspace (campaigns, content, SEO, funnels)
+├── WebScraper/     — Web scraping workspace (Firecrawl MCP, crawling, extraction)
 └── CLAUDE.md       — This file (global context)
 ```
 
@@ -19,6 +20,7 @@ Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
 - **Root directory** → global skills only
 - **Engineering/** → global + engineering local skills
 - **Marketing/** → global + marketing local skills
+- **WebScraper/** → global skills + Firecrawl MCP
 
 ## Available MCP Integrations (Global)
 
@@ -49,6 +51,9 @@ These tools are available across ALL projects. Use them autonomously when the ta
   - **Playback**: Play audio files directly
   - Use as **primary tool for all sound design** — covers SFX, music, voices, and audio processing
 
+### Web Scraping
+- **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in `WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
+
 ### Automation
 - **n8n** (`mcp__claude_ai_n8n__*`) — Search and execute automation workflows, get workflow details. Use for automation pipelines, data sync, triggered actions.
 
@@ -64,6 +69,7 @@ Always use available MCP tools before improvising code-based alternatives:
 - **Communication** → Slack, not ad-hoc notification scripts
 - **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
 - **File Storage** → Google Drive, not local temp files for shared assets
+- **Web Scraping** → Firecrawl MCP (in WebScraper/), not manual fetch loops or custom scrapers
 
 Only fall back to code-based solutions when the MCP tool lacks a required capability, the task is purely local/dev-only, or the user explicitly requests code.
 
@@ -74,5 +80,6 @@ Only fall back to code-based solutions when the MCP tool lacks a required capabi
 
 ## Cross-Project Rules
 
+- **No loose project files at root** — all work belongs inside `Engineering/`, `Marketing/`, or `WebScraper/`. Only shared config (CLAUDE.md, .gitignore) lives at root level.
 - Each project has its own `CLAUDE.md` — always read it when entering a subdirectory.
 - Plans go in `{project}/plans/`, docs in `{project}/docs/`.
