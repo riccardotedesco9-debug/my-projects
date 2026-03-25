@@ -13,7 +13,7 @@ Personal testing ground for project ideas. Each project lives in its own folder.
 ## Local Skills (`./.claude/skills/`)
 
 Engineering-specific (global skills inherited automatically):
-backend-development, frontend-development, frontend-design, databases, devops, web-frameworks, web-testing, ui-styling, ui-ux-pro-max, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth, web-design-guidelines
+backend-development, frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth
 
 ## Projects
 

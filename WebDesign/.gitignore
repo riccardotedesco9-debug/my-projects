@@ -1,0 +1,13 @@
+# Screenshots (disposable)
+temporary-screenshots/*
+!temporary-screenshots/.gitkeep
+
+# Node
+node_modules/
+
+# Env
+.env*
+!.env.example
+
+# Misc
+.DS_Store
