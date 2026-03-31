@@ -1,3 +1,5 @@
 Engineering/.claude/settings.local.json
 WebScraper/.claude/settings.local.json
 .claude/
+release-manifest.json
+.opencode/
