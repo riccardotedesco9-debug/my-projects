@@ -79,7 +79,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
 - **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in `WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
 
 ### Automation
-- **n8n** (`mcp__claude_ai_n8n__*`) — Search and execute automation workflows, get workflow details. Use for automation pipelines, data sync, triggered actions.
+- **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `Engineering/trigger-automations/`.
 
 ## Tools-First Policy
 
@@ -88,7 +88,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
 Always use available MCP tools before improvising code-based alternatives:
 
 - **Email** → Gmail MCP, not manual drafting or script-based SMTP
-- **Automation** → n8n workflows, not custom scripts or cron jobs
+- **Automation** → Trigger.dev tasks, not custom scripts or cron jobs
 - **Audio/Sound** → ElevenLabs, not code-based audio generation
 - **Scheduling** → Google Calendar, not manual tracking
 - **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters

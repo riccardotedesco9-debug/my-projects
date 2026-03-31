@@ -22,7 +22,7 @@ These are inherited from the root workspace and available here:
 - **Google Sheets** — export structured extraction results directly
 - **Slack** — notify when large crawls complete
 - **Gmail** — share scraping reports
-- **n8n** — automate recurring scrape jobs
+- **Trigger.dev** — automate recurring scrape jobs
 
 ## Relevant Global Skills
 
