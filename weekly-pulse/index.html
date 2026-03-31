@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The Weekly Pulse — Tech Intelligence Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #0a0a0f;
+      --bg-elevated: #12121a;
+      --bg-floating: #1a1a26;
+      --cyan: #06b6d4;
+      --violet: #8b5cf6;
+      --cyan-glow: rgba(6, 182, 212, 0.15);
+      --violet-glow: rgba(139, 92, 246, 0.15);
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-base);
+      color: #e2e8f0;
+      margin: 0;
+      line-height: 1.7;
+      overflow-x: hidden;
+    }
+    h1, h2, h3, h4 {
+      font-family: 'Space Grotesk', sans-serif;
+      letter-spacing: -0.03em;
+      line-height: 1.2;
+    }
+    .noise-overlay {
+      position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.03;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .gradient-bg {
+      background:
+        radial-gradient(ellipse at 20% 0%, var(--cyan-glow) 0%, transparent 50%),
+        radial-gradient(ellipse at 80% 100%, var(--violet-glow) 0%, transparent 50%),
+        radial-gradient(ellipse at 50% 50%, rgba(15,15,25,1) 0%, var(--bg-base) 100%);
+    }
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 16px;
+      box-shadow:
+        0 2px 8px rgba(0,0,0,0.3),
+        0 8px 32px rgba(0,0,0,0.2),
+        inset 0 1px 0 rgba(255,255,255,0.04);
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+    }
+    .card:hover {
+      transform: translateY(-4px);
+      box-shadow:
+        0 4px 16px rgba(6,182,212,0.1),
+        0 16px 48px rgba(0,0,0,0.3),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+    }
+    .link-card {
+      background: var(--bg-floating);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 20px;
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), border-color 0.3s ease;
+    }
+    .link-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--cyan);
+    }
+    .link-card:focus-visible {
+      outline: 2px solid var(--cyan);
+      outline-offset: 2px;
+    }
+    .link-card:active { transform: translateY(0); }
+    .impact-ring {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700; font-size: 16px;
+      position: relative;
+    }
+    .impact-ring::before {
+      content: '';
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      border: 3px solid rgba(255,255,255,0.1);
+    }
+    .impact-ring::after {
+      content: '';
+      position: absolute; inset: 0;
+      border-radius: 50%;
+      border: 3px solid transparent;
+      border-top-color: var(--cyan);
+      border-right-color: var(--cyan);
+    }
+    .impact-10::after { border-color: #ef4444; }
+    .impact-9::after { border-color: #f97316; border-bottom-color: transparent; }
+    .impact-8::after { border-color: #eab308; border-bottom-color: transparent; border-left-color: transparent; }
+    .impact-7::after { border-color: #22c55e; border-bottom-color: transparent; border-left-color: transparent; }
+    .category-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border: 1px solid;
+    }
+    .cat-security { color: #ef4444; border-color: rgba(239,68,68,0.3); background: rgba(239,68,68,0.1); }
+    .cat-ai { color: #8b5cf6; border-color: rgba(139,92,246,0.3); background: rgba(139,92,246,0.1); }
+    .cat-transport { color: #06b6d4; border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.1); }
+    .cat-hardware { color: #22c55e; border-color: rgba(34,197,94,0.3); background: rgba(34,197,94,0.1); }
+    .rank-badge {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700; font-size: 18px;
+      flex-shrink: 0;
+    }
+    .pipeline-node {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      padding: 12px; border-radius: 12px;
+      background: var(--bg-floating);
+      border: 1px solid rgba(255,255,255,0.06);
+      min-width: 90px;
+      transition: border-color 0.3s;
+    }
+    .pipeline-node.success { border-color: rgba(34,197,94,0.4); }
+    .pipeline-node.skipped { border-color: rgba(234,179,8,0.4); }
+    .pipeline-connector {
+      width: 24px; height: 2px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.1), rgba(255,255,255,0.2), rgba(255,255,255,0.1));
+      flex-shrink: 0;
+      align-self: center;
+    }
+    .fade-in {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    @keyframes pulse-glow {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 1; }
+    }
+    .animate-pulse-glow { animation: pulse-glow 3s ease-in-out infinite; }
+    @keyframes gradient-shift {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .gradient-text {
+      background: linear-gradient(135deg, var(--cyan), var(--violet), var(--cyan));
+      background-size: 200% 200%;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      animation: gradient-shift 6s ease infinite;
+    }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            base: '#0a0a0f',
+            elevated: '#12121a',
+            floating: '#1a1a26',
+            cyan: '#06b6d4',
+            violet: '#8b5cf6',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="gradient-bg">
+  <div class="noise-overlay"></div>
+
+  <div class="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 py-12">
+
+    <!-- HEADER -->
+    <header class="text-center mb-16 fade-in">
+      <div class="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-cyan/20 bg-cyan/5 text-cyan text-sm font-medium mb-6">
+        <span class="w-2 h-2 rounded-full bg-cyan animate-pulse-glow"></span>
+        Pipeline Complete
+      </div>
+      <h1 class="text-5xl sm:text-6xl font-bold mb-4 gradient-text">
+        The Weekly Pulse
+      </h1>
+      <p class="text-lg text-gray-400 max-w-2xl mx-auto">
+        AI-Powered Tech Intelligence Briefing — <span class="text-gray-300 font-medium">March 31, 2026</span>
+      </p>
+      <p class="text-sm text-gray-500 mt-3">
+        Scraped from Hacker News &amp; TechCrunch &bull; Analyzed by Claude &bull; Distributed across 7 integrations
+      </p>
+    </header>
+
+    <!-- TREND CARDS -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8 fade-in">Top 5 Trends</h2>
+      <div class="grid gap-5">
+
+        <!-- Trend 1 -->
+        <div class="card p-6 fade-in">
+          <div class="flex items-start gap-4">
+            <div class="rank-badge bg-red-500/20 text-red-400">1</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h3 class="text-xl font-bold text-gray-100">Axios NPM Supply Chain Attack</h3>
+                <span class="category-pill cat-security">Security</span>
+              </div>
+              <p class="text-gray-400 mb-3">North Korean hackers compromised the massively popular Axios NPM package, injecting a remote access trojan into versions used by millions of developers worldwide. The most critical security event of the week.</p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span>Hacker News / TechCrunch</span>
+                <span class="text-gray-600">&bull;</span>
+                <span>1,693 points on HN</span>
+              </div>
+            </div>
+            <div class="impact-ring impact-10 text-red-400 flex-shrink-0">10</div>
+          </div>
+        </div>
+
+        <!-- Trend 2 -->
+        <div class="card p-6 fade-in">
+          <div class="flex items-start gap-4">
+            <div class="rank-badge bg-orange-500/20 text-orange-400">2</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h3 class="text-xl font-bold text-gray-100">Claude Code Source Leak</h3>
+                <span class="category-pill cat-ai">AI / Security</span>
+              </div>
+              <p class="text-gray-400 mb-3">Anthropic's Claude Code CLI had its full source code exposed via an unstripped source map in the NPM registry. The leak revealed internal tooling patterns, frustration detection regexes, and an "undercover mode" feature.</p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span>Hacker News</span>
+                <span class="text-gray-600">&bull;</span>
+                <span>1,645 points on HN</span>
+              </div>
+            </div>
+            <div class="impact-ring impact-9 text-orange-400 flex-shrink-0">9</div>
+          </div>
+        </div>
+
+        <!-- Trend 3 -->
+        <div class="card p-6 fade-in">
+          <div class="flex items-start gap-4">
+            <div class="rank-badge bg-cyan/20 text-cyan">3</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h3 class="text-xl font-bold text-gray-100">Autonomous Vehicle Surge</h3>
+                <span class="category-pill cat-transport">Transportation</span>
+              </div>
+              <p class="text-gray-400 mb-3">Uber and WeRide are ramping up robotaxi operations in Dubai, while Rivian spun off "Also" to build autonomous delivery vehicles for DoorDash. AVs are crossing from pilot programs to production deployment.</p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span>TechCrunch</span>
+              </div>
+            </div>
+            <div class="impact-ring impact-8 text-yellow-400 flex-shrink-0">8</div>
+          </div>
+        </div>
+
+        <!-- Trend 4 -->
+        <div class="card p-6 fade-in">
+          <div class="flex items-start gap-4">
+            <div class="rank-badge bg-violet/20 text-violet">4</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h3 class="text-xl font-bold text-gray-100">LLM Efficiency Breakthroughs</h3>
+                <span class="category-pill cat-ai">AI</span>
+              </div>
+              <p class="text-gray-400 mb-3">New KV cache compression techniques reduced memory from 300KB to 69KB per token, while Cohere launched Transcribe for specialized speech recognition. The industry pivots from raw capability to efficiency.</p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span>Hacker News</span>
+              </div>
+            </div>
+            <div class="impact-ring impact-8 text-yellow-400 flex-shrink-0">8</div>
+          </div>
+        </div>
+
+        <!-- Trend 5 -->
+        <div class="card p-6 fade-in">
+          <div class="flex items-start gap-4">
+            <div class="rank-badge bg-green-500/20 text-green-400">5</div>
+            <div class="flex-1 min-w-0">
+              <div class="flex flex-wrap items-center gap-3 mb-2">
+                <h3 class="text-xl font-bold text-gray-100">Wearable Tech Hits Mainstream</h3>
+                <span class="category-pill cat-hardware">Hardware</span>
+              </div>
+              <p class="text-gray-400 mb-3">Whoop's valuation tripled to $10 billion in its Series G, and Meta launched two new Ray-Ban smart glasses for prescription wearers. Health and AR wearables are now serious, scaled businesses.</p>
+              <div class="flex items-center gap-4 text-sm text-gray-500">
+                <span>TechCrunch</span>
+              </div>
+            </div>
+            <div class="impact-ring impact-7 text-green-400 flex-shrink-0">7</div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- KEY TAKEAWAYS -->
+    <section class="mb-16 fade-in">
+      <div class="card p-8" style="border-image: linear-gradient(135deg, var(--cyan), var(--violet)) 1; border-width: 1px; border-style: solid; border-radius: 16px; border-image: none; border-color: rgba(139,92,246,0.3);">
+        <h2 class="text-2xl font-bold mb-5 gradient-text">Key Takeaways</h2>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="flex items-start gap-3">
+            <span class="text-red-400 mt-1 text-lg">&#9632;</span>
+            <p class="text-gray-300">Supply chain security is the #1 threat vector in 2026</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-orange-400 mt-1 text-lg">&#9632;</span>
+            <p class="text-gray-300">AI tools themselves are becoming attack surfaces</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-cyan mt-1 text-lg">&#9632;</span>
+            <p class="text-gray-300">Autonomous vehicles crossing from pilot to production</p>
+          </div>
+          <div class="flex items-start gap-3">
+            <span class="text-violet mt-1 text-lg">&#9632;</span>
+            <p class="text-gray-300">LLM optimization matters more than raw scale</p>
+          </div>
+          <div class="flex items-start gap-3 sm:col-span-2">
+            <span class="text-green-400 mt-1 text-lg">&#9632;</span>
+            <p class="text-gray-300">Wearable hardware entering the billion-dollar mainstream</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CLOUD OUTPUTS -->
+    <section class="mb-16">
+      <h2 class="text-2xl font-bold mb-8 fade-in">Cloud Outputs</h2>
+      <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+        <a href="https://gamma.app/docs/16rgser3s8piyn7" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-violet/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m8 21 4-4 4 4"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Gamma Presentation</div>
+            <div class="text-xs text-gray-500">8-slide trend deck with Stratos theme</div>
+          </div>
+        </a>
+
+        <a href="https://www.canva.com/d/40dHkeYIpUaW-O2" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-cyan/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Instagram Graphic</div>
+            <div class="text-xs text-gray-500">Trend #1 — Supply Chain Attack</div>
+          </div>
+        </a>
+
+        <a href="https://www.canva.com/d/pI7bagvub_3c66y" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-cyan/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Twitter/X Graphic</div>
+            <div class="text-xs text-gray-500">Trend #2 — Source Code Leak</div>
+          </div>
+        </a>
+
+        <a href="https://www.canva.com/d/NPfWabH7iEHbD2u" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-cyan/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Facebook Graphic</div>
+            <div class="text-xs text-gray-500">Trend #3 — AVs Go Live</div>
+          </div>
+        </a>
+
+        <a href="https://mail.google.com/mail/u/0/#drafts?compose=19d4578d19142d52" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Gmail Newsletter</div>
+            <div class="text-xs text-gray-500">HTML draft ready to send</div>
+          </div>
+        </a>
+
+        <a href="https://stagecraftglobal.slack.com/archives/D0AFK41K8CB/p1774987121433639" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M14.5 2c-1.1 0-2 .9-2 2v4h4c1.1 0 2-.9 2-2s-.9-2-2-2h-2z"/><path d="M2 9.5c0-1.1.9-2 2-2h4v4c0 1.1-.9 2-2 2s-2-.9-2-2v-2z"/><path d="M22 14.5c0 1.1-.9 2-2 2h-4v-4c0-1.1.9-2 2-2s2 .9 2 2v2z"/><path d="M9.5 22c1.1 0 2-.9 2-2v-4h-4c-1.1 0-2 .9-2 2s.9 2 2 2h2z"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Slack Digest</div>
+            <div class="text-xs text-gray-500">Summary posted as DM</div>
+          </div>
+        </a>
+
+        <a href="https://www.google.com/calendar/event?eid=aXFzZ29tNjllanFpYnZxcGpyNHBoYWFwNHMgcmljY2FyZG90ZWRlc2NvOUBt" target="_blank" class="link-card fade-in">
+          <div class="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-gray-200">Calendar Event</div>
+            <div class="text-xs text-gray-500">Review — Mon Apr 6, 9:00 AM</div>
+          </div>
+        </a>
+
+      </div>
+    </section>
+
+    <!-- PIPELINE VISUALIZATION -->
+    <section class="mb-12">
+      <h2 class="text-2xl font-bold mb-8 fade-in">Pipeline Status</h2>
+      <div class="fade-in overflow-x-auto pb-4">
+        <div class="flex items-center gap-0 min-w-max mx-auto justify-center">
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/><circle cx="12" cy="12" r="3"/></svg>
+            <span class="text-xs text-gray-400">WebFetch</span>
+            <span class="text-xs text-green-400">2/4</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node skipped">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+            <span class="text-xs text-gray-400">Sheets</span>
+            <span class="text-xs text-yellow-400">API off</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="m8 21 4-4 4 4"/></svg>
+            <span class="text-xs text-gray-400">Gamma</span>
+            <span class="text-xs text-green-400">8 slides</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/></svg>
+            <span class="text-xs text-gray-400">Canva</span>
+            <span class="text-xs text-green-400">3 designs</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node skipped">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+            <span class="text-xs text-gray-400">ElevenLabs</span>
+            <span class="text-xs text-yellow-400">No credits</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <span class="text-xs text-gray-400">Gmail</span>
+            <span class="text-xs text-green-400">Draft</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#a855f7" stroke-width="2"><path d="M14.5 2c-1.1 0-2 .9-2 2v4h4c1.1 0 2-.9 2-2s-.9-2-2-2h-2z"/><path d="M9.5 22c1.1 0 2-.9 2-2v-4h-4c-1.1 0-2 .9-2 2s.9 2 2 2h2z"/></svg>
+            <span class="text-xs text-gray-400">Slack</span>
+            <span class="text-xs text-green-400">Sent</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="text-xs text-gray-400">Calendar</span>
+            <span class="text-xs text-green-400">Apr 6</span>
+          </div>
+          <div class="pipeline-connector"></div>
+
+          <div class="pipeline-node success">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2"><path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/></svg>
+            <span class="text-xs text-gray-400">Trigger.dev</span>
+            <span class="text-xs text-green-400">Task</span>
+          </div>
+
+        </div>
+      </div>
+      <div class="text-center mt-4">
+        <p class="text-sm text-gray-500">
+          <span class="text-green-400 font-semibold">7</span> integrations succeeded &bull;
+          <span class="text-yellow-400 font-semibold">2</span> skipped (API config / credits) &bull;
+          <span class="text-gray-400 font-semibold">9</span> total attempted
+        </p>
+      </div>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="text-center py-8 border-t border-white/5 fade-in">
+      <p class="text-sm text-gray-600">
+        Generated by <span class="gradient-text font-semibold">The Weekly Pulse</span> &mdash; AI-Powered Tech Intelligence Pipeline
+      </p>
+      <p class="text-xs text-gray-700 mt-2">
+        Built with Claude Code &bull; Trigger.dev &bull; Gamma &bull; Canva &bull; ElevenLabs &bull; Gmail &bull; Slack &bull; Google Calendar
+      </p>
+    </footer>
+
+  </div>
+
+  <script>
+    // Intersection Observer for fade-in animations
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry, index) => {
+        if (entry.isIntersecting) {
+          setTimeout(() => {
+            entry.target.classList.add('visible');
+          }, index * 80);
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+  </script>
+</body>
+</html>

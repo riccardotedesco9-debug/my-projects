@@ -108,6 +108,8 @@ Only fall back to new code when: MCP tool lacks a required capability, no existi
 
 ## Cross-Project Rules
 
-- **No loose project files at root** — all work belongs inside `Engineering/`, `Marketing/`, `WebDesign/`, or `WebScraper/`. Only shared config (CLAUDE.md, .gitignore) lives at root level.
+- **Single-domain projects** belong in their subdirectory: `Engineering/`, `Marketing/`, `WebDesign/`, or `WebScraper/`.
+- **Cross-cutting projects** that use multiple global MCP integrations (e.g., Canva + Gmail + Slack + Calendar) or span multiple workspaces belong at **root level** in their own folder (e.g., `weekly-pulse/`). If a project doesn't clearly fit one subdirectory, it goes at root.
+- Only shared config (CLAUDE.md, .gitignore) and cross-cutting project folders live at root level — no loose files.
 - Each project has its own `CLAUDE.md` — always read it when entering a subdirectory.
 - Plans go in `{project}/plans/`, docs in `{project}/docs/`.
