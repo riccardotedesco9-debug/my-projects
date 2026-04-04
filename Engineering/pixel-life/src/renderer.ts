@@ -498,11 +498,6 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
         pixCtx.fillRect(pixel.x * S + 0.5, pixel.y * S + 0.5, S - 1, S - 1);
       }
     } else {
-      // LOD 0/1: dark outline behind glyphs for terrain contrast
-      pixCtx.fillStyle = 'rgba(0,0,0,0.4)';
-      pixCtx.beginPath();
-      pixCtx.arc(cx, cy, 2.5, 0, Math.PI * 2);
-      pixCtx.fill();
       drawCreature(pixel, cx, cy, e, role, col, r, g, b);
     }
   }
