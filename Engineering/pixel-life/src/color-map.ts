@@ -30,6 +30,17 @@ export function hslToRgb(h: number, s: number, l: number): [number, number, numb
 // 4=parasite(purple), 5=swarm(cyan), 6=nomad(yellow)
 const ROLE_HUES = [0.33, 0.08, 0.0, 0.07, 0.8, 0.5, 0.15];
 
+// Bright, distinct role colors for zoomed-out view (high saturation, fixed luminance)
+const ROLE_BRIGHT: [number, number, number][] = [
+  [80, 220, 80],    // Plant: bright green
+  [230, 150, 50],   // Hunter: vivid orange
+  [220, 50, 50],    // Apex: bright red
+  [180, 140, 80],   // Scavenger: tan/gold
+  [180, 70, 220],   // Parasite: vivid purple
+  [50, 210, 210],   // Swarm: bright cyan
+  [220, 220, 50],   // Nomad: bright yellow
+];
+
 export function dnaToColor(dna: Uint8Array, energy: number, role?: number): [number, number, number] {
   const r = role ?? 0;
   // Use harvest + senseTarget + reactType + mutationRate for wider hue spread (~60 degrees)
@@ -86,3 +97,8 @@ export function hueShift(r: number, g: number, b: number, degrees: number): [num
 
 // Role-based hue anchors (exported for sprite palette system)
 export const ROLE_HUES_EXPORT = ROLE_HUES;
+
+// Fixed bright color per role — no energy dimming, always visible
+export function roleBrightColor(role: number): [number, number, number] {
+  return ROLE_BRIGHT[role] ?? [150, 150, 150];
+}

@@ -28,9 +28,8 @@ export function resolveReaction(
   if (reactType < 64) {
     // Same-species protection: don't attack creatures with similar DNA unless starving
     const similarity = genomeSimilarity(attacker.dna, defender.dna);
-    if (similarity > 12 && attacker.energy > 15) {
-      // Similar genome + not starving = avoid attacking kin
-      // Only cannibalize when truly desperate (below 15 energy)
+    if (similarity > 10) {
+      // Same breed = allies. Never attack kin regardless of energy.
       return;
     }
     resolveAbsorb(attacker, defender, world, _config, events);

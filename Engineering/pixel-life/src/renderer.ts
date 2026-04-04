@@ -1,6 +1,6 @@
 import type { World, SimConfig, Pixel } from './types';
 import { GENE, Terrain } from './types';
-import { dnaToColor, energyToColor, lineageToColor, roleToColor } from './color-map';
+import { dnaToColor, energyToColor, lineageToColor, roleToColor, roleBrightColor } from './color-map';
 import { getCreatureRole } from './metabolism';
 import { terrainColorInContext } from './terrain';
 import { SUBSTRATE_RENDER_INTERVAL } from './constants';
@@ -261,19 +261,22 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
       case 'substrate': [r, g, b] = dnaToColor(pixel.dna, pixel.energy, role); break;
       case 'trophic': [r, g, b] = roleToColor(pixel); break;
       default:
-        // At LOD 0/1: use bold role colors so creatures are distinguishable when small
-        // At LOD 2: use DNA colors for lineage variation
         if (lod < 2) {
-          [r, g, b] = roleToColor(pixel);
+          // Zoomed out: fixed bright colors, NO energy dimming — always visible
+          [r, g, b] = roleBrightColor(role);
         } else {
           [r, g, b] = dnaToColor(pixel.dna, pixel.energy, role);
         }
     }
 
-    if (pixel.age < 3) { r = Math.min(255, r + 120); g = Math.min(255, g + 120); b = Math.min(255, b + 120); }
-
     const e = pixel.energy / 100;
-    if (e < 0.25) { r = (r * 0.4) | 0; g = (g * 0.4) | 0; b = (b * 0.4) | 0; }
+
+    if (lod >= 2) {
+      // Only dim at LOD 2 (zoomed in) and only slightly
+      if (pixel.age < 3) { r = Math.min(255, r + 80); g = Math.min(255, g + 80); b = Math.min(255, b + 80); }
+      if (e < 0.25) { r = (r * 0.6) | 0; g = (g * 0.6) | 0; b = (b * 0.6) | 0; }
+    }
+    // LOD 0/1: no dimming at all — creatures always bright and visible
 
     if (config.viewMode === 'normal') {
       const t = world.terrain[pixel.y * W + pixel.x];
