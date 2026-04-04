@@ -7,7 +7,7 @@ import { addDeathEffect, addInteractionEffect, toCanvasCenter } from './effects'
 import { hasPackSupport, PACK_HUNT_BONUS } from './pack-hunting';
 import { recordEnergyFlow } from './ecosystem-graph';
 import { getCreatureRole } from './metabolism';
-import { genomeSimilarity } from './genome';
+// genomeSimilarity removed — using role-based ally check instead
 import {
   ABSORB_EFFICIENCY, CATALYZE_COST, CATALYZE_DURATION,
   REPEL_COST, MAX_ENERGY, ABSORB_SKILL_THRESHOLD,
@@ -26,10 +26,8 @@ export function resolveReaction(
   const reactType = getEffectiveGene(attacker, GENE.REACT_TYPE);
 
   if (reactType < 64) {
-    // Same-species protection: don't attack creatures with similar DNA unless starving
-    const similarity = genomeSimilarity(attacker.dna, defender.dna);
-    if (similarity > 10) {
-      // Same breed = allies. Never attack kin regardless of energy.
+    // Same role = allies. Never attack your own kind.
+    if (getCreatureRole(attacker) === getCreatureRole(defender)) {
       return;
     }
     resolveAbsorb(attacker, defender, world, _config, events);
