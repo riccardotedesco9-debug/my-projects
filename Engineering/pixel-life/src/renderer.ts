@@ -260,7 +260,14 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
       case 'lineage': [r, g, b] = lineageToColor(pixel.generation); break;
       case 'substrate': [r, g, b] = dnaToColor(pixel.dna, pixel.energy, role); break;
       case 'trophic': [r, g, b] = roleToColor(pixel); break;
-      default: [r, g, b] = dnaToColor(pixel.dna, pixel.energy, role);
+      default:
+        // At LOD 0/1: use bold role colors so creatures are distinguishable when small
+        // At LOD 2: use DNA colors for lineage variation
+        if (lod < 2) {
+          [r, g, b] = roleToColor(pixel);
+        } else {
+          [r, g, b] = dnaToColor(pixel.dna, pixel.energy, role);
+        }
     }
 
     if (pixel.age < 3) { r = Math.min(255, r + 120); g = Math.min(255, g + 120); b = Math.min(255, b + 120); }
