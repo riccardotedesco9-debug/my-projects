@@ -1,4 +1,5 @@
 import type { World, SimConfig } from './types';
+import { GENE } from './types';
 import { getSeasonColor } from './seasons';
 import { genomeDistance } from './genome';
 import { genomeComplexity } from './regulation';
@@ -56,6 +57,14 @@ export function updateStatsDisplay(world: World, _config: SimConfig): void {
 
   // Weather
   setText('stat-weather', getWeatherLabel(world.weather));
+
+  // Trait averages for evolution tracking
+  if (world.pixels.size > 0 && world.tick % 50 === 0) {
+    let sumSpd = 0, sumArm = 0;
+    for (const p of world.pixels.values()) { sumSpd += p.dna[GENE.SPEED]; sumArm += p.dna[GENE.ARMOR]; }
+    setText('stat-avg-speed', Math.round(sumSpd / world.pixels.size).toString());
+    setText('stat-avg-armor', Math.round(sumArm / world.pixels.size).toString());
+  }
 
   // Event display
   if (world.activeEvent) {

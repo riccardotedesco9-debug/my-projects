@@ -4,6 +4,9 @@ import { getEffectiveGene, createPixel } from './pixel';
 import { wrapX, wrapY, cellKey } from './world';
 import { canBirthOn } from './terrain';
 import { mutateDna, mutateRegulatoryGenes } from './genome';
+import { dnaToColor } from './color-map';
+import { getCreatureRole } from './metabolism';
+import { addBirthEffect, toCanvasCenter } from './effects';
 import {
   REPRO_MIN_ENERGY, REPRO_MAX_ENERGY, REPRO_TAX,
   REPRO_SHARE_MIN, REPRO_SHARE_MAX, MAX_POP_FRACTION,
@@ -62,6 +65,11 @@ export function tryReproduce(
 
   world.pixels.set(cellKey(nx, ny, world.width), child);
   events.births++;
+
+  // Visual effect: birth ring in parent's color
+  const [cr, cg, cb] = dnaToColor(pixel.dna, pixel.energy, getCreatureRole(pixel));
+  const [bx, by] = toCanvasCenter(nx, ny, config.pixelScale);
+  addBirthEffect(bx, by, cr, cg, cb);
 }
 
 function findEmptyNeighbor(pixel: Pixel, world: World): [number, number] | null {

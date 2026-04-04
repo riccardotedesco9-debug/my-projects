@@ -21,6 +21,8 @@ export function createWorld(config: SimConfig): World {
     pheromone: new Float32Array(n),
     corpses: new Uint8Array(n),
     wear: new Uint8Array(n),
+    territory: new Uint16Array(n),  // 0 = unclaimed
+    territoryAge: new Uint16Array(n),
     foodPatches: initPatches(w, h),
     tick: 0, season: 'spring', seasonTick: 0,
     nextPixelId: 1, emptyTicks: 0,

@@ -44,77 +44,92 @@ function classify(elev: number, moist: number): Terrain {
 
 export function terrainFoodRate(t: Terrain): number {
   switch (t) {
-    case Terrain.GRASS: return 1.0; case Terrain.FOREST: return 0.6;
-    case Terrain.DIRT: return 0.3; case Terrain.SAND: return 0.1;
+    case Terrain.GRASS: return 1.0; case Terrain.FOREST: return 0.5;
+    case Terrain.DIRT: return 0.12; case Terrain.SAND: return 0.02;
     default: return 0;
   }
 }
 
-// Context-aware terrain color: responds to weather, season, and creature wear
+// Context-aware terrain color: responds to weather, season, creature wear, and corpses
 export function terrainColorInContext(
   t: Terrain, x: number, y: number,
-  weather: string, season: Season, wear: number,
+  weather: string, season: Season, wear: number, corpse = 0,
 ): [number, number, number] {
   // Base color with per-cell noise texture
   const n = ((x * 7 + y * 13) & 0xf) - 8;
   let [r, g, b] = baseColor(t, n);
 
-  // Season tinting
+  // Season tinting — amplified for visibility
   switch (season) {
     case 'spring':
-      if (t === Terrain.GRASS) { g += 8; } // greener
-      if (t === Terrain.FOREST) { g += 5; }
+      if (t === Terrain.GRASS) { g += 12; } // lush green
+      if (t === Terrain.FOREST) { g += 8; }
       break;
     case 'summer':
-      if (t === Terrain.GRASS) { r += 5; g += 3; } // warm green
+      if (t === Terrain.GRASS) { r += 8; g += 5; } // warm golden green
+      if (t === Terrain.SAND) { r += 5; g += 3; }   // bright sand
       break;
     case 'autumn':
-      if (t === Terrain.GRASS) { r += 15; g -= 5; } // orange tint
-      if (t === Terrain.FOREST) { r += 10; g -= 8; } // red-brown
-      if (t === Terrain.DIRT) { r += 5; }
+      if (t === Terrain.GRASS) { r += 20; g -= 8; } // strong orange
+      if (t === Terrain.FOREST) { r += 15; g -= 10; } // deep red-brown
+      if (t === Terrain.DIRT) { r += 8; }
       break;
     case 'winter':
-      // Blue-grey tint + snow on grass/rock
-      r = (r * 0.8) | 0; g = (g * 0.85) | 0; b += 5;
+      // Blue-grey tint + snow patches
+      r = (r * 0.75) | 0; g = (g * 0.8) | 0; b += 8;
       if ((t === Terrain.GRASS || t === Terrain.ROCK) && ((x + y) % 3 === 0)) {
-        r += 15; g += 15; b += 18; // snow patches
+        r += 20; g += 20; b += 25; // heavier snow
       }
       break;
   }
 
-  // Weather tinting
+  // Weather tinting — more dramatic
   switch (weather) {
     case 'rain':
-      r = (r * 0.85) | 0; g = (g * 0.88) | 0; b += 3; // darker, wet
+      r = (r * 0.8) | 0; g = (g * 0.85) | 0; b += 5; // wetter, darker
       break;
     case 'snow':
-      r += 8; g += 8; b += 12; // white tint
+      r += 12; g += 12; b += 18; // stronger white tint
       break;
-    case 'fog':
+    case 'fog': {
       const grey = (r + g + b) / 3;
-      r = (r * 0.7 + grey * 0.3) | 0; // desaturate
-      g = (g * 0.7 + grey * 0.3) | 0;
-      b = (b * 0.7 + grey * 0.3) | 0;
+      r = (r * 0.6 + grey * 0.4) | 0; // heavier desaturation
+      g = (g * 0.6 + grey * 0.4) | 0;
+      b = (b * 0.6 + grey * 0.4) | 0;
       break;
+    }
     case 'storm':
-      r = (r * 0.75) | 0; g = (g * 0.75) | 0; b = (b * 0.8) | 0; // dark blue
+      r = (r * 0.65) | 0; g = (g * 0.65) | 0; b = (b * 0.75) | 0; // much darker
       break;
     case 'drought':
       if (t === Terrain.GRASS || t === Terrain.FOREST) {
-        r += 10; g -= 5; b -= 3; // brown/yellow parched look
+        r += 18; g -= 10; b -= 5; // visibly parched yellow-brown
       }
       break;
     case 'heatwave':
-      r += 6; g += 2; // warm orange tint
+      r += 10; g += 3; // strong warm tint
       break;
   }
 
-  // Creature wear: darker paths where creatures walk often
-  if (wear > 30) {
-    const darkening = Math.min(0.3, (wear - 30) / 200);
-    r = (r * (1 - darkening)) | 0;
-    g = (g * (1 - darkening)) | 0;
-    b = (b * (1 - darkening)) | 0;
+  // Creature wear: worn paths blend to warm tan, heavy wear gets golden glow
+  if (wear > 15) {
+    const wearT = Math.min(1, (wear - 15) / 120);
+    // Light wear: blend toward warm tan (65, 50, 30)
+    // Heavy wear: golden-brown highway (80, 60, 25)
+    const heavy = wearT > 0.5;
+    const tr = heavy ? 80 : 65, tg = heavy ? 60 : 50, tb = heavy ? 25 : 30;
+    const blend = wearT * 0.6;
+    r = (r * (1 - blend) + tr * blend) | 0;
+    g = (g * (1 - blend) + tg * blend) | 0;
+    b = (b * (1 - blend) + tb * blend) | 0;
+  }
+
+  // Corpse staining: reddish-brown marks (battlefield memory)
+  if (corpse > 0) {
+    const cf = Math.min(1, corpse / 40);
+    r = Math.min(255, r + ((cf * 50) | 0));
+    g = Math.min(255, g + ((cf * 10) | 0));
+    b = Math.max(0, b - ((cf * 5) | 0));
   }
 
   return [clamp(r), clamp(g), clamp(b)];
@@ -122,12 +137,12 @@ export function terrainColorInContext(
 
 function baseColor(t: Terrain, n: number): [number, number, number] {
   switch (t) {
-    case Terrain.WATER: return [8 + n, 15 + n, 30 + n * 2];
-    case Terrain.SAND: return [35 + n, 30 + n, 15];
-    case Terrain.DIRT: return [22 + n, 16 + n, 8];
-    case Terrain.GRASS: return [12 + n, 28 + n, 8];
-    case Terrain.FOREST: return [6, 18 + n, 6];
-    case Terrain.ROCK: return [20 + n, 20 + n, 22 + n];
+    case Terrain.WATER: return [12 + n, 22 + n, 45 + n * 2];
+    case Terrain.SAND: return [55 + n, 48 + n, 25];
+    case Terrain.DIRT: return [38 + n, 28 + n, 14];
+    case Terrain.GRASS: return [18 + n, 45 + n, 12];
+    case Terrain.FOREST: return [10, 30 + n, 10];
+    case Terrain.ROCK: return [32 + n, 32 + n, 36 + n];
     default: return [0, 0, 0];
   }
 }

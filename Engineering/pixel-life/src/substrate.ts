@@ -40,11 +40,13 @@ export function updateSubstrate(world: World, config: SimConfig): void {
   driftFoodPatches(world);
 }
 
-// Terrain-based food emission — replaces the old RGB zone system
+// Terrain-based food emission with seasonal geographic gradient
 function emitFromTerrain(world: World, config: SimConfig): void {
   const { width: w, height: h, food, terrain } = world;
   const base = config.substrateEmission * getEmissionMult(world.season) * weatherFoodMult(world.weather);
   for (let y = 0; y < h; y++) {
+    // Seasonal latitude gradient: food shifts north in summer, south in winter
+    const latFactor = getSeasonalLatitude(y, h, world.season);
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const t = terrain[i];
@@ -57,8 +59,20 @@ function emitFromTerrain(world: World, config: SimConfig): void {
           rate *= 1.3;
         }
       }
-      food[i] = Math.min(1, food[i] + base * rate);
+      food[i] = Math.min(1, food[i] + base * rate * latFactor);
     }
+  }
+}
+
+// Geographic food gradient: creates seasonal migration pressure
+// Returns multiplier 0.75-1.25 based on latitude and season
+function getSeasonalLatitude(y: number, h: number, season: Season): number {
+  const lat = y / h; // 0 = north, 1 = south
+  switch (season) {
+    case 'summer': return 0.75 + (1 - lat) * 0.5;  // north is lush, south is sparse
+    case 'winter': return 0.75 + lat * 0.5;          // south is lush, north is sparse
+    case 'spring': return 0.85 + (1 - lat) * 0.3;   // slight north bias (warming up)
+    case 'autumn': return 0.85 + lat * 0.3;          // slight south bias (cooling down)
   }
 }
 

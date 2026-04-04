@@ -185,7 +185,9 @@ export function createPixel(
 ): Pixel {
   return {
     id, x, y, energy, dna, regulatoryGenes,
-    age: 0, generation, catalyzedUntil: 0, wallTicks: 0,
+    age: 0, generation, catalyzedUntil: 0, wallTicks: 0, direction: 0,
+    memory: [], packId: 0,
+    migrationTarget: null, seasonalMemory: [],
     state: new Uint8Array(3),
   };
 }

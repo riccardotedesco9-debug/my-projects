@@ -105,11 +105,11 @@ function updateParticles(weather: Weather, world: World): void {
 // Gameplay modifiers
 export function weatherFoodMult(weather: Weather): number {
   switch (weather.type) {
-    case 'rain': return 1 + weather.intensity * 0.3;
-    case 'storm': return 1 + weather.intensity * 0.15;
-    case 'snow': return 1 - weather.intensity * 0.3;
-    case 'drought': return 1 - weather.intensity * 0.5;  // severe food reduction
-    case 'heatwave': return 1 - weather.intensity * 0.15;
+    case 'rain': return 1 + weather.intensity * 0.5;      // rain = green explosion
+    case 'storm': return 1 + weather.intensity * 0.2;
+    case 'snow': return 1 - weather.intensity * 0.4;       // harsh winters
+    case 'drought': return 1 - weather.intensity * 0.6;    // severe food crisis
+    case 'heatwave': return 1 - weather.intensity * 0.25;  // noticeable heat damage
     default: return 1;
   }
 }
@@ -131,7 +131,22 @@ export function weatherUpkeepMult(weather: Weather): number {
 }
 
 export function weatherMoveCostMult(weather: Weather): number {
-  return weather.type === 'heatwave' ? 1 + weather.intensity * 0.2 : 1;
+  switch (weather.type) {
+    case 'heatwave': return 1 + weather.intensity * 0.2;
+    case 'snow': return 1 + weather.intensity * 0.3;
+    case 'storm': return 1 + weather.intensity * 0.25;
+    default: return 1;
+  }
+}
+
+// Speed reduction — creatures visibly slow in bad weather
+export function weatherSpeedMult(weather: Weather): number {
+  switch (weather.type) {
+    case 'storm': return Math.max(0.1, 1 - weather.intensity * 0.4);
+    case 'snow': return Math.max(0.1, 1 - weather.intensity * 0.3);
+    case 'heatwave': return Math.max(0.1, 1 - weather.intensity * 0.15);
+    default: return 1;
+  }
 }
 
 export function getWeatherLabel(weather: Weather): string {
