@@ -4,6 +4,7 @@ import { getEffectiveGene } from './pixel';
 import { wrapX, wrapY, cellKey, movePixelTo, addPheromone } from './world';
 import { resolveReaction } from './reactions';
 import { isPassable, givesCover, terrainSpeedMult, terrainMoveCost, terrainSenseMult } from './terrain';
+import { canTraverse, locomotionMoveCost } from './locomotion';
 import { weatherSenseMult, weatherMoveCostMult, weatherSpeedMult } from './weather';
 import { MOVE_COST, THREAT_FLEE_THRESHOLD, CAMOUFLAGE_CHANCE, TRAIL_INTENSITY, MEMORY_INFLUENCE_WEIGHT } from './constants';
 import { getMemoryBias } from './spatial-memory';
@@ -45,46 +46,41 @@ export function movePixel(pixel: Pixel, world: World, config: SimConfig, events:
     [bestDx, bestDy] = seekPixel(pixel, world, senseRange, true);
   }
 
-  // Blend spatial memory bias into movement
+  // Accumulate all movement biases as weighted vectors, then quantize ONCE
+  // This prevents sequential rounding from destroying directional nuance
   const [memBx, memBy] = getMemoryBias(pixel, world.width, world.height);
+  const [packBx, packBy] = getPackMoveBias(pixel, world);
+  const [migBx, migBy] = getMigrationBias(pixel, world.width, world.height);
+  const migRole = getCreatureRole(pixel);
+  const migW = migRole === 6 ? 0.3 : 0.15;
+
   if (bestDx === 0 && bestDy === 0) {
-    // No sensing target found — memory takes full control, else random walk
-    if (memBx !== 0 || memBy !== 0) {
-      bestDx = Math.sign(memBx); bestDy = Math.sign(memBy);
+    // No sensing target — biases take full control, else random walk
+    const bx = memBx + packBx * 0.5 + migBx * migW;
+    const by = memBy + packBy * 0.5 + migBy * migW;
+    if (Math.abs(bx) > 0.1 || Math.abs(by) > 0.1) {
+      bestDx = Math.sign(bx); bestDy = Math.sign(by);
     } else {
       const dir = Math.floor(Math.random() * 8);
       bestDx = DX[dir]; bestDy = DY[dir];
     }
-  } else if (memBx !== 0 || memBy !== 0) {
-    // Sensing found something — blend memory at 30% weight
-    const mw = MEMORY_INFLUENCE_WEIGHT;
-    const fx = bestDx * (1 - mw) + memBx * mw;
-    const fy = bestDy * (1 - mw) + memBy * mw;
-    bestDx = Math.sign(Math.round(fx)) || bestDx;
-    bestDy = Math.sign(Math.round(fy)) || bestDy;
-  }
-
-  // Pack hunting: pack members bias toward their leader
-  const [packBx, packBy] = getPackMoveBias(pixel, world);
-  if (packBx !== 0 || packBy !== 0) {
-    bestDx = Math.sign(Math.round(bestDx * 0.6 + packBx * 0.4)) || bestDx;
-    bestDy = Math.sign(Math.round(bestDy * 0.6 + packBy * 0.4)) || bestDy;
-  }
-
-  // Migration: fast creatures bias toward seasonal targets
-  const [migBx, migBy] = getMigrationBias(pixel, world.width, world.height);
-  if (migBx !== 0 || migBy !== 0) {
-    const role = getCreatureRole(pixel);
-    const migWeight = role === 6 ? 0.5 : 0.25; // nomads get stronger migration pull
-    bestDx = Math.sign(Math.round(bestDx * (1 - migWeight) + migBx * migWeight)) || bestDx;
-    bestDy = Math.sign(Math.round(bestDy * (1 - migWeight) + migBy * migWeight)) || bestDy;
+  } else {
+    // Sensing found something — blend all biases with weights
+    const senseW = 0.5;
+    const memW = MEMORY_INFLUENCE_WEIGHT * 0.5;
+    const packW = (packBx !== 0 || packBy !== 0) ? 0.25 : 0;
+    const totalW = senseW + memW + packW + migW;
+    const fx = (bestDx * senseW + memBx * memW + packBx * packW + migBx * migW) / totalW;
+    const fy = (bestDy * senseW + memBy * memW + packBy * packW + migBy * migW) / totalW;
+    bestDx = Math.sign(Math.round(fx * 2)) || bestDx;
+    bestDy = Math.sign(Math.round(fy * 2)) || bestDy;
   }
 
   const nx = wrapX(pixel.x + bestDx, world.width);
   const ny = wrapY(pixel.y + bestDy, world.height);
 
-  // Water blocks movement
-  if (!isPassable(world.terrain[ny * world.width + nx])) return;
+  // Terrain traversal check — swimmers/flyers can enter water
+  if (!canTraverse(pixel, world.terrain[ny * world.width + nx])) return;
 
   const occupant = world.pixels.get(cellKey(nx, ny, world.width));
   if (occupant) {
@@ -106,7 +102,8 @@ export function movePixel(pixel: Pixel, world: World, config: SimConfig, events:
     const destIdx = ny * world.width + nx;
     const wornBonus = world.wear[destIdx] > 100 ? 0.9 : 1.0; // worn paths are easier
     const territoryMult = getTerritoryMoveCost(pixel, world, nx, ny);
-    pixel.energy -= MOVE_COST * terrainMoveCost(world.terrain[destIdx]) * wornBonus * weatherMoveCostMult(world.weather) * territoryMult;
+    const locoMult = locomotionMoveCost(pixel, world.terrain[destIdx]);
+    pixel.energy -= MOVE_COST * terrainMoveCost(world.terrain[destIdx]) * wornBonus * weatherMoveCostMult(world.weather) * territoryMult * locoMult;
   }
 }
 

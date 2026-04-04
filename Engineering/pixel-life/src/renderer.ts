@@ -21,6 +21,7 @@ import { renderEcosystemGraph, toggleEcosystemGraph } from './ecosystem-graph';
 import { renderSpeciesTree, toggleSpeciesTree } from './species-tree';
 import { renderArmsRaceNotifications } from './arms-race';
 import { getTerritoryColor } from './territory-system';
+import { getLocomotion } from './locomotion';
 
 let subCanvas: HTMLCanvasElement;
 let pixCanvas: HTMLCanvasElement;
@@ -90,7 +91,7 @@ export function initRenderer(_world: World, config: SimConfig): void {
 export function renderFrame(world: World, config: SimConfig): void {
   frameCount++;
   _lastWorld = world;
-  updateCamera(camera, pixCanvas.width, pixCanvas.height);
+  updateCamera(camera);
   clampCamera(camera, W * S, H * S, pixCanvas.width, pixCanvas.height);
 
   const lod = getLOD(camera);
@@ -108,9 +109,11 @@ export function renderFrame(world: World, config: SimConfig): void {
   applyTransform(pixCtx, camera);
   pixCtx.imageSmoothingEnabled = false;
 
+  if (lod >= 2) renderPackLines(world);
   renderPixels(world, config, lod);
   renderEffects(pixCtx);
   renderInspectorOverlay(pixCtx, world, config);
+  if (lod < 2) renderClusterLabels(world);
   renderWeatherWorld(world.weather as Weather);
 
   // Follow mode: camera tracks the inspected creature
@@ -234,6 +237,14 @@ function renderTerrainImageData(world: World, config: SimConfig): void {
 }
 
 function renderPixels(world: World, config: SimConfig, lod: number): void {
+  // Prune dead creatures from tween map every 60 frames
+  if (frameCount % 60 === 0 && _tweenPositions.size > world.pixels.size * 1.5) {
+    for (const [id] of _tweenPositions) {
+      let found = false;
+      for (const p of world.pixels.values()) { if (p.id === id) { found = true; break; } }
+      if (!found) _tweenPositions.delete(id);
+    }
+  }
   const bounds = getVisibleCells(camera, W, H, S, pixCanvas.width, pixCanvas.height);
 
   for (const pixel of world.pixels.values()) {
@@ -289,29 +300,142 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
     }
 
     if (lod >= 2) {
-      // Animate walk frame based on creature's own phase (id-offset avoids sync)
       const walkFrame = ((frameCount + pixel.id * 3) >> 2) & 1;
       const sprite = getSpriteForPixel(pixel, pixel.direction, walkFrame);
       if (sprite) {
-        if (e < 0.25) pixCtx.globalAlpha = 0.4;
-        else if (e < 0.5) pixCtx.globalAlpha = 0.7;
+        // Smooth movement tweening: interpolate between previous and current position
+        const prev = _tweenPositions.get(pixel.id);
+        let drawX = pixel.x * S, drawY = pixel.y * S;
+        if (prev) {
+          if (prev.gx !== pixel.x || prev.gy !== pixel.y) {
+            // Creature moved — check for toroidal wrap (skip tween if > 2 cells)
+            const dx = Math.abs(pixel.x - prev.gx), dy = Math.abs(pixel.y - prev.gy);
+            if (dx <= 2 && dy <= 2) {
+              prev.t = Math.min(1, prev.t + 0.25);
+              drawX = (prev.gx * S) + (pixel.x * S - prev.gx * S) * prev.t;
+              drawY = (prev.gy * S) + (pixel.y * S - prev.gy * S) * prev.t;
+              if (prev.t >= 1) { prev.gx = pixel.x; prev.gy = pixel.y; prev.t = 0; }
+            } else {
+              prev.gx = pixel.x; prev.gy = pixel.y; prev.t = 0;
+            }
+          }
+        } else {
+          _tweenPositions.set(pixel.id, { gx: pixel.x, gy: pixel.y, t: 0 });
+        }
 
-        // Subtle bob animation: creatures bounce slightly based on their phase
-        const bobPhase = Math.sin((frameCount + pixel.id * 7) * 0.15);
-        const bobY = bobPhase * 0.3; // subtle vertical bob in world units
+        // Subtle bob
+        const bobY = Math.sin((frameCount + pixel.id * 7) * 0.15) * 0.3;
+        drawY += bobY;
 
-        pixCtx.drawImage(sprite, pixel.x * S, pixel.y * S + bobY, S, S);
+        // Urgent state auras: only for panic/dying (not normal behavior)
+        const threat = pixel.state[0];
+        const auraX = drawX + S / 2, auraY = drawY + S / 2;
+        const auraR = S * 0.7;
+
+        if (threat > 100) {
+          // Fleeing — pulsing yellow danger aura
+          const pulse = 0.2 + Math.sin(frameCount * 0.3) * 0.15;
+          pixCtx.globalAlpha = pulse;
+          pixCtx.fillStyle = '#ffcc22';
+          pixCtx.beginPath(); pixCtx.arc(auraX, auraY, auraR, 0, Math.PI * 2); pixCtx.fill();
+          pixCtx.globalAlpha = 1;
+        } else if (pixel.energy < 20) {
+          // Starving — red flicker aura
+          if (Math.sin(frameCount * 0.4) > 0) {
+            pixCtx.globalAlpha = 0.2;
+            pixCtx.fillStyle = '#ff4444';
+            pixCtx.beginPath(); pixCtx.arc(auraX, auraY, auraR * 0.6, 0, Math.PI * 2); pixCtx.fill();
+            pixCtx.globalAlpha = 1;
+          }
+        }
+
+        // Size reflects power: armor + energy scale the sprite (0.7x to 1.15x)
+        const armorFactor = pixel.dna[GENE.ARMOR] / 255;
+        const sizeMult = 0.7 + armorFactor * 0.35 + e * 0.1;
+        const drawSize = S * sizeMult;
+        const sizeOffset = (S - drawSize) / 2;
+
+        // Locomotion-specific animations
+        const loco = getLocomotion(pixel);
+        let spriteDrawX = drawX + sizeOffset;
+        let spriteDrawY = drawY + sizeOffset;
+
+        if (loco === 'fly') {
+          // Flying: hover above ground + shadow beneath
+          const hoverY = Math.sin((frameCount + pixel.id * 5) * 0.2) * 1.2;
+          spriteDrawY -= 1.5 + hoverY; // float above the cell
+
+          // Shadow on ground
+          pixCtx.globalAlpha = 0.2;
+          pixCtx.fillStyle = '#000';
+          pixCtx.beginPath();
+          pixCtx.ellipse(drawX + S / 2, drawY + S - 0.5, drawSize * 0.35, drawSize * 0.15, 0, 0, Math.PI * 2);
+          pixCtx.fill();
+          pixCtx.globalAlpha = 1;
+        } else if (loco === 'swim') {
+          // Swimming: ripple rings underneath + bob horizontally
+          const ripplePhase = (frameCount + pixel.id * 3) * 0.12;
+          spriteDrawX += Math.sin(ripplePhase) * 0.4; // gentle horizontal sway
+
+          // Water ripple rings
+          const rippleR = 1 + ((frameCount + pixel.id * 7) % 20) * 0.15;
+          pixCtx.globalAlpha = 0.25 * (1 - rippleR / 4);
+          pixCtx.strokeStyle = '#66aadd';
+          pixCtx.lineWidth = 0.3;
+          pixCtx.beginPath();
+          pixCtx.ellipse(drawX + S / 2, drawY + S * 0.7, rippleR, rippleR * 0.4, 0, 0, Math.PI * 2);
+          pixCtx.stroke();
+          pixCtx.globalAlpha = 1;
+        }
+
+        // Draw sprite
+        if (e < 0.15) pixCtx.globalAlpha = 0.75;
+        pixCtx.drawImage(sprite, spriteDrawX, spriteDrawY, drawSize, drawSize);
         pixCtx.globalAlpha = 1;
 
-        // Generation ring
+        // Status bars underneath — energy (HP) + armor bar
+        const barW = S * 0.9;
+        const barH = S * 0.15;
+        const barX = drawX + (S - barW) / 2;
+        const barGap = barH + 0.2;
+        const barY1 = drawY + S + 0.4; // energy bar
+        const barY2 = barY1 + barGap;  // armor bar
+
+        // Energy bar (HP) — green/yellow/red
+        pixCtx.fillStyle = 'rgba(0,0,0,0.6)';
+        pixCtx.fillRect(barX - 0.2, barY1 - 0.1, barW + 0.4, barH + 0.2);
+        const hpColor = e > 0.6 ? '#22dd44' : e > 0.3 ? '#ddbb22' : '#dd3322';
+        pixCtx.fillStyle = hpColor;
+        pixCtx.fillRect(barX, barY1, barW * Math.max(0.03, e), barH);
+
+        // Armor bar — blue/grey, shows defense level
+        const armorPct = pixel.dna[GENE.ARMOR] / 255;
+        if (armorPct > 0.1) {
+          pixCtx.fillStyle = 'rgba(0,0,0,0.6)';
+          pixCtx.fillRect(barX - 0.2, barY2 - 0.1, barW + 0.4, barH + 0.2);
+          pixCtx.fillStyle = '#4488cc';
+          pixCtx.fillRect(barX, barY2, barW * armorPct, barH);
+        }
+
+        // Generation ring (gold for long-lived lineages)
         if (pixel.generation > 10) {
           pixCtx.strokeStyle = pixel.generation > 50 ? 'rgba(204,170,68,0.6)' : 'rgba(136,136,102,0.3)';
           pixCtx.lineWidth = pixel.generation > 50 ? 0.3 : 0.15;
-          pixCtx.strokeRect(pixel.x * S, pixel.y * S + bobY, S, S);
+          pixCtx.strokeRect(drawX + sizeOffset, drawY + sizeOffset, drawSize, drawSize);
         }
 
-        // Behavior state indicator — small icon above the creature
-        drawBehaviorIndicator(pixel, role, pixel.x * S, pixel.y * S + bobY, world);
+        // Direction trail
+        if (prev && (prev.gx !== pixel.x || prev.gy !== pixel.y)) {
+          pixCtx.strokeStyle = `rgba(${r},${g},${b},0.2)`;
+          pixCtx.lineWidth = 0.5;
+          pixCtx.beginPath();
+          pixCtx.moveTo(prev.gx * S + S / 2, prev.gy * S + S / 2);
+          pixCtx.lineTo(drawX + S / 2, drawY + S / 2);
+          pixCtx.stroke();
+        }
+
+        // Behavior icon above the creature
+        drawBehaviorIcon(pixel, role, drawX, drawY, world);
       } else {
         pixCtx.fillStyle = col;
         pixCtx.fillRect(pixel.x * S + 0.5, pixel.y * S + 0.5, S - 1, S - 1);
@@ -438,113 +562,165 @@ function getTerrainFitness(role: number, t: Terrain): number {
   return 0;
 }
 
-// Behavior state indicators shown above sprites at LOD 2
-// Shows what the creature is currently doing via small colored symbols
-function drawBehaviorIndicator(pixel: Pixel, role: number, cellX: number, cellY: number, world: World): void {
-  const ix = cellX + S / 2;  // center X of cell
-  const iy = cellY - 1.2;    // just above sprite
+// Population cluster labels: show role names over groups when zoomed out
+const ROLE_LABEL_NAMES = ['Plant', 'Wolf', 'Apex', 'Scvgr', 'Para', 'Swarm', 'Nomad'];
+const ROLE_LABEL_COLORS = ['#44cc44', '#cc8844', '#cc3333', '#aa8866', '#aa44cc', '#44cccc', '#cccc44'];
+let _lastClusterFrame = 0;
+let _clusterCache: { x: number; y: number; role: number; count: number }[] = [];
 
+function renderClusterLabels(world: World): void {
+  // Only recompute every 30 frames
+  if (frameCount - _lastClusterFrame > 30) {
+    _lastClusterFrame = frameCount;
+    // Grid-based clustering: divide world into 20x15 regions
+    const regionW = 10, regionH = 10;
+    const cols = Math.ceil(W / regionW), rows = Math.ceil(H / regionH);
+    const regions: number[][] = Array.from({ length: cols * rows }, () => new Array(7).fill(0));
+
+    for (const p of world.pixels.values()) {
+      const rx = Math.floor(p.x / regionW);
+      const ry = Math.floor(p.y / regionH);
+      const role = getCreatureRole(p);
+      if (role < 7) regions[ry * cols + rx][role]++;
+    }
+
+    _clusterCache = [];
+    for (let ry = 0; ry < rows; ry++) {
+      for (let rx = 0; rx < cols; rx++) {
+        const counts = regions[ry * cols + rx];
+        const total = counts.reduce((a, b) => a + b, 0);
+        if (total < 4) continue; // skip sparse regions
+        // Find dominant role
+        let maxRole = 0, maxCount = 0;
+        for (let i = 0; i < 7; i++) {
+          if (counts[i] > maxCount) { maxCount = counts[i]; maxRole = i; }
+        }
+        if (maxCount >= 3) {
+          _clusterCache.push({
+            x: (rx + 0.5) * regionW * S,
+            y: (ry + 0.5) * regionH * S,
+            role: maxRole,
+            count: maxCount,
+          });
+        }
+      }
+    }
+  }
+
+  // Draw labels
+  for (const c of _clusterCache) {
+    pixCtx.font = `bold ${2.5}px Consolas, monospace`;
+    pixCtx.textAlign = 'center';
+    // Background
+    pixCtx.fillStyle = 'rgba(0,0,0,0.5)';
+    const textW = 14;
+    pixCtx.fillRect(c.x - textW / 2, c.y - 2, textW, 3.5);
+    // Label
+    pixCtx.fillStyle = ROLE_LABEL_COLORS[c.role];
+    pixCtx.fillText(`${ROLE_LABEL_NAMES[c.role]} ×${c.count}`, c.x, c.y + 0.8);
+  }
+  pixCtx.textAlign = 'left';
+}
+
+// Movement tweening state: tracks previous positions for smooth interpolation
+const _tweenPositions = new Map<number, { gx: number; gy: number; t: number }>();
+
+// Pack connection lines: draw lines between pack members
+function renderPackLines(world: World): void {
+  const packMembers = new Map<number, { x: number; y: number }[]>();
+  for (const p of world.pixels.values()) {
+    if (p.packId === 0) continue;
+    if (!packMembers.has(p.packId)) packMembers.set(p.packId, []);
+    packMembers.get(p.packId)!.push({ x: p.x * S + S / 2, y: p.y * S + S / 2 });
+  }
+
+  for (const [, members] of packMembers) {
+    if (members.length < 2) continue;
+    // Draw lines between all adjacent pairs (nearest neighbor connections)
+    pixCtx.strokeStyle = 'rgba(255,120,60,0.2)';
+    pixCtx.lineWidth = 0.4;
+    pixCtx.setLineDash([1, 2]); // dashed lines for pack connections
+    for (let i = 0; i < members.length; i++) {
+      // Connect to nearest other member
+      let bestDist = Infinity, bestJ = -1;
+      for (let j = i + 1; j < members.length; j++) {
+        const dx = members[i].x - members[j].x;
+        const dy = members[i].y - members[j].y;
+        const dist = dx * dx + dy * dy;
+        if (dist < bestDist) { bestDist = dist; bestJ = j; }
+      }
+      if (bestJ >= 0 && bestDist < (S * 8) * (S * 8)) {
+        pixCtx.beginPath();
+        pixCtx.moveTo(members[i].x, members[i].y);
+        pixCtx.lineTo(members[bestJ].x, members[bestJ].y);
+        pixCtx.stroke();
+      }
+    }
+    pixCtx.setLineDash([]); // reset dash
+  }
+}
+
+// Behavior icons: drawn above creatures at LOD 2
+// Each icon has a dark pill background so it's readable against any terrain
+function drawBehaviorIcon(pixel: Pixel, role: number, cellX: number, cellY: number, world: World): void {
+  const iconX = cellX + S / 2;
+  const iconY = cellY - 1.8;
   const threat = pixel.state[0];
-  const satiety = pixel.state[1];
   const social = pixel.state[2];
   const senseTarget = pixel.dna[GENE.SENSE_TARGET];
 
-  // Fleeing — red exclamation (high threat state)
+  let icon = '';
+  let color = '';
+
+  // Priority order: fleeing > hunting > feeding > scavenging > socializing > parasiting > starving
   if (threat > 100) {
-    const pulse = 0.5 + Math.sin(frameCount * 0.3) * 0.3;
-    pixCtx.globalAlpha = pulse;
-    pixCtx.fillStyle = '#ff4444';
-    // Exclamation mark: dot + line
-    pixCtx.fillRect(ix - 0.2, iy - 2.5, 0.5, 1.5);
-    pixCtx.fillRect(ix - 0.15, iy - 0.5, 0.4, 0.4);
-    pixCtx.globalAlpha = 1;
-    return;
+    icon = '!!'; color = '#ff4444';
+  } else if ((role === 1 || role === 2) && senseTarget >= 85 && senseTarget < 170) {
+    icon = '\u2694'; color = '#ff6644'; // crossed swords
+  } else if (role === 0 && world.food[pixel.y * W + pixel.x] > 0.15) {
+    icon = '\u2618'; color = '#44dd44'; // shamrock (feeding)
+  } else if (role === 3 && senseTarget >= 60 && senseTarget < 85 && world.pheromone[pixel.y * W + pixel.x] > 0.03) {
+    icon = '\u223C'; color = '#aa8844'; // tilde (sniffing)
+  } else if (social > 100 && role === 5) {
+    icon = '\u2665'; color = '#44cccc'; // heart (bonding)
+  } else if (role === 4 && pixel.catalyzedUntil > 0) {
+    icon = '\u2622'; color = '#bb66ff'; // radioactive (parasiting)
+  } else if (pixel.energy < 20 && pixel.state[1] < 50) {
+    icon = 'FOOD'; color = '#ffcc22'; // custom drawn food icon
   }
 
-  // Hunting — red crosshair (predators seeking prey)
-  if ((role === 1 || role === 2) && senseTarget >= 85 && senseTarget < 170) {
-    pixCtx.globalAlpha = 0.6;
-    pixCtx.strokeStyle = '#ff6644';
-    pixCtx.lineWidth = 0.3;
+  if (!icon) return;
+
+  if (icon === 'FOOD') {
+    // Custom drawn drumstick icon for hunger
+    const sz = S * 0.2;
+    pixCtx.fillStyle = 'rgba(0,0,0,0.65)';
+    pixCtx.fillRect(iconX - sz * 2.5, iconY - sz * 2, sz * 5, sz * 3);
+    // Drumstick: circle (meat) + line (bone)
+    pixCtx.fillStyle = '#cc8844';
     pixCtx.beginPath();
-    pixCtx.moveTo(ix - 1.5, iy - 1); pixCtx.lineTo(ix + 1.5, iy - 1);
-    pixCtx.moveTo(ix, iy - 2.5); pixCtx.lineTo(ix, iy + 0.5);
+    pixCtx.arc(iconX - sz, iconY - sz * 0.3, sz * 1.1, 0, Math.PI * 2);
+    pixCtx.fill();
+    pixCtx.strokeStyle = '#eedd99';
+    pixCtx.lineWidth = sz * 0.5;
+    pixCtx.beginPath();
+    pixCtx.moveTo(iconX - sz * 0.2, iconY - sz * 0.3);
+    pixCtx.lineTo(iconX + sz * 1.5, iconY - sz * 0.3);
     pixCtx.stroke();
-    // Small circle
-    pixCtx.beginPath();
-    pixCtx.arc(ix, iy - 1, 1, 0, Math.PI * 2);
-    pixCtx.stroke();
-    pixCtx.globalAlpha = 1;
     return;
   }
 
-  // Grazing/feeding — green leaf (plant harvesting food)
-  const cellFood = world.food[pixel.y * W + pixel.x];
-  if (role === 0 && cellFood > 0.15) {
-    pixCtx.globalAlpha = 0.7;
-    pixCtx.fillStyle = '#44dd44';
-    // Tiny leaf shape
-    pixCtx.beginPath();
-    pixCtx.ellipse(ix, iy - 1, 1, 0.6, Math.PI * 0.15, 0, Math.PI * 2);
-    pixCtx.fill();
-    pixCtx.globalAlpha = 1;
-    return;
-  }
+  // Dark background pill for contrast
+  const iconW = icon.length * 1.8 + 1;
+  pixCtx.fillStyle = 'rgba(0,0,0,0.65)';
+  pixCtx.fillRect(iconX - iconW / 2, iconY - 2.2, iconW, 3);
 
-  // Scavenging — brown nose to ground (scavengers on corpse trail)
-  if (role === 3 && (senseTarget >= 60 && senseTarget < 85)) {
-    const ph = world.pheromone[pixel.y * W + pixel.x];
-    if (ph > 0.03) {
-      pixCtx.globalAlpha = 0.5;
-      pixCtx.fillStyle = '#aa8844';
-      // Small sniff dots
-      pixCtx.fillRect(ix - 0.8, iy - 0.8, 0.5, 0.5);
-      pixCtx.fillRect(ix + 0.3, iy - 1.2, 0.5, 0.5);
-      pixCtx.fillRect(ix - 0.2, iy - 1.8, 0.5, 0.5);
-      pixCtx.globalAlpha = 1;
-      return;
-    }
-  }
-
-  // Socializing — blue heart/cluster (high social state, swarm bonding)
-  if (social > 100 && role === 5) {
-    pixCtx.globalAlpha = 0.5;
-    pixCtx.fillStyle = '#44cccc';
-    pixCtx.beginPath();
-    pixCtx.arc(ix - 0.5, iy - 1.5, 0.5, 0, Math.PI * 2);
-    pixCtx.arc(ix + 0.5, iy - 1.5, 0.5, 0, Math.PI * 2);
-    pixCtx.fill();
-    pixCtx.globalAlpha = 1;
-    return;
-  }
-
-  // Hungry — yellow low-energy warning (any role, low energy)
-  if (pixel.energy < 20 && satiety < 50) {
-    const blink = Math.sin(frameCount * 0.4) > 0;
-    if (blink) {
-      pixCtx.globalAlpha = 0.6;
-      pixCtx.fillStyle = '#ffcc22';
-      // Small triangle (warning)
-      pixCtx.beginPath();
-      pixCtx.moveTo(ix, iy - 2.5);
-      pixCtx.lineTo(ix - 1, iy - 0.5);
-      pixCtx.lineTo(ix + 1, iy - 0.5);
-      pixCtx.closePath();
-      pixCtx.fill();
-      pixCtx.globalAlpha = 1;
-    }
-    return;
-  }
-
-  // Parasitizing — purple link (parasite near host)
-  if (role === 4 && pixel.catalyzedUntil > 0) {
-    pixCtx.globalAlpha = 0.5;
-    pixCtx.fillStyle = '#bb66ff';
-    pixCtx.beginPath();
-    pixCtx.arc(ix, iy - 1.2, 0.8, 0, Math.PI * 2);
-    pixCtx.fill();
-    pixCtx.globalAlpha = 1;
-  }
+  // Icon text
+  pixCtx.font = `bold ${S * 0.45}px Consolas, monospace`;
+  pixCtx.textAlign = 'center';
+  pixCtx.fillStyle = color;
+  pixCtx.fillText(icon, iconX, iconY + 0.3);
+  pixCtx.textAlign = 'left';
 }
 
 function renderWeatherWorld(weather: Weather): void {

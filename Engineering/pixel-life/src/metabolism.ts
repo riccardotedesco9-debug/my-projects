@@ -4,6 +4,7 @@ import { getEffectiveGene } from './pixel';
 import { removePixel, addFood, addPheromone } from './world';
 import { weatherUpkeepMult } from './weather';
 import { addDeathEffect, addInteractionEffect, toCanvasCenter } from './effects';
+import { locomotionUpkeepMult } from './locomotion';
 import {
   MAX_ENERGY, BASE_UPKEEP, SPEED_UPKEEP, SENSE_UPKEEP,
   HARVEST_RATE, WASTE_RATE, DEATH_SUBSTRATE_SCALE,
@@ -23,11 +24,37 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
     ? (ABSORB_SKILL_THRESHOLD - pixel.dna[GENE.REACT_TYPE]) / ABSORB_SKILL_THRESHOLD : 0;
   const harvestPenalty = 1 - absorbSkill * TROPHIC_INVERSE_FACTOR;
 
-  // -- Harvest food from terrain --
+  // -- Harvest food from terrain with food-type preference --
+  // Terrain types produce different "flavors" matched by harvest genes:
+  //   Grass → R-dominant (leafy), Forest → G-dominant (fruit), Dirt → B-dominant (roots)
+  //   Sand/Rock → balanced but scarce. Water → none.
   const catalyzeBoost = world.tick < pixel.catalyzedUntil ? CATALYZE_BOOST : 1.0;
-  const harvestEff = (pixel.dna[GENE.HARVEST_R] + pixel.dna[GENE.HARVEST_G] + pixel.dna[GENE.HARVEST_B]) / (255 * 3);
+  const terrain = world.terrain[cellIdx];
   const avail = world.food[cellIdx];
-  const harvested = avail * harvestEff * HARVEST_RATE * catalyzeBoost * harvestPenalty;
+
+  // Food preference multiplier: how well creature's harvest genes match this terrain's food type
+  // Food affinity: how well creature's harvest genes match terrain food type
+  // Range 0.2 (terrible match) to 1.5 (specialist) — creates strong niche pressure
+  let foodAffinity = 0.6; // default for unspecialized terrain
+  if (terrain === 3) {
+    // Grass: R-rich food
+    foodAffinity = 0.2 + (pixel.dna[GENE.HARVEST_R] / 255) * 1.3;
+  } else if (terrain === 4) {
+    // Forest: G-rich food
+    foodAffinity = 0.2 + (pixel.dna[GENE.HARVEST_G] / 255) * 1.3;
+  } else if (terrain === 2) {
+    // Dirt: B-rich food
+    foodAffinity = 0.2 + (pixel.dna[GENE.HARVEST_B] / 255) * 1.3;
+  } else if (terrain === 1) {
+    // Sand: very scarce, no specialization bonus
+    foodAffinity = 0.3;
+  } else if (terrain === 0) {
+    // Water: aquatic food, B-gene affinity
+    foodAffinity = 0.1 + (pixel.dna[GENE.HARVEST_B] / 255) * 1.2;
+  }
+
+  const harvestEff = (pixel.dna[GENE.HARVEST_R] + pixel.dna[GENE.HARVEST_G] + pixel.dna[GENE.HARVEST_B]) / (255 * 3);
+  const harvested = avail * harvestEff * HARVEST_RATE * catalyzeBoost * harvestPenalty * foodAffinity;
   let gained = harvested;
   world.food[cellIdx] = Math.max(0, avail - harvested);
 
@@ -50,7 +77,7 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
   const sense = getEffectiveGene(pixel, GENE.SENSE_RANGE) / 255;
   let cost = BASE_UPKEEP + speed * SPEED_UPKEEP + sense * SENSE_UPKEEP;
   if (world.season === 'winter') cost *= WINTER_UPKEEP_MULT;
-  cost *= config.upkeepMultiplier * weatherUpkeepMult(world.weather);
+  cost *= config.upkeepMultiplier * weatherUpkeepMult(world.weather) * locomotionUpkeepMult(pixel);
 
   // Age decay
   if (pixel.age > AGE_DECAY_START) cost += (pixel.age - AGE_DECAY_START) * AGE_DECAY_RATE;

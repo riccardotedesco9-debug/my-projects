@@ -1,12 +1,13 @@
 import type { Pixel, World, SimConfig, TickEvents } from './types';
 import { GENE } from './types';
 import { getEffectiveGene } from './pixel';
-import { wrapX, wrapY, cellKey, movePixelTo } from './world';
+import { wrapX, wrapY, cellKey, movePixelTo, removePixel } from './world';
 import { isPassable } from './terrain';
 import { addDeathEffect, addInteractionEffect, toCanvasCenter } from './effects';
 import { hasPackSupport, PACK_HUNT_BONUS } from './pack-hunting';
 import { recordEnergyFlow } from './ecosystem-graph';
 import { getCreatureRole } from './metabolism';
+import { genomeSimilarity } from './genome';
 import {
   ABSORB_EFFICIENCY, CATALYZE_COST, CATALYZE_DURATION,
   REPEL_COST, MAX_ENERGY, ABSORB_SKILL_THRESHOLD,
@@ -25,7 +26,13 @@ export function resolveReaction(
   const reactType = getEffectiveGene(attacker, GENE.REACT_TYPE);
 
   if (reactType < 64) {
-    // ABSORB: always attack on collision — predators don't hesitate
+    // Same-species protection: don't attack creatures with similar DNA unless starving
+    const similarity = genomeSimilarity(attacker.dna, defender.dna);
+    if (similarity > 12 && attacker.energy > 15) {
+      // Similar genome + not starving = avoid attacking kin
+      // Only cannibalize when truly desperate (below 15 energy)
+      return;
+    }
     resolveAbsorb(attacker, defender, world, _config, events);
   } else {
     // Non-violent reactions: threshold gated
@@ -49,9 +56,9 @@ function resolveAbsorb(attacker: Pixel, defender: Pixel, world: World, config: S
   // Pack hunting bonus: nearby pack members boost kill efficiency
   if (hasPackSupport(attacker, world)) amount *= PACK_HUNT_BONUS;
 
-  // Armor defense
+  // Armor defense — caps at 70% reduction so nothing is truly unkillable
   if (defenderArmor > reactType * 4) amount *= 0.5;
-  amount *= (1 - defenderArmor / 255);
+  amount *= Math.max(0.3, 1 - defenderArmor / 340);
 
   attacker.energy = Math.min(MAX_ENERGY, attacker.energy + amount);
   defender.energy -= amount;
@@ -69,8 +76,8 @@ function resolveAbsorb(attacker: Pixel, defender: Pixel, world: World, config: S
   if (defender.energy <= 0) {
     const px = defender.x, py = defender.y;
     const cellIdx = py * world.width + px;
-    // Remove dead prey + create corpse + release nutrients (proper death cycle)
-    world.pixels.delete(cellIdx);
+    // Remove dead prey via proper removePixel + create corpse
+    removePixel(world, defender);
     world.corpses[cellIdx] = Math.min(255, world.corpses[cellIdx] + Math.floor(Math.max(5, amount) * 2));
     // Release some food back to terrain (nutrient cycling)
     if (world.food[cellIdx] < 1) world.food[cellIdx] = Math.min(1, world.food[cellIdx] + amount * 0.05);
