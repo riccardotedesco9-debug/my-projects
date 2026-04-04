@@ -156,7 +156,7 @@ export function createDefaultConfig(): SimConfig {
     worldHeight: 150,
     pixelScale: 5,              // 1000x750 canvas, 5px creatures for shape visibility
     initialPopulation: 100,     // sparse — gives room to see individuals
-    substrateEmission: 0.007,   // scarce — drives real competition and niche separation
+    substrateEmission: 0.010,   // moderate — patchy emission creates natural scarcity
     substrateDiffusion: 0.06,
     substrateDecay: 0.997,
     seasonLength: 2000,

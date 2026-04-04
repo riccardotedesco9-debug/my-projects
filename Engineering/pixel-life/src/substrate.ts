@@ -55,15 +55,14 @@ function emitFromTerrain(world: World, config: SimConfig): void {
       let rate = terrainFoodRate(t);
       if (rate <= 0) continue;
 
-      // Stochastic emission: only ~5% of cells produce food each tick
-      // Deterministic hash so each cell gets its turn regularly
-      if (((tickSeed + x * 7 + y * 13) & 0x1f) !== 0) continue; // 1/32 chance per tick
+      // Stochastic emission: ~25% of cells produce food each tick (1/4)
+      // Creates patchiness without starving everything
+      if (((tickSeed + x * 7 + y * 13) & 0x3) !== 0) continue;
 
-      // When a cell does emit, it produces more (compensating for low frequency)
       if (t === Terrain.GRASS || t === Terrain.DIRT || t === Terrain.FOREST) {
         if (hasAdjacentWater(terrain, x, y, w, h)) rate *= 1.3;
       }
-      food[i] = Math.min(1, food[i] + base * rate * latFactor * 20); // 20x burst since only 1/32 tick
+      food[i] = Math.min(1, food[i] + base * rate * latFactor * 4); // 4x burst for 1/4 frequency
     }
   }
 }
@@ -72,12 +71,12 @@ function emitFromTerrain(world: World, config: SimConfig): void {
 // Returns multiplier 0.75-1.25 based on latitude and season
 function getSeasonalLatitude(y: number, h: number, season: Season): number {
   const lat = y / h; // 0 = north, 1 = south
-  // Stronger gradient: 0.3x to 1.7x — creates real migration pressure
+  // Moderate gradient: 0.5x to 1.5x — visible migration pressure without killing everything
   switch (season) {
-    case 'summer': return 0.3 + (1 - lat) * 1.4;  // north is lush, south is barren
-    case 'winter': return 0.3 + lat * 1.4;          // south is lush, north is barren
-    case 'spring': return 0.5 + (1 - lat) * 1.0;   // north warming up
-    case 'autumn': return 0.5 + lat * 1.0;          // south holds warmth longer
+    case 'summer': return 0.5 + (1 - lat) * 1.0;  // north is lush, south is lean
+    case 'winter': return 0.5 + lat * 1.0;          // south is lush, north is lean
+    case 'spring': return 0.7 + (1 - lat) * 0.6;   // north warming up
+    case 'autumn': return 0.7 + lat * 0.6;          // south holds warmth longer
   }
 }
 

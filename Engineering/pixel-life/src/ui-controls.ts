@@ -2,8 +2,10 @@ import type { SimConfig, ViewMode, World } from './types';
 import { getCamera, screenToWorld } from './renderer';
 import { showInspector, hideInspector, toggleFollow } from './creature-inspector';
 import { isGodModeActive, executeGodTool, toggleGodModeVisibility, setGodTool } from './god-mode';
+import { seedPixels } from './world';
 
 let resetCallback: () => void;
+let _world: import('./types').World | null = null;
 
 
 export function initControls(config: SimConfig, onReset: () => void): void {
@@ -21,7 +23,14 @@ export function initControls(config: SimConfig, onReset: () => void): void {
     config.simSpeed = speed;
     return `${speed.toFixed(1)}x`;
   });
-  bindSlider('slider-population', 'val-population', v => { config.initialPopulation = v; return String(v); });
+  bindSlider('slider-population', 'val-population', v => {
+    config.initialPopulation = v;
+    // Live spawn: if population below target, add more creatures now
+    if (_world && _world.pixels.size < v) {
+      seedPixels(_world, { ...config, initialPopulation: Math.min(50, v - _world.pixels.size) });
+    }
+    return String(v);
+  });
   bindSlider('slider-emission', 'val-emission', v => { config.substrateEmission = v / 1000; return (v / 1000).toFixed(3); });
   bindSlider('slider-diffusion', 'val-diffusion', v => { config.substrateDiffusion = v / 100; return (v / 100).toFixed(2); });
   bindSlider('slider-decay', 'val-decay', v => { config.substrateDecay = v / 1000; return (v / 1000).toFixed(3); });
@@ -59,6 +68,7 @@ export function initCanvasInteraction(
   world: World,
   config: SimConfig,
 ): void {
+  _world = world;
   let painting = false;
 
   canvas.addEventListener('mousedown', (e) => {

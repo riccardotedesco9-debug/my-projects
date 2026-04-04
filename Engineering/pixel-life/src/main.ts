@@ -21,7 +21,8 @@ let tpsCounter = 0;
 let tpsLastSec = 0;
 
 function reset(): void {
-  config = createDefaultConfig();
+  // Reset config values in-place (preserving object reference for slider bindings)
+  Object.assign(config, createDefaultConfig());
   world = createWorld(config);
   seedPixels(world, config);
   initRenderer(world, config);
