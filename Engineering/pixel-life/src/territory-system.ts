@@ -62,15 +62,16 @@ export function getTerritoryMoveCost(pixel: Pixel, world: World, nx: number, ny:
 }
 
 // Territory color based on role (consistent with role colors)
+// Match the bright role colors from color-map.ts
 const TERRITORY_ROLE_COLORS: [number, number, number][] = [
-  [0, 0, 0],          // 0 = unclaimed (never drawn)
-  [68, 204, 68],      // 1 = plant (green)
-  [204, 136, 68],     // 2 = hunter (orange)
-  [204, 51, 51],      // 3 = apex (red)
-  [170, 136, 102],    // 4 = scavenger (brown)
-  [170, 68, 204],     // 5 = parasite (purple)
-  [68, 204, 204],     // 6 = swarm (cyan)
-  [204, 204, 68],     // 7 = nomad (yellow)
+  [0, 0, 0],          // 0 = unclaimed
+  [80, 220, 80],      // 1 = plant (bright green)
+  [230, 150, 50],     // 2 = hunter (vivid orange)
+  [220, 50, 50],      // 3 = apex (bright red)
+  [180, 140, 80],     // 4 = scavenger (tan/gold)
+  [180, 70, 220],     // 5 = parasite (vivid purple)
+  [50, 210, 210],     // 6 = swarm (bright cyan)
+  [220, 220, 50],     // 7 = nomad (bright yellow)
 ];
 
 export function getTerritoryColor(world: World, ci: number): [number, number, number, number] | null {
