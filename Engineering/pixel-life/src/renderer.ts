@@ -498,17 +498,6 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
         pixCtx.fillRect(pixel.x * S + 0.5, pixel.y * S + 0.5, S - 1, S - 1);
       }
     } else {
-      // White outline ring so creatures pop against any terrain color
-      pixCtx.strokeStyle = 'rgba(255,255,255,0.6)';
-      pixCtx.lineWidth = 0.8;
-      pixCtx.beginPath();
-      pixCtx.arc(cx, cy, 2.2, 0, Math.PI * 2);
-      pixCtx.stroke();
-      // Brighten creature colors at LOD 0/1 so they don't blend with terrain
-      r = Math.min(255, r + 60);
-      g = Math.min(255, g + 60);
-      b = Math.min(255, b + 60);
-      col = `rgb(${r},${g},${b})`;
       drawCreature(pixel, cx, cy, e, role, col, r, g, b);
     }
   }
