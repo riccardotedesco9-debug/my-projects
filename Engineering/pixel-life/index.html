@@ -153,9 +153,13 @@
       <button class="btn" id="btn-pause">Pause</button>
       <button class="btn" id="btn-reset">Reset</button>
     </div>
+    <div class="btn-row" style="margin-top:4px">
+      <button class="btn" id="btn-record" title="Record snapshots for replay">Record</button>
+      <button class="btn" id="btn-replay" title="Play back recorded history" disabled>Replay</button>
+    </div>
     <div class="control-row">
       <label>Speed</label>
-      <input type="range" id="slider-speed" min="1" max="20" value="1" />
+      <input type="range" id="slider-speed" min="1" max="40" value="10" />
       <span class="value" id="val-speed">1x</span>
     </div>
 
@@ -203,21 +207,40 @@
       <button class="btn" id="view-trophic">Trophic</button>
       <button class="btn" id="view-substrate">Substrate</button>
       <button class="btn" id="view-lineage">Lineage</button>
+      <button class="btn" id="view-territory">Territory</button>
     </div>
 
-    <h2>Creatures</h2>
-    <div style="font-size: 9px; color: #778; line-height: 1.7;">
-      <span style="color:#4c4">&bull;</span> <b>Plant</b> &mdash; eats from terrain<br/>
-      <span style="color:#c84">&blacktriangle;</span> <b>Hunter</b> &mdash; kills plants<br/>
-      <span style="color:#c44">&diams;</span> <b>Apex</b> &mdash; kills hunters<br/>
-      <span style="color:#a86">+</span> <b>Scavenger</b> &mdash; eats corpses, follows trails<br/>
-      <span style="color:#a4c">&starf;</span> <b>Parasite</b> &mdash; boosts hosts, steals waste<br/>
-      <span style="color:#4cc">&#x2B22;</span> <b>Swarm</b> &mdash; shares energy, lives in groups<br/>
-      <span style="color:#cc4">&#x27A4;</span> <b>Nomad</b> &mdash; fast explorer, avoids fights
+    <h2>Creature Types</h2>
+    <div style="font-size: 9px; color: #889; line-height: 1.8;">
+      <span style="color:#4c4; font-size:12px">&#9679;</span> <b style="color:#bbc">Plant</b> &mdash; eats from terrain, reproduces fast<br/>
+      <span style="color:#c84; font-size:12px">&#9650;</span> <b style="color:#bbc">Hunter</b> &mdash; kills plants and weak creatures<br/>
+      <span style="color:#c44; font-size:12px">&#9670;</span> <b style="color:#bbc">Apex</b> &mdash; top predator, kills hunters<br/>
+      <span style="color:#a86; font-size:12px">&#10010;</span> <b style="color:#bbc">Scavenger</b> &mdash; eats corpses, follows trails<br/>
+      <span style="color:#a4c; font-size:12px">&#10022;</span> <b style="color:#bbc">Parasite</b> &mdash; boosts hosts, steals waste<br/>
+      <span style="color:#4cc; font-size:12px">&#11042;</span> <b style="color:#bbc">Swarm</b> &mdash; shares energy, clusters<br/>
+      <span style="color:#cc4; font-size:12px">&#10148;</span> <b style="color:#bbc">Nomad</b> &mdash; fast, avoids fights
     </div>
-    <div style="font-size: 8px; color: #556; margin-top: 3px;">
-      Big &amp; bright = well-fed &middot; Small &amp; dim = starving<br/>
-      Brown marks = dead bodies &middot; All creatures mutate &amp; evolve
+
+    <h2>How Evolution Shows</h2>
+    <div style="font-size: 9px; color: #889; line-height: 1.8;">
+      <span style="color:#aab; font-size:11px">&#9644;&#9644;</span> <b style="color:#bbc">Size changes</b> &mdash; genes make creatures grow bigger (more armor) or shrink (more speed) over generations<br/>
+      <span style="color:#fa4; font-size:11px">&#9679;&#9679;</span> <b style="color:#bbc">Color diverges</b> &mdash; different lineages drift apart in color as their DNA mutates differently<br/>
+      <span style="color:#4af; font-size:8px">&#9632;</span><span style="color:#fa4; font-size:8px">&#9632;</span><span style="color:#4f8; font-size:8px">&#9632;</span><span style="color:#f4a; font-size:8px">&#9632;</span> <b style="color:#bbc">Trait pip</b> &mdash; tiny dot on creature = dominant gene: <span style="color:#4af">speed</span> <span style="color:#fa4">armor</span> <span style="color:#4f8">harvest</span> <span style="color:#f4a">sense</span><br/>
+      <span style="color:#8af; font-size:11px">&#9675;</span> <b style="color:#bbc">Gen ring</b> &mdash; outline = old lineage (50+ gen = thick ring, success!)<br/>
+      <span style="color:#6f6; font-size:11px">&#9675;</span> <b style="color:#bbc">Birth ring</b> &mdash; expanding circle = new offspring born<br/>
+      <span style="color:#a42; font-size:11px">&#9642;&#9642;&#9642;</span> <b style="color:#bbc">Death scatter</b> &mdash; red particles = creature died
+    </div>
+
+    <h2>Environment Cues</h2>
+    <div style="font-size: 9px; color: #889; line-height: 1.8;">
+      <span style="color:#2c4; font-size:11px">&#9632;</span> <b style="color:#bbc">Green glow</b> under plant = actively feeding<br/>
+      <span style="color:#f44; font-size:11px">&#9632;</span> <b style="color:#bbc">Red glow</b> under predator = hunting mode<br/>
+      <span style="color:#4a3; font-size:11px">&#9632;</span> <b style="color:#bbc">Bright green terrain</b> = food abundant<br/>
+      <span style="color:#742; font-size:11px">&#9632;</span> <b style="color:#bbc">Brown terrain</b> = depleted by grazing<br/>
+      <span style="color:#a84; font-size:11px">&#9632;</span> <b style="color:#bbc">Golden paths</b> = creature highways (wear)<br/>
+      <span style="color:#d96; font-size:11px">&#9632;</span> <b style="color:#bbc">Amber trails</b> = pheromone activity<br/>
+      <span style="color:#a42; font-size:11px">&#9632;</span> <b style="color:#bbc">Red-brown stains</b> = battle/death zone<br/>
+      <span style="color:#6c6; font-size:11px">&#9670;</span> <b style="color:#bbc">Season flash</b> = green/gold/orange/blue pulse when season changes
     </div>
 
     <h2>Weather</h2>
@@ -242,10 +265,45 @@
       <span style="color:#556">Map regenerates each reset</span>
     </div>
 
+    <h2>Behavior Icons (Zoom In)</h2>
+    <div style="font-size: 9px; color: #889; line-height: 1.8;">
+      <span style="color:#f64">&#9678;</span> <b style="color:#bbc">Crosshair</b> &mdash; predator hunting<br/>
+      <span style="color:#f44">&#10071;</span> <b style="color:#bbc">Exclamation</b> &mdash; fleeing in fear<br/>
+      <span style="color:#4d4">&#9752;</span> <b style="color:#bbc">Leaf</b> &mdash; feeding on terrain<br/>
+      <span style="color:#a84">&#8943;</span> <b style="color:#bbc">Sniff dots</b> &mdash; scavenging trails<br/>
+      <span style="color:#4cc">&#9829;</span> <b style="color:#bbc">Cluster</b> &mdash; swarm bonding<br/>
+      <span style="color:#fc2">&#9650;</span> <b style="color:#bbc">Warning</b> &mdash; hungry/starving<br/>
+      <span style="color:#b6f">&#9679;</span> <b style="color:#bbc">Link</b> &mdash; parasite active
+    </div>
+
+    <h2>God Mode <span style="font-size:9px;color:#556">(G key)</span></h2>
+    <div id="god-mode-panel" style="display:none">
+      <div class="btn-row">
+        <button class="btn" id="god-wall" title="Place rock walls">Wall</button>
+        <button class="btn" id="god-food" title="Place food (radius 3)">Food</button>
+        <button class="btn" id="god-drought" title="Remove food (radius 3)">Drought</button>
+      </div>
+      <div class="btn-row" style="margin-top:4px">
+        <button class="btn" id="god-spawn" title="Spawn random creature">Spawn</button>
+        <button class="btn" id="god-kill" title="Kill creature">Kill</button>
+        <button class="btn" id="god-boost" title="Max energy">Boost</button>
+      </div>
+      <div style="font-size:9px;color:#556;margin-top:4px">Click canvas to use tool. ESC to deselect.</div>
+    </div>
+
     <h2>Controls</h2>
     <div style="font-size: 10px; color: #556;">
-      Click creature to inspect &middot; Drag to paint food<br/>
-      Keys: 1/2/3 = paint type &middot; Space = pause
+      Click creature = inspect &middot; Drag = paint food<br/>
+      Scroll = zoom &middot; Shift+drag = pan<br/>
+      Space = pause &middot; Home = reset view<br/>
+      F = follow creature &middot; Esc = close/deselect<br/>
+      M = minimap &middot; E = food web &middot; T = species tree<br/>
+      G = god mode &middot; +/- = zoom &middot; 1/2/3 = paint
+    </div>
+
+    <h2>Inspector</h2>
+    <div id="inspector-panel" style="display:none;font-size:10px;line-height:1.4;max-height:320px;overflow-y:auto;background:#0a0a14;border:1px solid #1a1a2e;border-radius:3px;padding:6px;margin-bottom:8px">
+      <span style="color:#556">Click a creature to inspect</span>
     </div>
 
     <h2>Stats</h2>
@@ -262,6 +320,10 @@
       <div><span class="stat-value" id="stat-other" style="font-size:9px">S:0 P:0 W:0 N:0</span></div>
       <div>Weather: <span class="stat-value" id="stat-weather">clear</span></div>
       <div>Event: <span class="stat-value" id="stat-event">none</span></div>
+      <div style="margin-top:4px; border-top:1px solid #1a1a2e; padding-top:4px;">
+        <span style="color:#44aaff">Avg Speed:</span> <span class="stat-value" id="stat-avg-speed">-</span>
+        <span style="color:#ffaa44; margin-left:6px;">Armor:</span> <span class="stat-value" id="stat-avg-armor">-</span>
+      </div>
     </div>
     <canvas id="mini-graph"></canvas>
   </div>

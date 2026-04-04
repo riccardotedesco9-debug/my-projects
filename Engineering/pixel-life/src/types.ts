@@ -14,7 +14,7 @@ export const MAX_REGULATORY_GENES = 16;
 export const REG_GENE_SIZE = 3;
 
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
-export type ViewMode = 'normal' | 'energy' | 'substrate' | 'lineage' | 'trophic';
+export type ViewMode = 'normal' | 'energy' | 'substrate' | 'lineage' | 'trophic' | 'territory';
 
 // Terrain types — each cell has one
 export const enum Terrain {
@@ -24,6 +24,14 @@ export const enum Terrain {
   GRASS = 3,   // high food
   FOREST = 4,  // medium food + camouflage
   ROCK = 5,    // no food, walkable
+}
+
+export interface MemoryEntry {
+  x: number;
+  y: number;
+  type: 'food' | 'danger' | 'safe';
+  strength: number;    // 0-255, decays over time
+  tick: number;        // when recorded
 }
 
 export interface RegulatoryGene {
@@ -43,6 +51,11 @@ export interface Pixel {
   generation: number;
   catalyzedUntil: number;           // tick when catalyze buff expires
   wallTicks: number;                // ticks spent stationary (for wall building)
+  direction: number;                // 0=down, 1=left, 2=right, 3=up (last movement)
+  memory: MemoryEntry[];            // spatial memory (max 8 entries)
+  packId: number;                   // 0 = solo, >0 = pack member
+  migrationTarget: { x: number; y: number } | null;
+  seasonalMemory: { season: Season; x: number; y: number; food: number }[];
   state: Uint8Array;                // [threat, satiety, social] — 3 internal registers
 }
 
@@ -56,6 +69,8 @@ export interface World {
   pheromone: Float32Array;            // W * H (pheromone trails, 0-1)
   corpses: Uint8Array;                // W * H (corpse energy per cell, 0=none)
   wear: Uint8Array;                   // W * H (creature foot traffic, 0-255)
+  territory: Uint16Array;              // W * H (owner pixel ID, 0 = unclaimed)
+  territoryAge: Uint16Array;          // W * H (ticks since last reinforced)
   foodPatches: FoodPatch[];          // dynamic substrate hotspots
   tick: number;
   season: Season;
