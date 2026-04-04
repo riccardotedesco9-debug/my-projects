@@ -193,9 +193,12 @@ function renderTerrainImageData(world: World, config: SimConfig): void {
       if (food > 0.02) {
         const scale = fullFood ? 40 : 25;
         const boost = Math.min(1, food) * scale;
-        r = Math.min(255, r + ((boost * 0.2) | 0));
-        g = Math.min(255, g + ((boost * 1.4) | 0));
-        b = Math.min(255, b + ((boost * 0.1) | 0));
+        // Food color by terrain type: Grass=R, Forest=G, Dirt=B, Water=cyan
+        const t = world.terrain[ci];
+        if (t === Terrain.GRASS) { r = Math.min(255, r + ((boost * 1.2) | 0)); g = Math.min(255, g + ((boost * 0.3) | 0)); }
+        else if (t === Terrain.FOREST) { g = Math.min(255, g + ((boost * 1.2) | 0)); r = Math.min(255, r + ((boost * 0.2) | 0)); }
+        else if (t === Terrain.DIRT || t === Terrain.WATER) { b = Math.min(255, b + ((boost * 1.0) | 0)); g = Math.min(255, g + ((boost * 0.3) | 0)); }
+        else { r = Math.min(255, r + ((boost * 0.5) | 0)); g = Math.min(255, g + ((boost * 0.5) | 0)); }
       }
       if (!fullFood && world.terrain[ci] >= Terrain.GRASS && food < 0.1) {
         const deplete = (0.1 - food) / 0.1;
@@ -417,11 +420,36 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
           pixCtx.fillRect(barX, barY2, barW * armorPct, barH);
         }
 
-        // Generation ring (gold for long-lived lineages)
-        if (pixel.generation > 10) {
-          pixCtx.strokeStyle = pixel.generation > 50 ? 'rgba(204,170,68,0.6)' : 'rgba(136,136,102,0.3)';
-          pixCtx.lineWidth = pixel.generation > 50 ? 0.3 : 0.15;
+        // Generation visuals — veterans show their experience
+        if (pixel.generation > 50) {
+          // Elite: gold border + crown dots above head
+          pixCtx.strokeStyle = 'rgba(220,180,50,0.7)';
+          pixCtx.lineWidth = 0.35;
           pixCtx.strokeRect(drawX + sizeOffset, drawY + sizeOffset, drawSize, drawSize);
+          // Crown: 3 gold dots above sprite
+          pixCtx.fillStyle = '#ddaa33';
+          const crownY = spriteDrawY - 1;
+          pixCtx.fillRect(drawX + S * 0.3, crownY, 0.7, 0.7);
+          pixCtx.fillRect(drawX + S * 0.5 - 0.3, crownY - 0.5, 0.7, 0.7);
+          pixCtx.fillRect(drawX + S * 0.7 - 0.5, crownY, 0.7, 0.7);
+        } else if (pixel.generation > 20) {
+          // Veteran: silver border
+          pixCtx.strokeStyle = 'rgba(160,160,180,0.4)';
+          pixCtx.lineWidth = 0.2;
+          pixCtx.strokeRect(drawX + sizeOffset, drawY + sizeOffset, drawSize, drawSize);
+        }
+
+        // Food specialization tint — small colored dot showing dominant harvest gene
+        const maxH = Math.max(pixel.dna[GENE.HARVEST_R], pixel.dna[GENE.HARVEST_G], pixel.dna[GENE.HARVEST_B]);
+        if (maxH > 150 && role === 0) { // only show on plants/herbivores
+          let specColor = '#888';
+          if (maxH === pixel.dna[GENE.HARVEST_R]) specColor = '#ff6666'; // R specialist
+          else if (maxH === pixel.dna[GENE.HARVEST_G]) specColor = '#66ff66'; // G specialist
+          else specColor = '#6666ff'; // B specialist
+          pixCtx.fillStyle = specColor;
+          pixCtx.globalAlpha = 0.7;
+          pixCtx.fillRect(drawX + S - 1.2, drawY + S - 1.2, 1, 1);
+          pixCtx.globalAlpha = 1;
         }
 
         // Direction trail
@@ -434,6 +462,29 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
           pixCtx.stroke();
         }
 
+        // Locomotion badge — small wing/fin icon for flyers/swimmers
+        if (loco === 'fly') {
+          // Tiny wing marks on sides
+          pixCtx.strokeStyle = 'rgba(200,220,255,0.5)';
+          pixCtx.lineWidth = 0.3;
+          const wingX = drawX + S / 2, wingY = drawY + S * 0.3;
+          pixCtx.beginPath();
+          pixCtx.moveTo(wingX - S * 0.5, wingY);
+          pixCtx.quadraticCurveTo(wingX - S * 0.7, wingY - S * 0.3, wingX - S * 0.3, wingY - S * 0.15);
+          pixCtx.moveTo(wingX + S * 0.5, wingY);
+          pixCtx.quadraticCurveTo(wingX + S * 0.7, wingY - S * 0.3, wingX + S * 0.3, wingY - S * 0.15);
+          pixCtx.stroke();
+        } else if (loco === 'swim') {
+          // Tiny fin/tail flick
+          const finPhase = Math.sin((frameCount + pixel.id * 4) * 0.25) * 0.5;
+          pixCtx.strokeStyle = 'rgba(100,180,220,0.5)';
+          pixCtx.lineWidth = 0.3;
+          pixCtx.beginPath();
+          pixCtx.moveTo(drawX + S * 0.8, drawY + S * 0.5);
+          pixCtx.quadraticCurveTo(drawX + S + 0.5, drawY + S * 0.5 + finPhase, drawX + S * 0.8, drawY + S * 0.7);
+          pixCtx.stroke();
+        }
+
         // Behavior icon above the creature
         drawBehaviorIcon(pixel, role, drawX, drawY, world);
       } else {
@@ -441,6 +492,11 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
         pixCtx.fillRect(pixel.x * S + 0.5, pixel.y * S + 0.5, S - 1, S - 1);
       }
     } else {
+      // LOD 0/1: dark outline behind glyphs for terrain contrast
+      pixCtx.fillStyle = 'rgba(0,0,0,0.4)';
+      pixCtx.beginPath();
+      pixCtx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+      pixCtx.fill();
       drawCreature(pixel, cx, cy, e, role, col, r, g, b);
     }
   }
@@ -676,51 +732,82 @@ function drawBehaviorIcon(pixel: Pixel, role: number, cellX: number, cellY: numb
   if (threat > 100) {
     icon = '!!'; color = '#ff4444';
   } else if ((role === 1 || role === 2) && senseTarget >= 85 && senseTarget < 170) {
-    icon = '\u2694'; color = '#ff6644'; // crossed swords
+    icon = 'hunt'; color = '#ff6644';
   } else if (role === 0 && world.food[pixel.y * W + pixel.x] > 0.15) {
-    icon = '\u2618'; color = '#44dd44'; // shamrock (feeding)
+    icon = 'feed'; color = '#44dd44';
   } else if (role === 3 && senseTarget >= 60 && senseTarget < 85 && world.pheromone[pixel.y * W + pixel.x] > 0.03) {
-    icon = '\u223C'; color = '#aa8844'; // tilde (sniffing)
+    icon = 'sniff'; color = '#aa8844';
   } else if (social > 100 && role === 5) {
-    icon = '\u2665'; color = '#44cccc'; // heart (bonding)
+    icon = 'bond'; color = '#44cccc';
   } else if (role === 4 && pixel.catalyzedUntil > 0) {
-    icon = '\u2622'; color = '#bb66ff'; // radioactive (parasiting)
+    icon = 'para'; color = '#bb66ff';
   } else if (pixel.energy < 20 && pixel.state[1] < 50) {
-    icon = 'FOOD'; color = '#ffcc22'; // custom drawn food icon
+    icon = 'FOOD'; color = '#ffcc22';
   }
 
   if (!icon) return;
 
-  if (icon === 'FOOD') {
-    // Custom drawn drumstick icon for hunger
-    const sz = S * 0.2;
-    pixCtx.fillStyle = 'rgba(0,0,0,0.65)';
-    pixCtx.fillRect(iconX - sz * 2.5, iconY - sz * 2, sz * 5, sz * 3);
-    // Drumstick: circle (meat) + line (bone)
-    pixCtx.fillStyle = '#cc8844';
-    pixCtx.beginPath();
-    pixCtx.arc(iconX - sz, iconY - sz * 0.3, sz * 1.1, 0, Math.PI * 2);
-    pixCtx.fill();
-    pixCtx.strokeStyle = '#eedd99';
-    pixCtx.lineWidth = sz * 0.5;
-    pixCtx.beginPath();
-    pixCtx.moveTo(iconX - sz * 0.2, iconY - sz * 0.3);
-    pixCtx.lineTo(iconX + sz * 1.5, iconY - sz * 0.3);
-    pixCtx.stroke();
-    return;
-  }
+  // All icons drawn as canvas shapes — no font/unicode dependency
+  const sz = S * 0.18;
+  // Background pill
+  pixCtx.fillStyle = 'rgba(0,0,0,0.6)';
+  pixCtx.fillRect(iconX - sz * 3, iconY - sz * 2.5, sz * 6, sz * 3.5);
 
-  // Dark background pill for contrast
-  const iconW = icon.length * 1.8 + 1;
-  pixCtx.fillStyle = 'rgba(0,0,0,0.65)';
-  pixCtx.fillRect(iconX - iconW / 2, iconY - 2.2, iconW, 3);
-
-  // Icon text
-  pixCtx.font = `bold ${S * 0.45}px Consolas, monospace`;
-  pixCtx.textAlign = 'center';
   pixCtx.fillStyle = color;
-  pixCtx.fillText(icon, iconX, iconY + 0.3);
-  pixCtx.textAlign = 'left';
+  pixCtx.strokeStyle = color;
+  pixCtx.lineWidth = sz * 0.4;
+
+  switch (icon) {
+    case '!!': // Fleeing — two red lines
+      pixCtx.fillRect(iconX - sz, iconY - sz * 2, sz * 0.5, sz * 2);
+      pixCtx.fillRect(iconX + sz * 0.5, iconY - sz * 2, sz * 0.5, sz * 2);
+      break;
+    case 'hunt': // Hunting — crosshair
+      pixCtx.beginPath();
+      pixCtx.arc(iconX, iconY - sz * 0.5, sz * 1.2, 0, Math.PI * 2);
+      pixCtx.stroke();
+      pixCtx.beginPath();
+      pixCtx.moveTo(iconX - sz * 2, iconY - sz * 0.5); pixCtx.lineTo(iconX + sz * 2, iconY - sz * 0.5);
+      pixCtx.moveTo(iconX, iconY - sz * 2.5); pixCtx.lineTo(iconX, iconY + sz * 1.5);
+      pixCtx.stroke();
+      break;
+    case 'feed': // Feeding — leaf shape
+      pixCtx.beginPath();
+      pixCtx.ellipse(iconX, iconY - sz * 0.5, sz * 1.5, sz * 0.8, Math.PI * 0.15, 0, Math.PI * 2);
+      pixCtx.fill();
+      break;
+    case 'sniff': // Scavenging — three dots rising
+      pixCtx.fillRect(iconX - sz, iconY - sz * 0.3, sz * 0.6, sz * 0.6);
+      pixCtx.fillRect(iconX + sz * 0.2, iconY - sz * 1.2, sz * 0.6, sz * 0.6);
+      pixCtx.fillRect(iconX - sz * 0.3, iconY - sz * 2, sz * 0.6, sz * 0.6);
+      break;
+    case 'bond': // Bonding — two dots close
+      pixCtx.beginPath();
+      pixCtx.arc(iconX - sz * 0.6, iconY - sz * 0.5, sz * 0.6, 0, Math.PI * 2);
+      pixCtx.arc(iconX + sz * 0.6, iconY - sz * 0.5, sz * 0.6, 0, Math.PI * 2);
+      pixCtx.fill();
+      break;
+    case 'para': // Parasite — circle with dot
+      pixCtx.beginPath();
+      pixCtx.arc(iconX, iconY - sz * 0.5, sz * 1.2, 0, Math.PI * 2);
+      pixCtx.stroke();
+      pixCtx.beginPath();
+      pixCtx.arc(iconX, iconY - sz * 0.5, sz * 0.4, 0, Math.PI * 2);
+      pixCtx.fill();
+      break;
+    case 'FOOD': // Hungry — drumstick
+      pixCtx.fillStyle = '#cc8844';
+      pixCtx.beginPath();
+      pixCtx.arc(iconX - sz, iconY - sz * 0.3, sz * 1.1, 0, Math.PI * 2);
+      pixCtx.fill();
+      pixCtx.strokeStyle = '#eedd99';
+      pixCtx.lineWidth = sz * 0.5;
+      pixCtx.beginPath();
+      pixCtx.moveTo(iconX - sz * 0.2, iconY - sz * 0.3);
+      pixCtx.lineTo(iconX + sz * 1.8, iconY - sz * 0.3);
+      pixCtx.stroke();
+      break;
+  }
 }
 
 function renderWeatherWorld(weather: Weather): void {

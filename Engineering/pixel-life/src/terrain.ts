@@ -44,9 +44,9 @@ function classify(elev: number, moist: number): Terrain {
 
 export function terrainFoodRate(t: Terrain): number {
   switch (t) {
-    case Terrain.GRASS: return 1.0; case Terrain.FOREST: return 0.5;
-    case Terrain.DIRT: return 0.12; case Terrain.SAND: return 0.02;
-    case Terrain.WATER: return 0.3; // aquatic food — algae/fish, only harvestable by swimmers
+    case Terrain.GRASS: return 0.6; case Terrain.FOREST: return 0.35;
+    case Terrain.DIRT: return 0.08; case Terrain.SAND: return 0.01;
+    case Terrain.WATER: return 0.2; // aquatic food — algae/fish
     default: return 0;
   }
 }

@@ -40,12 +40,14 @@ export function updateSubstrate(world: World, config: SimConfig): void {
   driftFoodPatches(world);
 }
 
-// Terrain-based food emission with seasonal geographic gradient
+// Terrain-based food emission — SPARSE, not every tile every tick
+// Only ~5% of fertile cells emit food per tick (stochastic), creating natural patchiness
 function emitFromTerrain(world: World, config: SimConfig): void {
   const { width: w, height: h, food, terrain } = world;
   const base = config.substrateEmission * getEmissionMult(world.season) * weatherFoodMult(world.weather);
+  // Use tick-based hash to select which cells emit this tick (~5% per tick)
+  const tickSeed = world.tick * 2654435761;
   for (let y = 0; y < h; y++) {
-    // Seasonal latitude gradient: food shifts north in summer, south in winter
     const latFactor = getSeasonalLatitude(y, h, world.season);
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
@@ -53,13 +55,15 @@ function emitFromTerrain(world: World, config: SimConfig): void {
       let rate = terrainFoodRate(t);
       if (rate <= 0) continue;
 
-      // Water adjacency bonus: grass/dirt/forest near water gets +30% food
+      // Stochastic emission: only ~5% of cells produce food each tick
+      // Deterministic hash so each cell gets its turn regularly
+      if (((tickSeed + x * 7 + y * 13) & 0x1f) !== 0) continue; // 1/32 chance per tick
+
+      // When a cell does emit, it produces more (compensating for low frequency)
       if (t === Terrain.GRASS || t === Terrain.DIRT || t === Terrain.FOREST) {
-        if (hasAdjacentWater(terrain, x, y, w, h)) {
-          rate *= 1.3;
-        }
+        if (hasAdjacentWater(terrain, x, y, w, h)) rate *= 1.3;
       }
-      food[i] = Math.min(1, food[i] + base * rate * latFactor);
+      food[i] = Math.min(1, food[i] + base * rate * latFactor * 20); // 20x burst since only 1/32 tick
     }
   }
 }
@@ -68,11 +72,12 @@ function emitFromTerrain(world: World, config: SimConfig): void {
 // Returns multiplier 0.75-1.25 based on latitude and season
 function getSeasonalLatitude(y: number, h: number, season: Season): number {
   const lat = y / h; // 0 = north, 1 = south
+  // Stronger gradient: 0.3x to 1.7x — creates real migration pressure
   switch (season) {
-    case 'summer': return 0.75 + (1 - lat) * 0.5;  // north is lush, south is sparse
-    case 'winter': return 0.75 + lat * 0.5;          // south is lush, north is sparse
-    case 'spring': return 0.85 + (1 - lat) * 0.3;   // slight north bias (warming up)
-    case 'autumn': return 0.85 + lat * 0.3;          // slight south bias (cooling down)
+    case 'summer': return 0.3 + (1 - lat) * 1.4;  // north is lush, south is barren
+    case 'winter': return 0.3 + lat * 1.4;          // south is lush, north is barren
+    case 'spring': return 0.5 + (1 - lat) * 1.0;   // north warming up
+    case 'autumn': return 0.5 + lat * 1.0;          // south holds warmth longer
   }
 }
 

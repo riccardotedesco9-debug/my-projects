@@ -184,11 +184,17 @@ export function renderTerrainOverlays(
   const wx = cellX * cellSize;
   const wy = cellY * cellSize;
 
-  // Food abundance: bright green dots
+  // Food abundance: colored dots by terrain food type
+  // Grass=red food(berries), Forest=green food(fruit), Dirt=blue food(roots), Water=cyan(algae)
   const food = world.food[ci];
   if (food > 0.05) {
-    const dots = Math.min(5, Math.floor(food * 6));
-    ctx.fillStyle = '#44cc44';
+    const terrain = world.terrain[ci];
+    const dots = Math.min(5, Math.floor(food * 8));
+    if (terrain === Terrain.GRASS) ctx.fillStyle = '#cc4444';       // red berries
+    else if (terrain === Terrain.FOREST) ctx.fillStyle = '#44cc44'; // green fruit
+    else if (terrain === Terrain.DIRT) ctx.fillStyle = '#4466cc';   // blue roots
+    else if (terrain === Terrain.WATER) ctx.fillStyle = '#44cccc';  // cyan algae
+    else ctx.fillStyle = '#aa9944';                                  // default yellow
     for (let i = 0; i < dots; i++) {
       const dx = (hash(cellX, cellY, i * 3) % (cellSize - 2)) + 1;
       const dy = (hash(cellX, cellY, i * 3 + 1) % (cellSize - 2)) + 1;

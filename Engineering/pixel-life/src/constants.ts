@@ -2,7 +2,7 @@ import type { SimConfig } from './types';
 
 // -- Energy --
 export const MAX_ENERGY = 100.0;
-export const BASE_UPKEEP = 0.07;        // meaningful baseline cost — survival isn't free
+export const BASE_UPKEEP = 0.06;        // meaningful but not punishing — leaves room for evolution
 export const SPEED_UPKEEP = 0.10;       // fast creatures pay more
 export const SENSE_UPKEEP = 0.04;       // sensing costs energy
 export const HARVEST_RATE = 0.28;       // scarcer food — drives competition and niche separation
@@ -13,7 +13,7 @@ export const DEATH_SUBSTRATE_SCALE = 0.1; // nutrient release on death
 // -- Reproduction --
 export const REPRO_MIN_ENERGY = 30;     // must be well-fed to reproduce
 export const REPRO_MAX_ENERGY = 60;     // ceiling
-export const REPRO_TAX = 5.0;           // reproduction is very costly — natural population control
+export const REPRO_TAX = 3.5;           // meaningful cost but still viable — natural selection, not extinction
 export const REPRO_SHARE_MIN = 0.1;
 export const REPRO_SHARE_MAX = 0.9;
 
@@ -82,10 +82,10 @@ export const AGE_DECAY_START = 500;         // age when upkeep starts increasing
 export const AGE_DECAY_RATE = 0.001;        // upkeep increase per tick of age past threshold
 
 // -- Food patches --
-export const FOOD_PATCH_COUNT = 5;          // fewer patches = more competition for resources
+export const FOOD_PATCH_COUNT = 7;          // primary food source — creates competition hotspots
 export const FOOD_PATCH_RADIUS_MIN = 5;
 export const FOOD_PATCH_RADIUS_MAX = 12;
-export const FOOD_PATCH_STRENGTH = 0.03;
+export const FOOD_PATCH_STRENGTH = 0.018;
 export const FOOD_PATCH_LIFE_MIN = 500;
 export const FOOD_PATCH_LIFE_MAX = 2000;
 export const FOOD_PATCH_DRIFT_SPEED = 0.02; // cells per tick
@@ -156,7 +156,7 @@ export function createDefaultConfig(): SimConfig {
     worldHeight: 150,
     pixelScale: 5,              // 1000x750 canvas, 5px creatures for shape visibility
     initialPopulation: 100,     // sparse — gives room to see individuals
-    substrateEmission: 0.012,   // scarce — producers compete, predators viable
+    substrateEmission: 0.007,   // scarce — drives real competition and niche separation
     substrateDiffusion: 0.06,
     substrateDecay: 0.997,
     seasonLength: 2000,
