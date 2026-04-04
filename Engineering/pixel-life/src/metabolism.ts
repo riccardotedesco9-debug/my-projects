@@ -54,7 +54,7 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
   }
 
   const harvestEff = (pixel.dna[GENE.HARVEST_R] + pixel.dna[GENE.HARVEST_G] + pixel.dna[GENE.HARVEST_B]) / (255 * 3);
-  const effectiveHarvest = (config as any).harvestRate ?? HARVEST_RATE;
+  const effectiveHarvest = config.harvestRate ?? HARVEST_RATE;
   const harvested = avail * harvestEff * effectiveHarvest * catalyzeBoost * harvestPenalty * foodAffinity;
   let gained = harvested;
   world.food[cellIdx] = Math.max(0, avail - harvested);

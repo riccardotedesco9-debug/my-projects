@@ -240,13 +240,11 @@ function renderTerrainImageData(world: World, config: SimConfig): void {
 }
 
 function renderPixels(world: World, config: SimConfig, lod: number): void {
-  // Prune dead creatures from tween map every 60 frames
+  // Prune dead creatures from tween map every 60 frames (O(n) via Set)
   if (frameCount % 60 === 0 && _tweenPositions.size > world.pixels.size * 1.5) {
-    for (const [id] of _tweenPositions) {
-      let found = false;
-      for (const p of world.pixels.values()) { if (p.id === id) { found = true; break; } }
-      if (!found) _tweenPositions.delete(id);
-    }
+    const alive = new Set<number>();
+    for (const p of world.pixels.values()) alive.add(p.id);
+    for (const [id] of _tweenPositions) { if (!alive.has(id)) _tweenPositions.delete(id); }
   }
   const bounds = getVisibleCells(camera, W, H, S, pixCanvas.width, pixCanvas.height);
 

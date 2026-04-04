@@ -34,11 +34,11 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   bindSlider('slider-emission', 'val-emission', v => { config.substrateEmission = v / 1000; return (v / 1000).toFixed(3); });
   bindSlider('slider-harvest', 'val-harvest', v => {
     // Directly modify HARVEST_RATE via config extension
-    (config as any).harvestRate = v / 100;
+    config.harvestRate = v / 100;
     return (v / 100).toFixed(2);
   });
   bindSlider('slider-repro', 'val-repro', v => {
-    (config as any).reproTax = v / 10;
+    config.reproTax = v / 10;
     return (v / 10).toFixed(1);
   });
   bindSlider('slider-upkeep', 'val-upkeep', v => { config.upkeepMultiplier = v / 100; return `${(v / 100).toFixed(1)}x`; });
@@ -52,7 +52,7 @@ export function initControls(config: SimConfig, onReset: () => void): void {
     defaultsBtn.onclick = () => {
       const defaults: Record<string, number> = {
         'slider-speed': 10, 'slider-population': 100, 'slider-emission': 10,
-        'slider-harvest': 28, 'slider-repro': 35, 'slider-upkeep': 60,
+        'slider-harvest': 28, 'slider-repro': 35, 'slider-upkeep': 100,
         'slider-diffusion': 6, 'slider-season': 2000, 'slider-mutation': 15,
       };
       for (const [id, val] of Object.entries(defaults)) {

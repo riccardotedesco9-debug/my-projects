@@ -51,7 +51,7 @@ export function tryReproduce(
   // Energy split
   const shareGene = getEffectiveGene(pixel, GENE.REPRO_SHARE) / 255;
   const shareFraction = REPRO_SHARE_MIN + shareGene * (REPRO_SHARE_MAX - REPRO_SHARE_MIN);
-  const effectiveReproTax = (config as any).reproTax ?? REPRO_TAX;
+  const effectiveReproTax = config.reproTax ?? REPRO_TAX;
   const childEnergy = pixel.energy * shareFraction - effectiveReproTax / 2;
   pixel.energy = pixel.energy * (1 - shareFraction) - effectiveReproTax / 2;
 

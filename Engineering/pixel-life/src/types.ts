@@ -119,6 +119,8 @@ export interface SimConfig {
   viewMode: ViewMode;
   paused: boolean;
   paintChannel: number;             // 0=R, 1=G, 2=B for substrate painting
+  harvestRate: number;              // live-adjustable harvest efficiency
+  reproTax: number;                 // live-adjustable reproduction cost
 }
 
 // Event counters per tick for audio batching

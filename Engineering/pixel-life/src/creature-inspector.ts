@@ -42,7 +42,7 @@ export function showInspector(pixel: Pixel, screenX?: number, screenY?: number):
       const maxX = window.innerWidth - 290;
       const maxY = window.innerHeight - 410;
       panelEl.style.left = `${Math.min(screenX + 15, maxX)}px`;
-      panelEl.style.top = `${Math.min(screenY - 50, maxY)}px`;
+      panelEl.style.top = `${Math.max(10, Math.min(screenY - 50, maxY))}px`;
     }
   }
 }

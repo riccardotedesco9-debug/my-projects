@@ -166,5 +166,7 @@ export function createDefaultConfig(): SimConfig {
     viewMode: 'normal',
     paused: false,
     paintChannel: 0,
+    harvestRate: 0.28,
+    reproTax: 3.5,
   };
 }
