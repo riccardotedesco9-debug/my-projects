@@ -193,12 +193,13 @@ function renderTerrainImageData(world: World, config: SimConfig): void {
       if (food > 0.02) {
         const scale = fullFood ? 40 : 25;
         const boost = Math.min(1, food) * scale;
-        // Food color by terrain type: Grass=R, Forest=G, Dirt=B, Water=cyan
+        // Food color by terrain type — vivid so you can see food distribution at any zoom
         const t = world.terrain[ci];
-        if (t === Terrain.GRASS) { r = Math.min(255, r + ((boost * 1.2) | 0)); g = Math.min(255, g + ((boost * 0.3) | 0)); }
-        else if (t === Terrain.FOREST) { g = Math.min(255, g + ((boost * 1.2) | 0)); r = Math.min(255, r + ((boost * 0.2) | 0)); }
-        else if (t === Terrain.DIRT || t === Terrain.WATER) { b = Math.min(255, b + ((boost * 1.0) | 0)); g = Math.min(255, g + ((boost * 0.3) | 0)); }
-        else { r = Math.min(255, r + ((boost * 0.5) | 0)); g = Math.min(255, g + ((boost * 0.5) | 0)); }
+        if (t === Terrain.GRASS) { r = Math.min(255, r + ((boost * 2.0) | 0)); g = Math.min(255, g + ((boost * 0.5) | 0)); }
+        else if (t === Terrain.FOREST) { g = Math.min(255, g + ((boost * 2.0) | 0)); r = Math.min(255, r + ((boost * 0.3) | 0)); }
+        else if (t === Terrain.DIRT) { b = Math.min(255, b + ((boost * 2.0) | 0)); r = Math.min(255, r + ((boost * 0.4) | 0)); }
+        else if (t === Terrain.WATER) { b = Math.min(255, b + ((boost * 1.5) | 0)); g = Math.min(255, g + ((boost * 1.0) | 0)); }
+        else { r = Math.min(255, r + ((boost * 0.8) | 0)); g = Math.min(255, g + ((boost * 0.8) | 0)); }
       }
       if (!fullFood && world.terrain[ci] >= Terrain.GRASS && food < 0.1) {
         const deplete = (0.1 - food) / 0.1;
