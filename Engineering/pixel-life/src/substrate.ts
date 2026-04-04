@@ -45,8 +45,6 @@ export function updateSubstrate(world: World, config: SimConfig): void {
 function emitFromTerrain(world: World, config: SimConfig): void {
   const { width: w, height: h, food, terrain } = world;
   const base = config.substrateEmission * getEmissionMult(world.season) * weatherFoodMult(world.weather);
-  // Use tick-based hash to select which cells emit this tick (~5% per tick)
-  const tickSeed = world.tick * 2654435761;
   for (let y = 0; y < h; y++) {
     const latFactor = getSeasonalLatitude(y, h, world.season);
     for (let x = 0; x < w; x++) {
@@ -55,14 +53,10 @@ function emitFromTerrain(world: World, config: SimConfig): void {
       let rate = terrainFoodRate(t);
       if (rate <= 0) continue;
 
-      // Stochastic emission: ~25% of cells produce food each tick (1/4)
-      // Creates patchiness without starving everything
-      if (((tickSeed + x * 7 + y * 13) & 0x3) !== 0) continue;
-
       if (t === Terrain.GRASS || t === Terrain.DIRT || t === Terrain.FOREST) {
         if (hasAdjacentWater(terrain, x, y, w, h)) rate *= 1.3;
       }
-      food[i] = Math.min(1, food[i] + base * rate * latFactor * 4); // 4x burst for 1/4 frequency
+      food[i] = Math.min(1, food[i] + base * rate * latFactor);
     }
   }
 }

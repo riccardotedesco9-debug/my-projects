@@ -2,10 +2,10 @@ import type { SimConfig } from './types';
 
 // -- Energy --
 export const MAX_ENERGY = 100.0;
-export const BASE_UPKEEP = 0.06;        // meaningful but not punishing — leaves room for evolution
-export const SPEED_UPKEEP = 0.06;       // fast creatures pay moderately — predators need to be fast
-export const SENSE_UPKEEP = 0.04;       // sensing costs energy
-export const HARVEST_RATE = 0.28;       // scarcer food — drives competition and niche separation
+export const BASE_UPKEEP = 0.04;        // low baseline — creatures survive long enough to evolve
+export const SPEED_UPKEEP = 0.04;       // cheap speed — predators need to chase
+export const SENSE_UPKEEP = 0.02;       // cheap sensing
+export const HARVEST_RATE = 0.45;       // generous harvest — food is available, competition is for the best spots
 export const WASTE_RATE = 0.015;        // nutrient cycling
 export const MOVE_COST = 0.025;         // moderate exploration cost
 export const DEATH_SUBSTRATE_SCALE = 0.1; // nutrient release on death
@@ -13,7 +13,7 @@ export const DEATH_SUBSTRATE_SCALE = 0.1; // nutrient release on death
 // -- Reproduction --
 export const REPRO_MIN_ENERGY = 30;     // must be well-fed to reproduce
 export const REPRO_MAX_ENERGY = 60;     // ceiling
-export const REPRO_TAX = 3.5;           // meaningful cost but still viable — natural selection, not extinction
+export const REPRO_TAX = 2.0;           // low cost — populations grow, then competition kicks in
 export const REPRO_SHARE_MIN = 0.1;
 export const REPRO_SHARE_MAX = 0.9;
 
@@ -156,7 +156,7 @@ export function createDefaultConfig(): SimConfig {
     worldHeight: 150,
     pixelScale: 5,              // 1000x750 canvas, 5px creatures for shape visibility
     initialPopulation: 100,     // sparse — gives room to see individuals
-    substrateEmission: 0.010,   // moderate — patchy emission creates natural scarcity
+    substrateEmission: 0.012,   // generous — food sustains ecosystem, competition for best spots
     substrateDiffusion: 0.06,
     substrateDecay: 0.997,
     seasonLength: 2000,
@@ -166,7 +166,7 @@ export function createDefaultConfig(): SimConfig {
     viewMode: 'normal',
     paused: false,
     paintChannel: 0,
-    harvestRate: 0.28,
-    reproTax: 3.5,
+    harvestRate: 0.45,
+    reproTax: 2.0,
   };
 }
