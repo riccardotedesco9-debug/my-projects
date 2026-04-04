@@ -163,16 +163,31 @@
       <span class="value" id="val-speed">1x</span>
     </div>
 
-    <h2>Parameters</h2>
+    <h2>Parameters <button class="btn" id="btn-defaults" style="float:right;font-size:8px;padding:2px 6px">Defaults</button></h2>
     <div class="control-row">
       <label>Start Pop</label>
       <input type="range" id="slider-population" min="50" max="2000" value="100" step="50" />
-      <span class="value" id="val-population">500</span>
+      <span class="value" id="val-population">100</span>
     </div>
     <div class="control-row">
-      <label>Emission</label>
-      <input type="range" id="slider-emission" min="0" max="100" value="10" />
-      <span class="value" id="val-emission">0.012</span>
+      <label>Food Rate</label>
+      <input type="range" id="slider-emission" min="1" max="50" value="10" />
+      <span class="value" id="val-emission">0.010</span>
+    </div>
+    <div class="control-row">
+      <label>Harvest</label>
+      <input type="range" id="slider-harvest" min="10" max="80" value="28" />
+      <span class="value" id="val-harvest">0.28</span>
+    </div>
+    <div class="control-row">
+      <label>Repro Cost</label>
+      <input type="range" id="slider-repro" min="10" max="80" value="35" />
+      <span class="value" id="val-repro">3.5</span>
+    </div>
+    <div class="control-row">
+      <label>Upkeep</label>
+      <input type="range" id="slider-upkeep" min="50" max="300" value="100" />
+      <span class="value" id="val-upkeep">1.0x</span>
     </div>
     <div class="control-row">
       <label>Diffusion</label>
@@ -180,19 +195,9 @@
       <span class="value" id="val-diffusion">0.06</span>
     </div>
     <div class="control-row">
-      <label>Decay</label>
-      <input type="range" id="slider-decay" min="990" max="1000" value="997" />
-      <span class="value" id="val-decay">0.997</span>
-    </div>
-    <div class="control-row">
       <label>Season Len</label>
       <input type="range" id="slider-season" min="500" max="10000" value="2000" step="100" />
       <span class="value" id="val-season">2000</span>
-    </div>
-    <div class="control-row">
-      <label>Upkeep</label>
-      <input type="range" id="slider-upkeep" min="50" max="300" value="100" />
-      <span class="value" id="val-upkeep">1.0x</span>
     </div>
     <div class="control-row">
       <label>Mutation</label>
@@ -301,10 +306,7 @@
       G = god mode &middot; +/- = zoom &middot; 1/2/3 = paint
     </div>
 
-    <h2>Inspector</h2>
-    <div id="inspector-panel" style="display:none;font-size:10px;line-height:1.4;max-height:320px;overflow-y:auto;background:#0a0a14;border:1px solid #1a1a2e;border-radius:3px;padding:6px;margin-bottom:8px">
-      <span style="color:#556">Click a creature to inspect</span>
-    </div>
+    <!-- Inspector moved to floating popup -->
 
     <h2>Stats</h2>
     <div id="stats-panel">
@@ -329,6 +331,9 @@
   </div>
 
   <div id="tooltip"></div>
+  <div id="inspector-panel" style="display:none;position:fixed;z-index:200;background:#0c0c18ee;border:1px solid #00ff8844;border-radius:6px;padding:10px;font-size:10px;line-height:1.4;max-width:280px;max-height:400px;overflow-y:auto;pointer-events:auto;box-shadow:0 4px 20px rgba(0,0,0,0.6)">
+    <span style="color:#556">Click a creature to inspect</span>
+  </div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

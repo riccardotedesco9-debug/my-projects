@@ -1,5 +1,5 @@
-// Territory system: high-adhesion creatures claim nearby cells
-// Other creatures pay a movement penalty entering foreign territory
+// Territory system: creatures of the same species (similar DNA) share territory
+// Territory is tracked by species cluster, not individual creature
 
 import type { Pixel, World } from './types';
 import { GENE } from './types';
@@ -9,35 +9,36 @@ import {
   TERRITORY_DECAY_RATE, TERRITORY_MAX_AGE,
   TERRITORY_MOVE_PENALTY,
 } from './constants';
+import { getCreatureRole } from './metabolism';
 
-// Mark territory around a creature if it has high adhesion and has been stationary
+// Territory owner = role (0-6), not individual pixel ID
+// This means all wolves share wolf territory, all plants share plant territory
+
 export function markTerritory(pixel: Pixel, world: World): void {
   if (pixel.dna[GENE.ADHESION] < TERRITORY_ADHESION_MIN) return;
-  // Must have been in area for a few ticks (not just passing through)
   if (pixel.wallTicks < 3 && pixel.age < 10) return;
 
   const { width: w, height: h } = world;
   const r = TERRITORY_MARK_RADIUS;
+  const ownerRole = getCreatureRole(pixel) + 1; // +1 so 0 stays "unclaimed"
 
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
-      if (dx * dx + dy * dy > r * r) continue; // circular radius
+      if (dx * dx + dy * dy > r * r) continue;
       const nx = wrapX(pixel.x + dx, w);
       const ny = wrapY(pixel.y + dy, h);
       const ci = ny * w + nx;
       const currentOwner = world.territory[ci];
 
-      // Claim unclaimed or refresh own territory
-      if (currentOwner === 0 || currentOwner === pixel.id) {
-        world.territory[ci] = pixel.id;
-        world.territoryAge[ci] = 0; // reset age
+      // Claim unclaimed or refresh same-species territory
+      if (currentOwner === 0 || currentOwner === ownerRole) {
+        world.territory[ci] = ownerRole;
+        world.territoryAge[ci] = 0;
       }
-      // Don't overwrite another creature's fresh territory
     }
   }
 }
 
-// Decay all territories — called once per tick
 export function decayTerritories(world: World): void {
   const n = world.width * world.height;
   for (let i = 0; i < n; i++) {
@@ -50,34 +51,33 @@ export function decayTerritories(world: World): void {
   }
 }
 
-// Get movement cost multiplier for entering a cell owned by another creature
+// Foreign territory = different role owns it
 export function getTerritoryMoveCost(pixel: Pixel, world: World, nx: number, ny: number): number {
   const ci = ny * world.width + nx;
   const owner = world.territory[ci];
-  if (owner === 0 || owner === pixel.id) return 1.0;
-  // Foreign territory — check if owner is similar (same species = no penalty)
-  // Simple heuristic: check if owner is still alive and has different role
-  // For performance, just apply the penalty for any foreign territory
+  if (owner === 0) return 1.0; // unclaimed
+  const myRole = getCreatureRole(pixel) + 1;
+  if (owner === myRole) return 1.0; // own species territory
   return TERRITORY_MOVE_PENALTY;
 }
 
-// Get territory color for rendering (based on owner's DNA hash)
+// Territory color based on role (consistent with role colors)
+const TERRITORY_ROLE_COLORS: [number, number, number][] = [
+  [0, 0, 0],          // 0 = unclaimed (never drawn)
+  [68, 204, 68],      // 1 = plant (green)
+  [204, 136, 68],     // 2 = hunter (orange)
+  [204, 51, 51],      // 3 = apex (red)
+  [170, 136, 102],    // 4 = scavenger (brown)
+  [170, 68, 204],     // 5 = parasite (purple)
+  [68, 204, 204],     // 6 = swarm (cyan)
+  [204, 204, 68],     // 7 = nomad (yellow)
+];
+
 export function getTerritoryColor(world: World, ci: number): [number, number, number, number] | null {
-  const ownerId = world.territory[ci];
-  if (ownerId === 0) return null;
-  // Simple color from owner ID
+  const owner = world.territory[ci];
+  if (owner === 0 || owner > 7) return null;
   const age = world.territoryAge[ci];
-  const alpha = Math.max(0.05, 0.3 * (1 - age / TERRITORY_MAX_AGE));
-  const hue = (ownerId * 137) % 360;
-  // HSL to RGB approximation for overlay
-  const h = hue / 60;
-  const x = 1 - Math.abs(h % 2 - 1);
-  let r = 0, g = 0, b = 0;
-  if (h < 1) { r = 1; g = x; }
-  else if (h < 2) { r = x; g = 1; }
-  else if (h < 3) { g = 1; b = x; }
-  else if (h < 4) { g = x; b = 1; }
-  else if (h < 5) { r = x; b = 1; }
-  else { r = 1; b = x; }
-  return [Math.floor(r * 200 + 55), Math.floor(g * 200 + 55), Math.floor(b * 200 + 55), alpha];
+  const alpha = Math.max(0.05, 0.25 * (1 - age / TERRITORY_MAX_AGE));
+  const [r, g, b] = TERRITORY_ROLE_COLORS[owner];
+  return [r, g, b, alpha];
 }

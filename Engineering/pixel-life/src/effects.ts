@@ -82,17 +82,30 @@ export function toCanvasCenter(gx: number, gy: number, scale: number): [number, 
 }
 
 export function renderEffects(ctx: CanvasRenderingContext2D): void {
-  // Birth rings — expanding colored circles
+  // Birth effects — heart + ring
   for (const b of births) {
     if (b.age >= BIRTH_LIFETIME) continue;
     const t = b.age / BIRTH_LIFETIME;
+    const alpha = 0.6 * (1 - t);
+
+    // Expanding ring
     const radius = 3 + t * 8;
-    const alpha = 0.5 * (1 - t);
     ctx.strokeStyle = `rgba(${b.r},${b.g},${b.b},${alpha})`;
     ctx.lineWidth = 1.5 * (1 - t);
     ctx.beginPath();
     ctx.arc(b.x, b.y, radius, 0, Math.PI * 2);
     ctx.stroke();
+
+    // Rising heart
+    const heartY = b.y - t * 6;
+    const heartSize = 1.5 * (1 - t * 0.5);
+    ctx.fillStyle = `rgba(255,120,180,${alpha})`;
+    ctx.beginPath();
+    ctx.moveTo(b.x, heartY + heartSize);
+    ctx.bezierCurveTo(b.x - heartSize, heartY - heartSize * 0.5, b.x - heartSize * 2, heartY + heartSize * 0.5, b.x, heartY + heartSize * 2);
+    ctx.bezierCurveTo(b.x + heartSize * 2, heartY + heartSize * 0.5, b.x + heartSize, heartY - heartSize * 0.5, b.x, heartY + heartSize);
+    ctx.fill();
+
     b.age++;
   }
 

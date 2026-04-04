@@ -32,11 +32,35 @@ export function initControls(config: SimConfig, onReset: () => void): void {
     return String(v);
   });
   bindSlider('slider-emission', 'val-emission', v => { config.substrateEmission = v / 1000; return (v / 1000).toFixed(3); });
-  bindSlider('slider-diffusion', 'val-diffusion', v => { config.substrateDiffusion = v / 100; return (v / 100).toFixed(2); });
-  bindSlider('slider-decay', 'val-decay', v => { config.substrateDecay = v / 1000; return (v / 1000).toFixed(3); });
-  bindSlider('slider-season', 'val-season', v => { config.seasonLength = v; return String(v); });
+  bindSlider('slider-harvest', 'val-harvest', v => {
+    // Directly modify HARVEST_RATE via config extension
+    (config as any).harvestRate = v / 100;
+    return (v / 100).toFixed(2);
+  });
+  bindSlider('slider-repro', 'val-repro', v => {
+    (config as any).reproTax = v / 10;
+    return (v / 10).toFixed(1);
+  });
   bindSlider('slider-upkeep', 'val-upkeep', v => { config.upkeepMultiplier = v / 100; return `${(v / 100).toFixed(1)}x`; });
+  bindSlider('slider-diffusion', 'val-diffusion', v => { config.substrateDiffusion = v / 100; return (v / 100).toFixed(2); });
+  bindSlider('slider-season', 'val-season', v => { config.seasonLength = v; return String(v); });
   bindSlider('slider-mutation', 'val-mutation', v => { config.mutationIntensity = v; return String(v); });
+
+  // Defaults button — reset all sliders to initial values
+  const defaultsBtn = document.getElementById('btn-defaults');
+  if (defaultsBtn) {
+    defaultsBtn.onclick = () => {
+      const defaults: Record<string, number> = {
+        'slider-speed': 10, 'slider-population': 100, 'slider-emission': 10,
+        'slider-harvest': 28, 'slider-repro': 35, 'slider-upkeep': 60,
+        'slider-diffusion': 6, 'slider-season': 2000, 'slider-mutation': 15,
+      };
+      for (const [id, val] of Object.entries(defaults)) {
+        const slider = document.getElementById(id) as HTMLInputElement;
+        if (slider) { slider.value = String(val); slider.dispatchEvent(new Event('input')); }
+      }
+    };
+  }
 
   // View mode buttons
   const viewModes: ViewMode[] = ['normal', 'energy', 'trophic', 'substrate', 'lineage', 'territory'];
@@ -84,7 +108,7 @@ export function initCanvasInteraction(
     const pixel = world.pixels.get(key);
 
     if (pixel) {
-      showInspector(pixel);
+      showInspector(pixel, e.clientX, e.clientY);
     } else {
       painting = true;
       paintSubstrate(world, gx, gy, config.paintChannel);

@@ -32,10 +32,19 @@ export function initInspector(): void {
   panelEl.style.display = 'none';
 }
 
-export function showInspector(pixel: Pixel): void {
+export function showInspector(pixel: Pixel, screenX?: number, screenY?: number): void {
   trackedId = pixel.id;
   energyHistory = [pixel.energy];
-  if (panelEl) panelEl.style.display = 'block';
+  if (panelEl) {
+    panelEl.style.display = 'block';
+    // Position near the click point
+    if (screenX !== undefined && screenY !== undefined) {
+      const maxX = window.innerWidth - 290;
+      const maxY = window.innerHeight - 410;
+      panelEl.style.left = `${Math.min(screenX + 15, maxX)}px`;
+      panelEl.style.top = `${Math.min(screenY - 50, maxY)}px`;
+    }
+  }
 }
 
 export function hideInspector(): void {

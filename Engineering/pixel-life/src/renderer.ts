@@ -113,7 +113,7 @@ export function renderFrame(world: World, config: SimConfig): void {
   renderPixels(world, config, lod);
   renderEffects(pixCtx);
   renderInspectorOverlay(pixCtx, world, config);
-  if (lod < 2) renderClusterLabels(world);
+  // Cluster labels removed — population bar at bottom + stats panel show distribution
   renderWeatherWorld(world.weather as Weather);
 
   // Follow mode: camera tracks the inspected creature
@@ -616,66 +616,6 @@ function getTerrainFitness(role: number, t: Terrain): number {
   if (role === 3) return t === Terrain.DIRT ? 0.6 : 0;
   if (role === 6) return t === Terrain.SAND ? 0.5 : t === Terrain.ROCK ? 0.4 : 0;
   return 0;
-}
-
-// Population cluster labels: show role names over groups when zoomed out
-const ROLE_LABEL_NAMES = ['Plant', 'Wolf', 'Apex', 'Scvgr', 'Para', 'Swarm', 'Nomad'];
-const ROLE_LABEL_COLORS = ['#44cc44', '#cc8844', '#cc3333', '#aa8866', '#aa44cc', '#44cccc', '#cccc44'];
-let _lastClusterFrame = 0;
-let _clusterCache: { x: number; y: number; role: number; count: number }[] = [];
-
-function renderClusterLabels(world: World): void {
-  // Only recompute every 30 frames
-  if (frameCount - _lastClusterFrame > 30) {
-    _lastClusterFrame = frameCount;
-    // Grid-based clustering: divide world into 20x15 regions
-    const regionW = 10, regionH = 10;
-    const cols = Math.ceil(W / regionW), rows = Math.ceil(H / regionH);
-    const regions: number[][] = Array.from({ length: cols * rows }, () => new Array(7).fill(0));
-
-    for (const p of world.pixels.values()) {
-      const rx = Math.floor(p.x / regionW);
-      const ry = Math.floor(p.y / regionH);
-      const role = getCreatureRole(p);
-      if (role < 7) regions[ry * cols + rx][role]++;
-    }
-
-    _clusterCache = [];
-    for (let ry = 0; ry < rows; ry++) {
-      for (let rx = 0; rx < cols; rx++) {
-        const counts = regions[ry * cols + rx];
-        const total = counts.reduce((a, b) => a + b, 0);
-        if (total < 4) continue; // skip sparse regions
-        // Find dominant role
-        let maxRole = 0, maxCount = 0;
-        for (let i = 0; i < 7; i++) {
-          if (counts[i] > maxCount) { maxCount = counts[i]; maxRole = i; }
-        }
-        if (maxCount >= 3) {
-          _clusterCache.push({
-            x: (rx + 0.5) * regionW * S,
-            y: (ry + 0.5) * regionH * S,
-            role: maxRole,
-            count: maxCount,
-          });
-        }
-      }
-    }
-  }
-
-  // Draw labels
-  for (const c of _clusterCache) {
-    pixCtx.font = `bold ${2.5}px Consolas, monospace`;
-    pixCtx.textAlign = 'center';
-    // Background
-    pixCtx.fillStyle = 'rgba(0,0,0,0.5)';
-    const textW = 14;
-    pixCtx.fillRect(c.x - textW / 2, c.y - 2, textW, 3.5);
-    // Label
-    pixCtx.fillStyle = ROLE_LABEL_COLORS[c.role];
-    pixCtx.fillText(`${ROLE_LABEL_NAMES[c.role]} ×${c.count}`, c.x, c.y + 0.8);
-  }
-  pixCtx.textAlign = 'left';
 }
 
 // Movement tweening state: tracks previous positions for smooth interpolation
