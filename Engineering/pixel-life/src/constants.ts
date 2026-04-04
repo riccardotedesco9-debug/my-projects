@@ -3,7 +3,7 @@ import type { SimConfig } from './types';
 // -- Energy --
 export const MAX_ENERGY = 100.0;
 export const BASE_UPKEEP = 0.06;        // meaningful but not punishing — leaves room for evolution
-export const SPEED_UPKEEP = 0.10;       // fast creatures pay more
+export const SPEED_UPKEEP = 0.06;       // fast creatures pay moderately — predators need to be fast
 export const SENSE_UPKEEP = 0.04;       // sensing costs energy
 export const HARVEST_RATE = 0.28;       // scarcer food — drives competition and niche separation
 export const WASTE_RATE = 0.015;        // nutrient cycling
@@ -18,7 +18,7 @@ export const REPRO_SHARE_MIN = 0.1;
 export const REPRO_SHARE_MAX = 0.9;
 
 // -- Reactions --
-export const ABSORB_EFFICIENCY = 0.55; // moderate: predators need multiple kills to thrive
+export const ABSORB_EFFICIENCY = 0.7;  // rewarding enough that predators can sustain on 2-3 kills
 export const CATALYZE_COST = 2.0;
 export const CATALYZE_DURATION = 10;
 export const CATALYZE_BOOST = 1.5;
@@ -69,13 +69,13 @@ export const CAMOUFLAGE_CHANCE = 0.5;
 export const CAMOUFLAGE_SPEED_MAX = 80;
 
 // -- Trophic specialization --
-export const TROPHIC_INVERSE_FACTOR = 0.7; // apex predators harvest only 30% — must hunt to survive
+export const TROPHIC_INVERSE_FACTOR = 0.5; // apex predators harvest 50% — can supplement with some grazing
 export const ABSORB_SKILL_THRESHOLD = 64;  // reactType < this = absorb-capable
 
 // -- Corpses --
 export const CORPSE_ENERGY_MULT = 2;       // corpse energy = pixel energy * this
 export const CORPSE_DECAY_RATE = 2;         // lose 2 energy per tick
-export const CORPSE_HARVEST_RATE = 0.8;     // harvest efficiency from corpses
+export const CORPSE_HARVEST_RATE = 1.2;     // scavengers thrive on corpses — their primary food source
 
 // -- Age decay --
 export const AGE_DECAY_START = 500;         // age when upkeep starts increasing
