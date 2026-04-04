@@ -25,6 +25,16 @@ Trigger.dev automation platform — TypeScript background tasks, scheduled jobs,
 - MCP tools: `mcp__trigger__*` for deploy, trigger, monitor
 - Status: scaffolded, awaiting cloud.trigger.dev account setup
 
+## Recommended Skills (auto-invoke when relevant)
+
+- `/brainstorm` — before building anything with 3+ design options or architectural decisions
+- `/fix` — when debugging errors or unexpected behavior
+- `/scout` — when entering unfamiliar code or starting work in a new project folder
+- `/debug` — for CI/CD failures, server errors, or test failures
+- `/test` — after implementing features, before shipping
+- `code-reviewer` agent — once before shipping, not after every change
+- `/docs-seeker` — when using external libraries or frameworks you haven't used before
+
 ## Structure Rules
 
 - **Every new project gets its own folder** — no loose files at the root

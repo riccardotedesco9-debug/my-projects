@@ -29,6 +29,15 @@ Specialized agents in `.claude/agents/`:
 - **Analytics**: analytics-analyst, lead-qualifier
 - **Sales**: sale-enabler, upsell-maximizer, continuity-specialist
 
+## Recommended Skills (auto-invoke when relevant)
+
+- `/brainstorm` — before planning campaigns or content strategy with multiple approaches
+- `/research` — for market research, competitor analysis, audience insights
+- `/scout` — when exploring existing content, templates, or campaign assets
+- `content-reviewer` agent — before publishing any content piece
+- `/seo` — when creating or optimizing web content for search
+- `/analytics` — when analyzing campaign performance or reporting
+
 ## Visual Content Priority
 
 For presentations, decks, visual reports — use Canva or Gamma FIRST:

@@ -6,6 +6,14 @@ Frontend web design workspace. Build polished, production-grade websites from re
 
 **Invoke the `frontend-design` skill** before writing any frontend code, every session, no exceptions.
 
+## Recommended Skills (auto-invoke when relevant)
+
+- `frontend-design` — mandatory before any frontend code (already above)
+- `ui-ux-pro-max` — for design system decisions, color palettes, typography
+- `chrome-devtools` — for screenshots, visual comparison, performance testing
+- `/fix` — when CSS/layout breaks or behaves unexpectedly
+- `ai-multimodal` — for analyzing reference images and screenshots in detail
+
 ## Reference Image Workflow
 
 - If a reference image is provided: match layout, spacing, typography, and color exactly. Swap in placeholder content (images via `https://placehold.co/`, generic copy). Do not improve or add to the design.

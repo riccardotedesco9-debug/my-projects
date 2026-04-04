@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OOZE — Pixel Alchemy Evolution</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #08080f;
+      color: #c8c8dd;
+      font-family: 'Consolas', 'Fira Code', monospace;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    #sim-container {
+      position: relative;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #substrate-canvas, #pixel-canvas {
+      position: absolute;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    #substrate-canvas { z-index: 1; }
+    #pixel-canvas { z-index: 2; }
+
+    #controls {
+      width: 280px;
+      background: #0f0f1a;
+      border-left: 1px solid #1a1a2e;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+    }
+
+    #controls h1 {
+      font-size: 20px;
+      color: #00ff88;
+      letter-spacing: 4px;
+      text-transform: uppercase;
+    }
+
+    #controls h2 {
+      font-size: 11px;
+      color: #556;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-top: 8px;
+      border-bottom: 1px solid #1a1a2e;
+      padding-bottom: 4px;
+    }
+
+    .control-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+    }
+
+    .control-row label { color: #889; }
+    .control-row .value { color: #aab; min-width: 36px; text-align: right; }
+
+    input[type="range"] {
+      width: 100px;
+      accent-color: #00ff88;
+      cursor: pointer;
+    }
+
+    .btn {
+      background: #1a1a2e;
+      border: 1px solid #2a2a44;
+      color: #aab;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: all 0.15s;
+    }
+
+    .btn:hover { background: #2a2a44; color: #00ff88; border-color: #00ff88; }
+    .btn.active { background: #00ff8820; color: #00ff88; border-color: #00ff88; }
+
+    .btn-row { display: flex; gap: 4px; flex-wrap: wrap; }
+
+    #stats-panel {
+      font-size: 10px;
+      line-height: 1.6;
+      color: #778;
+    }
+
+    #stats-panel .stat-value { color: #aab; }
+
+    #season-indicator {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 4px;
+      vertical-align: middle;
+    }
+
+    #mini-graph {
+      width: 100%;
+      height: 50px;
+      background: #0a0a14;
+      border: 1px solid #1a1a2e;
+      border-radius: 3px;
+    }
+
+    #tooltip {
+      position: fixed;
+      z-index: 100;
+      background: #1a1a2eee;
+      border: 1px solid #00ff8844;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 10px;
+      line-height: 1.5;
+      color: #c8c8dd;
+      pointer-events: none;
+      display: none;
+      max-width: 250px;
+    }
+  </style>
+</head>
+<body>
+  <div id="sim-container">
+    <canvas id="substrate-canvas"></canvas>
+    <canvas id="pixel-canvas"></canvas>
+  </div>
+
+  <div id="controls">
+    <h1>OOZE</h1>
+    <div style="font-size: 10px; color: #445;">Pixel Alchemy Evolution</div>
+
+    <h2>Simulation</h2>
+    <div class="btn-row">
+      <button class="btn" id="btn-play">Play</button>
+      <button class="btn" id="btn-pause">Pause</button>
+      <button class="btn" id="btn-reset">Reset</button>
+    </div>
+    <div class="control-row">
+      <label>Speed</label>
+      <input type="range" id="slider-speed" min="1" max="20" value="1" />
+      <span class="value" id="val-speed">1x</span>
+    </div>
+
+    <h2>Parameters</h2>
+    <div class="control-row">
+      <label>Population</label>
+      <input type="range" id="slider-population" min="50" max="2000" value="100" step="50" />
+      <span class="value" id="val-population">500</span>
+    </div>
+    <div class="control-row">
+      <label>Emission</label>
+      <input type="range" id="slider-emission" min="0" max="100" value="12" />
+      <span class="value" id="val-emission">0.012</span>
+    </div>
+    <div class="control-row">
+      <label>Diffusion</label>
+      <input type="range" id="slider-diffusion" min="1" max="15" value="6" />
+      <span class="value" id="val-diffusion">0.06</span>
+    </div>
+    <div class="control-row">
+      <label>Decay</label>
+      <input type="range" id="slider-decay" min="990" max="1000" value="997" />
+      <span class="value" id="val-decay">0.997</span>
+    </div>
+    <div class="control-row">
+      <label>Season Len</label>
+      <input type="range" id="slider-season" min="500" max="10000" value="2000" step="100" />
+      <span class="value" id="val-season">2000</span>
+    </div>
+    <div class="control-row">
+      <label>Upkeep</label>
+      <input type="range" id="slider-upkeep" min="50" max="300" value="100" />
+      <span class="value" id="val-upkeep">1.0x</span>
+    </div>
+    <div class="control-row">
+      <label>Mutation</label>
+      <input type="range" id="slider-mutation" min="1" max="30" value="15" />
+      <span class="value" id="val-mutation">15</span>
+    </div>
+
+    <h2>View Mode</h2>
+    <div class="btn-row">
+      <button class="btn active" id="view-normal">Normal</button>
+      <button class="btn" id="view-energy">Energy</button>
+      <button class="btn" id="view-trophic">Trophic</button>
+      <button class="btn" id="view-substrate">Substrate</button>
+      <button class="btn" id="view-lineage">Lineage</button>
+    </div>
+
+    <h2>Creatures</h2>
+    <div style="font-size: 9px; color: #778; line-height: 1.7;">
+      <span style="color:#4c4">&bull;</span> <b>Plant</b> &mdash; eats from terrain<br/>
+      <span style="color:#c84">&blacktriangle;</span> <b>Hunter</b> &mdash; kills plants<br/>
+      <span style="color:#c44">&diams;</span> <b>Apex</b> &mdash; kills hunters<br/>
+      <span style="color:#a86">+</span> <b>Scavenger</b> &mdash; eats corpses, follows trails<br/>
+      <span style="color:#a4c">&starf;</span> <b>Parasite</b> &mdash; boosts hosts, steals waste<br/>
+      <span style="color:#4cc">&#x2B22;</span> <b>Swarm</b> &mdash; shares energy, lives in groups<br/>
+      <span style="color:#cc4">&#x27A4;</span> <b>Nomad</b> &mdash; fast explorer, avoids fights
+    </div>
+    <div style="font-size: 8px; color: #556; margin-top: 3px;">
+      Big &amp; bright = well-fed &middot; Small &amp; dim = starving<br/>
+      Brown marks = dead bodies &middot; All creatures mutate &amp; evolve
+    </div>
+
+    <h2>Weather</h2>
+    <div style="font-size: 9px; color: #667; line-height: 1.7;">
+      <span style="color:#6688aa">Rain</span> &mdash; +food, wets terrain<br/>
+      <span style="color:#8899aa">Fog</span> &mdash; halves sensing<br/>
+      <span style="color:#aabbcc">Snow</span> &mdash; -food, whitens land<br/>
+      <span style="color:#5566aa">Storm</span> &mdash; lightning, dark, dangerous<br/>
+      <span style="color:#cc8844">Drought</span> &mdash; food dries up fast<br/>
+      <span style="color:#ff6622">Heatwave</span> &mdash; high energy cost<br/>
+      <span style="color:#556">Weather changes with seasons</span>
+    </div>
+
+    <h2>Terrain</h2>
+    <div style="font-size: 9px; color: #667; line-height: 1.7;">
+      <span style="color:#2a5a12">&block;</span> <b>Grass</b> &mdash; lots of food grows<br/>
+      <span style="color:#1a3a0a">&block;</span> <b>Forest</b> &mdash; food + hiding from hunters<br/>
+      <span style="color:#3a2a10">&block;</span> <b>Dirt</b> &mdash; some food<br/>
+      <span style="color:#4a3a1a">&block;</span> <b>Sand</b> &mdash; barely any food<br/>
+      <span style="color:#0a1a30">&block;</span> <b>Water</b> &mdash; impassable barrier<br/>
+      <span style="color:#2a2a2e">&block;</span> <b>Rock</b> &mdash; no food, walkable<br/>
+      <span style="color:#556">Map regenerates each reset</span>
+    </div>
+
+    <h2>Controls</h2>
+    <div style="font-size: 10px; color: #556;">
+      Click creature to inspect &middot; Drag to paint food<br/>
+      Keys: 1/2/3 = paint type &middot; Space = pause
+    </div>
+
+    <h2>Stats</h2>
+    <div id="stats-panel">
+      <div>Tick: <span class="stat-value" id="stat-tick">0</span> &middot; <span class="stat-value" id="stat-tps">0</span> tps</div>
+      <div>Season: <span id="season-indicator"></span><span class="stat-value" id="stat-season">--</span></div>
+      <div>Population: <span class="stat-value" id="stat-population">0</span></div>
+      <div>Species: <span class="stat-value" id="stat-species">0</span></div>
+      <div>Avg Energy: <span class="stat-value" id="stat-energy">0</span></div>
+      <div>Max Genome: <span class="stat-value" id="stat-genome-len">16</span></div>
+      <div>Oldest Gen: <span class="stat-value" id="stat-oldest">0</span></div>
+      <div>Diversity: <span class="stat-value" id="stat-diversity">0</span></div>
+      <div><span style="color:#4c4">Plant:</span> <span class="stat-value" id="stat-producers">0</span> <span style="color:#c84">Hunt:</span> <span class="stat-value" id="stat-consumers">0</span> <span style="color:#c44">Apex:</span> <span class="stat-value" id="stat-apex">0</span></div>
+      <div><span class="stat-value" id="stat-other" style="font-size:9px">S:0 P:0 W:0 N:0</span></div>
+      <div>Weather: <span class="stat-value" id="stat-weather">clear</span></div>
+      <div>Event: <span class="stat-value" id="stat-event">none</span></div>
+    </div>
+    <canvas id="mini-graph"></canvas>
+  </div>
+
+  <div id="tooltip"></div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

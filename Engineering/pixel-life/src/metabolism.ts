@@ -1,0 +1,109 @@
+import type { Pixel, World, SimConfig, TickEvents } from './types';
+import { GENE } from './types';
+import { getEffectiveGene } from './pixel';
+import { removePixel, addFood, addPheromone } from './world';
+import { weatherUpkeepMult } from './weather';
+import {
+  MAX_ENERGY, BASE_UPKEEP, SPEED_UPKEEP, SENSE_UPKEEP,
+  HARVEST_RATE, WASTE_RATE, DEATH_SUBSTRATE_SCALE,
+  CATALYZE_BOOST, WINTER_UPKEEP_MULT,
+  TROPHIC_INVERSE_FACTOR, ABSORB_SKILL_THRESHOLD,
+  CORPSE_ENERGY_MULT, CORPSE_HARVEST_RATE,
+  AGE_DECAY_START, AGE_DECAY_RATE,
+  PHEROMONE_DEPOSIT_RATE,
+} from './constants';
+
+export function metabolize(pixel: Pixel, world: World, config: SimConfig, events: TickEvents): boolean {
+  const { width: w } = world;
+  const cellIdx = pixel.y * w + pixel.x;
+
+  // -- Trophic skill --
+  const absorbSkill = pixel.dna[GENE.REACT_TYPE] < ABSORB_SKILL_THRESHOLD
+    ? (ABSORB_SKILL_THRESHOLD - pixel.dna[GENE.REACT_TYPE]) / ABSORB_SKILL_THRESHOLD : 0;
+  const harvestPenalty = 1 - absorbSkill * TROPHIC_INVERSE_FACTOR;
+
+  // -- Harvest food from terrain --
+  const catalyzeBoost = world.tick < pixel.catalyzedUntil ? CATALYZE_BOOST : 1.0;
+  const harvestEff = (pixel.dna[GENE.HARVEST_R] + pixel.dna[GENE.HARVEST_G] + pixel.dna[GENE.HARVEST_B]) / (255 * 3);
+  const avail = world.food[cellIdx];
+  const harvested = avail * harvestEff * HARVEST_RATE * catalyzeBoost * harvestPenalty;
+  let gained = harvested;
+  world.food[cellIdx] = Math.max(0, avail - harvested);
+
+  // -- Harvest from corpse --
+  const corpseEnergy = world.corpses[cellIdx];
+  if (corpseEnergy > 0) {
+    const corpseGain = Math.min(corpseEnergy, 5) * CORPSE_HARVEST_RATE * (0.5 + absorbSkill * 0.5);
+    gained += corpseGain;
+    world.corpses[cellIdx] = Math.max(0, corpseEnergy - Math.ceil(corpseGain));
+  }
+
+  // -- Upkeep --
+  const speed = getEffectiveGene(pixel, GENE.SPEED) / 255;
+  const sense = getEffectiveGene(pixel, GENE.SENSE_RANGE) / 255;
+  let cost = BASE_UPKEEP + speed * SPEED_UPKEEP + sense * SENSE_UPKEEP;
+  if (world.season === 'winter') cost *= WINTER_UPKEEP_MULT;
+  cost *= config.upkeepMultiplier * weatherUpkeepMult(world.weather);
+
+  // Age decay
+  if (pixel.age > AGE_DECAY_START) cost += (pixel.age - AGE_DECAY_START) * AGE_DECAY_RATE;
+
+  const prevEnergy = pixel.energy;
+  pixel.energy = Math.min(MAX_ENERGY, pixel.energy + gained - cost);
+
+  // Satiety state
+  if (gained > cost) pixel.state[1] = Math.min(255, pixel.state[1] + 30);
+
+  // Waste deposit (becomes food for ecosystem)
+  const wasteEff = (pixel.dna[GENE.WASTE_R] + pixel.dna[GENE.WASTE_G] + pixel.dna[GENE.WASTE_B]) / (255 * 3);
+  const wasteMult = world.tick < pixel.catalyzedUntil ? 2.0 : 1.0;
+  if (wasteEff > 0) addFood(world, pixel.x, pixel.y, wasteEff * WASTE_RATE * wasteMult);
+
+  // Pheromone deposit
+  addPheromone(world, pixel.x, pixel.y, (pixel.energy / MAX_ENERGY) * PHEROMONE_DEPOSIT_RATE);
+
+  // -- Death --
+  if (pixel.energy <= 0) {
+    world.corpses[cellIdx] = Math.min(255, world.corpses[cellIdx] + Math.floor(Math.max(5, prevEnergy) * CORPSE_ENERGY_MULT));
+    const release = Math.max(1, prevEnergy) * DEATH_SUBSTRATE_SCALE;
+    addFood(world, pixel.x, pixel.y, release * 0.3);
+    removePixel(world, pixel);
+    events.deaths++;
+    return false;
+  }
+
+  pixel.age++;
+  return true;
+}
+
+// Creature roles: 0=plant, 1=hunter, 2=apex, 3=scavenger, 4=parasite, 5=swarm, 6=nomad
+export function getCreatureRole(pixel: Pixel): number {
+  const rt = pixel.dna[GENE.REACT_TYPE];
+  const speed = pixel.dna[GENE.SPEED];
+  const adhesion = pixel.dna[GENE.ADHESION];
+  const sense = pixel.dna[GENE.SENSE_TARGET];
+  const threshold = pixel.dna[GENE.REACT_THRESHOLD];
+
+  // Swarm: very high adhesion + sharer
+  if (adhesion > 180 && rt >= 64 && rt < 128) return 5;
+  // Parasite: catalyzer + pixel seeker
+  if (rt >= 128 && rt < 192 && sense >= 85 && sense < 170) return 4;
+  // Nomad: fast + food seeker + repeller
+  if (rt >= 192 && speed > 160 && sense < 60) return 6;
+  // Apex: max absorber
+  if (rt < 15) return 2;
+  // Scavenger: light absorber + pheromone follower + high threshold
+  if (rt >= 15 && rt < 64 && (sense >= 60 && sense < 85 || threshold > 80)) return 3;
+  // Hunter: absorber + pixel seeker
+  if (rt < 64 && sense >= 85) return 1;
+  // Default: plant
+  return 0;
+}
+
+// Simplified trophic level for energy balance (0=producer, 1=consumer, 2=apex)
+export function getTrophicLevel(pixel: Pixel): number {
+  const role = getCreatureRole(pixel);
+  if (role === 2) return 2;                    // apex
+  if (role === 1 || role === 3) return 1;      // hunter/scavenger
+  return 0;                                     // plant/parasite/swarm/nomad
+}

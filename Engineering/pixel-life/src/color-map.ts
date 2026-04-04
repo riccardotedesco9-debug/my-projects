@@ -1,0 +1,65 @@
+import type { Pixel } from './types';
+import { MAX_ENERGY } from './constants';
+import { getCreatureRole } from './metabolism';
+
+// Convert HSL to RGB (all inputs 0-1 range, output 0-255)
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  let r: number, g: number, b: number;
+  if (s === 0) {
+    r = g = b = l;
+  } else {
+    const hue2rgb = (p: number, q: number, t: number): number => {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    };
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+    const p = 2 * l - q;
+    r = hue2rgb(p, q, h + 1 / 3);
+    g = hue2rgb(p, q, h);
+    b = hue2rgb(p, q, h - 1 / 3);
+  }
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+// Role-based base hues with DNA variation for genetic diversity within each role
+// 0=plant(green), 1=hunter(orange), 2=apex(red), 3=scavenger(brown),
+// 4=parasite(purple), 5=swarm(cyan), 6=nomad(yellow)
+const ROLE_HUES = [0.33, 0.08, 0.0, 0.07, 0.8, 0.5, 0.15];
+
+export function dnaToColor(dna: Uint8Array, energy: number, role?: number): [number, number, number] {
+  const r = role ?? 0;
+  const dnaShift = ((dna[0] + dna[1] + dna[2]) % 40 - 20) / 360;
+  const hue = ((ROLE_HUES[r] ?? 0.33) + dnaShift + 1) % 1;
+  const sat = 0.6 + (dna[6] / 255) * 0.35;
+  const lum = 0.25 + (energy / MAX_ENERGY) * 0.45;
+  return hslToRgb(hue, sat, lum);
+}
+
+// Energy heatmap: red (low) -> yellow (mid) -> green (high)
+export function energyToColor(energy: number): [number, number, number] {
+  const t = Math.max(0, Math.min(1, energy / MAX_ENERGY));
+  if (t < 0.5) {
+    const u = t * 2;
+    return [255, Math.round(u * 255), 0];
+  }
+  const u = (t - 0.5) * 2;
+  return [Math.round((1 - u) * 255), 255, 0];
+}
+
+// Generation/lineage: cool (old) to warm (new)
+export function lineageToColor(generation: number): [number, number, number] {
+  const hue = (240 - (generation % 240)) / 360; // blue->red as gen increases
+  return hslToRgb(hue, 0.8, 0.55);
+}
+
+// Role view: distinct colors per creature role
+export function roleToColor(pixel: Pixel): [number, number, number] {
+  const role = getCreatureRole(pixel);
+  const lum = 0.3 + (pixel.energy / MAX_ENERGY) * 0.4;
+  const hue = ROLE_HUES[role] ?? 0.33;
+  return hslToRgb(hue, 0.85, lum);
+}
