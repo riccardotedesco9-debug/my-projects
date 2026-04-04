@@ -3,6 +3,7 @@ import { GENE } from './types';
 import { getEffectiveGene } from './pixel';
 import { removePixel, addFood, addPheromone } from './world';
 import { weatherUpkeepMult } from './weather';
+import { addDeathEffect, addInteractionEffect, toCanvasCenter } from './effects';
 import {
   MAX_ENERGY, BASE_UPKEEP, SPEED_UPKEEP, SENSE_UPKEEP,
   HARVEST_RATE, WASTE_RATE, DEATH_SUBSTRATE_SCALE,
@@ -38,6 +39,12 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
     world.corpses[cellIdx] = Math.max(0, corpseEnergy - Math.ceil(corpseGain));
   }
 
+  // Feeding visual effect when gaining significant food
+  if (gained > 0.3 && Math.random() < 0.15) {
+    const [fx, fy] = toCanvasCenter(pixel.x, pixel.y, config.pixelScale);
+    addInteractionEffect(fx, fy, 'feed');
+  }
+
   // -- Upkeep --
   const speed = getEffectiveGene(pixel, GENE.SPEED) / 255;
   const sense = getEffectiveGene(pixel, GENE.SENSE_RANGE) / 255;
@@ -67,6 +74,8 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
     world.corpses[cellIdx] = Math.min(255, world.corpses[cellIdx] + Math.floor(Math.max(5, prevEnergy) * CORPSE_ENERGY_MULT));
     const release = Math.max(1, prevEnergy) * DEATH_SUBSTRATE_SCALE;
     addFood(world, pixel.x, pixel.y, release * 0.3);
+    const [dx, dy] = toCanvasCenter(pixel.x, pixel.y, config.pixelScale);
+    addDeathEffect(dx, dy);
     removePixel(world, pixel);
     events.deaths++;
     return false;

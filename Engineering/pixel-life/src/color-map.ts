@@ -3,7 +3,7 @@ import { MAX_ENERGY } from './constants';
 import { getCreatureRole } from './metabolism';
 
 // Convert HSL to RGB (all inputs 0-1 range, output 0-255)
-function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+export function hslToRgb(h: number, s: number, l: number): [number, number, number] {
   let r: number, g: number, b: number;
   if (s === 0) {
     r = g = b = l;
@@ -32,9 +32,12 @@ const ROLE_HUES = [0.33, 0.08, 0.0, 0.07, 0.8, 0.5, 0.15];
 
 export function dnaToColor(dna: Uint8Array, energy: number, role?: number): [number, number, number] {
   const r = role ?? 0;
-  const dnaShift = ((dna[0] + dna[1] + dna[2]) % 40 - 20) / 360;
+  // Use harvest + senseTarget + reactType + mutationRate for wider hue spread (~60 degrees)
+  const genomeHash = (dna[0] + dna[1] + dna[2] + dna[5] * 2 + dna[6] + dna[13]) & 0xffff;
+  const dnaShift = ((genomeHash % 80) - 40) / 360;
   const hue = ((ROLE_HUES[r] ?? 0.33) + dnaShift + 1) % 1;
-  const sat = 0.6 + (dna[6] / 255) * 0.35;
+  // Saturation from adhesion + armor — social vs armored creatures look different
+  const sat = 0.45 + (dna[15] / 255) * 0.2 + (dna[14] / 255) * 0.2;
   const lum = 0.25 + (energy / MAX_ENERGY) * 0.45;
   return hslToRgb(hue, sat, lum);
 }
@@ -63,3 +66,23 @@ export function roleToColor(pixel: Pixel): [number, number, number] {
   const hue = ROLE_HUES[role] ?? 0.33;
   return hslToRgb(hue, 0.85, lum);
 }
+
+// Shift hue of an RGB color by degrees (-360 to 360)
+export function hueShift(r: number, g: number, b: number, degrees: number): [number, number, number] {
+  const rf = r / 255, gf = g / 255, bf = b / 255;
+  const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
+  let h = 0;
+  const l = (max + min) / 2;
+  const d = max - min;
+  const s = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (d !== 0) {
+    if (max === rf) h = ((gf - bf) / d + (gf < bf ? 6 : 0)) / 6;
+    else if (max === gf) h = ((bf - rf) / d + 2) / 6;
+    else h = ((rf - gf) / d + 4) / 6;
+  }
+  h = ((h + degrees / 360) % 1 + 1) % 1;
+  return hslToRgb(h, s, l);
+}
+
+// Role-based hue anchors (exported for sprite palette system)
+export const ROLE_HUES_EXPORT = ROLE_HUES;

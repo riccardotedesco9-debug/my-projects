@@ -1,14 +1,10 @@
-import type { SimConfig, ViewMode, World, Pixel } from './types';
-import { formatPixelState } from './pixel-state';
-import { genomeComplexity } from './regulation';
+import type { SimConfig, ViewMode, World } from './types';
+import { getCamera, screenToWorld } from './renderer';
+import { showInspector, hideInspector, toggleFollow } from './creature-inspector';
+import { isGodModeActive, executeGodTool, toggleGodModeVisibility, setGodTool } from './god-mode';
 
 let resetCallback: () => void;
 
-const GENE_NAMES = [
-  'Harvest R', 'Harvest G', 'Harvest B', 'Speed', 'Sense Range',
-  'Sense Target', 'React Type', 'React Thresh', 'Waste R', 'Waste G',
-  'Waste B', 'Repro Thresh', 'Repro Share', 'Mutation Rate', 'Armor', 'Adhesion',
-];
 
 export function initControls(config: SimConfig, onReset: () => void): void {
   resetCallback = onReset;
@@ -19,7 +15,12 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   el<HTMLButtonElement>('btn-reset').onclick = () => resetCallback();
 
   // Sliders
-  bindSlider('slider-speed', 'val-speed', v => { config.simSpeed = v; return `${v}x`; });
+  bindSlider('slider-speed', 'val-speed', v => {
+    // 1-10 = 0.1x to 1.0x, 10-40 = 1x to 4x
+    const speed = v <= 10 ? v / 10 : 1 + (v - 10) / 10;
+    config.simSpeed = speed;
+    return `${speed.toFixed(1)}x`;
+  });
   bindSlider('slider-population', 'val-population', v => { config.initialPopulation = v; return String(v); });
   bindSlider('slider-emission', 'val-emission', v => { config.substrateEmission = v / 1000; return (v / 1000).toFixed(3); });
   bindSlider('slider-diffusion', 'val-diffusion', v => { config.substrateDiffusion = v / 100; return (v / 100).toFixed(2); });
@@ -29,8 +30,8 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   bindSlider('slider-mutation', 'val-mutation', v => { config.mutationIntensity = v; return String(v); });
 
   // View mode buttons
-  const viewModes: ViewMode[] = ['normal', 'energy', 'trophic', 'substrate', 'lineage'];
-  const viewIds = ['view-normal', 'view-energy', 'view-trophic', 'view-substrate', 'view-lineage'];
+  const viewModes: ViewMode[] = ['normal', 'energy', 'trophic', 'substrate', 'lineage', 'territory'];
+  const viewIds = ['view-normal', 'view-energy', 'view-trophic', 'view-substrate', 'view-lineage', 'view-territory'];
   viewIds.forEach((id, i) => {
     el<HTMLButtonElement>(id).onclick = () => {
       config.viewMode = viewModes[i];
@@ -43,6 +44,9 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   // Keyboard shortcuts
   document.addEventListener('keydown', (e) => {
     if (e.key === ' ') { e.preventDefault(); config.paused = !config.paused; }
+    if (e.key === 'Escape') { hideInspector(); setGodTool('none'); }
+    if (e.key === 'f' || e.key === 'F') toggleFollow();
+    if (e.key === 'g' || e.key === 'G') toggleGodModeVisibility();
     if (e.key === '1') config.paintChannel = 0;
     if (e.key === '2') config.paintChannel = 1;
     if (e.key === '3') config.paintChannel = 2;
@@ -59,11 +63,18 @@ export function initCanvasInteraction(
 
   canvas.addEventListener('mousedown', (e) => {
     const [gx, gy] = canvasToGrid(e, canvas, config);
+
+    // God mode takes priority
+    if (isGodModeActive()) {
+      executeGodTool(world, config, gx, gy);
+      return;
+    }
+
     const key = gy * world.width + gx;
     const pixel = world.pixels.get(key);
 
     if (pixel) {
-      showTooltip(pixel, e.clientX, e.clientY);
+      showInspector(pixel);
     } else {
       painting = true;
       paintSubstrate(world, gx, gy, config.paintChannel);
@@ -79,19 +90,25 @@ export function initCanvasInteraction(
   canvas.addEventListener('mouseup', () => { painting = false; });
   canvas.addEventListener('mouseleave', () => { painting = false; });
 
-  // Hide tooltip on click elsewhere
+  // Hide inspector on click outside canvas
   document.addEventListener('click', (e) => {
-    if ((e.target as HTMLElement).id !== 'pixel-canvas') {
-      hideTooltip();
+    const target = e.target as HTMLElement;
+    if (target.id !== 'pixel-canvas' && !target.closest('#inspector-panel') && !target.closest('#controls')) {
+      hideInspector();
     }
   });
 }
 
 function canvasToGrid(e: MouseEvent, canvas: HTMLCanvasElement, config: SimConfig): [number, number] {
   const rect = canvas.getBoundingClientRect();
-  // Map mouse position to grid coordinates (display res / pixelScale = grid)
-  const gx = Math.floor((e.clientX - rect.left) / rect.width * config.worldWidth);
-  const gy = Math.floor((e.clientY - rect.top) / rect.height * config.worldHeight);
+  // Convert screen mouse position to canvas-relative coords
+  const canvasX = (e.clientX - rect.left) / rect.width * canvas.width;
+  const canvasY = (e.clientY - rect.top) / rect.height * canvas.height;
+  // Apply camera inverse transform to get world coordinates
+  const cam = getCamera();
+  const [wx, wy] = screenToWorld(cam, canvasX, canvasY);
+  const gx = Math.floor(wx / config.pixelScale);
+  const gy = Math.floor(wy / config.pixelScale);
   return [gx, gy];
 }
 
@@ -101,28 +118,7 @@ function paintSubstrate(world: World, x: number, y: number, _ch: number): void {
   world.food[idx] = Math.min(1, world.food[idx] + 0.3);
 }
 
-function showTooltip(pixel: Pixel, mx: number, my: number): void {
-  const tip = document.getElementById('tooltip')!;
-  const genes = Array.from(pixel.dna).map((v, i) => `${GENE_NAMES[i]}: ${v}`).join('\n');
-  const regCount = pixel.regulatoryGenes.length;
-  const complexity = genomeComplexity(pixel);
-
-  tip.innerHTML = `
-    <strong>Pixel #${pixel.id}</strong> (Gen ${pixel.generation})<br/>
-    Energy: ${pixel.energy.toFixed(1)} | Age: ${pixel.age}<br/>
-    ${formatPixelState(pixel)}<br/>
-    Regulatory genes: ${regCount} | Complexity: ${complexity}<br/>
-    <hr style="border-color:#333;margin:4px 0"/>
-    <pre style="margin:0;font-size:9px;line-height:1.4">${genes}</pre>
-  `;
-  tip.style.display = 'block';
-  tip.style.left = `${mx + 12}px`;
-  tip.style.top = `${my + 12}px`;
-}
-
-function hideTooltip(): void {
-  document.getElementById('tooltip')!.style.display = 'none';
-}
+// Tooltip removed — replaced by creature-inspector panel
 
 function bindSlider(sliderId: string, valueId: string, onChange: (v: number) => string): void {
   const slider = el<HTMLInputElement>(sliderId);

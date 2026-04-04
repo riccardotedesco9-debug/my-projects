@@ -7,6 +7,13 @@ import { movePixel } from './movement';
 import { tryReproduce } from './reproduction';
 import { applyAdhesion } from './adhesion';
 import { decayPixelState } from './pixel-state';
+import { recordMemory, decayMemory } from './spatial-memory';
+import { markTerritory, decayTerritories } from './territory-system';
+import { updatePacks } from './pack-hunting';
+import { updateMigration, onSeasonChange } from './migration';
+import { updateSpeciesTree } from './species-tree';
+import { updateArmsRace } from './arms-race';
+import { updateEcosystemGraph } from './ecosystem-graph';
 import { trySexualReproduction } from './sexual-reproduction';
 import { updateEvents } from './events';
 import { updateWeather } from './weather';
@@ -20,7 +27,9 @@ export function simulateTick(world: World, config: SimConfig): void {
   const events = createTickEvents();
 
   updateSubstrate(world, config);
+  const prevSeason = world.season;
   updateSeasons(world, config);
+  if (world.season !== prevSeason) onSeasonChange(world, world.season);
   updateEvents(world, events);
   updateWeather(world.weather, world, config);
 
@@ -35,19 +44,28 @@ export function simulateTick(world: World, config: SimConfig): void {
     if (world.pixels.get(key) !== pixel) continue;
 
     decayPixelState(pixel);
+    decayMemory(pixel);
     const alive = metabolize(pixel, world, config, events);
+    if (alive) recordMemory(pixel, world);
     if (!alive) continue;
 
     movePixel(pixel, world, config, events);
     if (world.pixels.get(pixel.y * world.width + pixel.x) !== pixel) continue;
 
     applyAdhesion(pixel, world, events);
+    markTerritory(pixel, world);
     tryReproduce(pixel, world, config, events);
   }
 
   // Sexual reproduction pass (10% sample)
   checkSexualReproduction(world, config, events);
 
+  decayTerritories(world);
+  updatePacks(world);
+  updateMigration(world);
+  updateSpeciesTree(world);
+  updateArmsRace(world);
+  updateEcosystemGraph(world);
   recordPopulation(world);
 
   // Auto-seed if population is zero

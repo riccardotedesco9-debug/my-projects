@@ -4,6 +4,9 @@ import { getEffectiveGene, createPixel } from './pixel';
 import { wrapX, wrapY, cellKey } from './world';
 import { canBirthOn } from './terrain';
 import { genomeSimilarity, crossoverDna, crossoverRegulatoryGenes, mutateDna, mutateRegulatoryGenes } from './genome';
+import { dnaToColor } from './color-map';
+import { getCreatureRole } from './metabolism';
+import { addBirthEffect, addInteractionEffect, toCanvasCenter } from './effects';
 import {
   SEXUAL_MIN_SIMILARITY, SEXUAL_MAX_SIMILARITY,
   HYBRID_VIGOR_MIN, HYBRID_VIGOR_MAX, HYBRID_VIGOR_BONUS,
@@ -72,6 +75,14 @@ export function trySexualReproduction(
   world.pixels.set(cellKey(nx, ny, world.width), child);
   events.sexualRepros++;
   events.births++;
+
+  // Visual: mating effect between parents + birth ring for child
+  const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
+  const [mx, my] = toCanvasCenter(midX, midY, config.pixelScale);
+  addInteractionEffect(mx, my, 'sexual');
+  const [cr, cg, cb] = dnaToColor(childDna, childEnergy + bonusEnergy, getCreatureRole(child));
+  const [bx, by] = toCanvasCenter(nx, ny, config.pixelScale);
+  addBirthEffect(bx, by, cr, cg, cb);
   return true;
 }
 

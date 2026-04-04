@@ -5,6 +5,9 @@ import { initRenderer, renderFrame } from './renderer';
 import { initControls, initCanvasInteraction } from './ui-controls';
 import { initStats, updateStatsDisplay, setDisplayTps } from './stats';
 import { initAudio, updateAmbientSeason, playTickSfx } from './audio';
+import { initInspector, updateInspector } from './creature-inspector';
+import { initGodMode } from './god-mode';
+import { initReplay, isReplaying, advanceReplay, renderReplayFrame, recordTick } from './replay';
 import type { SimConfig, World } from './types';
 
 let config: SimConfig = createDefaultConfig();
@@ -42,27 +45,34 @@ function gameLoop(now: number): void {
     tpsLastSec = now;
   }
 
-  if (!config.paused) {
-    // Tick interval based on speed: 1x = 10 TPS, 5x = 50 TPS, 20x = 200 TPS
-    const tickInterval = 1000 / (BASE_TPS * config.simSpeed);
-    tickAccum += dt;
+  // Replay mode: bypass simulation, render snapshots
+  if (isReplaying()) {
+    advanceReplay();
+    const pixCanvas = document.getElementById('pixel-canvas') as HTMLCanvasElement;
+    const pixCtx = pixCanvas.getContext('2d')!;
+    renderReplayFrame(pixCtx, pixCanvas.width, pixCanvas.height, config.pixelScale, config.worldWidth, config.worldHeight);
+  } else {
+    if (!config.paused) {
+      const tickInterval = 1000 / (BASE_TPS * config.simSpeed);
+      tickAccum += dt;
 
-    // Run ticks but cap at 14ms wall time to keep rendering smooth
-    const budgetStart = performance.now();
-    while (tickAccum >= tickInterval && (performance.now() - budgetStart) < 14) {
-      simulateTick(world, config);
-      tickAccum -= tickInterval;
-      tpsCounter++;
+      const budgetStart = performance.now();
+      while (tickAccum >= tickInterval && (performance.now() - budgetStart) < 14) {
+        simulateTick(world, config);
+        recordTick(world);
+        tickAccum -= tickInterval;
+        tpsCounter++;
+      }
+      if (tickAccum > tickInterval * 3) tickAccum = 0;
+
+      updateAmbientSeason(world.season);
+      playTickSfx(lastTickEvents, world.pixels.size, world.width * world.height * 0.3);
     }
-    // Prevent runaway accumulator
-    if (tickAccum > tickInterval * 3) tickAccum = 0;
 
-    updateAmbientSeason(world.season);
-    playTickSfx(lastTickEvents, world.pixels.size, world.width * world.height * 0.3);
+    renderFrame(world, config);
+    updateStatsDisplay(world, config);
+    updateInspector(world, config);
   }
-
-  renderFrame(world, config);
-  updateStatsDisplay(world, config);
 
   if (!document.hidden) {
     requestAnimationFrame(gameLoop);
@@ -80,4 +90,7 @@ function gameLoop(now: number): void {
 // -- Boot --
 reset();
 initAudio(config);
+initInspector();
+initGodMode();
+initReplay();
 requestAnimationFrame(gameLoop);

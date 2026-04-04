@@ -114,7 +114,31 @@ export const CLUSTER_AGE_MIN = 20;          // ticks adjacent before forming
 // -- Population safety --
 export const AUTO_SEED_EMPTY_TICKS = 100;
 export const AUTO_SEED_COUNT = 50;
-export const MAX_POP_FRACTION = 0.08;  // max 8% = ~2400 pixels, visually sparse
+export const MAX_POP_FRACTION = 0.10;  // max 10% = ~3000 pixels, more evolution material
+
+// -- Spatial Memory --
+export const MEMORY_MAX_ENTRIES = 8;
+export const MEMORY_DECAY_RATE = 0.995;
+export const MEMORY_FOOD_THRESHOLD = 0.4;
+export const MEMORY_DANGER_THRESHOLD = 80;
+export const MEMORY_INFLUENCE_WEIGHT = 0.3;
+
+// -- Territory --
+export const TERRITORY_ADHESION_MIN = 150;
+export const TERRITORY_MARK_RADIUS = 3;
+export const TERRITORY_DECAY_RATE = 1;       // age increment per tick
+export const TERRITORY_MAX_AGE = 200;        // ticks before territory fades
+export const TERRITORY_MOVE_PENALTY = 1.4;   // 40% extra movement cost in foreign territory
+
+// -- Camera --
+export const MIN_ZOOM = 1.0;
+export const MAX_ZOOM = 6.0;
+export const ZOOM_SPEED = 0.15;
+export const ZOOM_LERP = 0.15;
+export const LOD_GLYPH_THRESHOLD = 1.5;
+export const LOD_SPRITE_THRESHOLD = 3.0;
+export const TERRAIN_TILE_SIZE = 16;
+export const WATER_ANIM_INTERVAL = 30;
 
 // -- Rendering --
 export const SUBSTRATE_RENDER_INTERVAL = 4;
