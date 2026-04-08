@@ -75,7 +75,7 @@ Possible intents:
 - clarify_schedule: user isn't rejecting but wants to adjust the scope or add context (e.g., "check the whole month", "not just this week", "look at all of April"). Put clarification in params.clarification
 - submit_preferences: user is selecting preferred meeting slots by number OR by day name (e.g., "1 and 3", "slots 2, 4, 5", "Monday and Wednesday"). Extract slot numbers into params.slots.
 - show_status: user wants to know their current session status
-- cancel_session: user wants to cancel (e.g., "cancel", "quit", "stop")
+- cancel_session: user wants to cancel, stop, quit, or abandon current flow (e.g., "cancel", "quit", "stop", "never mind", "forget it", "skip this", "I changed my mind")
 - show_help: user wants help
 - reset_all: user wants to wipe all data and start fresh (e.g., "reset everything", "clear my data", "start over completely")
 - unsupported_media: message is audio, video, sticker, or reaction

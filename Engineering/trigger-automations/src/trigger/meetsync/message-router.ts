@@ -147,8 +147,8 @@ export const messageRouter = schemaTask({
     }
 
     // --- Flow changes: user wants to do something different ---
-    // Start over from any state
-    if (intent === "create_session" && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED"].includes(participant.state)) {
+    // "new" always starts fresh — from any state
+    if (intent === "create_session") {
       return await handleNewSession(phone, user);
     }
 
