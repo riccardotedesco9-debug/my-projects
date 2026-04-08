@@ -74,8 +74,8 @@ export const messageRouter = schemaTask({
       ? `[User's uploaded schedule data]: ${participant.schedule_json.slice(0, 500)}`
       : undefined;
 
-    // Classify intent via Claude Haiku (or fast-path for media)
-    const { intent, params } = await classifyIntent(text, message_type, currentState);
+    // Classify intent via Claude Haiku (or fast-path for media) — with conversation context
+    const { intent, params } = await classifyIntent(text, message_type, currentState, conversationHistory);
 
     // Update user's language if detected and different from stored
     if (params.detected_language && user && params.detected_language !== user.preferred_language) {
@@ -191,35 +191,49 @@ export const messageRouter = schemaTask({
         await sessionOrchestrator.trigger({ session_id: participant.session_id }, { idempotencyKey: `orch-${participant.session_id}` });
       }
 
-      // If user's schedule is already confirmed, this upload is for the PARTNER
+      // If user's schedule is already confirmed — check conversation context to decide whose schedule this is
       if (["SCHEDULE_CONFIRMED", "PREFERENCES_SUBMITTED"].includes(participant.state)) {
         const allParticipants = await getSessionParticipants(participant.session_id);
         const partnerParticipant = allParticipants.find((p) => p.phone !== phone);
-        if (partnerParticipant) {
+
+        // Check recent messages for clues about who this schedule belongs to
+        const recentText = (conversationHistory ?? "").toLowerCase();
+        const mentionsPartner = recentText.includes("diego") || recentText.includes("partner") ||
+          recentText.includes("his schedule") || recentText.includes("her schedule") ||
+          recentText.includes("their schedule") || recentText.includes("on behalf");
+        const mentionsOwn = recentText.includes("my schedule") || recentText.includes("my new") ||
+          recentText.includes("updated schedule") || recentText.includes("re-upload");
+
+        if (partnerParticipant && mentionsPartner && !mentionsOwn) {
+          // Context suggests this is the partner's schedule
           await updateParticipantState(partnerParticipant.id, "SCHEDULE_RECEIVED");
-          await sendTextMessage(phone, "Got it — processing your partner's schedule now...");
-          await logMessage(phone, "bot", "Got it — processing your partner's schedule now...");
+          const msg = "Got it — processing your partner's schedule now...";
+          await sendTextMessage(phone, msg);
+          await logMessage(phone, "bot", msg);
           if (isScheduleUpload) {
             await scheduleParser.trigger({
-              participant_id: partnerParticipant.id,
-              session_id: participant.session_id,
-              phone, // notifications still go to the uploader
-              media_id: media_id!,
-              mime_type: mime_type ?? "image/jpeg",
+              participant_id: partnerParticipant.id, session_id: participant.session_id,
+              phone, media_id: media_id!, mime_type: mime_type ?? "image/jpeg",
             });
           } else if (isScheduleText) {
             await scheduleParser.trigger({
-              participant_id: partnerParticipant.id,
-              session_id: participant.session_id,
-              phone,
-              text_content: String(params.schedule_text),
+              participant_id: partnerParticipant.id, session_id: participant.session_id,
+              phone, text_content: String(params.schedule_text),
             });
           }
           return { action: "partner_schedule_uploaded_by_proxy" };
         }
+
+        if (partnerParticipant && !mentionsOwn && !mentionsPartner) {
+          // Ambiguous — ask
+          const msg = "Is this your schedule or your partner's? Just let me know and I'll process it.";
+          await sendTextMessage(phone, msg);
+          await logMessage(phone, "bot", msg);
+          return { action: "asked_schedule_ownership" };
+        }
       }
 
-      // Otherwise it's the user's own schedule
+      // User's own schedule (default, or explicitly said "my schedule")
       await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
       return await handleAwaitingSchedule(participant, payload, intent, params, text);
     }

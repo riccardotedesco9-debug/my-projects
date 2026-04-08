@@ -362,19 +362,19 @@ export async function logMessage(phone: string, role: "user" | "bot", message: s
     "INSERT INTO conversation_log (phone, role, message) VALUES (?, ?, ?)",
     [phone, role, trimmed]
   );
-  // Keep only last 10 messages per user (best-effort cleanup)
+  // Keep only last 20 messages per user (best-effort cleanup)
   query(
     `DELETE FROM conversation_log WHERE phone = ? AND id NOT IN (
-      SELECT id FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 10
+      SELECT id FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 20
     )`,
     [phone, phone]
   ).catch(() => {});
 }
 
-/** Get recent conversation history for a user (last 6 messages) */
+/** Get recent conversation history for a user (last 12 messages) */
 export async function getRecentMessages(phone: string) {
   const result = await query<{ role: string; message: string; created_at: string }>(
-    "SELECT role, message, created_at FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 6",
+    "SELECT role, message, created_at FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 12",
     [phone]
   );
   // Reverse so oldest first (chronological order)

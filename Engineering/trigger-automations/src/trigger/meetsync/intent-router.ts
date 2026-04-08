@@ -105,7 +105,8 @@ Return ONLY valid JSON: { "intent": "...", "params": { ... } }`;
 export async function classifyIntent(
   text: string | undefined,
   messageType: string,
-  currentState: string
+  currentState: string,
+  conversationHistory?: string
 ): Promise<IntentResult> {
   // Fast path: non-text media that isn't image/document
   if (["audio", "video", "sticker", "reaction"].includes(messageType)) {
@@ -131,7 +132,7 @@ export async function classifyIntent(
     return { intent: "unknown", params: {} };
   }
 
-  const userMessage = `Current state: ${currentState}
+  const userMessage = `${conversationHistory ? `Recent conversation:\n${conversationHistory}\n\n` : ""}Current state: ${currentState}
 Message type: ${messageType}
 Message: "${text ?? ""}"`;
 
