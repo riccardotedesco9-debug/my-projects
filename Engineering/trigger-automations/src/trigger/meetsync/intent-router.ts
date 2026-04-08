@@ -38,6 +38,7 @@ export interface IntentResult {
     schedule_text?: string; // for upload_schedule_text
     clarification?: string; // for clarify_schedule (e.g., "check the whole month")
     detected_language?: string; // language detected from the message (en/mt/it/etc)
+    learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
     reply?: string; // for unknown intent — inline conversational response
   };
 }
@@ -52,6 +53,7 @@ const intentSchema = z.object({
     schedule_text: z.string().optional(),
     clarification: z.string().optional(),
     detected_language: z.string().optional(),
+    learned_facts: z.string().optional(),
     reply: z.string().optional(),
   }).optional().default({}),
 });
@@ -81,6 +83,8 @@ Possible intents:
 - unknown: can't determine intent. Include a brief, helpful reply in params.reply that addresses what the user said and gently nudges them toward the next step based on their state.
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.
+
+If the user reveals something useful about themselves (job, work pattern, schedule preference, availability habit, nickname, location), include it in params.learned_facts as a short note (e.g., "works night shifts at hospital", "prefers meeting after 3pm", "based in Valletta"). Only include genuinely useful facts — don't fabricate or pad. Omit this field if nothing new was learned.
 
 Context rules:
 - In AWAITING_PARTNER_INFO state: bias toward provide_partner. If it looks like a phone number, extract as partner_phone. If it looks like a name, extract as partner_name.

@@ -188,6 +188,7 @@ export interface UserProfile {
   phone: string;
   name: string | null;
   preferred_language: string;
+  context: string | null;
   first_seen: string;
   last_seen: string;
 }
@@ -219,6 +220,17 @@ export async function updateUserName(phone: string, name: string) {
   await query(
     "UPDATE users SET name = ?, last_seen = datetime('now') WHERE phone = ?",
     [name, phone]
+  );
+}
+
+/** Append learned facts to user's context (newline-separated) */
+export async function appendUserContext(phone: string, facts: string) {
+  await query(
+    `UPDATE users SET context = CASE
+       WHEN context IS NULL THEN ?
+       ELSE context || char(10) || ?
+     END, last_seen = datetime('now') WHERE phone = ?`,
+    [facts, facts, phone]
   );
 }
 

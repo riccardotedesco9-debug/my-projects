@@ -25,6 +25,7 @@ import {
   getPendingInviteForSession,
   getSessionById,
   updateSessionMode,
+  appendUserContext,
 } from "./d1-client.js";
 import type { UserProfile } from "./d1-client.js";
 import { scheduleParser } from "./schedule-parser.js";
@@ -67,14 +68,24 @@ export const messageRouter = schemaTask({
       await updateUserLanguage(phone, params.detected_language);
     }
 
-    // Helper to build response context with user profile
-    const responseCtx = (scenario: string, extra?: Partial<Parameters<typeof generateResponse>[0]>) => ({
-      scenario,
-      state: currentState,
-      userName: user?.name ?? undefined,
-      userLanguage: user?.preferred_language ?? undefined,
-      ...extra,
-    });
+    // Append any learned facts to the user's context
+    if (params.learned_facts) {
+      await appendUserContext(phone, params.learned_facts);
+    }
+
+    // Helper to build response context with user profile + accumulated knowledge
+    const userKnowledge = user?.context ? `Known about this user: ${user.context}` : undefined;
+    const responseCtx = (scenario: string, extra?: Partial<Parameters<typeof generateResponse>[0]>) => {
+      const mergedExtra = [userKnowledge, extra?.extraContext].filter(Boolean).join("\n") || undefined;
+      return {
+        scenario,
+        state: currentState,
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+        ...extra,
+        extraContext: mergedExtra,
+      };
+    };
 
     // --- Global intents (any state) ---
     if (intent === "cancel_session" && participant) {
