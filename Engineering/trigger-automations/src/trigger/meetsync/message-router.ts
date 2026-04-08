@@ -744,8 +744,14 @@ async function handleSendAvailability(
     );
   }
 
-  // Set session to mediated mode
+  // Set session to mediated mode and complete orchestrator tokens to prevent ghost expiry
   await updateSessionMode(participant.session_id, "MEDIATED");
+  if (session.both_confirmed_token_id) {
+    try { await wait.completeToken(session.both_confirmed_token_id, { completed: true }); } catch { /* already completed */ }
+  }
+  if (session.both_preferred_token_id) {
+    try { await wait.completeToken(session.both_preferred_token_id, { completed: true }); } catch { /* already completed */ }
+  }
 
   // Format slot list for the partner
   const slotLines = slots.map((s, i) =>
@@ -761,7 +767,7 @@ async function handleSendAvailability(
     await updateParticipantState(partnerParticipant.id, "AWAITING_PREFERENCES");
   }
 
-  // Move creator to PREFERENCES_SUBMITTED (they implicitly prefer all their free slots)
+  // Creator implicitly prefers all their free slots — deliver-results will pick partner's first choice
   await updateParticipantState(participant.id, "PREFERENCES_SUBMITTED", {
     preferred_slots: slots.map((_, i) => i + 1).join(","),
   });
@@ -776,11 +782,15 @@ async function handleSendAvailability(
       slotList: slotLines,
     }));
   } catch {
-    // Outside 24h window — send template first, then the slot list as follow-up
+    // Outside 24h window — send template first. Mark partner so slot list is re-sent on their reply.
     const templateName = process.env.MEETSYNC_OUTREACH_TEMPLATE ?? "meetsync_schedule_invite";
     await sendTemplateMessage(session.partner_phone, templateName, [user?.name ?? "Your colleague"]);
-    // The partner will need to reply first before getting the slot list
-    // We'll send slots when they reply (handled in handleAcceptInvite flow)
+    if (partnerParticipant) {
+      // Sentinel: preferred_slots = "__PENDING_SLOTS__" means we owe them the slot list
+      await updateParticipantState(partnerParticipant.id, "AWAITING_PREFERENCES", {
+        preferred_slots: "__PENDING_SLOTS__",
+      });
+    }
   }
 
   // Confirm to creator
@@ -794,11 +804,34 @@ async function handleSendAvailability(
 }
 
 async function handleAwaitingPreferences(
-  participant: { id: string; session_id: string; phone: string },
+  participant: { id: string; session_id: string; phone: string; preferred_slots: string | null },
   intent: string,
   params: Record<string, unknown>,
   userMessage?: string
 ) {
+  // Check if partner owes a slot list (template fallback — they never saw the slots)
+  if (participant.preferred_slots === "__PENDING_SLOTS__") {
+    // Clear sentinel and re-send the slot list
+    await updateParticipantState(participant.id, "AWAITING_PREFERENCES", { preferred_slots: null });
+    const slotsResult = await query<{
+      slot_number: number; day: string; day_name: string;
+      start_time: string; end_time: string; duration_minutes: number;
+    }>("SELECT * FROM free_slots WHERE session_id = ? ORDER BY slot_number", [participant.session_id]);
+
+    const slotLines = slotsResult.results.map((s) =>
+      `${s.slot_number}. *${s.day_name}* ${s.day} — ${s.start_time}-${s.end_time} (${Math.floor(s.duration_minutes / 60)}h)`
+    ).join("\n");
+
+    const user = await getUser(participant.phone);
+    await sendTextMessage(participant.phone, await generateResponse({
+      scenario: "mediated_partner_slots", state: "AWAITING_PREFERENCES",
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      slotList: slotLines,
+    }));
+    return { action: "resent_mediated_slots" };
+  }
+
   if (intent === "submit_preferences" && Array.isArray(params.slots) && params.slots.length > 0) {
     const slots = (params.slots as number[]).filter((n) => n > 0);
 
@@ -811,7 +844,12 @@ async function handleAwaitingPreferences(
     if (session?.mode === "MEDIATED") {
       await sendTextMessage(participant.phone, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
       await updateSessionStatus(participant.session_id, "MATCHING");
-      await deliverResults.trigger({ session_id: participant.session_id });
+      try {
+        const result = await deliverResults.triggerAndWait({ session_id: participant.session_id });
+        if (!result.ok) throw new Error("Delivery failed");
+      } catch {
+        await sendTextMessage(participant.phone, "Something went wrong finding the match. Try sending *new* to start over.");
+      }
       return { action: "mediated_preferences_submitted", slots };
     }
 

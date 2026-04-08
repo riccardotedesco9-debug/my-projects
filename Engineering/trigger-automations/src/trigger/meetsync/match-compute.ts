@@ -234,11 +234,13 @@ export function computeSinglePersonSlots(scheduleJson: string | null): Array<{
     duration_minutes: number;
   }> = [];
 
+  const today = new Date().toISOString().split("T")[0];
   const start = new Date(range.start + "T12:00:00Z");
   const end = new Date(range.end + "T12:00:00Z");
 
   for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
     const date = d.toISOString().split("T")[0];
+    if (date < today) continue; // skip past dates
     const freeBlocks = getFreeTime(schedule, date);
 
     for (const block of freeBlocks) {
