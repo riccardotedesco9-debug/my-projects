@@ -3,3 +3,5 @@ WebScraper/.claude/settings.local.json
 .claude/
 release-manifest.json
 .opencode/
+.env
+.env.*
