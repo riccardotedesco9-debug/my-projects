@@ -10,6 +10,8 @@ const INTENT_LIST = [
   "provide_partner",
   "provide_name",
   "decline_invite",
+  "authorize_outreach",
+  "send_availability",
   "upload_schedule_text",
   "confirm_schedule",
   "reject_schedule",
@@ -63,6 +65,8 @@ Possible intents:
 - provide_partner: user is telling the bot WHO they want to schedule with. Extract into params.partner_name (if they said a name like "Diego", "my friend Sarah") or params.partner_phone (if they gave a phone number). This is the primary intent in AWAITING_PARTNER_INFO state.
 - provide_name: user is sharing their own name when asked (e.g., "I'm Riccardo", "My name is Diego", "It's Sarah"). Extract into params.name
 - decline_invite: user doesn't want to schedule with the person who invited them (e.g., "no thanks", "not now", "I'm busy")
+- authorize_outreach: user is giving permission for the bot to proactively message their partner (e.g., "yes message them", "go ahead", "reach out to them", "send it"). Only valid in AWAITING_PARTNER state.
+- send_availability: user wants the bot to share their availability with their partner directly (e.g., "send my availability", "share my free times", "yes send it to them"). Only valid in SCHEDULE_CONFIRMED state.
 - upload_schedule_text: user is describing their work schedule in text (e.g., "I work Mon-Fri 9-5", "off on Wednesday"). Put the full schedule description in params.schedule_text
 - confirm_schedule: user is confirming their parsed schedule is correct (e.g., "yes", "looks good", "correct", "that's right")
 - reject_schedule: user is rejecting their parsed schedule (e.g., "no", "wrong", "redo", "that's not right")
@@ -80,7 +84,7 @@ ALWAYS include params.detected_language — the ISO 639-1 code of the language t
 
 Context rules:
 - In AWAITING_PARTNER_INFO state: bias toward provide_partner. If it looks like a phone number, extract as partner_phone. If it looks like a name, extract as partner_name.
-- In AWAITING_PARTNER state: user is waiting for their partner to message. Most responses are status checks or cancellation.
+- In AWAITING_PARTNER state: bias toward authorize_outreach for affirmative responses ("yes", "go ahead", "sure"). Also handle cancel_session and status checks.
 - In AWAITING_CONFIRMATION state: bias toward confirm_schedule, reject_schedule, or clarify_schedule.
 - In AWAITING_PREFERENCES state: bias toward submit_preferences
 - In AWAITING_SCHEDULE state: if text describes work hours/days, it's upload_schedule_text

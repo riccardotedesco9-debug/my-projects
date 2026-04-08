@@ -3,8 +3,8 @@
 // Includes nudge reminders and day-before meetup reminders
 
 import { task, wait } from "@trigger.dev/sdk";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus } from "./d1-client.js";
-import { sendTextMessage } from "./whatsapp-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getPendingInviteForSession } from "./d1-client.js";
+import { sendTextMessage, sendTemplateMessage } from "./whatsapp-client.js";
 import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
 import { generateResponse } from "./response-generator.js";
@@ -54,6 +54,24 @@ export const sessionOrchestrator = task({
     };
 
     nudgeOnce().catch((err) => console.error("Nudge error:", err));
+
+    // --- Outreach nudge: if bot proactively messaged partner, remind them after 2h ---
+    const outreachNudge = async () => {
+      await wait.for({ hours: 2 });
+      if (bothConfirmed) return;
+
+      const invite = await getPendingInviteForSession(session_id);
+      if (!invite || invite.status !== "OUTREACH_SENT") return;
+
+      // Partner hasn't responded yet — send one reminder via template
+      const templateName = process.env.MEETSYNC_OUTREACH_TEMPLATE ?? "meetsync_schedule_invite";
+      try {
+        await sendTemplateMessage(invite.invitee_phone, templateName, ["Your colleague"]);
+      } catch {
+        // Template might not be approved — silently skip
+      }
+    };
+    outreachNudge().catch((err) => console.error("Outreach nudge error:", err));
 
     // --- Wait for both schedules to be confirmed ---
     const confirmedResult = await wait.forToken(confirmedToken);

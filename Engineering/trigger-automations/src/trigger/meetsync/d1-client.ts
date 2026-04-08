@@ -281,10 +281,52 @@ export async function getPendingInviteForPhone(phone: string) {
   return result.results[0] ?? null;
 }
 
-/** Update invite status (ACCEPTED, EXPIRED, CANCELLED) */
+/** Update invite status (ACCEPTED, EXPIRED, CANCELLED, OUTREACH_SENT) */
 export async function updateInviteStatus(id: string, status: string) {
   await query(
     "UPDATE pending_invites SET status = ? WHERE id = ?",
     [status, id]
   );
+}
+
+// --- Session helpers ---
+
+/** Fetch a session by ID */
+export async function getSessionById(sessionId: string) {
+  const result = await query<{
+    id: string;
+    code: string;
+    creator_phone: string;
+    partner_phone: string | null;
+    status: string;
+    mode: string | null;
+    expires_at: string;
+    both_confirmed_token_id: string | null;
+    both_preferred_token_id: string | null;
+  }>(
+    "SELECT * FROM sessions WHERE id = ?",
+    [sessionId]
+  );
+  return result.results[0] ?? null;
+}
+
+/** Find pending invite for a session */
+export async function getPendingInviteForSession(sessionId: string) {
+  const result = await query<{
+    id: string;
+    inviter_phone: string;
+    invitee_phone: string;
+    session_id: string;
+    status: string;
+    expires_at: string;
+  }>(
+    "SELECT * FROM pending_invites WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+    [sessionId]
+  );
+  return result.results[0] ?? null;
+}
+
+/** Update session mode (NULL = classic, 'MEDIATED' = share availability) */
+export async function updateSessionMode(sessionId: string, mode: string | null) {
+  await query("UPDATE sessions SET mode = ? WHERE id = ?", [mode, sessionId]);
 }

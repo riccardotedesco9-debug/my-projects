@@ -34,6 +34,41 @@ export async function sendTextMessage(to: string, text: string): Promise<void> {
   }
 }
 
+/** Send a pre-approved template message (required for first contact / outside 24h window) */
+export async function sendTemplateMessage(
+  to: string,
+  templateName: string,
+  params: string[],
+  languageCode = "en"
+): Promise<void> {
+  const { token, phoneNumberId } = getConfig();
+
+  const response = await fetch(`${GRAPH_API_BASE}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components: params.length > 0
+          ? [{ type: "body", parameters: params.map((p) => ({ type: "text", text: p })) }]
+          : [],
+      },
+    }),
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`WhatsApp template send failed (${response.status}): ${err}`);
+  }
+}
+
 /** Send a document/file via WhatsApp (e.g., .ics calendar file) */
 export async function sendDocumentMessage(
   to: string,

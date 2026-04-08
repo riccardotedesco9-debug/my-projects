@@ -165,12 +165,12 @@ function parseSchedule(json: string | null): ParsedShift[] {
   }
 }
 
-function timeToMinutes(time: string): number {
+export function timeToMinutes(time: string): number {
   const [h, m] = time.split(":").map(Number);
   return h * 60 + m;
 }
 
-function minutesToTime(minutes: number): string {
+export function minutesToTime(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
@@ -210,6 +210,52 @@ function getFreeTime(schedule: ParsedShift[], date: string): TimeBlock[] {
   }
 
   return free;
+}
+
+/** Compute free-time slots for a single person's schedule (for mediated mode) */
+export function computeSinglePersonSlots(scheduleJson: string | null): Array<{
+  day: string;
+  day_name: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+}> {
+  const schedule = parseSchedule(scheduleJson);
+  if (schedule.length === 0) return [];
+
+  const range = getDateRange(schedule);
+  if (!range) return [];
+
+  const slots: Array<{
+    day: string;
+    day_name: string;
+    start_time: string;
+    end_time: string;
+    duration_minutes: number;
+  }> = [];
+
+  const start = new Date(range.start + "T12:00:00Z");
+  const end = new Date(range.end + "T12:00:00Z");
+
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    const date = d.toISOString().split("T")[0];
+    const freeBlocks = getFreeTime(schedule, date);
+
+    for (const block of freeBlocks) {
+      const duration = block.end - block.start;
+      if (duration >= MIN_BLOCK_MINUTES) {
+        slots.push({
+          day: date,
+          day_name: new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }),
+          start_time: minutesToTime(block.start),
+          end_time: minutesToTime(block.end),
+          duration_minutes: duration,
+        });
+      }
+    }
+  }
+
+  return slots;
 }
 
 /** Find intersection of two sets of time blocks */

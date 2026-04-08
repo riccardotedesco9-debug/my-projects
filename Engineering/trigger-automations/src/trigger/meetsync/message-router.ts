@@ -3,7 +3,7 @@
 
 import { schemaTask, wait } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { sendTextMessage } from "./whatsapp-client.js";
+import { sendTextMessage, sendTemplateMessage } from "./whatsapp-client.js";
 import {
   query,
   getParticipantByPhone,
@@ -22,12 +22,17 @@ import {
   createPendingInvite,
   getPendingInviteForPhone,
   updateInviteStatus,
+  getPendingInviteForSession,
+  getSessionById,
+  updateSessionMode,
 } from "./d1-client.js";
 import type { UserProfile } from "./d1-client.js";
 import { scheduleParser } from "./schedule-parser.js";
 import { sessionOrchestrator } from "./session-orchestrator.js";
+import { deliverResults } from "./deliver-results.js";
 import { classifyIntent } from "./intent-router.js";
 import { generateResponse } from "./response-generator.js";
+import { computeSinglePersonSlots, minutesToTime } from "./match-compute.js";
 
 const payloadSchema = z.object({
   phone: z.string(),
@@ -159,16 +164,21 @@ export const messageRouter = schemaTask({
         return await handleAwaitingConfirmation(participant, intent, params, text);
 
       case "SCHEDULE_CONFIRMED":
-        // Answer questions conversationally, otherwise remind they're waiting
+        // Mediated mode — user wants to share their availability directly with partner
+        if (intent === "send_availability") {
+          return await handleSendAvailability(phone, participant, user);
+        }
+        // Answer questions conversationally, otherwise offer mediation
         if (intent === "greeting" || intent === "show_status") {
           await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
-            extraContext: "User's schedule is confirmed. We're waiting for their partner to submit theirs. Answer the user's question, then mention we're still waiting.",
+            extraContext: "User's schedule is confirmed. We're waiting for their partner to submit theirs. The user can say 'send my availability' to share their free times directly with their partner. Answer the user's question, then mention this option.",
           })));
           return { action: "conversational_while_waiting" };
         }
-        await sendTextMessage(phone, "Your schedule is confirmed! Waiting for your colleague...");
-        return { action: "waiting_for_partner" };
+        // Offer mediation as a shortcut
+        await sendTextMessage(phone, await generateResponse(responseCtx("offer_mediation")));
+        return { action: "offered_mediation" };
 
       case "AWAITING_PREFERENCES":
         return await handleAwaitingPreferences(participant, intent, params, text);
@@ -335,15 +345,15 @@ async function handleAwaitingPartnerInfo(
       return await instantPair(phone, partnerPhone, participant.session_id, user, partnerUser);
     }
 
-    // Unknown phone — create pending invite
+    // Unknown phone — create pending invite and offer proactive outreach
     await updateParticipantState(participant.id, "AWAITING_PARTNER");
     await createPendingInvite(phone, partnerPhone, participant.session_id);
     await sendTextMessage(phone, await generateResponse({
-      scenario: "invite_sent", state: "AWAITING_PARTNER",
+      scenario: "offer_outreach", state: "AWAITING_PARTNER",
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
     }));
-    return { action: "invite_created", invitee: partnerPhone };
+    return { action: "invite_created_outreach_offered", invitee: partnerPhone };
   }
 
   // User gave a name
@@ -386,15 +396,59 @@ async function handleAwaitingPartner(
 ) {
   // cancel_session is handled globally before this point
 
+  // Proactive outreach — user authorizes bot to message partner directly
+  if (intent === "authorize_outreach") {
+    const invite = await getPendingInviteForSession(participant.session_id);
+    if (!invite) {
+      await sendTextMessage(phone, "No pending invite found. Send *new* to start fresh.");
+      return { action: "no_invite_for_outreach" };
+    }
+
+    // Check if partner is already in the system (within 24h window = freeform OK)
+    const partnerUser = await getUser(invite.invitee_phone);
+    const templateName = process.env.MEETSYNC_OUTREACH_TEMPLATE ?? "meetsync_schedule_invite";
+    const creatorName = user?.name ?? "Someone";
+
+    try {
+      if (partnerUser) {
+        // Known user — try freeform first (might be within 24h window)
+        try {
+          await sendTextMessage(invite.invitee_phone, await generateResponse({
+            scenario: "proactive_intro", state: "IDLE",
+            partnerName: creatorName,
+            userName: partnerUser.name ?? undefined,
+          }));
+        } catch {
+          // Outside 24h window — fall back to template
+          await sendTemplateMessage(invite.invitee_phone, templateName, [creatorName]);
+        }
+      } else {
+        // Unknown user — must use template
+        await sendTemplateMessage(invite.invitee_phone, templateName, [creatorName]);
+      }
+
+      await updateInviteStatus(invite.id, "OUTREACH_SENT");
+      await sendTextMessage(phone, await generateResponse({
+        scenario: "outreach_sent", state: "AWAITING_PARTNER",
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+      }));
+      return { action: "outreach_sent", invitee: invite.invitee_phone };
+    } catch (err) {
+      console.error("Outreach failed:", err);
+      await sendTextMessage(phone, "Couldn't send the message — the template might not be approved yet. Ask your friend to message me directly for now.");
+      return { action: "outreach_failed" };
+    }
+  }
+
   // If user asks a question or says something off-script, answer it conversationally
-  // then gently remind them we're still waiting (unknown intent is caught globally before this)
   if (intent === "show_status" || intent === "greeting") {
     await sendTextMessage(phone, await generateResponse({
       scenario: "unknown_intent", state: "AWAITING_PARTNER",
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
       userMessage,
-      extraContext: "User is waiting for their partner to message the bot. Their partner just needs to send any message to this WhatsApp number and they'll be paired automatically. Answer the user's question, then remind them of this.",
+      extraContext: "User is waiting for their partner to message the bot. Their partner just needs to send any message to this WhatsApp number and they'll be paired automatically. The user can also say 'go ahead' to have the bot message the partner directly. Answer the user's question, then remind them of this.",
     }));
     return { action: "conversational_while_waiting" };
   }
@@ -661,6 +715,84 @@ async function handleAwaitingConfirmation(
   return { action: "awaiting_confirmation" };
 }
 
+/** Mediated mode — share creator's availability directly with partner */
+async function handleSendAvailability(
+  phone: string,
+  participant: { id: string; session_id: string; phone: string; schedule_json: string | null },
+  user: UserProfile | null
+) {
+  // Compute creator's free time from their confirmed schedule
+  const slots = computeSinglePersonSlots(participant.schedule_json);
+  if (slots.length === 0) {
+    await sendTextMessage(phone, "Couldn't compute free time from your schedule. Try uploading it again.");
+    return { action: "no_free_slots" };
+  }
+
+  const session = await getSessionById(participant.session_id);
+  if (!session?.partner_phone) {
+    await sendTextMessage(phone, "No partner found for this session. Send *new* to start fresh.");
+    return { action: "no_partner" };
+  }
+
+  // Store slots in free_slots table
+  await query("DELETE FROM free_slots WHERE session_id = ?", [participant.session_id]);
+  for (let i = 0; i < slots.length; i++) {
+    const s = slots[i];
+    await query(
+      "INSERT INTO free_slots (id, session_id, slot_number, day, day_name, start_time, end_time, duration_minutes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [crypto.randomUUID(), participant.session_id, i + 1, s.day, s.day_name, s.start_time, s.end_time, s.duration_minutes]
+    );
+  }
+
+  // Set session to mediated mode
+  await updateSessionMode(participant.session_id, "MEDIATED");
+
+  // Format slot list for the partner
+  const slotLines = slots.map((s, i) =>
+    `${i + 1}. *${s.day_name}* ${s.day} — ${s.start_time}-${s.end_time} (${Math.floor(s.duration_minutes / 60)}h)`
+  ).join("\n");
+
+  // Find partner and send them the availability
+  const partnerUser = await getUser(session.partner_phone);
+  const partnerParticipant = (await getSessionParticipants(participant.session_id))
+    .find((p) => p.phone === session.partner_phone);
+
+  if (partnerParticipant) {
+    await updateParticipantState(partnerParticipant.id, "AWAITING_PREFERENCES");
+  }
+
+  // Move creator to PREFERENCES_SUBMITTED (they implicitly prefer all their free slots)
+  await updateParticipantState(participant.id, "PREFERENCES_SUBMITTED", {
+    preferred_slots: slots.map((_, i) => i + 1).join(","),
+  });
+
+  // Send to partner — try freeform first, fall back to template + follow-up
+  try {
+    await sendTextMessage(session.partner_phone, await generateResponse({
+      scenario: "mediated_partner_slots", state: "AWAITING_PREFERENCES",
+      userName: partnerUser?.name ?? undefined,
+      userLanguage: partnerUser?.preferred_language ?? undefined,
+      partnerName: user?.name ?? undefined,
+      slotList: slotLines,
+    }));
+  } catch {
+    // Outside 24h window — send template first, then the slot list as follow-up
+    const templateName = process.env.MEETSYNC_OUTREACH_TEMPLATE ?? "meetsync_schedule_invite";
+    await sendTemplateMessage(session.partner_phone, templateName, [user?.name ?? "Your colleague"]);
+    // The partner will need to reply first before getting the slot list
+    // We'll send slots when they reply (handled in handleAcceptInvite flow)
+  }
+
+  // Confirm to creator
+  await sendTextMessage(phone, await generateResponse({
+    scenario: "mediated_availability_sent", state: "PREFERENCES_SUBMITTED",
+    userName: user?.name ?? undefined,
+    userLanguage: user?.preferred_language ?? undefined,
+  }));
+
+  return { action: "availability_sent_mediated" };
+}
+
 async function handleAwaitingPreferences(
   participant: { id: string; session_id: string; phone: string },
   intent: string,
@@ -673,6 +805,16 @@ async function handleAwaitingPreferences(
     await updateParticipantState(participant.id, "PREFERENCES_SUBMITTED", {
       preferred_slots: slots.join(","),
     });
+
+    // Check if this is mediated mode — if so, deliver results immediately
+    const session = await getSessionById(participant.session_id);
+    if (session?.mode === "MEDIATED") {
+      await sendTextMessage(participant.phone, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
+      await updateSessionStatus(participant.session_id, "MATCHING");
+      await deliverResults.trigger({ session_id: participant.session_id });
+      return { action: "mediated_preferences_submitted", slots };
+    }
+
     await sendTextMessage(participant.phone, `Saved your preferences: slots ${slots.join(", ")}. Waiting for your colleague...`);
     await checkBothPreferred(participant.session_id);
     return { action: "preferences_submitted", slots };
