@@ -146,9 +146,34 @@ export const messageRouter = schemaTask({
       return { action: "conversational_response" };
     }
 
-    // --- Flow change: user wants to start over from any state ---
-    if (intent === "create_session" && participant.state !== "AWAITING_SCHEDULE") {
+    // --- Flow changes: user wants to do something different ---
+    // Start over from any state
+    if (intent === "create_session" && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED"].includes(participant.state)) {
       return await handleNewSession(phone, user);
+    }
+
+    // User sends a schedule (photo/doc/text) from a non-schedule state — auto-transition
+    // This handles: uploading partner's schedule on their behalf, uploading early, re-uploading, etc.
+    const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
+    const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
+    if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
+      // If session isn't paired yet, create a proxy partner so we can proceed
+      const session = await getSessionById(participant.session_id);
+      if (session && session.status === "AWAITING_PARTNER") {
+        const invite = await getPendingInviteForSession(participant.session_id);
+        const partnerPhone = invite?.invitee_phone ?? "proxy";
+        const partnerId = crypto.randomUUID();
+        await query("UPDATE sessions SET partner_phone = ?, status = 'PAIRED' WHERE id = ?", [partnerPhone, participant.session_id]);
+        try {
+          await query(
+            "INSERT INTO participants (id, session_id, phone, role, state) VALUES (?, ?, ?, 'partner', 'AWAITING_SCHEDULE')",
+            [partnerId, participant.session_id, partnerPhone]
+          );
+        } catch { /* partner might already exist */ }
+        await sessionOrchestrator.trigger({ session_id: participant.session_id }, { idempotencyKey: `orch-${participant.session_id}` });
+      }
+      await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
+      return await handleAwaitingSchedule(participant, payload, intent, params, text);
     }
 
     // --- Route by state + intent ---
@@ -451,7 +476,7 @@ async function handleAwaitingPartner(
     userName: user?.name ?? undefined,
     userLanguage: user?.preferred_language ?? undefined,
     userMessage,
-    extraContext: "User is waiting for their partner to message the bot. Their partner just needs to send any message to this WhatsApp number and they'll be paired automatically. The user can also say 'go ahead' or 'message them' to have the bot reach out to the partner directly. IMPORTANT: Answer whatever the user said FIRST, then briefly remind them of the status.",
+    extraContext: "User is waiting for their partner to message the bot. Options: say 'go ahead' to have bot message partner directly. They can also upload schedules (theirs or partner's) at any time. Answer what they said FIRST.",
   }));
   return { action: "conversational_while_waiting" };
 }

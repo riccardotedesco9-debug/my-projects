@@ -88,7 +88,7 @@ If the user says ANYTHING that could be useful context in future conversations, 
 
 Context rules:
 - In AWAITING_PARTNER_INFO state: bias toward provide_partner. If it looks like a phone number, extract as partner_phone. If it looks like a name, extract as partner_name.
-- In AWAITING_PARTNER state: bias toward authorize_outreach for affirmative responses ("yes", "go ahead", "sure"). Also handle cancel_session and status checks.
+- In AWAITING_PARTNER state: bias toward authorize_outreach for affirmative responses ("yes", "go ahead", "sure"). If user describes work hours/days or says they'll upload a schedule, classify as upload_schedule_text. Also handle cancel_session.
 - In AWAITING_CONFIRMATION state: bias toward confirm_schedule, reject_schedule, or clarify_schedule.
 - In AWAITING_PREFERENCES state: bias toward submit_preferences
 - In AWAITING_SCHEDULE state: if text describes work hours/days, it's upload_schedule_text
