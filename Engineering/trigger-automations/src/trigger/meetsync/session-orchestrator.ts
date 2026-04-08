@@ -139,7 +139,8 @@ export const sessionOrchestrator = task({
         const why = s.explanation ? ` — ${s.explanation}` : "";
         return `${s.start_time}-${s.end_time} (${dur})${why}`;
       }).join(", ");
-      dayLines.push(`*${dayName} ${dateNum}th* — ${windows}`);
+      const ord = (n: string) => { const d = parseInt(n); const s = ["th","st","nd","rd"]; const v = d % 100; return d + (s[(v-20)%10] || s[v] || s[0]); };
+      dayLines.push(`*${dayName} ${ord(dateNum)}* — ${windows}`);
     }
 
     const slotListFormatted = dayLines.join("\n");

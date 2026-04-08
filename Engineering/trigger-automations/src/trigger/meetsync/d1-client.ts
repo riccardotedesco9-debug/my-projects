@@ -223,14 +223,23 @@ export async function updateUserName(phone: string, name: string) {
   );
 }
 
-/** Append learned facts to user's context (newline-separated) */
+/** Append learned facts to user's context (newline-separated, capped at 500 chars) */
 export async function appendUserContext(phone: string, facts: string) {
+  // Sanitize: reject facts that look like prompt injection attempts
+  const lower = facts.toLowerCase();
+  if (lower.includes("ignore") && lower.includes("instruction")) return;
+  if (lower.includes("system prompt")) return;
+
+  // Cap individual fact length
+  const sanitized = facts.slice(0, 200);
+
+  // Append and trim to 500 chars total (keeps most recent facts)
   await query(
-    `UPDATE users SET context = CASE
+    `UPDATE users SET context = substr(CASE
        WHEN context IS NULL THEN ?
        ELSE context || char(10) || ?
-     END, last_seen = datetime('now') WHERE phone = ?`,
-    [facts, facts, phone]
+     END, -500), last_seen = datetime('now') WHERE phone = ?`,
+    [sanitized, sanitized, phone]
   );
 }
 
