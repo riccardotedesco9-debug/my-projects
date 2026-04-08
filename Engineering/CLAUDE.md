@@ -20,10 +20,12 @@ backend-development, frontend-development, databases, devops, web-frameworks, we
 ### `trigger-automations/`
 Trigger.dev automation platform — TypeScript background tasks, scheduled jobs, AI agent orchestration.
 - `src/trigger/` — Task files (each automation gets its own folder)
-- `trigger.config.ts` — Project config (project ref from cloud.trigger.dev)
+- `src/trigger/meetsync/` — MeetSync WhatsApp bot tasks (7 tasks: message-router, schedule-parser, session-orchestrator, match-compute, deliver-results + supporting modules)
+- `trigger.config.ts` — Project config (project ref: `proj_njxprjwjwpnxifasacvr`)
 - `trigger-ref.md` — SDK v4 API reference with code patterns
 - MCP tools: `mcp__trigger__*` for deploy, trigger, monitor
-- Status: scaffolded, awaiting cloud.trigger.dev account setup
+- Deploy: copy to `/c/tmp/trigger-deploy/` first (spaces in "My Projects" break Docker build)
+- Status: production — 7 tasks deployed, MeetSync bot live
 
 ## Recommended Skills (auto-invoke when relevant)
 

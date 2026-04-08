@@ -10,6 +10,7 @@ My Projects/
 ├── Marketing/      — Marketing workspace (campaigns, content, SEO, funnels)
 ├── WebDesign/      — Frontend web design workspace (websites, landing pages, UI)
 ├── WebScraper/     — Web scraping workspace (Firecrawl MCP, crawling, extraction)
+├── meetsync/       — WhatsApp scheduling bot (Worker gateway + D1 database + shared types)
 └── CLAUDE.md       — This file (global context)
 ```
 
@@ -45,6 +46,7 @@ Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
 - **Marketing/** → global + marketing local skills
 - **WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines)
 - **WebScraper/** → global skills + Firecrawl MCP
+- **meetsync/** → global skills + Cloudflare MCP + Trigger.dev MCP (bot gateway + DB)
 
 ## Available MCP Integrations (Global)
 
@@ -81,6 +83,9 @@ These tools are available across ALL projects. Use them autonomously when the ta
 ### Automation
 - **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `Engineering/trigger-automations/`.
 
+### Infrastructure
+- **Cloudflare** (`mcp__cloudflare__*`) — Query D1 databases, manage Workers, KV, R2, and 2500+ Cloudflare API endpoints. Use for ad-hoc D1 queries, Worker log inspection, and infrastructure management. MeetSync's database and webhook gateway run on Cloudflare.
+
 ## Tools-First Policy
 
 **Resolution order:** MCP integrations → existing `tools/` scripts → existing `workflows/` SOPs → new code (last resort).
@@ -96,6 +101,7 @@ Always use available MCP tools before improvising code-based alternatives:
 - **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
 - **File Storage** → Google Drive, not local temp files for shared assets
 - **Web Scraping** → Firecrawl MCP (in WebScraper/), not manual fetch loops or custom scrapers
+- **Infrastructure** → Cloudflare MCP for D1 queries, Worker management; not raw HTTP API calls
 - **Deterministic tasks** → `tools/` scripts, not inline AI reasoning for API calls, transforms, or file ops
 
 Only fall back to new code when: MCP tool lacks a required capability, no existing script covers the task, the task is purely local/dev-only, or the user explicitly requests code.
