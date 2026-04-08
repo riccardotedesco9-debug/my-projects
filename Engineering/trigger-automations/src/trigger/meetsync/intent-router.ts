@@ -84,7 +84,7 @@ Possible intents:
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.
 
-If the user reveals something useful about themselves (job, work pattern, schedule preference, availability habit, nickname, location), include it in params.learned_facts as a short note (e.g., "works night shifts at hospital", "prefers meeting after 3pm", "based in Valletta"). Only include genuinely useful facts — don't fabricate or pad. Omit this field if nothing new was learned.
+If the user says ANYTHING that could be useful context in future conversations, include it in params.learned_facts as a short note. This includes but is not limited to: job/work info, schedule details, availability ("free next week", "off on Wednesdays"), preferences, plans, location, relationships ("Diego is my colleague"), uploaded schedule summaries, time constraints, personal details they share. Be generous — if in doubt, store it. Only omit this field if the message is purely functional (like "yes", "1 and 3", "cancel") with zero contextual value.
 
 Context rules:
 - In AWAITING_PARTNER_INFO state: bias toward provide_partner. If it looks like a phone number, extract as partner_phone. If it looks like a name, extract as partner_name.
