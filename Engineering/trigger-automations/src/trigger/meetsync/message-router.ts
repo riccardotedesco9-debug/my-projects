@@ -136,7 +136,7 @@ export const messageRouter = schemaTask({
         return await handleAwaitingPartnerInfo(phone, intent, params, user);
 
       case "AWAITING_PARTNER":
-        return await handleAwaitingPartner(phone, participant, intent, user);
+        return await handleAwaitingPartner(phone, participant, intent, user, text);
 
       case "AWAITING_SCHEDULE":
         return await handleAwaitingSchedule(participant, payload, intent, params);
@@ -159,6 +159,14 @@ export const messageRouter = schemaTask({
         return await handleAwaitingConfirmation(participant, intent, params, text);
 
       case "SCHEDULE_CONFIRMED":
+        // Answer questions conversationally, otherwise remind they're waiting
+        if (intent === "greeting" || intent === "show_status") {
+          await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
+            userMessage: text,
+            extraContext: "User's schedule is confirmed. We're waiting for their partner to submit theirs. Answer the user's question, then mention we're still waiting.",
+          })));
+          return { action: "conversational_while_waiting" };
+        }
         await sendTextMessage(phone, "Your schedule is confirmed! Waiting for your colleague...");
         return { action: "waiting_for_partner" };
 
@@ -166,6 +174,13 @@ export const messageRouter = schemaTask({
         return await handleAwaitingPreferences(participant, intent, params, text);
 
       case "PREFERENCES_SUBMITTED":
+        if (intent === "greeting" || intent === "show_status") {
+          await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
+            userMessage: text,
+            extraContext: "User already submitted their preferences. Waiting for their partner to pick theirs. Answer the user's question, then mention we're still waiting.",
+          })));
+          return { action: "conversational_while_waiting" };
+        }
         await sendTextMessage(phone, "Your preferences are saved! Waiting for your colleague...");
         return { action: "waiting_for_partner_prefs" };
 
@@ -283,6 +298,17 @@ async function handleAwaitingPartnerInfo(
   if (!participant) return { action: "no_participant" };
 
   if (intent !== "provide_partner" || (!params.partner_name && !params.partner_phone)) {
+    // If user asks a question, answer it conversationally then loop back
+    // (unknown intent is caught globally before this, so only check greeting/status here)
+    if (intent === "greeting" || intent === "show_status") {
+      await sendTextMessage(phone, await generateResponse({
+        scenario: "unknown_intent", state: "AWAITING_PARTNER_INFO",
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+        extraContext: "Bot asked who they want to schedule with. User said something off-topic. Answer their question briefly, then ask again who they want to schedule with (name or phone number).",
+      }));
+      return { action: "conversational_in_partner_info" };
+    }
     // Not a partner provision — remind them
     await sendTextMessage(phone, await generateResponse({
       scenario: "ask_partner", state: "AWAITING_PARTNER_INFO",
@@ -355,9 +381,23 @@ async function handleAwaitingPartner(
   phone: string,
   participant: { id: string; session_id: string; phone: string },
   intent: string,
-  user: UserProfile | null
+  user: UserProfile | null,
+  userMessage?: string
 ) {
   // cancel_session is handled globally before this point
+
+  // If user asks a question or says something off-script, answer it conversationally
+  // then gently remind them we're still waiting (unknown intent is caught globally before this)
+  if (intent === "show_status" || intent === "greeting") {
+    await sendTextMessage(phone, await generateResponse({
+      scenario: "unknown_intent", state: "AWAITING_PARTNER",
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      userMessage,
+      extraContext: "User is waiting for their partner to message the bot. Their partner just needs to send any message to this WhatsApp number and they'll be paired automatically. Answer the user's question, then remind them of this.",
+    }));
+    return { action: "conversational_while_waiting" };
+  }
 
   await sendTextMessage(phone, await generateResponse({
     scenario: "awaiting_partner_reminder", state: "AWAITING_PARTNER",

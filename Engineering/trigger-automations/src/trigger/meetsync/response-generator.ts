@@ -63,7 +63,7 @@ const SCENARIO_INSTRUCTIONS: Record<string, string> = {
   cancel_self: "Confirm the session was cancelled. The partner has been notified. Offer to start a new session.",
   cancel_partner: "Their colleague cancelled the session. Let them know and offer to start a new one.",
   show_help: "Provide contextual help based on their current state. Mention they can always use 'cancel', 'status', or 'help'.",
-  unknown_intent: "The user said something off-script. If it's a question about MeetSync or scheduling, answer it naturally. If it's completely unrelated, acknowledge it briefly and gently nudge them toward the next step in their current flow. Use the state to know what step they're on.",
+  unknown_intent: "The user said something off-script. ALWAYS answer their question or respond to what they said first — don't ignore them. If it's about MeetSync or scheduling, answer fully. If it's off-topic, acknowledge it briefly. Then gently redirect to the next step based on their state. If extra context is provided, use it to inform your answer. Never just repeat a generic instruction without addressing what they said.",
   preferences_saved: "Their preferences are saved. Waiting for their colleague to pick theirs.",
 
   // -- schedule-parser scenarios --
