@@ -170,13 +170,13 @@ export const messageRouter = schemaTask({
       return await handleNewSession(phone, user);
     }
 
-    // User sends a schedule (photo/doc/text) from a non-schedule state — auto-transition
-    // This handles: uploading partner's schedule on their behalf, uploading early, re-uploading, etc.
+    // User sends a schedule (photo/doc/text) from a non-schedule state — smart routing
     const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
     const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
     if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
-      // If session isn't paired yet, create a proxy partner so we can proceed
       const session = await getSessionById(participant.session_id);
+
+      // If session isn't paired yet, create a proxy partner
       if (session && session.status === "AWAITING_PARTNER") {
         const invite = await getPendingInviteForSession(participant.session_id);
         const partnerPhone = invite?.invitee_phone ?? "proxy";
@@ -190,6 +190,36 @@ export const messageRouter = schemaTask({
         } catch { /* partner might already exist */ }
         await sessionOrchestrator.trigger({ session_id: participant.session_id }, { idempotencyKey: `orch-${participant.session_id}` });
       }
+
+      // If user's schedule is already confirmed, this upload is for the PARTNER
+      if (["SCHEDULE_CONFIRMED", "PREFERENCES_SUBMITTED"].includes(participant.state)) {
+        const allParticipants = await getSessionParticipants(participant.session_id);
+        const partnerParticipant = allParticipants.find((p) => p.phone !== phone);
+        if (partnerParticipant) {
+          await updateParticipantState(partnerParticipant.id, "SCHEDULE_RECEIVED");
+          await sendTextMessage(phone, "Got it — processing your partner's schedule now...");
+          await logMessage(phone, "bot", "Got it — processing your partner's schedule now...");
+          if (isScheduleUpload) {
+            await scheduleParser.trigger({
+              participant_id: partnerParticipant.id,
+              session_id: participant.session_id,
+              phone, // notifications still go to the uploader
+              media_id: media_id!,
+              mime_type: mime_type ?? "image/jpeg",
+            });
+          } else if (isScheduleText) {
+            await scheduleParser.trigger({
+              participant_id: partnerParticipant.id,
+              session_id: participant.session_id,
+              phone,
+              text_content: String(params.schedule_text),
+            });
+          }
+          return { action: "partner_schedule_uploaded_by_proxy" };
+        }
+      }
+
+      // Otherwise it's the user's own schedule
       await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
       return await handleAwaitingSchedule(participant, payload, intent, params, text);
     }
