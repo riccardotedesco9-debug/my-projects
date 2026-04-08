@@ -26,10 +26,12 @@ export function resolveReaction(
   const reactType = getEffectiveGene(attacker, GENE.REACT_TYPE);
 
   if (reactType < 64) {
-    // Same role = allies. Never attack your own kind.
-    if (getCreatureRole(attacker) === getCreatureRole(defender)) {
-      return;
-    }
+    // Ally protection: same role never fights. Predators also don't attack other predators.
+    const aRole = getCreatureRole(attacker);
+    const dRole = getCreatureRole(defender);
+    if (aRole === dRole) return; // same role = allies
+    // Predators (hunter/apex) don't fight each other — focus on prey
+    if ((aRole === 1 || aRole === 2) && (dRole === 1 || dRole === 2)) return;
     resolveAbsorb(attacker, defender, world, _config, events);
   } else {
     // Non-violent reactions: threshold gated
