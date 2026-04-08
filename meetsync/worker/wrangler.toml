@@ -1,0 +1,17 @@
+name = "meetsync-worker"
+main = "src/index.ts"
+compatibility_date = "2024-12-30"
+
+# D1 database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "meetsync-db"
+database_id = "a750c8fe-0b58-410c-b07c-fc2972b2c35d"
+
+# Environment variables (set via wrangler secret or dashboard)
+# WHATSAPP_PHONE_NUMBER_ID
+# WHATSAPP_ACCESS_TOKEN
+# WHATSAPP_VERIFY_TOKEN
+# WHATSAPP_APP_SECRET
+# TRIGGERDEV_API_KEY
+# TRIGGERDEV_API_URL
