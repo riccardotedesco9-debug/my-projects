@@ -146,37 +146,32 @@ export const messageRouter = schemaTask({
       return { action: "conversational_response" };
     }
 
-    // --- Flow change: user wants to do something different than the current state expects ---
-    // If user expresses a clear intent for a different flow stage, transition them instead of ignoring it
-    if (participant.state === "AWAITING_PARTNER_INFO" || participant.state === "AWAITING_PARTNER") {
-      // User wants to skip partner selection and just upload their schedule
-      if (intent === "upload_schedule_text" || ((message_type === "image" || message_type === "document") && media_id)) {
-        await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-        return await handleAwaitingSchedule(participant, payload, intent, params);
-      }
-      // User wants to start over entirely
-      if (intent === "create_session") {
-        return await handleNewSession(phone, user);
-      }
+    // --- Flow change: user wants to start over from any state ---
+    if (intent === "create_session" && participant.state !== "AWAITING_SCHEDULE") {
+      return await handleNewSession(phone, user);
     }
 
     // --- Route by state + intent ---
+    // Each state handles its expected intents, then falls back to conversational response.
+    // The conversational fallback ALWAYS answers what the user said, then mentions the current step.
     switch (participant.state) {
       case "AWAITING_PARTNER_INFO":
-        return await handleAwaitingPartnerInfo(phone, intent, params, user);
+        return await handleAwaitingPartnerInfo(phone, intent, params, user, text);
 
       case "AWAITING_PARTNER":
         return await handleAwaitingPartner(phone, participant, intent, user, text);
 
       case "AWAITING_SCHEDULE":
-        return await handleAwaitingSchedule(participant, payload, intent, params);
+        return await handleAwaitingSchedule(participant, payload, intent, params, text);
 
       case "SCHEDULE_RECEIVED":
-        await sendTextMessage(phone, "Still analyzing your schedule... please wait a moment.");
+        await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
+          userMessage: text,
+          extraContext: "User's schedule is being analyzed right now. Answer what they said, then let them know it's still processing.",
+        })));
         return { action: "parsing_in_progress" };
 
       case "AWAITING_CONFIRMATION":
-        // If user sends a new photo/doc, treat as re-upload
         if ((message_type === "image" || message_type === "document") && media_id) {
           await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
           await sendTextMessage(phone, "Got your updated schedule! Re-analyzing...");
@@ -189,14 +184,12 @@ export const messageRouter = schemaTask({
         return await handleAwaitingConfirmation(participant, intent, params, text);
 
       case "SCHEDULE_CONFIRMED":
-        // Mediated mode — user wants to share their availability directly with partner
         if (intent === "send_availability") {
           return await handleSendAvailability(phone, participant, user);
         }
-        // Default: answer conversationally + mention mediation option
         await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
           userMessage: text,
-          extraContext: "User's schedule is confirmed. Waiting for partner. User can say 'send my availability' to share free times directly with partner. Answer what they said FIRST, then mention options.",
+          extraContext: "User's schedule is confirmed. Waiting for partner. They can say 'send my availability' to share free times directly. Answer what they said FIRST, then mention options.",
         })));
         return { action: "conversational_while_waiting" };
 
@@ -206,19 +199,22 @@ export const messageRouter = schemaTask({
       case "PREFERENCES_SUBMITTED":
         await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
           userMessage: text,
-          extraContext: "User already submitted preferences. Waiting for partner to pick theirs. Answer what they said FIRST, then mention we're still waiting.",
+          extraContext: "User submitted preferences. Waiting for partner. Answer what they said FIRST, then mention we're waiting.",
         })));
         return { action: "conversational_while_waiting" };
 
       case "COMPLETED":
-        if (intent === "create_session" || intent === "greeting") {
-          return await handleNewSession(phone, user);
-        }
-        await sendTextMessage(phone, "Your last session is done! Send *new* to start a fresh one.");
+        await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
+          userMessage: text,
+          extraContext: "Session is complete. User can send 'new' to start another. Answer what they said FIRST.",
+        })));
         return { action: "session_complete" };
 
       default:
-        await sendTextMessage(phone, "Something went wrong. Send *new* to start fresh or *cancel* to reset.");
+        await sendTextMessage(phone, await generateResponse(responseCtx("unknown_intent", {
+          userMessage: text,
+          extraContext: "Something unexpected. User can send 'new' to start fresh or 'cancel' to reset. Answer what they said.",
+        })));
         return { action: "unknown_state" };
     }
   },
@@ -318,7 +314,8 @@ async function handleAwaitingPartnerInfo(
   phone: string,
   intent: string,
   params: Record<string, unknown>,
-  user: UserProfile | null
+  user: UserProfile | null,
+  userMessage?: string
 ) {
   const participant = await getParticipantByPhone(phone);
   if (!participant) return { action: "no_participant" };
@@ -328,6 +325,7 @@ async function handleAwaitingPartnerInfo(
     await sendTextMessage(phone, await generateResponse({
       scenario: "unknown_intent", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
+      userMessage,
       userLanguage: user?.preferred_language ?? undefined,
       extraContext: "Bot asked who they want to schedule with. User said something else. IMPORTANT: Answer their question or respond to what they said FIRST, then gently ask again who they want to schedule with (name or phone number).",
     }));
@@ -630,7 +628,8 @@ async function handleAwaitingSchedule(
   participant: { id: string; session_id: string; phone: string },
   payload: z.infer<typeof payloadSchema>,
   intent: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  userMessage?: string
 ) {
   const { phone, message_type, media_id, mime_type } = payload;
 
@@ -668,10 +667,13 @@ async function handleAwaitingSchedule(
     return { action: "schedule_received_text" };
   }
 
+  // Conversational default — answer what they said, then remind about uploading
   await sendTextMessage(phone, await generateResponse({
-    scenario: "remind_upload", state: "AWAITING_SCHEDULE", userMessage: payload.text,
+    scenario: "unknown_intent", state: "AWAITING_SCHEDULE",
+    userMessage: userMessage ?? payload.text,
+    extraContext: "User needs to send their work schedule (photo, PDF, or type hours). Answer what they said FIRST, then remind them to send their schedule.",
   }));
-  return { action: "reminded_upload" };
+  return { action: "conversational_in_schedule" };
 }
 
 async function handleAwaitingConfirmation(
