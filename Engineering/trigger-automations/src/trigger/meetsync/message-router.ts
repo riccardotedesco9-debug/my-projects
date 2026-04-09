@@ -59,11 +59,6 @@ export const messageRouter = schemaTask({
   id: "meetsync-message-router",
   schema: payloadSchema,
   maxDuration: 120,
-  queue: {
-    // Process one message at a time per user — prevents race conditions from rapid messages
-    name: "meetsync-user",
-    concurrencyLimit: 1,
-  },
 
   run: async (payload) => {
     const { chat_id: chatId, media_id, mime_type, contact_phone } = payload;
