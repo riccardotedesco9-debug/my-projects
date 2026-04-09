@@ -39,6 +39,12 @@ import { classifyIntent } from "./intent-router.js";
 import { generateResponse } from "./response-generator.js";
 import { computeSinglePersonSlots } from "./match-compute.js";
 
+/** Send a message and log it — ensures conversation history is always complete */
+async function reply(chatId: string, msg: string): Promise<void> {
+  await reply(chatId, msg);
+  await logMessage(chatId, "bot", msg);
+}
+
 const payloadSchema = z.object({
   chat_id: z.string(),
   message_type: z.enum(["text", "image", "document", "audio", "contact", "unknown"]),
@@ -63,11 +69,6 @@ export const messageRouter = schemaTask({
     const { chat_id: chatId, media_id, mime_type, contact_phone } = payload;
     let { message_type, text } = payload as { message_type: string; text?: string };
 
-    // Helper: send message AND log it (ensures consolidation window works correctly)
-    const reply = async (msg: string) => {
-      await sendTextMessage(chatId, msg);
-      await logMessage(chatId, "bot", msg);
-    };
 
     try {
       // Register/update user on every message
@@ -90,7 +91,7 @@ export const messageRouter = schemaTask({
           }
         } catch (err) {
           console.error("Voice transcription failed:", err);
-          await sendTextMessage(chatId, "I had trouble processing your voice message. Could you type it instead?");
+          await reply(chatId, "I had trouble processing your voice message. Could you type it instead?");
           return { action: "voice_transcription_failed" };
         }
       }
@@ -162,28 +163,27 @@ export const messageRouter = schemaTask({
         return await handleCancel(participant, user);
       }
       if (intent === "show_help") {
-        await sendTextMessage(chatId, await generateResponse(responseCtx("show_help")));
+        await reply(chatId, await generateResponse(responseCtx("show_help")));
         return { action: "showed_help" };
       }
       if (intent === "show_status" && participant) {
-        await sendTextMessage(chatId, await generateResponse(responseCtx("show_status")));
+        await reply(chatId, await generateResponse(responseCtx("show_status")));
         return { action: "status" };
       }
       if (intent === "unsupported_media") {
-        await sendTextMessage(chatId, "I can't process videos or stickers — but I handle text, photos, PDFs, and voice messages!");
+        await reply(chatId, "I can't process videos or stickers — but I handle text, photos, PDFs, and voice messages!");
         return { action: "unsupported_media" };
       }
       if (intent === "reset_all") {
-        // Check if user already confirmed (recent bot message asked for confirmation)
+        // Check if user already confirmed (recent bot message contains reset marker)
         const recent = await getRecentMessages(chatId);
         const lastBotMsg = recent.filter((m) => m.role === "bot").pop();
-        const alreadyConfirming = lastBotMsg?.message.includes("wipe everything");
+        const alreadyConfirming = lastBotMsg?.message.includes("[RESET_PENDING]");
 
         if (!alreadyConfirming) {
-          // First time — ask for confirmation
-          const msg = "This will wipe everything — your name, history, and all session data. Are you sure?";
-          await sendTextMessage(chatId, msg);
-          await logMessage(chatId, "bot", msg);
+          // First time — ask for confirmation (marker is hidden from display by Telegram)
+          const msg = "This will wipe everything — your name, history, and all session data. Are you sure? [RESET_PENDING]";
+          await reply(chatId, msg);
           return { action: "reset_confirmation_asked" };
         }
 
@@ -192,14 +192,14 @@ export const messageRouter = schemaTask({
         await query("DELETE FROM conversation_log WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM participants WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM users WHERE chat_id = ?", [chatId]);
-        await sendTextMessage(chatId, "Done — everything wiped. Send me a message to start fresh.");
+        await reply(chatId, "Done — everything wiped. Send me a message to start fresh.");
         return { action: "reset" };
       }
       if (intent === "new_partner") {
         if (participant) {
           await updateSessionStatus(participant.session_id, "EXPIRED");
         }
-        await sendTextMessage(chatId, "Got it — starting fresh. Send /new to schedule with someone new.");
+        await reply(chatId, "Got it — starting fresh. Send /new to schedule with someone new.");
         return { action: "new_partner" };
       }
 
@@ -210,7 +210,7 @@ export const messageRouter = schemaTask({
           // Auto-create session so user flows straight into adding people
           return await handleNewSession(chatId, { ...user, name: params.name } as UserProfile);
         }
-        await sendTextMessage(chatId, `Got it, ${params.name}!`);
+        await reply(chatId, `Got it, ${params.name}!`);
         return { action: "name_updated", name: params.name };
       }
 
@@ -221,14 +221,11 @@ export const messageRouter = schemaTask({
 
       // --- Unknown intent — inline reply ---
       if (intent === "unknown") {
-        const reply = params.reply as string | undefined;
-        if (reply) {
-          await sendTextMessage(chatId, reply);
-          await logMessage(chatId, "bot", reply);
+        const inlineReply = params.reply as string | undefined;
+        if (inlineReply) {
+          await reply(chatId, inlineReply);
         } else {
-          const response = await generateResponse(responseCtx("unknown_intent", { userMessage: text }));
-          await sendTextMessage(chatId, response);
-          await logMessage(chatId, "bot", response);
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", { userMessage: text })));
         }
         return { action: "conversational_response" };
       }
@@ -279,7 +276,7 @@ export const messageRouter = schemaTask({
           return await handleAwaitingSchedule(participant, payload, intent, params, text);
 
         case "SCHEDULE_RECEIVED":
-          await sendTextMessage(chatId, await generateResponse(responseCtx("unknown_intent", {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
             extraContext: "User's schedule is being analyzed right now. Answer what they said, then let them know it's still processing.",
           })));
@@ -288,7 +285,7 @@ export const messageRouter = schemaTask({
         case "AWAITING_CONFIRMATION":
           if ((message_type === "image" || message_type === "document") && media_id) {
             await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-            await sendTextMessage(chatId, "Got your updated schedule! Re-analyzing...");
+            await reply(chatId, "Got your updated schedule! Re-analyzing...");
             await scheduleParser.trigger({
               participant_id: participant.id, session_id: participant.session_id,
               chat_id: chatId, media_id, mime_type: mime_type ?? "image/jpeg",
@@ -301,7 +298,7 @@ export const messageRouter = schemaTask({
           if (intent === "send_availability") {
             return await handleSendAvailability(chatId, participant, user);
           }
-          await sendTextMessage(chatId, await generateResponse(responseCtx("unknown_intent", {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
             extraContext: "User's schedule is confirmed. Waiting for others. They can say 'send my availability' to share free times directly. Answer what they said FIRST, then mention options.",
           })));
@@ -311,21 +308,21 @@ export const messageRouter = schemaTask({
           return await handleAwaitingPreferences(participant, intent, params, text);
 
         case "PREFERENCES_SUBMITTED":
-          await sendTextMessage(chatId, await generateResponse(responseCtx("unknown_intent", {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
             extraContext: "User submitted preferences. Waiting for others. Answer what they said FIRST, then mention we're waiting.",
           })));
           return { action: "conversational_while_waiting" };
 
         case "COMPLETED":
-          await sendTextMessage(chatId, await generateResponse(responseCtx("unknown_intent", {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
             extraContext: "Session is complete. User can send 'new' to start another. Answer what they said FIRST.",
           })));
           return { action: "session_complete" };
 
         default:
-          await sendTextMessage(chatId, await generateResponse(responseCtx("unknown_intent", {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", {
             userMessage: text,
             extraContext: "Something unexpected. User can send 'new' to start fresh or 'cancel' to reset. Answer what they said.",
           })));
@@ -334,7 +331,7 @@ export const messageRouter = schemaTask({
     } catch (err) {
       console.error("Message router error:", err);
       try {
-        await sendTextMessage(chatId, "Sorry, something went wrong on my end. Try again or send /new to start fresh.");
+        await reply(chatId, "Sorry, something went wrong on my end. Try again or send /new to start fresh.");
       } catch { /* last resort */ }
       return { action: "error", error: String(err) };
     }
@@ -367,7 +364,7 @@ async function handleIdleUser(
     // Plain /start with no deep link
     if (!user?.name) {
       await registerUser(chatId);
-      await sendTextMessage(chatId, await generateResponse({
+      await reply(chatId, await generateResponse({
         scenario: "idle_welcome", state: "IDLE",
       }));
       return { action: "welcomed_new_user" };
@@ -380,8 +377,8 @@ async function handleIdleUser(
   if (invite) {
     if (intent === "decline_invite") {
       await updateInviteStatus(invite.id, "DECLINED");
-      await sendTextMessage(chatId, "No problem! Send /new when you're ready to schedule.");
-      await sendTextMessage(invite.inviter_chat_id,
+      await reply(chatId, "No problem! Send /new when you're ready to schedule.");
+      await reply(invite.inviter_chat_id,
         `${user?.name ?? "Your invitee"} isn't available right now. You can add someone else or send /new to try again.`);
       return { action: "invite_declined" };
     }
@@ -406,7 +403,7 @@ async function handleIdleUser(
   if (intent === "create_session" || intent === "greeting") {
     if (!user?.name) {
       await registerUser(chatId);
-      await sendTextMessage(chatId, await generateResponse({
+      await reply(chatId, await generateResponse({
         scenario: "idle_welcome", state: "IDLE",
         userName: user?.name ?? undefined,
         userLanguage: user?.preferred_language ?? undefined,
@@ -418,14 +415,14 @@ async function handleIdleUser(
 
   // Off-script while idle — if they have a name, nudge toward starting a session
   if (user?.name) {
-    await sendTextMessage(chatId, await generateResponse({
+    await reply(chatId, await generateResponse({
       scenario: "unknown_intent", state: "IDLE", userMessage,
       userName: user.name,
       userLanguage: user.preferred_language ?? undefined,
       extraContext: "User is idle with no active session. Answer what they said, then mention they can send 'new' to start scheduling.",
     }));
   } else {
-    await sendTextMessage(chatId, await generateResponse({
+    await reply(chatId, await generateResponse({
       scenario: "idle_welcome", state: "IDLE", userMessage,
     }));
   }
@@ -461,7 +458,7 @@ async function handleNewSession(chatId: string, user: UserProfile | null) {
     [participantId, sessionId, chatId]
   );
 
-  await sendTextMessage(chatId, await generateResponse({
+  await reply(chatId, await generateResponse({
     scenario: "ask_partner", state: "AWAITING_PARTNER_INFO",
     userName: user?.name ?? undefined,
     userLanguage: user?.preferred_language ?? undefined,
@@ -494,8 +491,7 @@ async function handleAwaitingPartnerInfo(
         userName: user?.name ?? undefined,
         userLanguage: user?.preferred_language ?? undefined,
       });
-      await sendTextMessage(chatId, msg);
-      await logMessage(chatId, "bot", msg);
+      await reply(chatId, msg);
       return { action: "need_participants_before_proceed" };
     }
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
@@ -509,8 +505,7 @@ async function handleAwaitingPartnerInfo(
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
     });
-    await sendTextMessage(chatId, msg);
-    await logMessage(chatId, "bot", msg);
+    await reply(chatId, msg);
     return { action: "done_adding_participants" };
   }
 
@@ -526,8 +521,7 @@ async function handleAwaitingPartnerInfo(
         userName: user?.name ?? undefined,
         userLanguage: user?.preferred_language ?? undefined,
       });
-      await sendTextMessage(chatId, msg);
-      await logMessage(chatId, "bot", msg);
+      await reply(chatId, msg);
       return { action: "need_participants_before_schedule" };
     }
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
@@ -547,7 +541,7 @@ async function handleAwaitingPartnerInfo(
     const extraHint = otherCount > 0
       ? `${otherCount} people added so far. User can add more names, send their schedule, or say 'done'.`
       : "No one added yet. User can give names or phone numbers to add people.";
-    await sendTextMessage(chatId, await generateResponse({
+    await reply(chatId, await generateResponse({
       scenario: "unknown_intent", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
       userMessage,
@@ -564,7 +558,7 @@ async function handleAwaitingPartnerInfo(
 
     if (partnerUser) {
       if (partnerUser.chat_id === chatId) {
-        await sendTextMessage(chatId, "That's your own number! Add someone else.");
+        await reply(chatId, "That's your own number! Add someone else.");
         return { action: "self_invite_rejected" };
       }
       return await addParticipant(chatId, partnerUser.chat_id, participant.session_id, user, partnerUser);
@@ -574,7 +568,7 @@ async function handleAwaitingPartnerInfo(
     await createPendingInvite(chatId, null, participant.session_id, partnerPhone);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
     const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
-    await sendTextMessage(chatId, await generateResponse({
+    await reply(chatId, await generateResponse({
       scenario: "invite_link_shared", state: "AWAITING_PARTNER_INFO",
       inviteLink,
       userName: user?.name ?? undefined,
@@ -585,8 +579,7 @@ async function handleAwaitingPartnerInfo(
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
     });
-    await sendTextMessage(chatId, followUp);
-    await logMessage(chatId, "bot", followUp);
+    await reply(chatId, followUp);
     return { action: "invite_created_link_shared" };
   }
 
@@ -601,7 +594,7 @@ async function handleAwaitingPartnerInfo(
 
     if (matches.length > 1) {
       const list = matches.map((m, i) => `${i + 1}. ${m.name} (${String(m.chat_id).slice(-4)})`).join("\n");
-      await sendTextMessage(chatId, `I know a few people with that name:\n\n${list}\n\nWhich one? Send their phone number.`);
+      await reply(chatId, `I know a few people with that name:\n\n${list}\n\nWhich one? Send their phone number.`);
       return { action: "multiple_matches" };
     }
 
@@ -609,20 +602,19 @@ async function handleAwaitingPartnerInfo(
     await createPendingInvite(chatId, null, participant.session_id);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
     const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
-    await sendTextMessage(chatId, await generateResponse({
+    await reply(chatId, await generateResponse({
       scenario: "partner_not_found", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
       extraContext: String(params.partner_name),
     }));
-    await sendTextMessage(chatId, `Here's your invite link to share with them:\n${inviteLink}`);
+    await reply(chatId, `Here's your invite link to share with them:\n${inviteLink}`);
     const followUp = await generateResponse({
       scenario: "ask_more_or_schedule", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
     });
-    await sendTextMessage(chatId, followUp);
-    await logMessage(chatId, "bot", followUp);
+    await reply(chatId, followUp);
     return { action: "partner_not_found_link_shared" };
   }
 
@@ -648,7 +640,7 @@ async function addParticipant(
     [sessionId, newParticipantChatId]
   );
   if (existing.results.length > 0) {
-    await sendTextMessage(creatorChatId, `${newUser?.name ?? "That person"} is already in this session.`);
+    await reply(creatorChatId, `${newUser?.name ?? "That person"} is already in this session.`);
     return { action: "already_in_session" };
   }
 
@@ -659,7 +651,7 @@ async function addParticipant(
 
   // Notify the added person (may fail if they haven't /started the bot yet — that's OK)
   try {
-    await sendTextMessage(newParticipantChatId, await generateResponse({
+    await reply(newParticipantChatId, await generateResponse({
       scenario: "proactive_intro", state: "AWAITING_SCHEDULE",
       userName: newUser?.name ?? undefined,
       userLanguage: newUser?.preferred_language ?? undefined,
@@ -676,7 +668,7 @@ async function addParticipant(
     userLanguage: creatorUser?.preferred_language ?? undefined,
     partnerName: newUser?.name ?? undefined,
   });
-  await sendTextMessage(creatorChatId, confirmMsg);
+  await reply(creatorChatId, confirmMsg);
   await logMessage(creatorChatId, "bot", confirmMsg);
 
   const followUp = await generateResponse({
@@ -684,7 +676,7 @@ async function addParticipant(
     userName: creatorUser?.name ?? undefined,
     userLanguage: creatorUser?.preferred_language ?? undefined,
   });
-  await sendTextMessage(creatorChatId, followUp);
+  await reply(creatorChatId, followUp);
   await logMessage(creatorChatId, "bot", followUp);
 
   return { action: "participant_added", session_id: sessionId, added: newParticipantChatId };
@@ -700,7 +692,7 @@ async function handleAcceptInvite(
   const session = await getSessionById(invite.session_id);
   if (!session || session.status === "EXPIRED" || session.status === "COMPLETED" || new Date(session.expires_at) < new Date()) {
     await updateInviteStatus(invite.id, "EXPIRED");
-    await sendTextMessage(chatId, "That scheduling session expired. Send /new to start fresh!");
+    await reply(chatId, "That scheduling session expired. Send /new to start fresh!");
     return { action: "invite_session_expired" };
   }
 
@@ -717,7 +709,7 @@ async function handleAcceptInvite(
     );
   } catch {
     // UNIQUE constraint — already joined
-    await sendTextMessage(chatId, "You're already in this session! Send your work schedule.");
+    await reply(chatId, "You're already in this session! Send your work schedule.");
     return { action: "already_joined" };
   }
 
@@ -733,7 +725,7 @@ async function handleAcceptInvite(
   }
 
   // Notify the creator
-  await sendTextMessage(session.creator_chat_id, await generateResponse({
+  await reply(session.creator_chat_id, await generateResponse({
     scenario: "invite_accepted_creator", state: "AWAITING_SCHEDULE",
     userName: creatorUser?.name ?? undefined,
     userLanguage: creatorUser?.preferred_language ?? undefined,
@@ -741,7 +733,7 @@ async function handleAcceptInvite(
   }));
 
   // Greet the invitee
-  await sendTextMessage(chatId, await generateResponse({
+  await reply(chatId, await generateResponse({
     scenario: "invite_accepted_invitee", state: "AWAITING_SCHEDULE",
     userName: inviteeUser?.name ?? undefined,
     userLanguage: inviteeUser?.preferred_language ?? undefined,
@@ -763,12 +755,12 @@ async function handleAwaitingSchedule(
   // File upload (image or document)
   if (message_type === "image" || message_type === "document") {
     if (!media_id) {
-      await sendTextMessage(chatId, "I couldn't receive that file. Try sending it again.");
+      await reply(chatId, "I couldn't receive that file. Try sending it again.");
       return { action: "missing_media" };
     }
 
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await sendTextMessage(chatId, "Got your schedule! Analyzing it now...");
+    await reply(chatId, "Got your schedule! Analyzing it now...");
 
     await scheduleParser.trigger({
       participant_id: participant.id,
@@ -783,7 +775,7 @@ async function handleAwaitingSchedule(
   // Text-based schedule input — include any previously learned context for richer parsing
   if (intent === "upload_schedule_text" && params.schedule_text) {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await sendTextMessage(chatId, "Got it! Parsing your schedule...");
+    await reply(chatId, "Got it! Parsing your schedule...");
 
     // Enrich with user context (may contain earlier schedule mentions)
     const userProfile = await getUser(chatId);
@@ -799,7 +791,7 @@ async function handleAwaitingSchedule(
   }
 
   // Conversational default
-  await sendTextMessage(chatId, await generateResponse({
+  await reply(chatId, await generateResponse({
     scenario: "unknown_intent", state: "AWAITING_SCHEDULE",
     userMessage: userMessage ?? payload.text,
     extraContext: "User needs to send their work schedule (photo, PDF, or type hours). Answer what they said FIRST, then remind them to send their schedule.",
@@ -815,20 +807,20 @@ async function handleAwaitingConfirmation(
 ) {
   if (intent === "confirm_schedule") {
     await updateParticipantState(participant.id, "SCHEDULE_CONFIRMED");
-    await sendTextMessage(participant.chat_id, "Schedule confirmed! Waiting for your colleagues...");
+    await reply(participant.chat_id, "Schedule confirmed! Waiting for your colleagues...");
     await checkAllConfirmed(participant.session_id);
     return { action: "schedule_confirmed" };
   }
 
   if (intent === "reject_schedule") {
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-    await sendTextMessage(participant.chat_id, "No worries — send me your schedule again (photo, PDF, or type your hours).");
+    await reply(participant.chat_id, "No worries — send me your schedule again (photo, PDF, or type your hours).");
     return { action: "schedule_rejected" };
   }
 
   if (intent === "clarify_schedule" && params.clarification && participant.schedule_json) {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await sendTextMessage(participant.chat_id, "Got it, re-analyzing with your feedback...");
+    await reply(participant.chat_id, "Got it, re-analyzing with your feedback...");
 
     await scheduleParser.trigger({
       participant_id: participant.id,
@@ -839,7 +831,7 @@ async function handleAwaitingConfirmation(
     return { action: "schedule_clarified" };
   }
 
-  await sendTextMessage(participant.chat_id, await generateResponse({
+  await reply(participant.chat_id, await generateResponse({
     scenario: "confirm_prompt", state: "AWAITING_CONFIRMATION", userMessage,
   }));
   return { action: "awaiting_confirmation" };
@@ -853,13 +845,13 @@ async function handleSendAvailability(
 ) {
   const slots = computeSinglePersonSlots(participant.schedule_json);
   if (slots.length === 0) {
-    await sendTextMessage(chatId, "Couldn't compute free time from your schedule. Try uploading it again.");
+    await reply(chatId, "Couldn't compute free time from your schedule. Try uploading it again.");
     return { action: "no_free_slots" };
   }
 
   const otherParticipants = await getOtherParticipants(participant.session_id, chatId);
   if (otherParticipants.length === 0) {
-    await sendTextMessage(chatId, "No other participants found for this session. Send /new to start fresh.");
+    await reply(chatId, "No other participants found for this session. Send /new to start fresh.");
     return { action: "no_other_participants" };
   }
 
@@ -892,7 +884,7 @@ async function handleSendAvailability(
   for (const other of otherParticipants) {
     const otherUser = await getUser(other.chat_id);
     await updateParticipantState(other.id, "AWAITING_PREFERENCES");
-    await sendTextMessage(other.chat_id, await generateResponse({
+    await reply(other.chat_id, await generateResponse({
       scenario: "mediated_partner_slots", state: "AWAITING_PREFERENCES",
       userName: otherUser?.name ?? undefined,
       userLanguage: otherUser?.preferred_language ?? undefined,
@@ -907,7 +899,7 @@ async function handleSendAvailability(
   });
 
   // Confirm to creator
-  await sendTextMessage(chatId, await generateResponse({
+  await reply(chatId, await generateResponse({
     scenario: "mediated_availability_sent", state: "PREFERENCES_SUBMITTED",
     userName: user?.name ?? undefined,
     userLanguage: user?.preferred_language ?? undefined,
@@ -931,23 +923,23 @@ async function handleAwaitingPreferences(
 
     const session = await getSessionById(participant.session_id);
     if (session?.mode === "MEDIATED") {
-      await sendTextMessage(participant.chat_id, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
+      await reply(participant.chat_id, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
       await updateSessionStatus(participant.session_id, "MATCHING");
       try {
         const result = await deliverResults.triggerAndWait({ session_id: participant.session_id });
         if (!result.ok) throw new Error("Delivery failed");
       } catch {
-        await sendTextMessage(participant.chat_id, "Something went wrong finding the match. Try sending /new to start over.");
+        await reply(participant.chat_id, "Something went wrong finding the match. Try sending /new to start over.");
       }
       return { action: "mediated_preferences_submitted", slots };
     }
 
-    await sendTextMessage(participant.chat_id, `Saved your preferences: slots ${slots.join(", ")}. Waiting for your colleagues...`);
+    await reply(participant.chat_id, `Saved your preferences: slots ${slots.join(", ")}. Waiting for your colleagues...`);
     await checkAllPreferred(participant.session_id);
     return { action: "preferences_submitted", slots };
   }
 
-  await sendTextMessage(participant.chat_id, await generateResponse({
+  await reply(participant.chat_id, await generateResponse({
     scenario: "remind_preferences", state: "AWAITING_PREFERENCES", userMessage,
   }));
   return { action: "reminded_preferences" };
@@ -966,7 +958,7 @@ async function handleCancel(
   const participants = await getSessionParticipants(participant.session_id);
   for (const p of participants) {
     if (p.chat_id !== participant.chat_id) {
-      await sendTextMessage(p.chat_id, await generateResponse({
+      await reply(p.chat_id, await generateResponse({
         scenario: "cancel_partner", state: p.state,
         partnerName: user?.name ?? undefined,
       }));
@@ -980,7 +972,7 @@ async function handleCancel(
     [participant.session_id]
   );
 
-  await sendTextMessage(participant.chat_id, await generateResponse({
+  await reply(participant.chat_id, await generateResponse({
     scenario: "cancel_self", state: "COMPLETED",
     userName: user?.name ?? undefined,
     userLanguage: user?.preferred_language ?? undefined,
