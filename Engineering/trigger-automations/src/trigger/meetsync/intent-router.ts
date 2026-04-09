@@ -26,6 +26,7 @@ const INTENT_LIST = [
   "unsupported_media",
   "greeting",
   "done_adding",
+  "compute_match",
   "unknown",
 ] as const;
 
@@ -87,6 +88,7 @@ Possible intents:
 - share_contact: user shared their phone number via Telegram's contact sharing feature
 - unsupported_media: message is video, sticker, or reaction
 - greeting: casual greeting without clear intent when user has no active session AND no known partner
+- compute_match: user wants to find overlapping free time NOW (e.g., "when are we both free", "find a time", "check availability", "compare schedules", "what works for everyone"). This triggers the actual matching computation.
 - done_adding: user is done adding participants and wants to proceed (e.g., "that's everyone", "done", "proceed", "let's go", "no one else"). Only valid in AWAITING_PARTNER_INFO state.
 - unknown: can't determine intent. Include a brief, helpful reply in params.reply that addresses what the user said and gently nudges them toward the next step based on their state.
 

@@ -37,7 +37,7 @@ import { sessionOrchestrator } from "./session-orchestrator.js";
 import { deliverResults } from "./deliver-results.js";
 import { classifyIntent } from "./intent-router.js";
 import { generateResponse } from "./response-generator.js";
-import { computeSinglePersonSlots } from "./match-compute.js";
+import { computeSinglePersonSlots, matchCompute } from "./match-compute.js";
 
 /** Send a message and log it — ensures conversation history is always complete */
 async function reply(chatId: string, msg: string): Promise<void> {
@@ -216,6 +216,25 @@ export const messageRouter = schemaTask({
         }
         await reply(chatId, "Got it — starting fresh. Send /new to schedule with someone new.");
         return { action: "new_partner" };
+      }
+
+      // --- Compute match — user asks "when are we free" ---
+      if (intent === "compute_match" && participant) {
+        const participants = await getSessionParticipants(participant.session_id);
+        const withSchedules = participants.filter((p) => p.schedule_json);
+        if (withSchedules.length < 2) {
+          await reply(chatId, "I need at least 2 people's schedules before I can find overlaps. Share more schedules first!");
+          return { action: "not_enough_schedules" };
+        }
+        await reply(chatId, "Checking everyone's schedules for overlapping free time...");
+        await updateSessionStatus(participant.session_id, "MATCHING");
+        const result = await matchCompute.triggerAndWait({ session_id: participant.session_id });
+        if (result.ok && result.output.slot_count > 0) {
+          await deliverResults.triggerAndWait({ session_id: participant.session_id });
+        } else {
+          await reply(chatId, "Couldn't find any overlapping free time. Try sharing updated schedules.");
+        }
+        return { action: "match_computed" };
       }
 
       // --- Handle name provision globally ---
