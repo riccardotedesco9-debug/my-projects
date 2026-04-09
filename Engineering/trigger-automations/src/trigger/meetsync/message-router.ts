@@ -148,12 +148,25 @@ export const messageRouter = schemaTask({
         return { action: "unsupported_media" };
       }
       if (intent === "reset_all") {
+        // Check if user already confirmed (recent bot message asked for confirmation)
+        const recent = await getRecentMessages(chatId);
+        const lastBotMsg = recent.filter((m) => m.role === "bot").pop();
+        const alreadyConfirming = lastBotMsg?.message.includes("wipe everything");
+
+        if (!alreadyConfirming) {
+          // First time — ask for confirmation
+          const msg = "This will wipe everything — your name, history, and all session data. Are you sure?";
+          await sendTextMessage(chatId, msg);
+          await logMessage(chatId, "bot", msg);
+          return { action: "reset_confirmation_asked" };
+        }
+
+        // Confirmed — do the full wipe
         await resetUserData(chatId);
-        // Full wipe: delete user profile, conversation log, and all participant records
         await query("DELETE FROM conversation_log WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM participants WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM users WHERE chat_id = ?", [chatId]);
-        await sendTextMessage(chatId, "Everything wiped — name, history, the lot. Send me a message to start fresh.");
+        await sendTextMessage(chatId, "Done — everything wiped. Send me a message to start fresh.");
         return { action: "reset" };
       }
       if (intent === "new_partner") {
