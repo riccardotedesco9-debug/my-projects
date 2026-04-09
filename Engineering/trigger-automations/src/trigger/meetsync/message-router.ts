@@ -376,6 +376,16 @@ async function handleIdleUser(
     return await handleNewSession(chatId, user);
   }
 
+  // User shares schedule info while idle — store as context, then start a session
+  if (intent === "upload_schedule_text" && user?.name) {
+    // Save what they said as learned context
+    if (params.schedule_text) {
+      await appendUserContext(chatId, `Work schedule: ${String(params.schedule_text)}`);
+    }
+    // Auto-create session and ask who to schedule with
+    return await handleNewSession(chatId, user);
+  }
+
   // "new" / "start" / greeting
   if (intent === "create_session" || intent === "greeting") {
     if (!user?.name) {
