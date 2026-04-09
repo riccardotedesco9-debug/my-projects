@@ -120,7 +120,7 @@ export const messageRouter = schemaTask({
       const unreplied = [];
       for (let i = allRecent.length - 1; i >= 0; i--) {
         if (allRecent[i].role === "bot") break; // stop at last bot message
-        if (allRecent[i].role === "user" && allRecent[i].message !== text) {
+        if (allRecent[i].role === "user" && allRecent[i].message !== text?.slice(0, 500)) {
           unreplied.push(allRecent[i].message);
         }
       }
@@ -214,8 +214,7 @@ export const messageRouter = schemaTask({
         if (participant) {
           await updateSessionStatus(participant.session_id, "EXPIRED");
         }
-        await reply(chatId, "Got it — starting fresh. Send /new to schedule with someone new.");
-        return { action: "new_partner" };
+        return await handleNewSession(chatId, user);
       }
 
       // --- Compute match — user asks "when are we free" ---
@@ -253,23 +252,13 @@ export const messageRouter = schemaTask({
         return await handleIdleUser(chatId, intent, params, user, text);
       }
 
-      // --- Unknown intent — inline reply ---
-      if (intent === "unknown") {
-        const inlineReply = params.reply as string | undefined;
-        if (inlineReply) {
-          await reply(chatId, inlineReply);
-        } else {
-          await reply(chatId, await generateResponse(responseCtx("unknown_intent", { userMessage: text })));
-        }
-        return { action: "conversational_response" };
-      }
-
       // "new" always starts fresh from any state
       if (intent === "create_session") {
         return await handleNewSession(chatId, user);
       }
 
       // Smart routing: schedule data from ANY state — always capture it
+      // (must come BEFORE unknown intent handler so file uploads aren't ignored)
       const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
       const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
 
@@ -307,6 +296,17 @@ export const messageRouter = schemaTask({
 
         await updateParticipantState(targetParticipant.id, "AWAITING_SCHEDULE");
         return await handleAwaitingSchedule(targetParticipant, payload, intent, params, text);
+      }
+
+      // --- Unknown intent — conversational fallback (after schedule routing) ---
+      if (intent === "unknown") {
+        const inlineReply = params.reply as string | undefined;
+        if (inlineReply) {
+          await reply(chatId, inlineReply);
+        } else {
+          await reply(chatId, await generateResponse(responseCtx("unknown_intent", { userMessage: text })));
+        }
+        return { action: "conversational_response" };
       }
 
       // --- Route by state + intent ---
