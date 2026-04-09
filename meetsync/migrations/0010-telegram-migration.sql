@@ -67,6 +67,7 @@ CREATE TABLE free_slots (
   start_time TEXT NOT NULL,
   end_time TEXT NOT NULL,
   duration_minutes INTEGER NOT NULL,
+  explanation TEXT,
   UNIQUE(session_id, slot_number)
 );
 CREATE INDEX idx_free_slots_session ON free_slots(session_id);

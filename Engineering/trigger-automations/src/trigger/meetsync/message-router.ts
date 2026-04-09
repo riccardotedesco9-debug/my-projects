@@ -212,7 +212,7 @@ export const messageRouter = schemaTask({
           await updateSessionStatus(participant.session_id, "PAIRED");
           await sessionOrchestrator.trigger(
             { session_id: participant.session_id },
-            { idempotencyKey: `orch-${participant.session_id}` }
+            { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
           );
           return await handleAwaitingSchedule(participant, payload, intent, params, text);
         }
@@ -449,7 +449,7 @@ async function handleAwaitingPartnerInfo(
     await updateSessionStatus(participant.session_id, "PAIRED");
     await sessionOrchestrator.trigger(
       { session_id: participant.session_id },
-      { idempotencyKey: `orch-${participant.session_id}` }
+      { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
     );
     const msg = await generateResponse({
       scenario: "all_notified", state: "AWAITING_SCHEDULE",
@@ -481,7 +481,7 @@ async function handleAwaitingPartnerInfo(
     await updateSessionStatus(participant.session_id, "PAIRED");
     await sessionOrchestrator.trigger(
       { session_id: participant.session_id },
-      { idempotencyKey: `orch-${participant.session_id}` }
+      { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
     );
     if (payload) {
       return await handleAwaitingSchedule(participant, payload, intent, params, userMessage);
@@ -667,7 +667,7 @@ async function handleAcceptInvite(
   if (sessionAlreadyPaired) {
     await sessionOrchestrator.trigger(
       { session_id: invite.session_id },
-      { idempotencyKey: `orch-${invite.session_id}` }
+      { idempotencyKey: `orch-${invite.session_id}-${Date.now()}` }
     );
   }
 
@@ -751,7 +751,7 @@ async function handleAwaitingConfirmation(
   if (intent === "confirm_schedule") {
     await updateParticipantState(participant.id, "SCHEDULE_CONFIRMED");
     await sendTextMessage(participant.chat_id, "Schedule confirmed! Waiting for your colleagues...");
-    await checkBothConfirmed(participant.session_id);
+    await checkAllConfirmed(participant.session_id);
     return { action: "schedule_confirmed" };
   }
 
@@ -857,28 +857,6 @@ async function handleAwaitingPreferences(
   params: Record<string, unknown>,
   userMessage?: string
 ) {
-  // Clear sentinel and re-send the slot list
-  if (participant.preferred_slots === "__PENDING_SLOTS__") {
-    await updateParticipantState(participant.id, "AWAITING_PREFERENCES", { preferred_slots: null });
-    const slotsResult = await query<{
-      slot_number: number; day: string; day_name: string;
-      start_time: string; end_time: string; duration_minutes: number;
-    }>("SELECT * FROM free_slots WHERE session_id = ? ORDER BY slot_number", [participant.session_id]);
-
-    const slotLines = slotsResult.results.map((s) =>
-      `${s.slot_number}. *${s.day_name}* ${s.day} — ${s.start_time}-${s.end_time} (${Math.floor(s.duration_minutes / 60)}h)`
-    ).join("\n");
-
-    const user = await getUser(participant.chat_id);
-    await sendTextMessage(participant.chat_id, await generateResponse({
-      scenario: "mediated_partner_slots", state: "AWAITING_PREFERENCES",
-      userName: user?.name ?? undefined,
-      userLanguage: user?.preferred_language ?? undefined,
-      slotList: slotLines,
-    }));
-    return { action: "resent_mediated_slots" };
-  }
-
   if (intent === "submit_preferences" && Array.isArray(params.slots) && params.slots.length > 0) {
     const slots = (params.slots as number[]).filter((n) => n > 0);
 
@@ -900,7 +878,7 @@ async function handleAwaitingPreferences(
     }
 
     await sendTextMessage(participant.chat_id, `Saved your preferences: slots ${slots.join(", ")}. Waiting for your colleagues...`);
-    await checkBothPreferred(participant.session_id);
+    await checkAllPreferred(participant.session_id);
     return { action: "preferences_submitted", slots };
   }
 
@@ -947,7 +925,7 @@ async function handleCancel(
 
 // --- Waitpoint helpers ---
 
-async function checkBothConfirmed(sessionId: string) {
+async function checkAllConfirmed(sessionId: string) {
   const participants = await getSessionParticipants(sessionId);
   if (!participants.every((p) => p.state === "SCHEDULE_CONFIRMED")) return;
 
@@ -965,7 +943,7 @@ async function checkBothConfirmed(sessionId: string) {
   console.warn(`Confirmed token not found for session ${sessionId}`);
 }
 
-async function checkBothPreferred(sessionId: string) {
+async function checkAllPreferred(sessionId: string) {
   const participants = await getSessionParticipants(sessionId);
   if (!participants.every((p) => p.state === "PREFERENCES_SUBMITTED")) return;
 

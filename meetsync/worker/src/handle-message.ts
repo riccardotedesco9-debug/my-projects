@@ -58,7 +58,7 @@ async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
   if (intent.action === "not_admin") return false;
 
   if (intent.action === "block" && intent.chat_id) {
-    const targetId = intent.chat_id.replace(/[^0-9]/g, "");
+    const targetId = intent.chat_id.replace(/[^0-9-]/g, "");
     if (!targetId || targetId.length < 3) {
       await sendAdminReply(env, "Invalid chat ID. Use a numeric Telegram chat ID.");
       return true;
@@ -71,7 +71,7 @@ async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
   }
 
   if (intent.action === "unblock" && intent.chat_id) {
-    const targetId = intent.chat_id.replace(/[^0-9]/g, "");
+    const targetId = intent.chat_id.replace(/[^0-9-]/g, "");
     if (!targetId || targetId.length < 3) {
       await sendAdminReply(env, "Invalid chat ID. Use a numeric Telegram chat ID.");
       return true;

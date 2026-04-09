@@ -15,7 +15,7 @@ export default {
         `<!DOCTYPE html><html><head><title>MeetSync Privacy Policy</title></head><body>
 <h1>MeetSync Privacy Policy</h1>
 <p>Last updated: April 2026</p>
-<p>MeetSync is a personal scheduling assistant that helps two people find mutual free time via Telegram.</p>
+<p>MeetSync is a personal scheduling assistant that helps people find mutual free time via Telegram.</p>
 <h2>Data We Collect</h2>
 <ul>
 <li>Your Telegram chat ID (to identify you in a session)</li>
