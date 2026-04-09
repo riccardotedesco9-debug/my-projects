@@ -84,31 +84,30 @@ export const messageRouter = schemaTask({
         }
       }
 
-      // Brief pause to consolidate rapid-fire messages (user sends 2-3 messages in quick succession)
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Check if more messages arrived while we waited — merge them
-      const veryRecent = await getRecentMessages(chatId);
-      const justNow = veryRecent.filter((m) => {
-        const age = Date.now() - new Date(m.created_at).getTime();
-        return m.role === "user" && age < 5000 && m.message !== text;
-      });
-      if (justNow.length > 0 && text) {
-        // Merge: our text + any other recent user messages
-        const allTexts = justNow.map((m) => m.message);
-        allTexts.push(text);
-        text = allTexts.join("\n");
-      }
-
       // Log inbound message
       if (text) await logMessage(chatId, "user", text);
+
+      // Consolidation: check if there are other very recent user messages (sent within last 3s)
+      // that haven't been responded to yet. If so, merge them into our text for richer context.
+      const allRecent = await getRecentMessages(chatId);
+      const unreplied = [];
+      for (let i = allRecent.length - 1; i >= 0; i--) {
+        if (allRecent[i].role === "bot") break; // stop at last bot message
+        if (allRecent[i].role === "user" && allRecent[i].message !== text) {
+          unreplied.push(allRecent[i].message);
+        }
+      }
+      if (unreplied.length > 0 && text) {
+        // Prepend earlier unreplied messages to current text
+        text = [...unreplied.reverse(), text].join("\n");
+      }
 
       // Find active participant for this chat ID
       const participant = await getParticipantByChatId(chatId);
       const currentState = participant?.state ?? "IDLE";
 
       // Conversation history + schedule data for context
-      const recentMessages = await getRecentMessages(chatId);
+      const recentMessages = allRecent;
       const conversationHistory = recentMessages.length > 0
         ? recentMessages.map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.message}`).join("\n")
         : undefined;
