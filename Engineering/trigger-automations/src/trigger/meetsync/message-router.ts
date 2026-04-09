@@ -274,13 +274,26 @@ export const messageRouter = schemaTask({
       const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
 
       if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
-        // Always save text schedule info as context
         if (isScheduleText) {
           await appendUserContext(chatId, `Work schedule shared: ${String(params.schedule_text)}`);
         }
 
-        // From any state: transition to schedule processing
-        // If still adding people, auto-transition the session
+        // Determine whose schedule this is — check if user recently mentioned someone else
+        let targetParticipant = participant;
+        const allParticipants = await getSessionParticipants(participant.session_id);
+        if (allParticipants.length > 1 && conversationHistory) {
+          const recentLower = (conversationHistory.split("\n").slice(-4).join(" ")).toLowerCase();
+          for (const p of allParticipants) {
+            if (p.chat_id === chatId) continue;
+            const pUser = await getUser(p.chat_id);
+            if (pUser?.name && recentLower.includes(pUser.name.toLowerCase())) {
+              targetParticipant = { ...participant, id: p.id, chat_id: p.chat_id };
+              await reply(chatId, `Got it — saving this as ${pUser.name}'s schedule.`);
+              break;
+            }
+          }
+        }
+
         if (participant.state === "AWAITING_PARTNER_INFO") {
           const count = await getParticipantCount(participant.session_id);
           if (count >= 2) {
@@ -290,11 +303,10 @@ export const messageRouter = schemaTask({
               { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
             );
           }
-          // Even with < 2 participants, still parse the schedule — don't block
         }
 
-        await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-        return await handleAwaitingSchedule(participant, payload, intent, params, text);
+        await updateParticipantState(targetParticipant.id, "AWAITING_SCHEDULE");
+        return await handleAwaitingSchedule(targetParticipant, payload, intent, params, text);
       }
 
       // --- Route by state + intent ---
