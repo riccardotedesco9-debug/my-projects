@@ -212,22 +212,31 @@ export const messageRouter = schemaTask({
         return await handleNewSession(chatId, user);
       }
 
-      // Smart routing: schedule upload from a non-schedule state
+      // Smart routing: schedule data from ANY state — always capture it
       const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
       const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
 
       if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
-        // If creator is in AWAITING_PARTNER_INFO, this means they're done adding people and ready to submit
         if (participant.state === "AWAITING_PARTNER_INFO") {
           const count = await getParticipantCount(participant.session_id);
+
+          // Save schedule text as context regardless — never discard user info
+          if (isScheduleText) {
+            await appendUserContext(chatId, `Work schedule shared: ${String(params.schedule_text)}`);
+          }
+
           if (count < 2) {
-            // No other participants yet — tell them to add someone first
-            const msg = await generateResponse(responseCtx("need_participants"));
+            // No participants yet — acknowledge schedule, still need people
+            const msg = await generateResponse(responseCtx("unknown_intent", {
+              userMessage: text,
+              extraContext: "User shared their schedule which has been noted. But no one else has been added to the session yet. Acknowledge their schedule info was saved, then ask who they want to schedule with. Be brief.",
+            }));
             await sendTextMessage(chatId, msg);
             await logMessage(chatId, "bot", msg);
-            return { action: "need_participants_before_schedule" };
+            return { action: "schedule_noted_need_participants" };
           }
-          // Transition: lock in the group and start scheduling
+
+          // Has participants — transition to scheduling and parse
           await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
           await updateSessionStatus(participant.session_id, "PAIRED");
           await sessionOrchestrator.trigger(
@@ -237,13 +246,7 @@ export const messageRouter = schemaTask({
           return await handleAwaitingSchedule(participant, payload, intent, params, text);
         }
 
-        // Post-schedule states: re-upload is always the user's own schedule
-        if (["SCHEDULE_CONFIRMED", "PREFERENCES_SUBMITTED"].includes(participant.state)) {
-          await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-          return await handleAwaitingSchedule(participant, payload, intent, params, text);
-        }
-
-        // Any other state: treat as own schedule upload
+        // Any other state: process as own schedule
         await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
         return await handleAwaitingSchedule(participant, payload, intent, params, text);
       }
@@ -764,16 +767,20 @@ async function handleAwaitingSchedule(
     return { action: "schedule_received_file", media_id };
   }
 
-  // Text-based schedule input
+  // Text-based schedule input — include any previously learned context for richer parsing
   if (intent === "upload_schedule_text" && params.schedule_text) {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
     await sendTextMessage(chatId, "Got it! Parsing your schedule...");
+
+    // Enrich with user context (may contain earlier schedule mentions)
+    const userProfile = await getUser(chatId);
+    const contextHint = userProfile?.context ? `\nPrevious context about this person: ${userProfile.context}` : "";
 
     await scheduleParser.trigger({
       participant_id: participant.id,
       session_id: participant.session_id,
       chat_id: chatId,
-      text_content: String(params.schedule_text),
+      text_content: String(params.schedule_text) + contextHint,
     });
     return { action: "schedule_received_text" };
   }
