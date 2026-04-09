@@ -979,7 +979,20 @@ async function handleCancel(
 
 async function checkAllConfirmed(sessionId: string) {
   const participants = await getSessionParticipants(sessionId);
+  if (participants.length < 2) return; // need at least 2 people
   if (!participants.every((p) => p.state === "SCHEDULE_CONFIRMED")) return;
+
+  // Ensure session is PAIRED and orchestrator is running
+  const session = await getSessionById(sessionId);
+  if (session && session.status === "OPEN") {
+    await updateSessionStatus(sessionId, "PAIRED");
+    await sessionOrchestrator.trigger(
+      { session_id: sessionId },
+      { idempotencyKey: `orch-${sessionId}-${Date.now()}` }
+    );
+    // Give orchestrator time to create the token
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
 
   for (let attempt = 0; attempt < 5; attempt++) {
     const result = await query<{ both_confirmed_token_id: string | null }>(
