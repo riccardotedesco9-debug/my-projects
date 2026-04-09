@@ -610,13 +610,17 @@ async function addParticipant(
     [participantId, sessionId, newParticipantChatId]
   );
 
-  // Notify the added person
-  await sendTextMessage(newParticipantChatId, await generateResponse({
-    scenario: "proactive_intro", state: "AWAITING_SCHEDULE",
-    userName: newUser?.name ?? undefined,
-    userLanguage: newUser?.preferred_language ?? undefined,
-    partnerName: creatorUser?.name ?? undefined,
-  }));
+  // Notify the added person (may fail if they haven't /started the bot yet — that's OK)
+  try {
+    await sendTextMessage(newParticipantChatId, await generateResponse({
+      scenario: "proactive_intro", state: "AWAITING_SCHEDULE",
+      userName: newUser?.name ?? undefined,
+      userLanguage: newUser?.preferred_language ?? undefined,
+      partnerName: creatorUser?.name ?? undefined,
+    }));
+  } catch {
+    // Can't message them yet — they'll get prompted when they /start the bot
+  }
 
   // Tell creator: added! Anyone else?
   const confirmMsg = await generateResponse({
