@@ -84,6 +84,22 @@ export const messageRouter = schemaTask({
         }
       }
 
+      // Brief pause to consolidate rapid-fire messages (user sends 2-3 messages in quick succession)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      // Check if more messages arrived while we waited — merge them
+      const veryRecent = await getRecentMessages(chatId);
+      const justNow = veryRecent.filter((m) => {
+        const age = Date.now() - new Date(m.created_at).getTime();
+        return m.role === "user" && age < 5000 && m.message !== text;
+      });
+      if (justNow.length > 0 && text) {
+        // Merge: our text + any other recent user messages
+        const allTexts = justNow.map((m) => m.message);
+        allTexts.push(text);
+        text = allTexts.join("\n");
+      }
+
       // Log inbound message
       if (text) await logMessage(chatId, "user", text);
 
@@ -217,36 +233,25 @@ export const messageRouter = schemaTask({
       const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
 
       if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
-        if (participant.state === "AWAITING_PARTNER_INFO") {
-          const count = await getParticipantCount(participant.session_id);
-
-          // Save schedule text as context regardless — never discard user info
-          if (isScheduleText) {
-            await appendUserContext(chatId, `Work schedule shared: ${String(params.schedule_text)}`);
-          }
-
-          if (count < 2) {
-            // No participants yet — acknowledge schedule, still need people
-            const msg = await generateResponse(responseCtx("unknown_intent", {
-              userMessage: text,
-              extraContext: "User shared their schedule which has been noted. But no one else has been added to the session yet. Acknowledge their schedule info was saved, then ask who they want to schedule with. Be brief.",
-            }));
-            await sendTextMessage(chatId, msg);
-            await logMessage(chatId, "bot", msg);
-            return { action: "schedule_noted_need_participants" };
-          }
-
-          // Has participants — transition to scheduling and parse
-          await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-          await updateSessionStatus(participant.session_id, "PAIRED");
-          await sessionOrchestrator.trigger(
-            { session_id: participant.session_id },
-            { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
-          );
-          return await handleAwaitingSchedule(participant, payload, intent, params, text);
+        // Always save text schedule info as context
+        if (isScheduleText) {
+          await appendUserContext(chatId, `Work schedule shared: ${String(params.schedule_text)}`);
         }
 
-        // Any other state: process as own schedule
+        // From any state: transition to schedule processing
+        // If still adding people, auto-transition the session
+        if (participant.state === "AWAITING_PARTNER_INFO") {
+          const count = await getParticipantCount(participant.session_id);
+          if (count >= 2) {
+            await updateSessionStatus(participant.session_id, "PAIRED");
+            await sessionOrchestrator.trigger(
+              { session_id: participant.session_id },
+              { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
+            );
+          }
+          // Even with < 2 participants, still parse the schedule — don't block
+        }
+
         await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
         return await handleAwaitingSchedule(participant, payload, intent, params, text);
       }
