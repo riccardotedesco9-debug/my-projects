@@ -53,10 +53,21 @@ export const messageRouter = schemaTask({
   id: "meetsync-message-router",
   schema: payloadSchema,
   maxDuration: 120,
+  queue: {
+    // Process one message at a time per user — prevents race conditions from rapid messages
+    name: "meetsync-user",
+    concurrencyLimit: 1,
+  },
 
   run: async (payload) => {
     const { chat_id: chatId, media_id, mime_type, contact_phone } = payload;
     let { message_type, text } = payload as { message_type: string; text?: string };
+
+    // Helper: send message AND log it (ensures consolidation window works correctly)
+    const reply = async (msg: string) => {
+      await sendTextMessage(chatId, msg);
+      await logMessage(chatId, "bot", msg);
+    };
 
     try {
       // Register/update user on every message
@@ -383,13 +394,11 @@ async function handleIdleUser(
     return await handleNewSession(chatId, user);
   }
 
-  // User shares schedule info while idle — store as context, then start a session
+  // User shares schedule info (text, photo, or document) while idle — auto-create session
   if (intent === "upload_schedule_text" && user?.name) {
-    // Save what they said as learned context
     if (params.schedule_text) {
       await appendUserContext(chatId, `Work schedule: ${String(params.schedule_text)}`);
     }
-    // Auto-create session and ask who to schedule with
     return await handleNewSession(chatId, user);
   }
 
