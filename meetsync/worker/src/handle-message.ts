@@ -1,104 +1,97 @@
-// Parse WhatsApp webhook payload and trigger Trigger.dev tasks
+// Parse Telegram webhook update and trigger Trigger.dev tasks
 
-import type { Env, WebhookPayload, WhatsAppMessage } from "./types.js";
+import type { Env, TelegramUpdate, TelegramMessage } from "./types.js";
 import type { MessageRouterPayload } from "../../shared/types.js";
 import { checkRateLimit, isBlocked } from "./rate-limit.js";
 
 /**
- * Extract messages from webhook payload and trigger Trigger.dev tasks.
- * Returns 200 immediately — WhatsApp requires fast ack to avoid retries.
+ * Extract message from Telegram update and trigger Trigger.dev task.
+ * Returns immediately — Telegram requires fast ack to avoid retries.
  */
-export async function handleMessage(payload: WebhookPayload, env: Env): Promise<void> {
-  for (const entry of payload.entry) {
-    for (const change of entry.changes) {
-      const messages = change.value.messages;
-      if (!messages?.length) continue;
+export async function handleMessage(update: TelegramUpdate, env: Env): Promise<void> {
+  const msg = update.message;
+  if (!msg) return;
 
-      for (const msg of messages) {
-        const routerPayload = extractPayload(msg);
-        if (!routerPayload) continue;
+  const routerPayload = extractPayload(msg);
+  if (!routerPayload) return;
 
-        // Admin commands — only the admin phone can run these
-        if (env.ADMIN_PHONE && routerPayload.phone === env.ADMIN_PHONE && routerPayload.text) {
-          const handled = await handleAdminCommand(routerPayload.text, env);
-          if (handled) continue;
-        }
-
-        // Blocklist check — silently drop messages from blocked phones
-        if (await isBlocked(routerPayload.phone, env)) {
-          console.warn(`Blocked: ${routerPayload.phone}`);
-          continue;
-        }
-
-        // Rate limit with escalating cooldowns
-        const { status: rateStatus, cooldownMinutes } = await checkRateLimit(routerPayload.phone, env);
-        if (rateStatus === "cooldown") {
-          console.warn(`Cooldown: ${routerPayload.phone} (${cooldownMinutes}min)`);
-          await sendReply(env, routerPayload.phone,
-            `You've been sending too many messages. You're on a ${cooldownMinutes}-minute timeout. Try again later.`
-          );
-          continue;
-        }
-        if (rateStatus === "warning") {
-          await sendReply(env, routerPayload.phone,
-            "Heads up — you're close to the message limit. Slow down or you'll get a timeout."
-          );
-        }
-
-        await triggerMessageRouter(routerPayload, env);
-      }
-    }
+  // Admin commands — only the admin chat ID can run these
+  if (env.ADMIN_CHAT_ID && routerPayload.chat_id === env.ADMIN_CHAT_ID && routerPayload.text) {
+    const handled = await handleAdminCommand(routerPayload.text, env);
+    if (handled) return;
   }
+
+  // Blocklist check — silently drop messages from blocked users
+  if (await isBlocked(routerPayload.chat_id, env)) {
+    console.warn(`Blocked: ${routerPayload.chat_id}`);
+    return;
+  }
+
+  // Rate limit with escalating cooldowns
+  const { status: rateStatus, cooldownMinutes } = await checkRateLimit(routerPayload.chat_id, env);
+  if (rateStatus === "cooldown") {
+    console.warn(`Cooldown: ${routerPayload.chat_id} (${cooldownMinutes}min)`);
+    await sendReply(env, routerPayload.chat_id,
+      `You've been sending too many messages. You're on a ${cooldownMinutes}-minute timeout. Try again later.`
+    );
+    return;
+  }
+  if (rateStatus === "warning") {
+    await sendReply(env, routerPayload.chat_id,
+      "Heads up — you're close to the message limit. Slow down or you'll get a timeout."
+    );
+  }
+
+  await triggerMessageRouter(routerPayload, env);
 }
 
-// --- Admin commands (only admin phone, classified by Claude Haiku) ---
+// --- Admin commands (only admin chat ID, classified by Claude Haiku) ---
 
 interface AdminIntent {
   action: "block" | "unblock" | "list_blocked" | "list_users" | "not_admin";
-  phone?: string;
+  chat_id?: string;
 }
 
 async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
-  // Use Claude Haiku to classify admin intent
   const intent = await classifyAdminIntent(text, env);
 
   if (intent.action === "not_admin") return false;
 
-  if (intent.action === "block" && intent.phone) {
-    const phone = intent.phone.replace(/[^0-9]/g, "");
-    if (!phone || phone.length < 7 || phone.length > 15) {
-      await sendAdminReply(env, "Invalid phone number. Use a number like 35699511425.");
+  if (intent.action === "block" && intent.chat_id) {
+    const targetId = intent.chat_id.replace(/[^0-9]/g, "");
+    if (!targetId || targetId.length < 3) {
+      await sendAdminReply(env, "Invalid chat ID. Use a numeric Telegram chat ID.");
       return true;
     }
     await env.DB.prepare(
-      "INSERT OR IGNORE INTO blocked_phones (phone) VALUES (?)"
-    ).bind(phone).run();
-    await sendAdminReply(env, `Done — blocked *${phone}*. They won't be able to use the bot anymore.`);
+      "INSERT OR IGNORE INTO blocked_users (chat_id) VALUES (?)"
+    ).bind(targetId).run();
+    await sendAdminReply(env, `Done — blocked *${targetId}*. They won't be able to use the bot anymore.`);
     return true;
   }
 
-  if (intent.action === "unblock" && intent.phone) {
-    const phone = intent.phone.replace(/[^0-9]/g, "");
-    if (!phone || phone.length < 7 || phone.length > 15) {
-      await sendAdminReply(env, "Invalid phone number. Use a number like 35699511425.");
+  if (intent.action === "unblock" && intent.chat_id) {
+    const targetId = intent.chat_id.replace(/[^0-9]/g, "");
+    if (!targetId || targetId.length < 3) {
+      await sendAdminReply(env, "Invalid chat ID. Use a numeric Telegram chat ID.");
       return true;
     }
     await env.DB.prepare(
-      "DELETE FROM blocked_phones WHERE phone = ?"
-    ).bind(phone).run();
-    await sendAdminReply(env, `Done — unblocked *${phone}*. They can use the bot again.`);
+      "DELETE FROM blocked_users WHERE chat_id = ?"
+    ).bind(targetId).run();
+    await sendAdminReply(env, `Done — unblocked *${targetId}*. They can use the bot again.`);
     return true;
   }
 
   if (intent.action === "list_blocked") {
     const result = await env.DB.prepare(
-      "SELECT phone, blocked_at FROM blocked_phones ORDER BY blocked_at DESC"
-    ).all<{ phone: string; blocked_at: string }>();
+      "SELECT chat_id, blocked_at FROM blocked_users ORDER BY blocked_at DESC"
+    ).all<{ chat_id: string; blocked_at: string }>();
 
     if (!result.results.length) {
       await sendAdminReply(env, "Nobody is blocked right now.");
     } else {
-      const list = result.results.map((r) => `- ${r.phone} (since ${r.blocked_at})`).join("\n");
+      const list = result.results.map((r) => `- ${r.chat_id} (since ${r.blocked_at})`).join("\n");
       await sendAdminReply(env, `*Blocked users:*\n${list}`);
     }
     return true;
@@ -106,13 +99,13 @@ async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
 
   if (intent.action === "list_users") {
     const result = await env.DB.prepare(
-      "SELECT DISTINCT phone FROM participants ORDER BY created_at DESC LIMIT 50"
-    ).all<{ phone: string }>();
+      "SELECT DISTINCT chat_id FROM participants ORDER BY created_at DESC LIMIT 50"
+    ).all<{ chat_id: string }>();
 
     if (!result.results.length) {
       await sendAdminReply(env, "No users yet.");
     } else {
-      const list = result.results.map((r) => `- ${r.phone}`).join("\n");
+      const list = result.results.map((r) => `- ${r.chat_id}`).join("\n");
       await sendAdminReply(env, `*Users (${result.results.length}):*\n${list}`);
     }
     return true;
@@ -143,10 +136,10 @@ async function classifyAdminIntent(text: string, env: Env): Promise<AdminIntent>
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
         max_tokens: 100,
-        system: `You classify admin commands for a WhatsApp bot. Return ONLY JSON.
-Actions: "block" (ban a user, needs phone), "unblock" (unban, needs phone), "list_blocked" (show blocked), "list_users" (show all users), "not_admin" (not an admin command).
-Extract phone numbers from the message if present (any format: +356XXX, 356XXX, etc).
-Return: { "action": "...", "phone": "..." }`,
+        system: `You classify admin commands for a Telegram bot. Return ONLY JSON.
+Actions: "block" (ban a user, needs chat_id), "unblock" (unban, needs chat_id), "list_blocked" (show blocked), "list_users" (show all users), "not_admin" (not an admin command).
+Extract chat IDs (numeric) from the message if present.
+Return: { "action": "...", "chat_id": "..." }`,
         messages: [{ role: "user", content: text }],
       }),
     });
@@ -164,63 +157,87 @@ Return: { "action": "...", "phone": "..." }`,
   }
 }
 
-async function sendReply(env: Env, phone: string, text: string): Promise<void> {
-  await fetch(`https://graph.facebook.com/v21.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`, {
+async function sendReply(env: Env, chatId: string, text: string): Promise<void> {
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${env.WHATSAPP_ACCESS_TOKEN}`,
-    },
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to: phone,
-      type: "text",
-      text: { body: text },
+      chat_id: chatId,
+      text,
+      parse_mode: "Markdown",
     }),
   });
 }
 
 async function sendAdminReply(env: Env, text: string): Promise<void> {
-  await sendReply(env, env.ADMIN_PHONE, text);
+  await sendReply(env, env.ADMIN_CHAT_ID, text);
 }
 
-function extractPayload(msg: WhatsAppMessage): MessageRouterPayload | null {
-  const base = {
-    phone: msg.from,
-    timestamp: new Date(parseInt(msg.timestamp) * 1000).toISOString(),
-  };
+function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
+  const chatId = String(msg.chat.id);
+  const timestamp = new Date(msg.date * 1000).toISOString();
 
-  switch (msg.type) {
-    case "text":
-      return {
-        ...base,
-        message_type: "text",
-        text: msg.text?.body?.trim(),
-      };
-
-    case "image":
-      return {
-        ...base,
-        message_type: "image",
-        media_id: msg.image?.id,
-        mime_type: msg.image?.mime_type,
-      };
-
-    case "document":
-      return {
-        ...base,
-        message_type: "document",
-        media_id: msg.document?.id,
-        mime_type: msg.document?.mime_type,
-      };
-
-    default:
-      // Pass unsupported types through so the bot can respond helpfully
-      return {
-        ...base,
-        message_type: "unknown" as const,
-      };
+  // Text message
+  if (msg.text) {
+    return {
+      chat_id: chatId,
+      message_type: "text",
+      text: msg.text.trim(),
+      timestamp,
+    };
   }
+
+  // Photo — use last element (highest resolution)
+  if (msg.photo?.length) {
+    const photo = msg.photo[msg.photo.length - 1];
+    return {
+      chat_id: chatId,
+      message_type: "image",
+      media_id: photo.file_id,
+      mime_type: "image/jpeg", // Telegram photos are always JPEG
+      timestamp,
+    };
+  }
+
+  // Document (PDF, etc.)
+  if (msg.document) {
+    return {
+      chat_id: chatId,
+      message_type: "document",
+      media_id: msg.document.file_id,
+      mime_type: msg.document.mime_type ?? "application/octet-stream",
+      timestamp,
+    };
+  }
+
+  // Voice message
+  if (msg.voice) {
+    return {
+      chat_id: chatId,
+      message_type: "audio",
+      media_id: msg.voice.file_id,
+      mime_type: msg.voice.mime_type ?? "audio/ogg",
+      timestamp,
+    };
+  }
+
+  // Contact sharing (user shared their phone number)
+  if (msg.contact) {
+    return {
+      chat_id: chatId,
+      message_type: "contact",
+      contact_phone: msg.contact.phone_number,
+      text: `Shared contact: ${msg.contact.first_name} ${msg.contact.last_name ?? ""}`.trim(),
+      timestamp,
+    };
+  }
+
+  // Unsupported types — pass through so the bot can respond helpfully
+  return {
+    chat_id: chatId,
+    message_type: "unknown",
+    timestamp,
+  };
 }
 
 async function triggerMessageRouter(
@@ -238,7 +255,7 @@ async function triggerMessageRouter(
     body: JSON.stringify({
       payload,
       options: {
-        idempotencyKey: `wa-${payload.phone}-${payload.timestamp}`,
+        idempotencyKey: `tg-${payload.chat_id}-${payload.timestamp}`,
       },
     }),
   });

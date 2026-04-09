@@ -45,11 +45,11 @@ export async function query<T = Record<string, unknown>>(
 
 // --- Convenience helpers ---
 
-export async function getParticipantByPhone(phone: string) {
+export async function getParticipantByChatId(chatId: string) {
   const result = await query<{
     id: string;
     session_id: string;
-    phone: string;
+    chat_id: string;
     role: string;
     state: string;
     schedule_json: string | null;
@@ -60,11 +60,11 @@ export async function getParticipantByPhone(phone: string) {
     `SELECT p.*, s.status as session_status, s.code as session_code
      FROM participants p
      JOIN sessions s ON p.session_id = s.id
-     WHERE p.phone = ?
+     WHERE p.chat_id = ?
        AND s.status NOT IN ('EXPIRED', 'COMPLETED')
        AND s.expires_at > datetime('now')
      ORDER BY p.created_at DESC LIMIT 1`,
-    [phone]
+    [chatId]
   );
   return result.results[0] ?? null;
 }
@@ -72,7 +72,7 @@ export async function getParticipantByPhone(phone: string) {
 export async function getSessionParticipants(sessionId: string) {
   const result = await query<{
     id: string;
-    phone: string;
+    chat_id: string;
     role: string;
     state: string;
     schedule_json: string | null;
@@ -109,83 +109,56 @@ export async function updateSessionStatus(sessionId: string, status: string) {
   await query("UPDATE sessions SET status = ? WHERE id = ?", [status, sessionId]);
 }
 
-// --- Partner helpers ---
-
-/** Find an existing scheduling partner for this phone number */
-export async function getPartnerForPhone(phone: string) {
-  const result = await query<{
-    id: string;
-    phone_a: string;
-    phone_b: string;
-    last_session_id: string | null;
-  }>(
-    "SELECT * FROM partners WHERE phone_a = ? OR phone_b = ? ORDER BY created_at DESC LIMIT 1",
-    [phone, phone]
-  );
-  return result.results[0] ?? null;
-}
-
-/** Save a partner pair after a completed session */
-export async function savePartner(phoneA: string, phoneB: string, sessionId: string) {
-  // Always store in sorted order for consistent deduplication
-  const [a, b] = [phoneA, phoneB].sort();
+/** Clear all data for a chat ID (reset) — expires sessions where user is a participant */
+export async function resetUserData(chatId: string) {
+  // Expire sessions where this user is creator
   await query(
-    `INSERT INTO partners (id, phone_a, phone_b, last_session_id)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(phone_a, phone_b) DO UPDATE SET last_session_id = ?`,
-    [crypto.randomUUID(), a, b, sessionId, sessionId]
+    "UPDATE sessions SET status = 'EXPIRED' WHERE creator_chat_id = ? AND status NOT IN ('EXPIRED', 'COMPLETED')",
+    [chatId]
   );
-}
-
-/** Remove partner link for a phone number */
-export async function clearPartner(phone: string) {
+  // Expire sessions where this user is a participant
   await query(
-    "DELETE FROM partners WHERE phone_a = ? OR phone_b = ?",
-    [phone, phone]
-  );
-}
-
-/** Clear all data for a phone number (reset) */
-export async function resetUserData(phone: string) {
-  await clearPartner(phone);
-  await query(
-    "UPDATE sessions SET status = 'EXPIRED' WHERE (creator_phone = ? OR partner_phone = ?) AND status NOT IN ('EXPIRED', 'COMPLETED')",
-    [phone, phone]
+    `UPDATE sessions SET status = 'EXPIRED' WHERE id IN (
+      SELECT session_id FROM participants WHERE chat_id = ?
+    ) AND status NOT IN ('EXPIRED', 'COMPLETED')`,
+    [chatId]
   );
 }
 
 // --- Google Calendar token helpers ---
 
-export async function getGoogleToken(phone: string) {
+export async function getGoogleToken(chatId: string) {
   const result = await query<{
     access_token: string;
     refresh_token: string;
     expires_at: string;
   }>(
-    "SELECT * FROM google_tokens WHERE phone = ?",
-    [phone]
+    "SELECT * FROM google_tokens WHERE chat_id = ?",
+    [chatId]
   );
   return result.results[0] ?? null;
 }
 
 export async function saveGoogleToken(
-  phone: string,
+  chatId: string,
   accessToken: string,
   refreshToken: string,
   expiresAt: string
 ) {
   await query(
-    `INSERT INTO google_tokens (phone, access_token, refresh_token, expires_at)
+    `INSERT INTO google_tokens (chat_id, access_token, refresh_token, expires_at)
      VALUES (?, ?, ?, ?)
-     ON CONFLICT(phone) DO UPDATE SET access_token = ?, refresh_token = ?, expires_at = ?`,
-    [phone, accessToken, refreshToken, expiresAt, accessToken, refreshToken, expiresAt]
+     ON CONFLICT(chat_id) DO UPDATE SET access_token = ?, refresh_token = ?, expires_at = ?`,
+    [chatId, accessToken, refreshToken, expiresAt, accessToken, refreshToken, expiresAt]
   );
 }
 
 // --- User knowledge base helpers ---
 
 export interface UserProfile {
-  phone: string;
+  chat_id: string;
+  phone: string | null;
+  username: string | null;
   name: string | null;
   preferred_language: string;
   context: string | null;
@@ -194,37 +167,53 @@ export interface UserProfile {
 }
 
 /** Register or update a user — called on every inbound message */
-export async function registerUser(phone: string, name?: string, language?: string) {
+export async function registerUser(chatId: string, name?: string, language?: string) {
   await query(
-    `INSERT INTO users (phone, name, preferred_language)
+    `INSERT INTO users (chat_id, name, preferred_language)
      VALUES (?, ?, ?)
-     ON CONFLICT(phone) DO UPDATE SET
+     ON CONFLICT(chat_id) DO UPDATE SET
        last_seen = datetime('now'),
        name = COALESCE(?, users.name),
        preferred_language = COALESCE(?, users.preferred_language)`,
-    [phone, name ?? null, language ?? "en", name ?? null, language ?? null]
+    [chatId, name ?? null, language ?? "en", name ?? null, language ?? null]
   );
 }
 
 /** Get full user profile */
-export async function getUser(phone: string): Promise<UserProfile | null> {
+export async function getUser(chatId: string): Promise<UserProfile | null> {
   const result = await query<UserProfile>(
-    "SELECT * FROM users WHERE phone = ?",
-    [phone]
+    "SELECT * FROM users WHERE chat_id = ?",
+    [chatId]
   );
   return result.results[0] ?? null;
 }
 
 /** Update user's display name */
-export async function updateUserName(phone: string, name: string) {
+export async function updateUserName(chatId: string, name: string) {
   await query(
-    "UPDATE users SET name = ?, last_seen = datetime('now') WHERE phone = ?",
-    [name, phone]
+    "UPDATE users SET name = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [name, chatId]
+  );
+}
+
+/** Store user's phone number (from Telegram contact sharing) */
+export async function updateUserPhone(chatId: string, phone: string) {
+  await query(
+    "UPDATE users SET phone = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [phone, chatId]
+  );
+}
+
+/** Store user's Telegram username */
+export async function updateUserUsername(chatId: string, username: string) {
+  await query(
+    "UPDATE users SET username = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [username, chatId]
   );
 }
 
 /** Append learned facts to user's context (newline-separated, capped at 2000 chars) */
-export async function appendUserContext(phone: string, facts: string) {
+export async function appendUserContext(chatId: string, facts: string) {
   // Sanitize: reject facts that look like prompt injection attempts
   const lower = facts.toLowerCase();
   if (lower.includes("ignore") && lower.includes("instruction")) return;
@@ -238,16 +227,16 @@ export async function appendUserContext(phone: string, facts: string) {
     `UPDATE users SET context = substr(CASE
        WHEN context IS NULL THEN ?
        ELSE context || char(10) || ?
-     END, -2000), last_seen = datetime('now') WHERE phone = ?`,
-    [sanitized, sanitized, phone]
+     END, -2000), last_seen = datetime('now') WHERE chat_id = ?`,
+    [sanitized, sanitized, chatId]
   );
 }
 
 /** Update user's preferred language */
-export async function updateUserLanguage(phone: string, language: string) {
+export async function updateUserLanguage(chatId: string, language: string) {
   await query(
-    "UPDATE users SET preferred_language = ?, last_seen = datetime('now') WHERE phone = ?",
-    [language, phone]
+    "UPDATE users SET preferred_language = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [language, chatId]
   );
 }
 
@@ -262,42 +251,53 @@ export async function findUserByName(name: string) {
   return result.results;
 }
 
-/** Exact lookup by phone */
+/** Exact lookup by phone (for partner matching via shared contacts) */
 export async function findUserByPhone(phone: string): Promise<UserProfile | null> {
-  return getUser(phone);
+  const result = await query<UserProfile>(
+    "SELECT * FROM users WHERE phone = ?",
+    [phone]
+  );
+  return result.results[0] ?? null;
+}
+
+/** Exact lookup by chat ID */
+export async function findUserByChatId(chatId: string): Promise<UserProfile | null> {
+  return getUser(chatId);
 }
 
 // --- Pending invite helpers ---
 
 export async function createPendingInvite(
-  inviterPhone: string,
-  inviteePhone: string,
-  sessionId: string
+  inviterChatId: string,
+  inviteeChatId: string | null,
+  sessionId: string,
+  inviteePhone?: string
 ) {
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
   await query(
-    `INSERT INTO pending_invites (id, inviter_phone, invitee_phone, session_id, expires_at)
-     VALUES (?, ?, ?, ?, ?)`,
-    [id, inviterPhone, inviteePhone, sessionId, expiresAt]
+    `INSERT INTO pending_invites (id, inviter_chat_id, invitee_chat_id, invitee_phone, session_id, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, inviterChatId, inviteeChatId, inviteePhone ?? null, sessionId, expiresAt]
   );
   return id;
 }
 
 /** Check if someone has been invited — returns the active invite if any */
-export async function getPendingInviteForPhone(phone: string) {
+export async function getPendingInviteForChatId(chatId: string) {
   const result = await query<{
     id: string;
-    inviter_phone: string;
-    invitee_phone: string;
+    inviter_chat_id: string;
+    invitee_chat_id: string | null;
+    invitee_phone: string | null;
     session_id: string;
     status: string;
     expires_at: string;
   }>(
     `SELECT * FROM pending_invites
-     WHERE invitee_phone = ? AND status = 'PENDING' AND expires_at > datetime('now')
+     WHERE invitee_chat_id = ? AND status = 'PENDING' AND expires_at > datetime('now')
      ORDER BY created_at DESC LIMIT 1`,
-    [phone]
+    [chatId]
   );
   return result.results[0] ?? null;
 }
@@ -317,8 +317,7 @@ export async function getSessionById(sessionId: string) {
   const result = await query<{
     id: string;
     code: string;
-    creator_phone: string;
-    partner_phone: string | null;
+    creator_chat_id: string;
     status: string;
     mode: string | null;
     expires_at: string;
@@ -331,12 +330,36 @@ export async function getSessionById(sessionId: string) {
   return result.results[0] ?? null;
 }
 
+/** Get all non-creator participants for a session */
+export async function getOtherParticipants(sessionId: string, excludeChatId: string) {
+  const result = await query<{
+    id: string;
+    chat_id: string;
+    role: string;
+    state: string;
+  }>(
+    "SELECT * FROM participants WHERE session_id = ? AND chat_id != ?",
+    [sessionId, excludeChatId]
+  );
+  return result.results;
+}
+
+/** Count participants in a session */
+export async function getParticipantCount(sessionId: string): Promise<number> {
+  const result = await query<{ cnt: number }>(
+    "SELECT COUNT(*) as cnt FROM participants WHERE session_id = ?",
+    [sessionId]
+  );
+  return result.results[0]?.cnt ?? 0;
+}
+
 /** Find pending invite for a session */
 export async function getPendingInviteForSession(sessionId: string) {
   const result = await query<{
     id: string;
-    inviter_phone: string;
-    invitee_phone: string;
+    inviter_chat_id: string;
+    invitee_chat_id: string | null;
+    invitee_phone: string | null;
     session_id: string;
     status: string;
     expires_at: string;
@@ -355,27 +378,27 @@ export async function updateSessionMode(sessionId: string, mode: string | null) 
 // --- Conversation log helpers ---
 
 /** Log a message to the conversation history */
-export async function logMessage(phone: string, role: "user" | "bot", message: string) {
+export async function logMessage(chatId: string, role: "user" | "bot", message: string) {
   // Cap message length to prevent bloat
   const trimmed = message.slice(0, 500);
   await query(
-    "INSERT INTO conversation_log (phone, role, message) VALUES (?, ?, ?)",
-    [phone, role, trimmed]
+    "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, ?, ?)",
+    [chatId, role, trimmed]
   );
   // Keep only last 20 messages per user (best-effort cleanup)
   query(
-    `DELETE FROM conversation_log WHERE phone = ? AND id NOT IN (
-      SELECT id FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 20
+    `DELETE FROM conversation_log WHERE chat_id = ? AND id NOT IN (
+      SELECT id FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 20
     )`,
-    [phone, phone]
+    [chatId, chatId]
   ).catch(() => {});
 }
 
 /** Get recent conversation history for a user (last 12 messages) */
-export async function getRecentMessages(phone: string) {
+export async function getRecentMessages(chatId: string) {
   const result = await query<{ role: string; message: string; created_at: string }>(
-    "SELECT role, message, created_at FROM conversation_log WHERE phone = ? ORDER BY created_at DESC LIMIT 12",
-    [phone]
+    "SELECT role, message, created_at FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 12",
+    [chatId]
   );
   // Reverse so oldest first (chronological order)
   return result.results.reverse();

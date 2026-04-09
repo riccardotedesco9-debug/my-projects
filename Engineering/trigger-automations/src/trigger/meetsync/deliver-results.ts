@@ -1,9 +1,9 @@
-// Deliver results — sends final meeting match to both participants
+// Deliver results — sends final meeting match to all participants
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { sendTextMessage, sendDocumentMessage } from "./whatsapp-client.js";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, savePartner } from "./d1-client.js";
+import { sendTextMessage, sendDocumentMessage } from "./telegram-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus } from "./d1-client.js";
 import { createCalendarEvent } from "./google-calendar.js";
 import { generateResponse } from "./response-generator.js";
 
@@ -40,7 +40,7 @@ export const deliverResults = schemaTask({
     const slots = slotsResult.results;
     if (slots.length === 0) {
       for (const p of participants) {
-        await sendTextMessage(p.phone, await generateResponse({
+        await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "no_overlap", state: "COMPLETED",
         }));
         await updateParticipantState(p.id, "COMPLETED");
@@ -74,11 +74,11 @@ export const deliverResults = schemaTask({
     // Send result message + calendar file to both participants
     // Also attempt to add to Google Calendar if user has connected their account
     for (const p of participants) {
-      await sendTextMessage(p.phone, await generateResponse({
+      await sendTextMessage(p.chat_id, await generateResponse({
         scenario, state: "COMPLETED", matchResult: matchResultStr,
       }));
       try {
-        await sendDocumentMessage(p.phone, icsContent, "meetup.ics", "Tap to add to your calendar");
+        await sendDocumentMessage(p.chat_id, icsContent, "meetup.ics", "Tap to add to your calendar");
       } catch (err) {
         console.error("Failed to send .ics file:", err);
       }
@@ -86,14 +86,14 @@ export const deliverResults = schemaTask({
       // Google Calendar opt-in: silently add event if user has connected
       try {
         const added = await createCalendarEvent(
-          p.phone,
+          p.chat_id,
           bestSlot.day,
           bestSlot.start_time,
           bestSlot.end_time,
           "Meetup"
         );
         if (added) {
-          await sendTextMessage(p.phone, "Added to your Google Calendar.");
+          await sendTextMessage(p.chat_id, "Added to your Google Calendar.");
         }
       } catch (err) {
         // Google Calendar is optional — never fail the flow
@@ -104,9 +104,6 @@ export const deliverResults = schemaTask({
     }
 
     await updateSessionStatus(session_id, "COMPLETED");
-
-    // Remember this pair for next time — skip codes on return
-    await savePartner(participants[0].phone, participants[1].phone, session_id);
 
     return {
       match: {

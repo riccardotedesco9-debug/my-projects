@@ -1,9 +1,9 @@
 // Schedule parser — extracts work shifts from images/PDFs/text via Claude API
-// Supports file uploads (WhatsApp media) and typed schedule descriptions
+// Supports file uploads (Telegram media) and typed schedule descriptions
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { downloadMedia, sendTextMessage } from "./whatsapp-client.js";
+import { downloadMedia, sendTextMessage } from "./telegram-client.js";
 import { updateParticipantState } from "./d1-client.js";
 import { generateResponse } from "./response-generator.js";
 
@@ -11,7 +11,7 @@ import { generateResponse } from "./response-generator.js";
 const payloadSchema = z.object({
   participant_id: z.string(),
   session_id: z.string(),
-  phone: z.string(),
+  chat_id: z.string(),
   media_id: z.string().optional(),
   mime_type: z.string().optional(),
   text_content: z.string().optional(),
@@ -62,7 +62,7 @@ export const scheduleParser = schemaTask({
   retry: { maxAttempts: 2 },
 
   run: async (payload) => {
-    const { participant_id, phone, media_id, mime_type, text_content } = payload;
+    const { participant_id, chat_id, media_id, mime_type, text_content } = payload;
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -91,7 +91,7 @@ export const scheduleParser = schemaTask({
 
       if (shifts.length === 0) {
         await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-        await sendTextMessage(phone, await generateResponse({
+        await sendTextMessage(chat_id, await generateResponse({
           scenario: "no_shifts_found", state: "AWAITING_SCHEDULE",
         }));
         return { success: false, reason: "no_shifts_found" };
@@ -106,7 +106,7 @@ export const scheduleParser = schemaTask({
       // Format shifts for display with confidence warnings
       const shiftList = formatShiftList(shifts);
 
-      await sendTextMessage(phone, await generateResponse({
+      await sendTextMessage(chat_id, await generateResponse({
         scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
         shiftList, extraContext: `${shifts.length} shifts extracted`,
       }));
@@ -115,7 +115,7 @@ export const scheduleParser = schemaTask({
     } catch (err) {
       console.error("Schedule parsing error:", err);
       await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-      await sendTextMessage(phone, await generateResponse({
+      await sendTextMessage(chat_id, await generateResponse({
         scenario: "parse_error", state: "AWAITING_SCHEDULE",
       }));
       return { success: false, reason: String(err) };
@@ -189,7 +189,7 @@ function formatShiftList(
     const timeRange = `${s.start_time}-${s.end_time}`;
     const label = s.label ? ` (${s.label})` : "";
     const warning = (s.confidence !== undefined && s.confidence < CONFIDENCE_THRESHOLD)
-      ? " ⚠️ _not 100% sure_"
+      ? " _not 100% sure_"
       : "";
     return `- ${dayName} ${s.date}: ${timeRange}${label}${warning}`;
   });

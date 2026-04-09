@@ -14,13 +14,13 @@ interface CalendarEvent {
 
 /** Create a Google Calendar event for a user. Returns true if successful. */
 export async function createCalendarEvent(
-  phone: string,
+  chatId: string,
   date: string, // YYYY-MM-DD
   startTime: string, // HH:MM
   endTime: string, // HH:MM
   summary: string = "Meetup"
 ): Promise<boolean> {
-  const token = await getGoogleToken(phone);
+  const token = await getGoogleToken(chatId);
   if (!token) return false; // user hasn't connected Google Calendar
 
   let accessToken = token.access_token;
@@ -30,7 +30,7 @@ export async function createCalendarEvent(
     const refreshed = await refreshAccessToken(token.refresh_token);
     if (!refreshed) return false;
     accessToken = refreshed.access_token;
-    await saveGoogleToken(phone, refreshed.access_token, token.refresh_token, refreshed.expires_at);
+    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
   }
 
   const event: CalendarEvent = {

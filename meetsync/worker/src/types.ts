@@ -1,53 +1,68 @@
-// WhatsApp Cloud API webhook payload types
+// Telegram Bot API webhook types
 
 export interface Env {
   DB: D1Database;
-  WHATSAPP_PHONE_NUMBER_ID: string;
-  WHATSAPP_ACCESS_TOKEN: string;
-  WHATSAPP_VERIFY_TOKEN: string;
-  WHATSAPP_APP_SECRET: string;
+  TELEGRAM_BOT_TOKEN: string;
+  TELEGRAM_WEBHOOK_SECRET: string;
   TRIGGERDEV_API_KEY: string;
   TRIGGERDEV_API_URL: string;
-  ADMIN_PHONE: string; // Your phone number — only this number can run admin commands
+  ADMIN_CHAT_ID: string; // Your Telegram chat ID — only this user can run admin commands
   ANTHROPIC_API_KEY: string; // For admin command classification via Haiku
 }
 
-// --- Incoming webhook payload ---
+// --- Incoming Telegram update ---
 
-export interface WebhookPayload {
-  object: "whatsapp_business_account";
-  entry: WebhookEntry[];
+export interface TelegramUpdate {
+  update_id: number;
+  message?: TelegramMessage;
 }
 
-export interface WebhookEntry {
-  id: string;
-  changes: WebhookChange[];
+export interface TelegramMessage {
+  message_id: number;
+  from?: TelegramUser;
+  chat: { id: number; type: string };
+  date: number; // Unix timestamp
+  text?: string;
+  photo?: TelegramPhotoSize[];
+  document?: TelegramDocument;
+  voice?: TelegramVoice;
+  contact?: TelegramContact;
 }
 
-export interface WebhookChange {
-  value: {
-    messaging_product: "whatsapp";
-    metadata: {
-      display_phone_number: string;
-      phone_number_id: string;
-    };
-    contacts?: Array<{
-      profile: { name: string };
-      wa_id: string;
-    }>;
-    messages?: WhatsAppMessage[];
-    statuses?: Array<{ id: string; status: string }>;
-  };
-  field: "messages";
+export interface TelegramUser {
+  id: number;
+  first_name: string;
+  last_name?: string;
+  username?: string;
 }
 
-export interface WhatsAppMessage {
-  from: string; // sender phone number (E.164 without +)
-  id: string;
-  timestamp: string;
-  type: "text" | "image" | "document" | "audio" | "video" | "sticker" | "reaction" | "interactive";
-  text?: { body: string };
-  image?: { id: string; mime_type: string; caption?: string };
-  document?: { id: string; mime_type: string; filename?: string; caption?: string };
-  audio?: { id: string; mime_type: string };
+export interface TelegramPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
+
+export interface TelegramDocument {
+  file_id: string;
+  file_unique_id: string;
+  file_name?: string;
+  mime_type?: string;
+  file_size?: number;
+}
+
+export interface TelegramVoice {
+  file_id: string;
+  file_unique_id: string;
+  duration: number;
+  mime_type?: string;
+  file_size?: number;
+}
+
+export interface TelegramContact {
+  phone_number: string;
+  first_name: string;
+  last_name?: string;
+  user_id?: number;
 }

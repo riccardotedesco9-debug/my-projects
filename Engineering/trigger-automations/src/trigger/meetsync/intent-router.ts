@@ -1,4 +1,4 @@
-// Intent router — classifies WhatsApp messages via Claude Haiku
+// Intent router — classifies Telegram messages via Claude Haiku
 // Replaces keyword matching with natural language understanding
 
 import { z } from "zod";
@@ -21,8 +21,11 @@ const INTENT_LIST = [
   "cancel_session",
   "show_help",
   "reset_all",
+  "start_command",
+  "share_contact",
   "unsupported_media",
   "greeting",
+  "done_adding",
   "unknown",
 ] as const;
 
@@ -40,6 +43,7 @@ export interface IntentResult {
     detected_language?: string; // language detected from the message (en/mt/it/etc)
     learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
     reply?: string; // for unknown intent — inline conversational response
+    deep_link_param?: string; // for start_command — the parameter after /start (e.g., "invite_abc123")
   };
 }
 
@@ -55,10 +59,11 @@ const intentSchema = z.object({
     detected_language: z.string().optional(),
     learned_facts: z.string().optional(),
     reply: z.string().optional(),
+    deep_link_param: z.string().optional(),
   }).optional().default({}),
 });
 
-const SYSTEM_PROMPT = `You are MeetSync's intent classifier. Given a WhatsApp message, the user's current conversation state, and the message type, return a JSON object with the intent and any extracted parameters.
+const SYSTEM_PROMPT = `You are MeetSync's intent classifier. Given a Telegram message, the user's current conversation state, and the message type, return a JSON object with the intent and any extracted parameters.
 
 Possible intents:
 - create_session: user wants to start a new scheduling session (e.g., "new", "start", "let's schedule")
@@ -67,7 +72,7 @@ Possible intents:
 - provide_partner: user is telling the bot WHO they want to schedule with. Extract into params.partner_name (if they said a name like "Diego", "my friend Sarah") or params.partner_phone (if they gave a phone number). This is the primary intent in AWAITING_PARTNER_INFO state.
 - provide_name: user is sharing their own name when asked (e.g., "I'm Riccardo", "My name is Diego", "It's Sarah"). Extract into params.name
 - decline_invite: user doesn't want to schedule with the person who invited them (e.g., "no thanks", "not now", "I'm busy")
-- authorize_outreach: user is giving permission for the bot to proactively message their partner (e.g., "yes message them", "go ahead", "reach out to them", "send it"). Only valid in AWAITING_PARTNER state.
+- authorize_outreach: user wants the bot to generate an invite link for their partner (e.g., "yes share the link", "go ahead", "send invite"). Only valid in AWAITING_PARTNER state.
 - send_availability: user wants the bot to share their availability with their partner directly (e.g., "send my availability", "share my free times", "yes send it to them"). Only valid in SCHEDULE_CONFIRMED state.
 - upload_schedule_text: user is describing their work schedule in text (e.g., "I work Mon-Fri 9-5", "off on Wednesday"). Put the full schedule description in params.schedule_text
 - confirm_schedule: user is confirming their parsed schedule is correct (e.g., "yes", "looks good", "correct", "that's right")
@@ -78,8 +83,11 @@ Possible intents:
 - cancel_session: user wants to cancel, stop, quit, or abandon current flow (e.g., "cancel", "quit", "stop", "never mind", "forget it", "skip this", "I changed my mind")
 - show_help: user wants help
 - reset_all: user wants to wipe all data and start fresh (e.g., "reset everything", "clear my data", "start over completely")
-- unsupported_media: message is audio, video, sticker, or reaction
+- start_command: user sent /start (possibly with a deep link parameter like "/start invite_abc123"). Extract the parameter after /start into params.deep_link_param if present.
+- share_contact: user shared their phone number via Telegram's contact sharing feature
+- unsupported_media: message is video, sticker, or reaction
 - greeting: casual greeting without clear intent when user has no active session AND no known partner
+- done_adding: user is done adding participants and wants to proceed (e.g., "that's everyone", "done", "proceed", "let's go", "no one else"). Only valid in AWAITING_PARTNER_INFO state.
 - unknown: can't determine intent. Include a brief, helpful reply in params.reply that addresses what the user said and gently nudges them toward the next step based on their state.
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.
@@ -87,19 +95,20 @@ ALWAYS include params.detected_language — the ISO 639-1 code of the language t
 If the user says ANYTHING that could be useful context in future conversations, include it in params.learned_facts as a short note. This includes but is not limited to: job/work info, schedule details, availability ("free next week", "off on Wednesdays"), preferences, plans, location, relationships ("Diego is my colleague"), uploaded schedule summaries, time constraints, personal details they share. Be generous — if in doubt, store it. Only omit this field if the message is purely functional (like "yes", "1 and 3", "cancel") with zero contextual value.
 
 Context rules:
-- In AWAITING_PARTNER_INFO state: bias toward provide_partner. If it looks like a phone number, extract as partner_phone. If it looks like a name, extract as partner_name.
+- In AWAITING_PARTNER_INFO state: bias toward provide_partner for names/phones. If the user says they're done adding people or wants to proceed ("that's everyone", "done", "let's start"), return done_adding. If they describe their work schedule, return upload_schedule_text.
 - In AWAITING_PARTNER state: bias toward authorize_outreach for affirmative responses ("yes", "go ahead", "sure"). If user describes work hours/days or says they'll upload a schedule, classify as upload_schedule_text. Also handle cancel_session.
 - In AWAITING_CONFIRMATION state: bias toward confirm_schedule, reject_schedule, or clarify_schedule.
 - In AWAITING_PREFERENCES state: bias toward submit_preferences
 - In AWAITING_SCHEDULE state: if text describes work hours/days, it's upload_schedule_text
 - If user is IDLE and has a known partner: bias toward resume_partner for greetings
 - If user is IDLE and bot asked for their name: bias toward provide_name
-- If message_type is audio/video/sticker: always return unsupported_media
+- If message starts with /start: always return start_command
+- If message_type is contact: always return share_contact
 
 Return ONLY valid JSON: { "intent": "...", "params": { ... } }`;
 
 /**
- * Classify a WhatsApp message into a structured intent using Claude Haiku.
+ * Classify a Telegram message into a structured intent using Claude Haiku.
  * Falls back to "unknown" if classification fails.
  */
 export async function classifyIntent(
@@ -108,8 +117,18 @@ export async function classifyIntent(
   currentState: string,
   conversationHistory?: string
 ): Promise<IntentResult> {
+  // Fast path: contact sharing
+  if (messageType === "contact") {
+    return { intent: "share_contact", params: {} };
+  }
+
+  // Fast path: /start command
+  if (text?.startsWith("/start")) {
+    const param = text.slice(7).trim(); // everything after "/start "
+    return { intent: "start_command", params: { deep_link_param: param || undefined } };
+  }
+
   // Fast path: non-text media that isn't image/document/audio
-  // Note: audio is handled in message-router (transcribed before reaching here)
   if (["video", "sticker", "reaction"].includes(messageType)) {
     return { intent: "unsupported_media", params: {} };
   }

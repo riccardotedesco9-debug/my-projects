@@ -4,7 +4,7 @@
 
 import { task, wait } from "@trigger.dev/sdk";
 import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getPendingInviteForSession } from "./d1-client.js";
-import { sendTextMessage, sendTemplateMessage } from "./whatsapp-client.js";
+import { sendTextMessage } from "./telegram-client.js";
 import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
 import { generateResponse } from "./response-generator.js";
@@ -47,7 +47,7 @@ export const sessionOrchestrator = task({
         ["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(p.state)
       );
       for (const p of waiting) {
-        await sendTextMessage(p.phone, await generateResponse({
+        await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "nudge_reminder", state: p.state,
         }));
       }
@@ -55,23 +55,22 @@ export const sessionOrchestrator = task({
 
     nudgeOnce().catch((err) => console.error("Nudge error:", err));
 
-    // --- Outreach nudge: if bot proactively messaged partner, remind them after 2h ---
-    const outreachNudge = async () => {
+    // --- Invite nudge: if partner was invited via deep link, remind inviter after 2h ---
+    const inviteNudge = async () => {
       await wait.for({ hours: 2 });
       if (bothConfirmed) return;
 
       const invite = await getPendingInviteForSession(session_id);
-      if (!invite || invite.status !== "OUTREACH_SENT") return;
+      if (!invite || invite.status !== "PENDING") return;
 
-      // Partner hasn't responded yet — send one reminder via template
-      const templateName = process.env.MEETSYNC_OUTREACH_TEMPLATE ?? "meetsync_schedule_invite";
-      try {
-        await sendTemplateMessage(invite.invitee_phone, templateName, ["Your colleague"]);
-      } catch {
-        // Template might not be approved — silently skip
-      }
+      // Partner hasn't joined yet — remind inviter to share the link again
+      // (Can't message partner directly on Telegram — they must /start the bot)
+      await sendTextMessage(invite.inviter_chat_id, await generateResponse({
+        scenario: "awaiting_partner_reminder", state: "AWAITING_PARTNER",
+        extraContext: "Gentle reminder to re-share the invite link with their friend.",
+      }));
     };
-    outreachNudge().catch((err) => console.error("Outreach nudge error:", err));
+    inviteNudge().catch((err) => console.error("Invite nudge error:", err));
 
     // --- Wait for both schedules to be confirmed ---
     const confirmedResult = await wait.forToken(confirmedToken);
@@ -81,7 +80,7 @@ export const sessionOrchestrator = task({
       await updateSessionStatus(session_id, "EXPIRED");
       const participants = await getSessionParticipants(session_id);
       for (const p of participants) {
-        await sendTextMessage(p.phone, await generateResponse({
+        await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "session_expired", state: "EXPIRED",
         }));
         await updateParticipantState(p.id, "EXPIRED");
@@ -147,7 +146,7 @@ export const sessionOrchestrator = task({
 
     for (const p of participants) {
       await updateParticipantState(p.id, "AWAITING_PREFERENCES");
-      await sendTextMessage(p.phone, await generateResponse({
+      await sendTextMessage(p.chat_id, await generateResponse({
         scenario: "remind_preferences", state: "AWAITING_PREFERENCES",
         slotList: slotListFormatted,
         extraContext: "First time showing slots — ask which days work for them.",
@@ -179,7 +178,7 @@ export const sessionOrchestrator = task({
           const match = deliverResult.output.match;
           const matchStr = `*${match.day_name} ${match.day}*\n${match.start_time} - ${match.end_time}`;
           for (const p of allParticipants) {
-            await sendTextMessage(p.phone, await generateResponse({
+            await sendTextMessage(p.chat_id, await generateResponse({
               scenario: "meetup_reminder", state: "COMPLETED", matchResult: matchStr,
             }));
           }

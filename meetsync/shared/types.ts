@@ -22,8 +22,7 @@ export type ParticipantState =
 export interface Session {
   id: string;
   code: string;
-  creator_phone: string;
-  partner_phone: string | null;
+  creator_chat_id: string;
   status: SessionStatus;
   created_at: string;
   expires_at: string;
@@ -34,7 +33,7 @@ export interface Session {
 export interface Participant {
   id: string;
   session_id: string;
-  phone: string;
+  chat_id: string;
   role: ParticipantRole;
   state: ParticipantState;
   schedule_json: string | null;
@@ -68,18 +67,19 @@ export interface FreeSlot {
 // --- Trigger.dev Task Payloads ---
 
 export interface MessageRouterPayload {
-  phone: string;
-  message_type: "text" | "image" | "document" | "audio" | "unknown";
+  chat_id: string;
+  message_type: "text" | "image" | "document" | "audio" | "contact" | "unknown";
   text?: string;
   media_id?: string;
   mime_type?: string;
+  contact_phone?: string; // phone number from Telegram "share contact"
   timestamp: string;
 }
 
 export interface ScheduleParserPayload {
   participant_id: string;
   session_id: string;
-  phone: string;
+  chat_id: string;
   media_id: string;
   mime_type: string;
 }

@@ -9,9 +9,9 @@ database_name = "meetsync-db"
 database_id = "a750c8fe-0b58-410c-b07c-fc2972b2c35d"
 
 # Environment variables (set via wrangler secret or dashboard)
-# WHATSAPP_PHONE_NUMBER_ID
-# WHATSAPP_ACCESS_TOKEN
-# WHATSAPP_VERIFY_TOKEN
-# WHATSAPP_APP_SECRET
+# TELEGRAM_BOT_TOKEN
+# TELEGRAM_WEBHOOK_SECRET
+# ADMIN_CHAT_ID
 # TRIGGERDEV_API_KEY
 # TRIGGERDEV_API_URL
+# ANTHROPIC_API_KEY
