@@ -41,7 +41,7 @@ import { computeSinglePersonSlots } from "./match-compute.js";
 
 /** Send a message and log it — ensures conversation history is always complete */
 async function reply(chatId: string, msg: string): Promise<void> {
-  await reply(chatId, msg);
+  await sendTextMessage(chatId, msg);
   await logMessage(chatId, "bot", msg);
 }
 
