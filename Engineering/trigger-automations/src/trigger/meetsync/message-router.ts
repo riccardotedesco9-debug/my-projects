@@ -41,7 +41,27 @@ import { computeSinglePersonSlots } from "./match-compute.js";
 
 /** Send a message and log it — ensures conversation history is always complete */
 async function reply(chatId: string, msg: string): Promise<void> {
-  await sendTextMessage(chatId, msg);
+  // Telegram has 4096 char limit — split long messages
+  if (msg.length > 4000) {
+    const chunks = [];
+    let remaining = msg;
+    while (remaining.length > 0) {
+      if (remaining.length <= 4000) {
+        chunks.push(remaining);
+        break;
+      }
+      // Split at last newline before 4000 chars
+      const cutAt = remaining.lastIndexOf("\n", 4000);
+      const splitPoint = cutAt > 2000 ? cutAt : 4000;
+      chunks.push(remaining.slice(0, splitPoint));
+      remaining = remaining.slice(splitPoint).trimStart();
+    }
+    for (const chunk of chunks) {
+      await sendTextMessage(chatId, chunk);
+    }
+  } else {
+    await sendTextMessage(chatId, msg);
+  }
   await logMessage(chatId, "bot", msg);
 }
 
@@ -173,11 +193,11 @@ export const messageRouter = schemaTask({
         // Check if user already confirmed (recent bot message contains reset marker)
         const recent = await getRecentMessages(chatId);
         const lastBotMsg = recent.filter((m) => m.role === "bot").pop();
-        const alreadyConfirming = lastBotMsg?.message.includes("[RESET_PENDING]");
+        const alreadyConfirming = lastBotMsg?.message.includes("wipe everything");
 
         if (!alreadyConfirming) {
           // First time — ask for confirmation (marker is hidden from display by Telegram)
-          const msg = "This will wipe everything — your name, history, and all session data. Are you sure? [RESET_PENDING]";
+          const msg = "This will wipe everything — your name, history, and all session data. Are you sure?";
           await reply(chatId, msg);
           return { action: "reset_confirmation_asked" };
         }
