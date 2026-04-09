@@ -103,9 +103,12 @@ export const messageRouter = schemaTask({
       // Classify intent via Claude Haiku (or fast-path for media)
       const { intent, params } = await classifyIntent(text, message_type, currentState, conversationHistory);
 
-      // Update language if detected and different
+      // Update language if detected — only on substantial text (not names/short replies)
       if (params.detected_language && user && params.detected_language !== user.preferred_language) {
-        await updateUserLanguage(chatId, params.detected_language);
+        const isSubstantialText = text && text.split(/\s+/).length >= 4;
+        if (isSubstantialText) {
+          await updateUserLanguage(chatId, params.detected_language);
+        }
       }
 
       // Append learned facts
@@ -370,12 +373,19 @@ async function handleIdleUser(
     return await handleNewSession(chatId, user);
   }
 
-  // Off-script while idle
-  await sendTextMessage(chatId, await generateResponse({
-    scenario: "idle_welcome", state: "IDLE", userMessage,
-    userName: user?.name ?? undefined,
-    userLanguage: user?.preferred_language ?? undefined,
-  }));
+  // Off-script while idle — if they have a name, nudge toward starting a session
+  if (user?.name) {
+    await sendTextMessage(chatId, await generateResponse({
+      scenario: "unknown_intent", state: "IDLE", userMessage,
+      userName: user.name,
+      userLanguage: user.preferred_language ?? undefined,
+      extraContext: "User is idle with no active session. Answer what they said, then mention they can send 'new' to start scheduling.",
+    }));
+  } else {
+    await sendTextMessage(chatId, await generateResponse({
+      scenario: "idle_welcome", state: "IDLE", userMessage,
+    }));
+  }
   return { action: "showed_help" };
 }
 
