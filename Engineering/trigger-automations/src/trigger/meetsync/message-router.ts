@@ -3,7 +3,7 @@
 
 import { schemaTask, wait } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { sendTextMessage, sendTemplateMessage } from "./whatsapp-client.js";
+import { sendTextMessage, sendTemplateMessage, downloadMedia, transcribeAudio } from "./whatsapp-client.js";
 import {
   query,
   getParticipantByPhone,
@@ -52,11 +52,29 @@ export const messageRouter = schemaTask({
   maxDuration: 120,
 
   run: async (payload) => {
-    const { phone, message_type, text, media_id, mime_type } = payload;
+    const { phone, media_id, mime_type } = payload;
+    let { message_type, text } = payload as { message_type: string; text?: string };
 
+    try {
     // Register/update user in knowledge base on every message
     await registerUser(phone);
     const user = await getUser(phone);
+
+    // Voice message transcription — convert audio to text before processing
+    if (message_type === "audio" && media_id) {
+      try {
+        const { buffer } = await downloadMedia(media_id);
+        const transcription = await transcribeAudio(buffer);
+        if (transcription) {
+          text = transcription;
+          message_type = "text";
+        }
+      } catch (err) {
+        console.error("Voice transcription failed:", err);
+        await sendTextMessage(phone, "I had trouble processing your voice message. Could you type it instead?");
+        return { action: "voice_transcription_failed" };
+      }
+    }
 
     // Log inbound message
     if (text) await logMessage(phone, "user", text);
@@ -303,6 +321,14 @@ export const messageRouter = schemaTask({
           extraContext: "Something unexpected. User can send 'new' to start fresh or 'cancel' to reset. Answer what they said.",
         })));
         return { action: "unknown_state" };
+    }
+    } catch (err) {
+      // Safety net: if anything crashes, user still gets a response
+      console.error("Message router error:", err);
+      try {
+        await sendTextMessage(phone, "Sorry, something went wrong on my end. Try again or send *new* to start fresh.");
+      } catch { /* last resort — can't even send error message */ }
+      return { action: "error", error: String(err) };
     }
   },
 });

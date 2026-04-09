@@ -108,8 +108,9 @@ export async function classifyIntent(
   currentState: string,
   conversationHistory?: string
 ): Promise<IntentResult> {
-  // Fast path: non-text media that isn't image/document
-  if (["audio", "video", "sticker", "reaction"].includes(messageType)) {
+  // Fast path: non-text media that isn't image/document/audio
+  // Note: audio is handled in message-router (transcribed before reaching here)
+  if (["video", "sticker", "reaction"].includes(messageType)) {
     return { intent: "unsupported_media", params: {} };
   }
 

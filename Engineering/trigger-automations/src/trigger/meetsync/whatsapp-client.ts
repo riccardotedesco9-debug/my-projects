@@ -123,6 +123,30 @@ export async function sendDocumentMessage(
   }
 }
 
+/** Transcribe audio using Cloudflare Workers AI (Whisper model) */
+export async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<string> {
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+  if (!accountId || !apiToken) throw new Error("Cloudflare credentials not set");
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/openai/whisper`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiToken}` },
+      body: audioBuffer,
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Transcription failed (${response.status}): ${err}`);
+  }
+
+  const data = (await response.json()) as { result?: { text?: string } };
+  return data.result?.text?.trim() ?? "";
+}
+
 /** Download media from WhatsApp (returns the file as an ArrayBuffer + mime type) */
 export async function downloadMedia(
   mediaId: string
