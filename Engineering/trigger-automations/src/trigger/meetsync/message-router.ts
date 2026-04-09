@@ -144,7 +144,7 @@ export const messageRouter = schemaTask({
         return { action: "status" };
       }
       if (intent === "unsupported_media") {
-        await sendTextMessage(chatId, "I can't process voice messages, videos, or stickers — send me text, a photo, or a PDF instead.");
+        await sendTextMessage(chatId, "I can't process videos or stickers — but I handle text, photos, PDFs, and voice messages!");
         return { action: "unsupported_media" };
       }
       if (intent === "reset_all") {
@@ -181,8 +181,8 @@ export const messageRouter = schemaTask({
       if (intent === "provide_name" && params.name) {
         await updateUserName(chatId, params.name);
         if (!participant) {
-          await sendTextMessage(chatId, await generateResponse(responseCtx("ask_partner", { userName: params.name })));
-          return { action: "name_received", name: params.name };
+          // Auto-create session so user flows straight into adding people
+          return await handleNewSession(chatId, { ...user, name: params.name } as UserProfile);
         }
         await sendTextMessage(chatId, `Got it, ${params.name}!`);
         return { action: "name_updated", name: params.name };
@@ -526,13 +526,17 @@ async function handleAwaitingPartnerInfo(
   }
 
   if (intent !== "provide_partner" || (!params.partner_name && !params.partner_phone)) {
-    // Answer what they said, then loop back to asking
+    // Answer whatever they said conversationally — don't fight the user
+    const otherCount = (await getParticipantCount(participant.session_id)) - 1;
+    const extraHint = otherCount > 0
+      ? `${otherCount} people added so far. User can add more names, send their schedule, or say 'done'.`
+      : "No one added yet. User can give names or phone numbers to add people.";
     await sendTextMessage(chatId, await generateResponse({
       scenario: "unknown_intent", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
       userMessage,
       userLanguage: user?.preferred_language ?? undefined,
-      extraContext: "Bot is collecting people to schedule with. User can give names or phone numbers. IMPORTANT: Answer their question or respond first, then gently ask if there's anyone else to add, or if they're ready to send their schedule.",
+      extraContext: `${extraHint} IMPORTANT: Address what the user said FIRST. If they shared any useful info (schedule, availability, preferences), acknowledge it. Then gently mention next steps. Do NOT repeat the same question if bot already asked it recently.`,
     }));
     return { action: "conversational_in_partner_info" };
   }
