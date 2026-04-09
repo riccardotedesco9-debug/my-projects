@@ -149,7 +149,11 @@ export const messageRouter = schemaTask({
       }
       if (intent === "reset_all") {
         await resetUserData(chatId);
-        await sendTextMessage(chatId, "All cleared. Send /new to start fresh.");
+        // Full wipe: delete user profile, conversation log, and all participant records
+        await query("DELETE FROM conversation_log WHERE chat_id = ?", [chatId]);
+        await query("DELETE FROM participants WHERE chat_id = ?", [chatId]);
+        await query("DELETE FROM users WHERE chat_id = ?", [chatId]);
+        await sendTextMessage(chatId, "Everything wiped — name, history, the lot. Send me a message to start fresh.");
         return { action: "reset" };
       }
       if (intent === "new_partner") {
