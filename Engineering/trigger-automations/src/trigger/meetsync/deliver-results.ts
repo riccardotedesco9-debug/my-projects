@@ -58,9 +58,20 @@ export const deliverResults = schemaTask({
       allPrefs.every((prefs) => prefs.includes(slot))
     );
 
-    // Best match: first mutual preferred slot, or first slot overall
-    const bestSlotNumber = mutual.length > 0 ? mutual[0] : slots[0].slot_number;
-    const bestSlot = slots.find((s) => s.slot_number === bestSlotNumber) ?? slots[0];
+    // Best match: LONGEST slot, preferring ones everyone marked as preferred.
+    // Round-2 bug: picking slots[0] (or mutual[0]) meant a 2h morning gap beat a
+    // 7h afternoon window when the matcher happened to return the morning first.
+    // Chronological order is still the tiebreaker for equal-length slots so
+    // "first of two identical Wednesdays" stays deterministic.
+    const rankByDuration = (a: typeof slots[number], b: typeof slots[number]) =>
+      b.duration_minutes - a.duration_minutes ||
+      a.day.localeCompare(b.day) ||
+      a.start_time.localeCompare(b.start_time);
+    const mutualSlots = mutual.length > 0
+      ? slots.filter((s) => mutual.includes(s.slot_number))
+      : [];
+    const pool = mutualSlots.length > 0 ? mutualSlots : slots;
+    const bestSlot = [...pool].sort(rankByDuration)[0] ?? slots[0];
 
     // Format the match result for the response generator
     const hours = Math.floor(bestSlot.duration_minutes / 60);

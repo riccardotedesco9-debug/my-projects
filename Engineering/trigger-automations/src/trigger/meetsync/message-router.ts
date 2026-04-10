@@ -92,12 +92,24 @@ const payloadSchema = z.object({
   mime_type: z.string().optional(),
   contact_phone: z.string().optional(),
   timestamp: z.string(),
+  // Pre-logged conversation_log row id. The Worker logs user text inline before
+  // triggering so bursts race at the Worker level (sub-second) instead of at
+  // task cold-start (multi-second stagger) — making the bail-if-newer guard
+  // reliable with a short sleep.
+  log_id: z.number().optional(),
 });
 
 export const messageRouter = schemaTask({
   id: "meetsync-message-router",
   schema: payloadSchema,
   maxDuration: 120,
+  // NOTE: tried a FIFO queue with concurrencyKey=chat_id here. It made things
+  // worse: FIFO serialization meant each run saw the previous run's bot reply
+  // already logged, so consolidation found nothing to merge AND the bail-if-newer
+  // guard (below in run()) couldn't see the still-queued siblings. Bursts produced
+  // N separate replies. Parallel execution + the in-task bail guard is the right
+  // combination: all siblings race simultaneously, log their row ids, then only
+  // the one with the highest id wins.
 
   run: async (payload) => {
     const { chat_id: chatId, media_id, mime_type, contact_phone } = payload;
@@ -140,8 +152,41 @@ export const messageRouter = schemaTask({
         }
       }
 
-      // Log inbound message
-      if (text) await logMessage(chatId, "user", text);
+      // Log inbound message — Worker pre-logs text messages and passes log_id
+      // in the payload (see worker/src/handle-message.ts). For media turns (no
+      // text) the Worker didn't log, so we log inline as a fallback.
+      let myLogId = payload.log_id ?? 0;
+      if (myLogId === 0 && text) {
+        myLogId = await logMessage(chatId, "user", text);
+      }
+
+      // Consolidation race guard — rapid bursts spawn parallel task runs. The
+      // Worker pre-logged all sibling messages before firing their triggers,
+      // so by the time any task runs, every sibling row is already committed.
+      // Each task sleeps briefly then checks if a HIGHER row id exists for
+      // this chat; if yes, a later sibling is the "winner" and it will
+      // consolidate our message via the unreplied-scan loop below. Only the
+      // run with the highest log_id responds.
+      //
+      // 1.2s covers typical Trigger.dev cold-start stagger (~500-1000ms) plus
+      // a small safety margin. Single-message turns eat the 1.2s unconditionally
+      // which is an acceptable UX cost for reliable burst handling.
+      if (text && message_type === "text" && myLogId > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+
+        const after = await query<{ max_id: number | null }>(
+          "SELECT MAX(id) as max_id FROM conversation_log WHERE chat_id = ? AND role = 'user'",
+          [chatId]
+        );
+        const latestNow = after.results[0]?.max_id ?? 0;
+
+        if (latestNow > myLogId) {
+          console.log(
+            `[router] bail — newer user message for ${chatId} (mine=${myLogId}, latest=${latestNow})`
+          );
+          return { action: "bailed_for_newer_message" };
+        }
+      }
 
       // Consolidation: check if there are other very recent user messages that
       // haven't been responded to yet. If so, merge them into our text for richer
@@ -214,7 +259,20 @@ export const messageRouter = schemaTask({
         await reply(chatId, await generateResponse(responseCtx("show_help")));
         return { action: "showed_help" };
       }
-      if (intent === "show_status" && participant) {
+      if (intent === "show_status") {
+        // Before: `show_status && participant` meant /status with no active session
+        // fell through and got treated as a greeting. Now we always respond; if
+        // there's no session we say so explicitly in the user's language.
+        if (!participant) {
+          await reply(chatId, await generateResponse({
+            scenario: "unknown_intent",
+            state: "IDLE",
+            userName: user?.name ?? undefined,
+            userLanguage: user?.preferred_language ?? undefined,
+            extraContext: "User asked for status but has no active scheduling session. Tell them there's nothing going on right now and they can send 'new' to start one.",
+          }));
+          return { action: "status_no_session" };
+        }
         await reply(chatId, await generateResponse(responseCtx("show_status")));
         return { action: "status" };
       }
@@ -1225,6 +1283,13 @@ async function handleCancel(
   participant: { id: string; session_id: string; chat_id: string },
   user: UserProfile | null
 ) {
+  // Wipe the canceller's conversation history so stale context from the
+  // cancelled session doesn't leak into the next one (e.g. old partner names
+  // showing up as "previous conversation" after a fresh /new). Done BEFORE
+  // sending the cancel reply so that reply becomes the first entry of their
+  // next session's history.
+  await query("DELETE FROM conversation_log WHERE chat_id = ?", [participant.chat_id]);
+
   await updateParticipantState(participant.id, "COMPLETED");
   await updateSessionStatus(participant.session_id, "EXPIRED");
 

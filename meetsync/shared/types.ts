@@ -74,6 +74,14 @@ export interface MessageRouterPayload {
   mime_type?: string;
   contact_phone?: string; // phone number from Telegram "share contact"
   timestamp: string;
+  /**
+   * conversation_log row id of this user message, pre-logged by the Worker
+   * before triggering the router. Used by the task's bail-if-newer guard to
+   * consolidate rapid-fire bursts — parallel siblings each get their own log_id
+   * and only the one with the highest id proceeds to reply. When absent (e.g.
+   * media-only turns) the task falls back to logging inline.
+   */
+  log_id?: number;
 }
 
 export interface ScheduleParserPayload {

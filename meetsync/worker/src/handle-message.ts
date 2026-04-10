@@ -42,7 +42,29 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
     );
   }
 
-  await triggerMessageRouter(routerPayload, env, msg.message_id);
+  // Pre-log user text to conversation_log HERE at the Worker (rather than inside
+  // the Trigger.dev task). Reason: rapid-fire bursts spawn parallel task runs that
+  // used to boot with multi-second stagger, so the in-task "bail if newer" guard
+  // couldn't reliably see sibling user-msg rows. Worker-side inserts all land within
+  // a few hundred ms of each other (parallel HTTP handlers hitting D1 directly),
+  // so by the time any task starts, every sibling's row is already committed and
+  // the bail guard works with a ~1s sleep instead of 3+.
+  let logId: number | undefined;
+  if (routerPayload.message_type === "text" && routerPayload.text) {
+    try {
+      const trimmed = routerPayload.text.slice(0, 500);
+      const insert = await env.DB.prepare(
+        "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, 'user', ?)"
+      ).bind(routerPayload.chat_id, trimmed).run();
+      const rawId = insert.meta.last_row_id;
+      if (typeof rawId === "number") logId = rawId;
+    } catch (err) {
+      console.error("Worker pre-log failed:", err);
+      // Fall through — task will log inline as fallback
+    }
+  }
+
+  await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, msg.message_id);
 }
 
 // --- Admin commands (only admin chat ID, classified by Claude Haiku) ---
@@ -259,7 +281,10 @@ async function triggerMessageRouter(
 
   // Idempotency key MUST include the Telegram message_id — otherwise two messages
   // from the same chat within the same second (timestamp is second-precision)
-  // collide and Trigger.dev silently drops the second one.
+  // collide and Trigger.dev silently drops the second one. The burst/race consolidation
+  // is handled inside the router task itself via a logMessage row-id "bail if newer"
+  // guard (see message-router.ts) — NOT via a Trigger.dev queue, because FIFO
+  // serialization breaks the consolidation scan.
   const response = await fetch(url, {
     method: "POST",
     headers: {

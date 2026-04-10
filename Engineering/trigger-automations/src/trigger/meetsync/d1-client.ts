@@ -394,11 +394,20 @@ export async function updateSessionMode(sessionId: string, mode: string | null) 
 
 // --- Conversation log helpers ---
 
-/** Log a message to the conversation history */
-export async function logMessage(chatId: string, role: "user" | "bot", message: string) {
+/**
+ * Log a message to the conversation history. Returns the inserted row id —
+ * callers that need to know "which row is mine" (e.g. the consolidation race
+ * guard in message-router) rely on this to avoid confusing their own insert
+ * with a concurrent run's insert.
+ */
+export async function logMessage(
+  chatId: string,
+  role: "user" | "bot",
+  message: string
+): Promise<number> {
   // Cap message length to prevent bloat
   const trimmed = message.slice(0, 500);
-  await query(
+  const result = await query(
     "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, ?, ?)",
     [chatId, role, trimmed]
   );
@@ -409,6 +418,7 @@ export async function logMessage(chatId: string, role: "user" | "bot", message: 
     )`,
     [chatId, chatId]
   ).catch(() => {});
+  return result.meta.last_row_id;
 }
 
 /** Get recent conversation history for a user (last 12 messages) */
