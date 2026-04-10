@@ -44,10 +44,11 @@ function buildWeekdayLookup(): string {
   const lines: string[] = [];
   const now = new Date();
   const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  // Produce the next 14 days starting from tomorrow so "Monday" always
-  // resolves to the *upcoming* Monday, not today if today happens to be Monday.
+  // Cover the full 4-week window a typical work rota spans. Starts from TODAY
+  // (not tomorrow) because users frequently upload rotas whose first visible
+  // column is today's date — the parser needs to map today correctly.
   const MS_PER_DAY = 24 * 60 * 60 * 1000;
-  for (let i = 1; i <= 14; i++) {
+  for (let i = 0; i < 28; i++) {
     const d = new Date(todayUtc + i * MS_PER_DAY);
     const iso = d.toISOString().split("T")[0];
     lines.push(`- ${weekdays[d.getUTCDay()]} ${iso}`);
@@ -65,18 +66,34 @@ function getExtractionPrompt(): string {
 
 Today is **${todayWeekday}, ${todayIso}**.
 
-Here are the next 14 days with their weekdays — THIS is the source of truth for any
+Here are the next 28 days with their weekdays — THIS is the source of truth for any
 date math. Do NOT compute weekday→date mappings yourself; look them up in this table:
 ${weekdayLookup}
 
 Rules for using the lookup:
 - "Monday" / "next Monday" → the first Monday row in the table.
-- "Mon-Fri" (unbounded) → produce ALL Mon/Tue/Wed/Thu/Fri rows that appear in the table (that's 10 dates if today is early in the week, fewer otherwise — be generous, cover BOTH weeks shown above).
+- "Mon-Fri" (unbounded) → produce ALL Mon/Tue/Wed/Thu/Fri rows that appear in the table — typically 20 dates across 4 weeks. Be generous, cover the full window.
 - "this week" / "next week" → only the 5 weekday rows in that specific week.
 - When the label on a shift says e.g. "Monday work", the date on that shift MUST correspond to a Monday row from the table. Double-check by eye before writing the date.
-- If the user gives specific dates (e.g. "April 14"), use those verbatim, ignoring the lookup.
+- If the user gives specific dates (e.g. "April 14" or "15.04.26"), use those verbatim, ignoring the lookup.
 
 Common failure mode to avoid: writing "Monday work" next to a Tuesday date. That means you skipped a row. Always recount before finalizing.
+
+============================================================
+IMAGE INPUT — you are very good at vision. Trust yourself and follow these principles:
+============================================================
+
+Images can arrive in ANY format: work-rota tables, calendar screenshots, weekly planners, handwritten notes, WhatsApp shots, phone photos of a whiteboard, PDFs, Google/Outlook exports, whatever. Don't assume a specific layout. Read the image the way a careful human would.
+
+Core principles when reading ANY schedule image:
+
+- **Be exhaustive.** Extract EVERY shift/entry you can see. Do not stop early because you think you've captured the pattern. If the image shows 28 days of information, you should produce ~28 output entries. If it shows 7 days, produce ~7. Cover what's visible.
+- **Both busy AND free days matter.** If a day is explicitly marked as OFF / blank / "—" / "rest" / color-coded as non-working, emit a framing-B placeholder entry (00:00-00:00, label "OFF" or "fully free"). Don't silently skip it — the scheduler needs to know the user is free that day.
+- **Ignore non-schedule distractions.** Email headers, logos, signatures, forwarded copies, app chrome — all noise. Find the actual schedule content (table, list, calendar grid, handwritten list, whatever form it takes) and extract from that.
+- **Date format conversion.** Convert whatever date format the image uses (DD.MM.YY, DD/MM, "5 Apr", weekday names, relative like "today") to YYYY-MM-DD. Use the lookup table above to resolve weekdays. If the image shows explicit dates (e.g. "15.04.26"), trust those verbatim and cross-check against the lookup to catch year ambiguity.
+- **Overnight shifts** (17:00-02:00, 22:00-06:00, etc.): preserve the literal end_time as given. Downstream code handles the midnight crossing — don't split into two entries yourself.
+- **Sanity check before returning.** Mentally re-scan the image once your shifts[] array is built. Did you miss any rows? Any days the image clearly shows but your output doesn't mention? Add them.
+- **When in doubt, include, don't exclude.** A slightly uncertain entry with confidence 0.6 is more useful than a missing day. The downstream flow will ask the user to confirm.
 
 The user may describe their availability in either of TWO framings — handle BOTH:
 
