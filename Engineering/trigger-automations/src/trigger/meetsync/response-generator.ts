@@ -199,9 +199,15 @@ const STATIC_FALLBACKS: Record<string, (ctx: ResponseContext) => string> = {
  *
  * Excluded when the user has a non-English preferred language — those users still
  * need the LLM's translation path. English users get a ~1 s speedup per simple reply.
+ *
+ * IMPORTANT: a scenario is ONLY fast-pathed when there is no userMessage and no
+ * extraContext to address. If either is present, we always route through Claude so
+ * the user's actual words aren't ignored. Round-5 regression: schedule_confirmed
+ * and preferences_saved used to be unconditionally fast-pathed, which silently
+ * dropped questions users asked alongside "yes" / "1,3" — they'd get a canned
+ * "Schedule confirmed! Waiting..." and feel ignored.
  */
 const FAST_PATH_SCENARIOS = new Set([
-  "schedule_confirmed",
   "session_expired",
   "session_complete",
   "cancel_self",
@@ -221,8 +227,12 @@ export async function generateResponse(ctx: ResponseContext): Promise<string> {
 
   // Fast path: simple English scenarios with fixed output bypass the LLM entirely.
   // Saves ~1 s per call. Non-English users still hit Claude for proper translation.
+  // CRITICAL: only fast-path when there is nothing from the user to address. If
+  // userMessage or extraContext is present, the caller wants their content woven
+  // into the reply — returning the static fallback here silently ignores it.
   const langIsEnglish = !ctx.userLanguage || ctx.userLanguage === "en";
-  if (langIsEnglish && FAST_PATH_SCENARIOS.has(ctx.scenario)) {
+  const hasUserContent = !!(ctx.userMessage || ctx.extraContext);
+  if (langIsEnglish && FAST_PATH_SCENARIOS.has(ctx.scenario) && !hasUserContent) {
     return getStaticFallback(ctx);
   }
 

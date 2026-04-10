@@ -30,6 +30,7 @@ import {
   logMessage,
   getRecentMessages,
   updateUserPhone,
+  getReplyContext,
 } from "./d1-client.js";
 import type { UserProfile } from "./d1-client.js";
 import { scheduleParser } from "./schedule-parser.js";
@@ -358,7 +359,7 @@ export const messageRouter = schemaTask({
 
       // --- No active session ---
       if (!participant) {
-        return await handleIdleUser(chatId, intent, params, user, text);
+        return await handleIdleUser(chatId, intent, params, user, text, payload);
       }
 
       // "new" always starts fresh from any state
@@ -368,13 +369,14 @@ export const messageRouter = schemaTask({
 
       // --- Partner management (remove / swap) — available from any in-session state ---
       if (intent === "remove_partner" && params.remove_name) {
-        return await handleRemovePartner(chatId, participant, user, String(params.remove_name));
+        return await handleRemovePartner(chatId, participant, user, String(params.remove_name), text);
       }
       if (intent === "swap_partner") {
         return await handleSwapPartner(
           chatId, participant, user,
           params.swap_from ? String(params.swap_from) : undefined,
           params.swap_to ? String(params.swap_to) : undefined,
+          text,
         );
       }
 
@@ -528,7 +530,8 @@ async function handleIdleUser(
   intent: string,
   params: Record<string, unknown>,
   user: UserProfile | null,
-  userMessage?: string
+  userMessage?: string,
+  payload?: z.infer<typeof payloadSchema>
 ) {
   // Handle /start deep link (e.g., /start invite_abc123)
   if (intent === "start_command") {
@@ -574,12 +577,58 @@ async function handleIdleUser(
     return await handleNewSession(chatId, user);
   }
 
-  // User shares schedule info (text, photo, or document) while idle — auto-create session
-  if (intent === "upload_schedule_text" && user?.name) {
+  // User shares schedule info (text, photo, or document) while idle — auto-create
+  // session. Previously blocked on `user?.name` existing, which caused first-time
+  // users sending a cold PDF/photo to be silently ignored (bot greeted instead of
+  // acknowledging the file). Now we create a session regardless and, if there's
+  // media on this turn, kick the parser off immediately so the file doesn't get
+  // dropped on the floor while we wait for their name.
+  if (intent === "upload_schedule_text") {
     if (params.schedule_text) {
       await appendUserContext(chatId, `Work schedule: ${String(params.schedule_text)}`);
     }
-    return await handleNewSession(chatId, user);
+    // If the caller gave us a name in the same turn, persist it before creating
+    // the session so handleNewSession's reply scenario can use it.
+    if (params.name && !user?.name) {
+      await updateUserName(chatId, String(params.name));
+      user = { ...(user ?? ({} as UserProfile)), name: String(params.name) } as UserProfile;
+    }
+
+    // Create the session + participant without the usual "ask_partner" reply —
+    // we'll send a richer consolidated reply below that also acknowledges the
+    // file upload if there is one.
+    const hasMedia = !!(payload && (payload.message_type === "image" || payload.message_type === "document") && payload.media_id);
+    await handleNewSession(chatId, user, { skipAskPartner: hasMedia || !!params.schedule_text });
+
+    // If this turn carried a file, trigger the parser right away against the
+    // freshly-created participant. The schedule arrives in the confirmation
+    // prompt a few seconds later, regardless of whether the user has told us
+    // their name or partner yet.
+    if (hasMedia && payload) {
+      const freshParticipant = await getParticipantByChatId(chatId);
+      if (freshParticipant) {
+        await updateParticipantState(freshParticipant.id, "SCHEDULE_RECEIVED");
+        await scheduleParser.trigger({
+          participant_id: freshParticipant.id,
+          session_id: freshParticipant.session_id,
+          chat_id: chatId,
+          media_id: payload.media_id,
+          mime_type: payload.mime_type ?? "image/jpeg",
+        });
+      }
+      // One consolidated reply: acknowledge upload + ask the missing context.
+      await reply(chatId, await generateResponse({
+        scenario: "unknown_intent", state: "AWAITING_PARTNER_INFO",
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+        userMessage: userMessage,
+        extraContext: `The user just sent a schedule file (photo or PDF) as their first message. It's being parsed right now — acknowledge that briefly. ALSO: ${user?.name ? "" : "ask their name, and "}ask who they want to schedule with. Keep it to 2-3 friendly lines. Do not ask them to re-send the file.`,
+      }));
+      return { action: "idle_media_upload_processing" };
+    }
+
+    // No media on this turn — fall back to the normal session-start flow.
+    return { action: "idle_schedule_text_session_created" };
   }
 
   // "new" / "start" / greeting
@@ -1137,14 +1186,29 @@ async function handleAwaitingConfirmation(
 ) {
   if (intent === "confirm_schedule") {
     await updateParticipantState(participant.id, "SCHEDULE_CONFIRMED");
-    await reply(participant.chat_id, "Schedule confirmed! Waiting for your colleagues...");
+    // Generate a reply that addresses the user's actual message first (they may
+    // have asked a follow-up question alongside "yes") before announcing the
+    // state change. Prior behavior hard-coded "Schedule confirmed! Waiting..."
+    // which completely ignored multi-part confirmations like "yes my partner
+    // is Diego and when he sends his schedule can you find our free time?"
+    await reply(participant.chat_id, await generateResponse({
+      scenario: "schedule_confirmed", state: "SCHEDULE_CONFIRMED",
+      userMessage,
+      ...(await getReplyContext(participant.chat_id)),
+      extraContext: "The user's schedule is now confirmed. Address what they actually said in their message FIRST (answer any questions, acknowledge any details they shared), then briefly confirm their schedule is locked in and you're waiting for the other participants. Keep it 2-4 lines total. Do NOT ignore questions they asked.",
+    }));
     await checkAllConfirmed(participant.session_id);
     return { action: "schedule_confirmed" };
   }
 
   if (intent === "reject_schedule") {
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
-    await reply(participant.chat_id, "No worries — send me your schedule again (photo, PDF, or type your hours).");
+    await reply(participant.chat_id, await generateResponse({
+      scenario: "schedule_rejected", state: "AWAITING_SCHEDULE",
+      userMessage,
+      ...(await getReplyContext(participant.chat_id)),
+      extraContext: "The user rejected the parsed schedule. Address what they said first, then ask them to re-send their schedule (photo, PDF, or typed hours).",
+    }));
     return { action: "schedule_rejected" };
   }
 
@@ -1282,7 +1346,16 @@ async function handleAwaitingPreferences(
       return { action: "mediated_preferences_submitted", slots };
     }
 
-    await reply(participant.chat_id, `Saved your preferences: slots ${slots.join(", ")}. Waiting for your colleagues...`);
+    // Route through generateResponse so the user's actual message gets addressed
+    // (same ignore-the-user bug as the confirm_schedule hardcoded reply). Users
+    // often ask questions alongside "1, 3" slot picks and the old hardcoded
+    // string silently dropped them.
+    await reply(participant.chat_id, await generateResponse({
+      scenario: "preferences_saved", state: "PREFERENCES_SUBMITTED",
+      userMessage,
+      ...(await getReplyContext(participant.chat_id)),
+      extraContext: `User picked slots ${slots.join(", ")}. Address what they actually said in their message FIRST (answer any questions, acknowledge context), then briefly confirm their preferences are saved and you're waiting for the other participants. Keep it 2-4 lines. Do NOT ignore questions they asked.`,
+    }));
     await checkAllPreferred(participant.session_id);
     return { action: "preferences_submitted", slots };
   }
@@ -1436,6 +1509,7 @@ async function handleRemovePartner(
   participant: { id: string; session_id: string; chat_id: string; schedule_json: string | null; state: string },
   user: UserProfile | null,
   removeName: string,
+  userMessage?: string,
 ): Promise<Record<string, unknown>> {
   const target = removeName.trim().toLowerCase();
   let removedLabel = "";
@@ -1487,7 +1561,14 @@ async function handleRemovePartner(
     return { action: "remove_partner_not_found", target: removeName };
   }
 
-  await reply(chatId, `Got it — ${removedLabel} is out.`);
+  // Route through generateResponse so questions the user asked alongside the
+  // remove intent get addressed ("remove tom, btw how does matching work?").
+  await reply(chatId, await generateResponse({
+    scenario: "unknown_intent", state: participant.state,
+    userMessage,
+    ...(await getReplyContext(chatId)),
+    extraContext: `User asked to remove "${removedLabel}" from the session — the removal is done. Confirm briefly that ${removedLabel} is out. ALSO: address anything else the user said in their message. Keep it 1-3 lines.`,
+  }));
   return { action: "partner_removed", name: removedLabel };
 }
 
@@ -1506,6 +1587,7 @@ async function handleSwapPartner(
   user: UserProfile | null,
   swapFrom: string | undefined,
   swapTo: string | undefined,
+  userMessage?: string,
 ): Promise<Record<string, unknown>> {
   if (!swapTo) {
     await reply(chatId, "Got it — but who should I swap them with? Give me the new name or phone number.");
@@ -1575,6 +1657,8 @@ async function handleSwapPartner(
   }
 
   // 2. Add the new one — known user → participant, unknown → pending invite.
+  // Both completion paths route through generateResponse so any question the
+  // user asked alongside the swap gets addressed instead of silently dropped.
   const matches = await findUserByName(swapTo.trim());
   if (matches.length === 1 && matches[0].chat_id !== chatId) {
     try {
@@ -1584,20 +1668,34 @@ async function handleSwapPartner(
       );
     } catch { /* already in */ }
     const label = matches[0].name ?? swapTo;
-    await reply(chatId, removedLabel
-      ? `Swapped ${removedLabel} for ${label}.`
-      : `Added ${label} to the session.`);
+    const actionDesc = removedLabel
+      ? `Swapped ${removedLabel} for ${label}`
+      : `Added ${label} to the session`;
+    await reply(chatId, await generateResponse({
+      scenario: "unknown_intent", state: participant.state,
+      userMessage,
+      ...(await getReplyContext(chatId)),
+      extraContext: `${actionDesc} — the action is done. Confirm briefly. ALSO address anything else the user said in their message. 1-3 lines.`,
+    }));
     return { action: "swap_complete", to: label };
   }
 
-  // Unknown — new pending invite (reuses the same session deep link)
+  // Unknown — new pending invite (reuses the same session deep link).
   await createPendingInvite(chatId, null, participant.session_id);
   const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
   const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
   const headline = removedLabel
-    ? `Swapped ${removedLabel} for ${swapTo}.`
-    : `Got it — going with ${swapTo} instead.`;
-  await reply(chatId, `${headline} ${swapTo} isn't in MeetSync yet — share this invite link with them:\n${inviteLink}`);
+    ? `Swapped ${removedLabel} for ${swapTo}`
+    : `Going with ${swapTo}`;
+  // LLM acknowledgment addresses user's message; link arrives in a separate
+  // deterministic message so the LLM can't hallucinate URLs.
+  await reply(chatId, await generateResponse({
+    scenario: "unknown_intent", state: participant.state,
+    userMessage,
+    ...(await getReplyContext(chatId)),
+    extraContext: `${headline}. ${swapTo} isn't in MeetSync yet — an invite link is coming in the NEXT message (do NOT include any URLs in your reply, just acknowledge). ALSO address anything else the user said. 1-3 lines.`,
+  }));
+  await reply(chatId, `Here's your invite link to share with ${swapTo}:\n${inviteLink}`);
   return { action: "swap_complete", to: swapTo };
 }
 
