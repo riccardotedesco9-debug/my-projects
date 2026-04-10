@@ -115,6 +115,12 @@ CRITICAL — MULTI-PARAM EXTRACTION: regardless of the primary intent, you MUST 
 - params.partner_phone — a 7-15 digit phone number for the partner
 - params.schedule_text — ANY availability info: "I work 9-5", "free all day", "off on Wednesdays", "whenever", "sat 10-2", "this weekend", "mon-fri 9 to 5", "lavoro lun-ven 9-18"
 
+CRITICAL — NEVER treat place names, city names, country names, timezones, or generic words as partner names. "london", "NYC", "tokyo", "italy", "EST", "my office", "the gym" are NOT partners. They can go in params.learned_facts as location context. Partners are PEOPLE with human names:
+- "im in NYC my partner is in london" → NO partner_name extracted. learned_facts: "user in NYC, partner in London". Intent: upload_schedule_text or unknown depending on context.
+- "meet with my friend who lives in Tokyo" → NO partner_name (no name given). learned_facts: "partner in Tokyo".
+- "meeting in paris next week" → NO partner_name. Paris is a place.
+- "meet alice who's in berlin" → partner_name: "alice". learned_facts: "alice is in berlin".
+
 Extract these EVEN IF the primary intent is greeting/create_session/unknown/upload_schedule_text. The message router will use them to skip redundant prompts. Never put user's name or partner's name in learned_facts — they have dedicated fields.
 
 Examples:

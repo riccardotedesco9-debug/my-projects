@@ -1255,6 +1255,24 @@ async function handleAwaitingPreferences(
 
     const session = await getSessionById(participant.session_id);
     if (session?.mode === "MEDIATED") {
+      // N≥3 fix: the previous code triggered deliverResults the moment the FIRST
+      // participant submitted, ignoring the others in a 3+ person mediated session.
+      // Now we only proceed when EVERY participant is PREFERENCES_SUBMITTED (creator
+      // is auto-submitted by handleSendAvailability so they're already in that state).
+      const allParticipants = await getSessionParticipants(participant.session_id);
+      const stillWaiting = allParticipants.filter((p) => p.state !== "PREFERENCES_SUBMITTED");
+
+      if (stillWaiting.length > 0) {
+        await reply(
+          participant.chat_id,
+          stillWaiting.length === 1
+            ? `Got it — slots ${slots.join(", ")}! Waiting on 1 more person to pick.`
+            : `Got it — slots ${slots.join(", ")}! Waiting on ${stillWaiting.length} more people to pick.`
+        );
+        return { action: "mediated_preferences_waiting", slots, waiting: stillWaiting.length };
+      }
+
+      // Everyone has submitted — compute and deliver
       await reply(participant.chat_id, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
       await updateSessionStatus(participant.session_id, "MATCHING");
       try {
@@ -1620,8 +1638,13 @@ async function handleAmendSchedule(
 
   // Feed the parser the previous schedule + the amendment so it can produce a
   // merged result rather than a fresh one (which would lose the original data).
+  // Ambiguity rule: if the user refers to a weekday ("the Wednesday thing")
+  // that appears multiple times in the prior schedule, apply the amendment to
+  // the NEAREST-FUTURE matching date only — not all occurrences. This gives
+  // deterministic behavior instead of picking randomly. Explicit dates override
+  // this rule.
   const prior = participant.schedule_json
-    ? `Previous parsed schedule JSON: ${participant.schedule_json}\n\nUser's amendment: ${amendText}\n\nRe-extract the full schedule applying the amendment. Keep everything from the previous schedule that wasn't changed, and merge in the new/updated shifts.`
+    ? `Previous parsed schedule JSON: ${participant.schedule_json}\n\nUser's amendment: ${amendText}\n\nRe-extract the full schedule applying the amendment. Keep everything from the previous schedule that wasn't changed, and merge in the new/updated shifts. AMBIGUITY RULE: if the amendment references a weekday or vague time reference ("the Wednesday thing", "that Monday", "friday's shift") and multiple matching dates exist in the prior schedule, apply the change to the NEAREST-FUTURE matching date only, leaving the others intact. If the user gives an explicit date (e.g. "Apr 15") apply only to that date.`
     : amendText;
 
   await scheduleParser.trigger({
