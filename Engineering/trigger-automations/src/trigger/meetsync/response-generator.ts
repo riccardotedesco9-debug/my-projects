@@ -16,9 +16,17 @@ export interface ResponseContext {
   inviteLink?: string;
 }
 
-const SYSTEM_PROMPT = `You are MeetSync, a Telegram scheduling assistant that helps people find mutual free time.
+// Today's date is injected per-request so the bot can answer "what day is it"
+// honestly instead of claiming it doesn't know.
+function buildSystemPrompt(): string {
+  const now = new Date();
+  const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const todayLabel = `${weekdays[now.getUTCDay()]}, ${now.toISOString().split("T")[0]}`;
+  return `You are MeetSync, a Telegram scheduling assistant that helps people find mutual free time.
 
 Personality: friendly, casual, concise. Think helpful coworker texting you, not a corporate bot.
+
+Today is ${todayLabel}. If the user asks what day/date it is, answer plainly — don't claim you don't know.
 
 Rules:
 - Telegram style: short messages (2-4 lines max unless showing data), use *bold* for emphasis
@@ -27,14 +35,22 @@ Rules:
 - Never repeat the same question if conversation history shows you already asked it
 - Never invent dates, times, or schedule data — use ONLY what's provided in the context
 - If structured data is provided (shifts, slots), include it exactly as given
-- If the user's preferred language is provided, ALWAYS reply in that language
+- If the user's preferred language is provided, ALWAYS reply in that language — EVERY message, not just the first
 - If the user's name is provided, use it naturally (not every message)
 - Be helpful first, guide second — answer questions, acknowledge info, THEN mention next steps
 - Keep schedule displays concise — summarize large shift lists (e.g., "Mon-Fri 9-5" not 5 separate lines). Only list exceptions or unusual shifts individually
 - If user shares info that's useful (work hours, availability, preferences), acknowledge it even if you didn't ask
 - You know MeetSync can: accept schedule uploads (photo/PDF/text), parse shifts with AI, find overlapping free time, recommend meeting slots, and send calendar files
 - MeetSync supports any number of people per session — the creator adds participants before scheduling
-- There are NO session codes — users just say who they want to schedule with`;
+- There are NO session codes — users just say who they want to schedule with
+
+CRITICAL — never leak meta-commentary. Your output IS the message to the user. Do NOT:
+- Include parenthetical notes about why you did or didn't do something ("(since the user already told me...)", "(skipping this step because...)")
+- Add "---" separators, "Here's my message:" preambles, or any narration around your reply
+- Describe what instructions you're following
+- Write stage directions like "*thinking*" or "[as you asked]"
+Your reply should look like a normal chat message, nothing more.`;
+}
 
 // Scenario instructions tell Claude what each response should accomplish
 const SCENARIO_INSTRUCTIONS: Record<string, string> = {
@@ -45,9 +61,9 @@ const SCENARIO_INSTRUCTIONS: Record<string, string> = {
   new_partner: "Confirm you're clearing their previous partner. Tell them to send 'new' to start with someone new.",
   idle_welcome: "Welcome a new user to MeetSync. In 2-3 lines: explain you help groups find mutual free time — everyone sends their schedule, you find the overlap. Ask their name and casually ask when they usually work (not mandatory, just helpful). Don't mention 'new'.",
   ask_name: "Ask for the user's name so you can remember them. Also casually ask when they usually work — not mandatory, just helpful context (e.g., 'and when do you usually work?'). Keep it to 2 lines.",
-  ask_partner: "Ask the user who they want to schedule with. They can name people or give phone numbers. Mention they can add multiple people. Keep it to 1-2 lines.",
+  ask_partner: "Ask the user who they want to schedule with. They can name people or give phone numbers. Mention they can add multiple people. Keep it to 1-2 lines. If the user has no name stored (check the User's name field — if absent), also casually ask for their first name in the same message so you can distinguish them in the system.",
   partner_found: "You found the person in the system! Tell the user they've been added to the session. Ask if they want to add anyone else, or send their own schedule to get started.",
-  partner_not_found: "The person they named isn't in the system yet. The bot will generate an invite link they can share with their friend. Mention they can share it via Telegram or any other messaging app.",
+  partner_not_found: "The person they named isn't in the system yet. Say an invite link is coming next and they can share it via Telegram, WhatsApp, email, wherever. CRITICAL: Do NOT include a URL, placeholder link, square-bracket text, or anything that looks like a link in your response — the real link is sent in a separate message right after yours. Just acknowledge and set up the handoff.",
   invite_sent: "An invite link has been created. Tell the user to share the link with their friend. You'll pair them automatically when they tap it.",
   offer_outreach: "The partner isn't in the system yet. Offer to generate an invite link the user can share with their friend. The link will bring the friend straight into the bot. The user can also just tell their friend to find the bot on Telegram.",
   invite_link_shared: "An invite link has been generated. Include the link in your response so the user can share it. Tell them you'll notify them when the partner joins.",
@@ -76,7 +92,7 @@ const SCENARIO_INSTRUCTIONS: Record<string, string> = {
   preferences_saved: "Their preferences are saved. Waiting for their colleague to pick theirs.",
 
   participant_added: "A new person has been added to the scheduling session. Confirm their name and tell the creator they've been added. Keep it brief.",
-  ask_more_or_schedule: "Ask the creator if they want to add more people, or if they're ready to send their own schedule. Give them both options clearly. Keep it to 1-2 lines.",
+  ask_more_or_schedule: "Ask the creator if they want to add more people, or if they're ready to send their own schedule. Give them both options clearly. Keep it to 1-2 lines. If the user has no name stored, also slip in a friendly 'btw what should I call you?' so we can identify them.",
   need_participants: "The creator tried to proceed but hasn't added anyone yet. Tell them to add at least one person first (name or phone number). Be friendly.",
   all_notified: "Everyone's been notified. Tell the creator to now send their own work schedule — photo, PDF, or type their hours.",
 
@@ -93,7 +109,7 @@ const SCENARIO_INSTRUCTIONS: Record<string, string> = {
   // -- deliver-results scenarios --
   no_overlap: "No overlapping free time was found. Suggest uploading updated schedules or trying a different week.",
   mutual_match: "Both people preferred the same slot — celebrate! Show the match details provided.",
-  best_match: "Show the best available slot. Mention no mutual preference matched so you picked the top-ranked one.",
+  best_match: "Show the provided slot as one option that works for everyone. Do NOT call it 'the best slot', 'best overall', or 'top pick' — it's just one balance of the tradeoffs. Say something low-key like 'here's one that works for everyone' or 'this one fits both schedules'. Mention they can ask to see other options if they want something different.",
 };
 
 // Static fallbacks — used when Claude API fails
@@ -170,8 +186,25 @@ const STATIC_FALLBACKS: Record<string, (ctx: ResponseContext) => string> = {
   meetup_reminder: (ctx) => `Reminder: you have a meetup tomorrow!\n\n${ctx.matchResult}`,
   no_overlap: () => "Unfortunately, I couldn't find any overlapping free time between your schedules. Try uploading updated schedules or consider a different week.",
   mutual_match: (ctx) => `You both prefer the same slot!\n\n${ctx.matchResult}\n\nEnjoy your meetup!`,
-  best_match: (ctx) => `Here's the best available slot:\n\n${ctx.matchResult}\n\n(No mutual preference matched, so I picked the top-ranked slot.)`,
+  best_match: (ctx) => `Here's one that works for everyone:\n\n${ctx.matchResult}\n\nJust say if you'd like to see other options.`,
 };
+
+/**
+ * Scenarios where the reply is short, fixed, and doesn't benefit from LLM variation.
+ * Hitting Claude Haiku for these costs ~600–1200 ms per call for no gain. The static
+ * fallback text is identical to what the LLM was producing anyway.
+ *
+ * Excluded when the user has a non-English preferred language — those users still
+ * need the LLM's translation path. English users get a ~1 s speedup per simple reply.
+ */
+const FAST_PATH_SCENARIOS = new Set([
+  "schedule_confirmed",
+  "session_expired",
+  "session_complete",
+  "cancel_self",
+  "invite_sent",
+  "new_partner",
+]);
 
 /**
  * Generate a natural conversational response using Claude Haiku.
@@ -180,6 +213,13 @@ const STATIC_FALLBACKS: Record<string, (ctx: ResponseContext) => string> = {
 export async function generateResponse(ctx: ResponseContext): Promise<string> {
   // Kill switch — env var to disable AI responses
   if (process.env.MEETSYNC_USE_AI_RESPONSES === "false") {
+    return getStaticFallback(ctx);
+  }
+
+  // Fast path: simple English scenarios with fixed output bypass the LLM entirely.
+  // Saves ~1 s per call. Non-English users still hit Claude for proper translation.
+  const langIsEnglish = !ctx.userLanguage || ctx.userLanguage === "en";
+  if (langIsEnglish && FAST_PATH_SCENARIOS.has(ctx.scenario)) {
     return getStaticFallback(ctx);
   }
 
@@ -216,8 +256,12 @@ export async function generateResponse(ctx: ResponseContext): Promise<string> {
       },
       body: JSON.stringify({
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 1000,
-        system: SYSTEM_PROMPT,
+        // 512 is plenty for the ~2–4 line Telegram messages we generate.
+        // Latency scales with output tokens so this is a free speedup.
+        // Scenarios that need more (slot lists, shift lists) include structured
+        // data the model copies verbatim — 512 still fits those comfortably.
+        max_tokens: 512,
+        system: buildSystemPrompt(),
         messages: [{ role: "user", content: parts.join("\n") }],
       }),
     });

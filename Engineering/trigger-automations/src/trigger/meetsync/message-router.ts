@@ -12,6 +12,7 @@ import {
   updateSessionStatus,
   getOtherParticipants,
   getParticipantCount,
+  getPendingInviteCount,
   resetUserData,
   registerUser,
   getUser,
@@ -19,7 +20,6 @@ import {
   updateUserLanguage,
   findUserByName,
   findUserByPhone,
-  findUserByChatId,
   createPendingInvite,
   getPendingInviteForChatId,
   updateInviteStatus,
@@ -39,9 +39,29 @@ import { classifyIntent } from "./intent-router.js";
 import { generateResponse } from "./response-generator.js";
 import { computeSinglePersonSlots, matchCompute } from "./match-compute.js";
 
-/** Send a message and log it — ensures conversation history is always complete */
+/**
+ * The creator can proceed to scheduling once they've either added at least one
+ * real participant OR invited someone via deep-link (pending invite). We count
+ * both because the common case is "I want to meet Alice" → Alice doesn't exist
+ * yet → pending invite created → creator should be able to upload schedule
+ * without having to wait for Alice to actually tap the link.
+ */
+async function canProceedToScheduling(sessionId: string): Promise<boolean> {
+  const [participants, invites] = await Promise.all([
+    getParticipantCount(sessionId),
+    getPendingInviteCount(sessionId),
+  ]);
+  // participants includes the creator (1), so we need at least 1 real partner OR 1 invite.
+  return participants >= 2 || invites >= 1;
+}
+
+/**
+ * Send a message, splitting oversized payloads to stay under Telegram's 4096-char limit.
+ * Bot-side logging to conversation_log now happens inside sendTextMessage itself,
+ * so every task (router, schedule-parser, orchestrator, deliver-results) produces
+ * consistent history without callers having to remember to log.
+ */
 async function reply(chatId: string, msg: string): Promise<void> {
-  // Telegram has 4096 char limit — split long messages
   if (msg.length > 4000) {
     const chunks = [];
     let remaining = msg;
@@ -62,7 +82,6 @@ async function reply(chatId: string, msg: string): Promise<void> {
   } else {
     await sendTextMessage(chatId, msg);
   }
-  await logMessage(chatId, "bot", msg);
 }
 
 const payloadSchema = z.object({
@@ -86,9 +105,19 @@ export const messageRouter = schemaTask({
 
 
     try {
-      // Register/update user on every message
+      // registerUser must land BEFORE getUser so first-time messages see the freshly
+      // inserted row. But getUser / getParticipantByChatId / getRecentMessages are all
+      // read-only and independent, so we fire them in parallel for a meaningful latency
+      // win (each D1 call is ~30–80 ms over the public API; 3 parallel ≈ 1 sequential).
       await registerUser(chatId);
-      const user = await getUser(chatId);
+      const [userResult, participantEarly, recentEarly] = await Promise.all([
+        getUser(chatId),
+        getParticipantByChatId(chatId),
+        getRecentMessages(chatId),
+      ]);
+      // `let` because we mutate locally when language/name/preferences are detected mid-turn
+      // so this turn's response honors the new values without waiting for the next message.
+      let user = userResult;
 
       // Store phone if user shared contact
       if (contact_phone) {
@@ -114,9 +143,11 @@ export const messageRouter = schemaTask({
       // Log inbound message
       if (text) await logMessage(chatId, "user", text);
 
-      // Consolidation: check if there are other very recent user messages (sent within last 3s)
-      // that haven't been responded to yet. If so, merge them into our text for richer context.
-      const allRecent = await getRecentMessages(chatId);
+      // Consolidation: check if there are other very recent user messages that
+      // haven't been responded to yet. If so, merge them into our text for richer
+      // context. Reuses the prefetched `recentEarly` — this lookup happened before
+      // logMessage so it won't include the current turn's user message, which is fine.
+      const allRecent = recentEarly;
       const unreplied = [];
       for (let i = allRecent.length - 1; i >= 0; i--) {
         if (allRecent[i].role === "bot") break; // stop at last bot message
@@ -129,14 +160,13 @@ export const messageRouter = schemaTask({
         text = [...unreplied.reverse(), text].join("\n");
       }
 
-      // Find active participant for this chat ID
-      const participant = await getParticipantByChatId(chatId);
+      // Use the prefetched participant (same object — free from the Promise.all above)
+      const participant = participantEarly;
       const currentState = participant?.state ?? "IDLE";
 
       // Conversation history + schedule data for context
-      const recentMessages = allRecent;
-      const conversationHistory = recentMessages.length > 0
-        ? recentMessages.map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.message}`).join("\n")
+      const conversationHistory = allRecent.length > 0
+        ? allRecent.map((m) => `${m.role === "user" ? "User" : "Bot"}: ${m.message}`).join("\n")
         : undefined;
       const scheduleData = participant?.schedule_json
         ? `[User's uploaded schedule data]: ${participant.schedule_json.slice(0, 500)}`
@@ -145,11 +175,14 @@ export const messageRouter = schemaTask({
       // Classify intent via Claude Haiku (or fast-path for media)
       const { intent, params } = await classifyIntent(text, message_type, currentState, conversationHistory);
 
-      // Update language if detected — only on substantial text (not names/short replies)
+      // Update language if detected — only on substantial text (not names/short replies).
+      // Mutate the in-memory user object too, so this turn's reply honors the new
+      // language immediately instead of waiting for the next message.
       if (params.detected_language && user && params.detected_language !== user.preferred_language) {
         const isSubstantialText = text && text.split(/\s+/).length >= 4;
         if (isSubstantialText) {
           await updateUserLanguage(chatId, params.detected_language);
+          user = { ...user, preferred_language: params.detected_language } as UserProfile;
         }
       }
 
@@ -190,14 +223,19 @@ export const messageRouter = schemaTask({
         return { action: "unsupported_media" };
       }
       if (intent === "reset_all") {
-        // Check if user already confirmed (recent bot message contains reset marker)
+        // Detect "already asked" via an invisible zero-width-space sentinel appended
+        // to the confirmation prompt. Hard-coded English substrings broke for
+        // Italian/other language users whose reset prompt got translated by the
+        // response generator. ZWSP is not rendered by Telegram but survives in
+        // the stored message text and is entirely language-independent.
+        const RESET_MARKER = "\u200B\u200B\u200B"; // three zero-width spaces
         const recent = await getRecentMessages(chatId);
         const lastBotMsg = recent.filter((m) => m.role === "bot").pop();
-        const alreadyConfirming = lastBotMsg?.message.includes("wipe everything");
+        const alreadyConfirming = lastBotMsg?.message.endsWith(RESET_MARKER);
 
         if (!alreadyConfirming) {
           // First time — ask for confirmation (marker is hidden from display by Telegram)
-          const msg = "This will wipe everything — your name, history, and all session data. Are you sure?";
+          const msg = "This will wipe everything — your name, history, and all session data. Are you sure?" + RESET_MARKER;
           await reply(chatId, msg);
           return { action: "reset_confirmation_asked" };
         }
@@ -237,14 +275,27 @@ export const messageRouter = schemaTask({
       }
 
       // --- Handle name provision globally ---
+      // Name may arrive bundled with a partner name or schedule text in a single message
+      // (e.g. "im linda, free sat 10-2"). Persist the name, then fall through so the rest
+      // of the handler can still consume the other params — otherwise users repeat themselves.
       if (intent === "provide_name" && params.name) {
-        await updateUserName(chatId, params.name);
+        await updateUserName(chatId, String(params.name));
+        user = { ...(user ?? ({} as UserProfile)), name: String(params.name) } as UserProfile;
+
         if (!participant) {
           // Auto-create session so user flows straight into adding people
-          return await handleNewSession(chatId, { ...user, name: params.name } as UserProfile);
+          return await handleNewSession(chatId, user);
         }
-        await reply(chatId, `Got it, ${params.name}!`);
-        return { action: "name_updated", name: params.name };
+
+        // If the same message ALSO contained partner info or schedule text,
+        // the rest of this handler will pick it up below. Only reply with the
+        // short acknowledgment if there's nothing else to do.
+        if (!params.partner_name && !params.partner_phone && !params.schedule_text) {
+          await reply(chatId, `Got it, ${params.name}!`);
+          return { action: "name_updated", name: params.name };
+        }
+        // Otherwise a richer acknowledgment will be produced downstream by the
+        // partner-info or schedule-upload handlers.
       }
 
       // --- No active session ---
@@ -257,12 +308,40 @@ export const messageRouter = schemaTask({
         return await handleNewSession(chatId, user);
       }
 
-      // Smart routing: schedule data from ANY state — always capture it
-      // (must come BEFORE unknown intent handler so file uploads aren't ignored)
-      const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
-      const isScheduleText = intent === "upload_schedule_text" && params.schedule_text;
+      // --- Partner management (remove / swap) — available from any in-session state ---
+      if (intent === "remove_partner" && params.remove_name) {
+        return await handleRemovePartner(chatId, participant, user, String(params.remove_name));
+      }
+      if (intent === "swap_partner") {
+        return await handleSwapPartner(
+          chatId, participant, user,
+          params.swap_from ? String(params.swap_from) : undefined,
+          params.swap_to ? String(params.swap_to) : undefined,
+        );
+      }
 
-      if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(participant.state)) {
+      // --- Amend a confirmed schedule ---
+      // Users commonly say "wait, i also work saturdays" AFTER confirming. Re-parse the
+      // new text and flip state back to AWAITING_CONFIRMATION so they can re-confirm.
+      if (intent === "amend_schedule" && params.schedule_text &&
+          (participant.state === "SCHEDULE_CONFIRMED" || participant.state === "AWAITING_CONFIRMATION")) {
+        return await handleAmendSchedule(chatId, participant, user, String(params.schedule_text));
+      }
+
+      // Smart routing: schedule data from ANY state — always capture it
+      // (must come BEFORE unknown intent handler so file uploads aren't ignored).
+      // Accept schedule_text as long as it's present — the intent router may label
+      // the primary intent as provide_name/greeting/etc when the message is a
+      // combo (e.g. "im patel, mon-fri 9-5"), but the schedule should still flow.
+      const isScheduleUpload = (message_type === "image" || message_type === "document") && media_id;
+      const isScheduleText = !!params.schedule_text && intent !== "confirm_schedule" && intent !== "reject_schedule" && intent !== "clarify_schedule";
+
+      // Intentionally DO allow routing from AWAITING_CONFIRMATION — if a user
+      // sends a brand-new schedule while we're waiting for them to confirm,
+      // we should re-parse instead of silently dropping it. AWAITING_SCHEDULE /
+      // SCHEDULE_RECEIVED are handled by the dedicated handler below, so we
+      // still skip them here to avoid double-dispatching.
+      if ((isScheduleUpload || isScheduleText) && !["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED"].includes(participant.state)) {
         if (isScheduleText) {
           await appendUserContext(chatId, `Work schedule shared: ${String(params.schedule_text)}`);
         }
@@ -446,8 +525,21 @@ async function handleIdleUser(
   }
 
   // "new" / "start" / greeting
+  // Multi-intent handling: if the opening message already contained name/partner/schedule,
+  // consume them eagerly instead of asking for them again ("context blindness" fix).
   if (intent === "create_session" || intent === "greeting") {
-    if (!user?.name) {
+    // 1. Persist name if provided
+    if (params.name && !user?.name) {
+      await updateUserName(chatId, String(params.name));
+      user = { ...(user ?? ({} as UserProfile)), name: String(params.name) } as UserProfile;
+    }
+    const partnerNamesList: string[] = Array.isArray(params.partner_names) && params.partner_names.length > 0
+      ? params.partner_names.map(String)
+      : params.partner_name ? [String(params.partner_name)] : [];
+    const hasPartnerInfo = partnerNamesList.length > 0 || !!params.partner_phone;
+
+    if (!user?.name && !hasPartnerInfo) {
+      // Pure greeting with no actionable info — welcome and ask for name
       await registerUser(chatId);
       await reply(chatId, await generateResponse({
         scenario: "idle_welcome", state: "IDLE",
@@ -456,7 +548,58 @@ async function handleIdleUser(
       }));
       return { action: "welcomed_new_user" };
     }
-    return await handleNewSession(chatId, user);
+    // Create the session
+    const sessionResult = await handleNewSession(chatId, user, { skipAskPartner: hasPartnerInfo });
+
+    // 2. If partner info is already in the opening message, add all partners
+    //    silently in one batch and emit ONE consolidated reply with a single
+    //    invite link — previously the loop produced 3× "here's the link" spam
+    //    for "meet Anna, Ben and Carlos".
+    if (hasPartnerInfo && partnerNamesList.length > 0) {
+      const freshParticipant = await getParticipantByChatId(chatId);
+      if (freshParticipant) {
+        await addPartnersFromOpeningMessage(
+          chatId,
+          freshParticipant.session_id,
+          user,
+          partnerNamesList,
+          !!params.schedule_text, // skip the follow-up if schedule is about to be parsed
+        );
+      }
+    } else if (hasPartnerInfo && params.partner_phone) {
+      // Phone-only lookup still goes through the normal handler (rare case)
+      await handleAwaitingPartnerInfo(
+        chatId,
+        "provide_partner",
+        params,
+        user,
+        userMessage,
+      );
+    }
+
+    // 3. If the opening message also contained schedule_text, kick off the
+    //    parser right now — the user has already said everything in one go and
+    //    expects the bot to act on it, not ask them to retype it.
+    if (params.schedule_text) {
+      const freshParticipant = await getParticipantByChatId(chatId);
+      if (freshParticipant) {
+        await updateParticipantState(freshParticipant.id, "SCHEDULE_RECEIVED");
+        if (await canProceedToScheduling(freshParticipant.session_id)) {
+          await updateSessionStatus(freshParticipant.session_id, "PAIRED");
+          await sessionOrchestrator.trigger(
+            { session_id: freshParticipant.session_id },
+            { idempotencyKey: `orch-${freshParticipant.session_id}-${Date.now()}` }
+          );
+        }
+        await scheduleParser.trigger({
+          participant_id: freshParticipant.id,
+          session_id: freshParticipant.session_id,
+          chat_id: freshParticipant.chat_id,
+          text_content: String(params.schedule_text),
+        });
+      }
+    }
+    return sessionResult;
   }
 
   // Off-script while idle — if they have a name, nudge toward starting a session
@@ -475,8 +618,17 @@ async function handleIdleUser(
   return { action: "showed_help" };
 }
 
-/** Start a new scheduling session — OPEN status, creator in AWAITING_PARTNER_INFO */
-async function handleNewSession(chatId: string, user: UserProfile | null) {
+/**
+ * Start a new scheduling session — OPEN status, creator in AWAITING_PARTNER_INFO.
+ * Set skipAskPartner=true when the caller will immediately provide partner info
+ * (e.g., the opening message already mentioned who to schedule with) so we don't
+ * emit a redundant "who do you want to schedule with?" prompt.
+ */
+async function handleNewSession(
+  chatId: string,
+  user: UserProfile | null,
+  opts: { skipAskPartner?: boolean } = {}
+) {
   // Expire any lingering sessions where this user is creator
   await query(
     "UPDATE sessions SET status = 'EXPIRED' WHERE creator_chat_id = ? AND status NOT IN ('EXPIRED', 'COMPLETED')",
@@ -504,12 +656,89 @@ async function handleNewSession(chatId: string, user: UserProfile | null) {
     [participantId, sessionId, chatId]
   );
 
-  await reply(chatId, await generateResponse({
-    scenario: "ask_partner", state: "AWAITING_PARTNER_INFO",
-    userName: user?.name ?? undefined,
-    userLanguage: user?.preferred_language ?? undefined,
-  }));
+  if (!opts.skipAskPartner) {
+    await reply(chatId, await generateResponse({
+      scenario: "ask_partner", state: "AWAITING_PARTNER_INFO",
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+    }));
+  }
   return { action: "session_created_awaiting_partner", session_id: sessionId };
+}
+
+/**
+ * Batch-add partners named in the creator's opening message.
+ *
+ * Replaces the old approach of looping `handleAwaitingPartnerInfo` once per
+ * name, which spammed 3× "here's the link" messages when a user said
+ * "meet Anna, Ben and Carlos". We resolve each name locally, add existing
+ * users as real participants, create ONE pending_invite per unknown name
+ * (all sharing the same session_id/link since that's the model), and emit a
+ * single combined acknowledgment.
+ *
+ * If schedule_text is also about to be parsed, we skip the trailing
+ * "add more people or share schedule?" prompt to keep the reply chain tight.
+ */
+async function addPartnersFromOpeningMessage(
+  chatId: string,
+  sessionId: string,
+  user: UserProfile | null,
+  partnerNames: string[],
+  scheduleAboutToRun: boolean,
+): Promise<void> {
+  const addedKnown: string[] = [];
+  const invitedUnknown: string[] = [];
+
+  for (const rawName of partnerNames) {
+    const name = rawName.trim();
+    if (!name) continue;
+    const matches = await findUserByName(name);
+    if (matches.length === 1 && matches[0].chat_id !== chatId) {
+      // Known user — add as real participant (skip chatty reply inside addParticipant)
+      try {
+        await query(
+          "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'partner', 'AWAITING_SCHEDULE')",
+          [crypto.randomUUID(), sessionId, matches[0].chat_id]
+        );
+        addedKnown.push(matches[0].name ?? name);
+      } catch {
+        // unique-constraint / already exists — ignore
+      }
+    } else {
+      // Unknown — create a pending invite entry. All unknowns share the
+      // same deep link (session-scoped), so we store one row per name for
+      // audit but send the link exactly once.
+      await createPendingInvite(chatId, null, sessionId);
+      invitedUnknown.push(name);
+    }
+  }
+
+  // Build a single consolidated reply instead of N noisy messages.
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
+  const inviteLink = `https://t.me/${botUsername}?start=invite_${sessionId}`;
+  const lines: string[] = [];
+  const listed = (arr: string[]) =>
+    arr.length === 1 ? arr[0] :
+    arr.length === 2 ? `${arr[0]} and ${arr[1]}` :
+    `${arr.slice(0, -1).join(", ")}, and ${arr[arr.length - 1]}`;
+
+  if (addedKnown.length > 0) {
+    lines.push(`Added ${listed(addedKnown)} to the session.`);
+  }
+  if (invitedUnknown.length > 0) {
+    const label = invitedUnknown.length === 1 ? "isn't" : "aren't";
+    lines.push(`${listed(invitedUnknown)} ${label} in MeetSync yet — share this invite link with ${invitedUnknown.length === 1 ? "them" : "all of them"}:`);
+    lines.push(inviteLink);
+  }
+  if (!scheduleAboutToRun) {
+    lines.push("");
+    lines.push("Add more people, or go ahead and send your schedule whenever you're ready.");
+  }
+
+  const combined = lines.join("\n");
+  if (combined.trim()) {
+    await reply(chatId, combined);
+  }
 }
 
 /**
@@ -530,8 +759,7 @@ async function handleAwaitingPartnerInfo(
 
   // "Done adding" intent or schedule upload — transition to scheduling
   if (intent === "done_adding") {
-    const count = await getParticipantCount(participant.session_id);
-    if (count < 2) {
+    if (!(await canProceedToScheduling(participant.session_id))) {
       const msg = await generateResponse({
         scenario: "need_participants", state: "AWAITING_PARTNER_INFO",
         userName: user?.name ?? undefined,
@@ -560,8 +788,7 @@ async function handleAwaitingPartnerInfo(
   const isFileUpload = payload && (payload.message_type === "image" || payload.message_type === "document") && payload.media_id;
   const isTextSchedule = intent === "upload_schedule_text" && params.schedule_text;
   if (isFileUpload || isTextSchedule) {
-    const count = await getParticipantCount(participant.session_id);
-    if (count < 2) {
+    if (!(await canProceedToScheduling(participant.session_id))) {
       const msg = await generateResponse({
         scenario: "need_participants", state: "AWAITING_PARTNER_INFO",
         userName: user?.name ?? undefined,
@@ -715,7 +942,6 @@ async function addParticipant(
     partnerName: newUser?.name ?? undefined,
   });
   await reply(creatorChatId, confirmMsg);
-  await logMessage(creatorChatId, "bot", confirmMsg);
 
   const followUp = await generateResponse({
     scenario: "ask_more_or_schedule", state: "AWAITING_PARTNER_INFO",
@@ -723,7 +949,6 @@ async function addParticipant(
     userLanguage: creatorUser?.preferred_language ?? undefined,
   });
   await reply(creatorChatId, followUp);
-  await logMessage(creatorChatId, "bot", followUp);
 
   return { action: "participant_added", session_id: sessionId, added: newParticipantChatId };
 }
@@ -818,8 +1043,11 @@ async function handleAwaitingSchedule(
     return { action: "schedule_received_file", media_id };
   }
 
-  // Text-based schedule input — include any previously learned context for richer parsing
-  if (intent === "upload_schedule_text" && params.schedule_text) {
+  // Text-based schedule input — include any previously learned context for richer parsing.
+  // Accept ANY intent as long as params.schedule_text is present — the user may have
+  // said "im alice, tue-thu 10-6" which gets classified as provide_name, but the
+  // schedule text is right there in the same message. Don't make them retype it.
+  if (params.schedule_text && intent !== "confirm_schedule" && intent !== "reject_schedule" && intent !== "clarify_schedule") {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
     await reply(chatId, "Got it! Parsing your schedule...");
 
@@ -1029,13 +1257,26 @@ async function handleCancel(
 // --- Waitpoint helpers ---
 
 async function checkAllConfirmed(sessionId: string) {
+  // Treat "preferences-but-not-yet-complete" AND "already-completed" participants
+  // as confirmed for amend purposes — a post-match amend resets the amender to
+  // AWAITING_CONFIRMATION and then back to SCHEDULE_CONFIRMED, but the OTHER
+  // participants may be in PREFERENCES_SUBMITTED / COMPLETED by then. We still
+  // want to re-run matching if the amender re-confirms.
   const participants = await getSessionParticipants(sessionId);
   if (participants.length < 2) return; // need at least 2 people
-  if (!participants.every((p) => p.state === "SCHEDULE_CONFIRMED")) return;
+  const CONFIRMED_OR_LATER = new Set([
+    "SCHEDULE_CONFIRMED",
+    "AWAITING_PREFERENCES",
+    "PREFERENCES_SUBMITTED",
+    "COMPLETED",
+  ]);
+  if (!participants.every((p) => CONFIRMED_OR_LATER.has(p.state))) return;
+  const everyoneStillInConfirmPhase = participants.every((p) => p.state === "SCHEDULE_CONFIRMED");
 
-  // Ensure session is PAIRED and orchestrator is running
   const session = await getSessionById(sessionId);
-  if (session && session.status === "OPEN") {
+
+  // Fresh confirmation path — boot the orchestrator (classic flow)
+  if (session && session.status === "OPEN" && everyoneStillInConfirmPhase) {
     await updateSessionStatus(sessionId, "PAIRED");
     await sessionOrchestrator.trigger(
       { session_id: sessionId },
@@ -1043,6 +1284,32 @@ async function checkAllConfirmed(sessionId: string) {
     );
     // Give orchestrator time to create the token
     await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+
+  // Post-amend path — session was already matched, now someone amended and re-confirmed.
+  // Re-run matching directly. Reset any "later" participants back to SCHEDULE_CONFIRMED
+  // first so subsequent state transitions make sense.
+  if (session && ["MATCHING", "MATCHED", "COMPLETED", "PAIRED"].includes(session.status) && !everyoneStillInConfirmPhase) {
+    for (const p of participants) {
+      if (p.state !== "SCHEDULE_CONFIRMED") {
+        await updateParticipantState(p.id, "SCHEDULE_CONFIRMED");
+      }
+    }
+    await updateSessionStatus(sessionId, "MATCHING");
+    // Clean old free_slots before recomputing so the "best slot" picker sees fresh data
+    await query("DELETE FROM free_slots WHERE session_id = ?", [sessionId]);
+    const result = await matchCompute.triggerAndWait({ session_id: sessionId });
+    if (result.ok && result.output.slot_count > 0) {
+      await deliverResults.triggerAndWait({ session_id: sessionId });
+    } else {
+      // No overlap after amend — notify all participants
+      for (const p of participants) {
+        await sendTextMessage(p.chat_id,
+          "After the update, I couldn't find any overlapping free time. Try adjusting your schedule or sending /new to start over.");
+      }
+      await updateSessionStatus(sessionId, "COMPLETED");
+    }
+    return;
   }
 
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -1075,4 +1342,228 @@ async function checkAllPreferred(sessionId: string) {
     await new Promise((resolve) => setTimeout(resolve, 2000));
   }
   console.warn(`Preference token not found for session ${sessionId}`);
+}
+
+/**
+ * Remove a specific partner from the current session by name.
+ * If the partner exists as a real user, delete the participants row.
+ * If the partner is only a pending invite (unknown user), mark the invite as DECLINED.
+ * We match by latest-matching name — if there are duplicates we silently drop the most recent.
+ */
+async function handleRemovePartner(
+  chatId: string,
+  participant: { id: string; session_id: string; chat_id: string; schedule_json: string | null; state: string },
+  user: UserProfile | null,
+  removeName: string,
+): Promise<Record<string, unknown>> {
+  const target = removeName.trim().toLowerCase();
+  let removedLabel = "";
+
+  // 1. Try exact match on any real participant's stored name first; fall back to
+  //    substring only when it's unambiguous (1 candidate). Flagged by round-2 review:
+  //    substring-first match could remove the wrong person (e.g. "tom" matches both
+  //    "Tom Smith" and "Thomas" — break on first = nondeterministic).
+  const others = await getSessionParticipants(participant.session_id);
+  const candidates: Array<{ id: string; name: string; exact: boolean }> = [];
+  for (const p of others) {
+    if (p.chat_id === chatId) continue;
+    const pUser = await getUser(p.chat_id);
+    if (!pUser?.name) continue;
+    const lower = pUser.name.toLowerCase();
+    if (lower === target) candidates.push({ id: p.id, name: pUser.name, exact: true });
+    else if (lower.includes(target)) candidates.push({ id: p.id, name: pUser.name, exact: false });
+  }
+  const exact = candidates.find((c) => c.exact);
+  if (exact) {
+    await query("DELETE FROM participants WHERE id = ?", [exact.id]);
+    removedLabel = exact.name;
+  } else if (candidates.length === 1) {
+    await query("DELETE FROM participants WHERE id = ?", [candidates[0].id]);
+    removedLabel = candidates[0].name;
+  } else if (candidates.length > 1) {
+    const list = candidates.map((c) => c.name).join(", ");
+    await reply(chatId, `I have ${list} — which one do you want me to remove? Tell me the full name.`);
+    return { action: "remove_ambiguous" };
+  }
+
+  // 2. If no real participant matched, drop the most recent pending invite
+  //    (pending invites don't store the invitee name anywhere, so we can't target
+  //    by name — we drop the newest one on the principle that the user is most
+  //    likely referring to the person they just added).
+  if (!removedLabel) {
+    const latest = await query<{ id: string }>(
+      "SELECT id FROM pending_invites WHERE inviter_chat_id = ? AND session_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
+      [chatId, participant.session_id]
+    );
+    if (latest.results[0]) {
+      await query("UPDATE pending_invites SET status = 'DECLINED' WHERE id = ?", [latest.results[0].id]);
+      removedLabel = removeName;
+    }
+  }
+
+  if (!removedLabel) {
+    await reply(chatId, `I don't have ${removeName} in this session to remove. Who did you mean?`);
+    return { action: "remove_partner_not_found", target: removeName };
+  }
+
+  await reply(chatId, `Got it — ${removedLabel} is out.`);
+  return { action: "partner_removed", name: removedLabel };
+}
+
+/**
+ * Swap one partner for another in the current session.
+ *
+ * Strategy (silent swap, per Riccardo's explicit preference):
+ *  - If swap_from is given, remove them by name (same logic as handleRemovePartner).
+ *  - If swap_from is NOT given ("oh wait i meant Tom"), drop the most recently added
+ *    pending invite — the assumption is the user is correcting the thing they just said.
+ *  - Then add swap_to as a new participant (known user) or pending invite (unknown).
+ */
+async function handleSwapPartner(
+  chatId: string,
+  participant: { id: string; session_id: string; chat_id: string; schedule_json: string | null; state: string },
+  user: UserProfile | null,
+  swapFrom: string | undefined,
+  swapTo: string | undefined,
+): Promise<Record<string, unknown>> {
+  if (!swapTo) {
+    await reply(chatId, "Got it — but who should I swap them with? Give me the new name or phone number.");
+    return { action: "swap_missing_target" };
+  }
+
+  // 1. Remove the old one. Exact match preferred; substring fallback only when unique.
+  //    If swapFrom is explicit, remove by name. Otherwise drop the most recent pending
+  //    invite (common case: "wait i meant Tom not Ben" where the user most recently
+  //    mentioned Ben and doesn't explicitly repeat "not Ben").
+  let removedLabel = "";
+  let removalAttempted = false;
+  if (swapFrom) {
+    removalAttempted = true;
+    const target = swapFrom.trim().toLowerCase();
+    const others = await getSessionParticipants(participant.session_id);
+    const candidates: Array<{ id: string; name: string; exact: boolean }> = [];
+    for (const p of others) {
+      if (p.chat_id === chatId) continue;
+      const pUser = await getUser(p.chat_id);
+      if (!pUser?.name) continue;
+      const lower = pUser.name.toLowerCase();
+      if (lower === target) candidates.push({ id: p.id, name: pUser.name, exact: true });
+      else if (lower.includes(target)) candidates.push({ id: p.id, name: pUser.name, exact: false });
+    }
+    // Prefer exact match; if multiple substring matches and no exact, ask for clarity.
+    const exact = candidates.find((c) => c.exact);
+    if (exact) {
+      await query("DELETE FROM participants WHERE id = ?", [exact.id]);
+      removedLabel = exact.name;
+    } else if (candidates.length === 1) {
+      await query("DELETE FROM participants WHERE id = ?", [candidates[0].id]);
+      removedLabel = candidates[0].name;
+    } else if (candidates.length > 1) {
+      const list = candidates.map((c) => c.name).join(", ");
+      await reply(chatId, `I have ${list} — which one do you want me to replace? Tell me the full name.`);
+      return { action: "swap_ambiguous" };
+    }
+    // No candidate — fall through to the pending-invite drop below.
+    if (!removedLabel) {
+      const latest = await query<{ id: string }>(
+        "SELECT id FROM pending_invites WHERE inviter_chat_id = ? AND session_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
+        [chatId, participant.session_id]
+      );
+      if (latest.results[0]) {
+        await query("UPDATE pending_invites SET status = 'DECLINED' WHERE id = ?", [latest.results[0].id]);
+        removedLabel = swapFrom;
+      }
+    }
+  } else {
+    // No explicit name — drop the most recent pending invite
+    removalAttempted = true;
+    const latest = await query<{ id: string }>(
+      "SELECT id FROM pending_invites WHERE inviter_chat_id = ? AND session_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
+      [chatId, participant.session_id]
+    );
+    if (latest.results[0]) {
+      await query("UPDATE pending_invites SET status = 'DECLINED' WHERE id = ?", [latest.results[0].id]);
+      removalAttempted = true;
+    }
+  }
+
+  // If the user SAID "swap" but we couldn't find anyone to remove, warn rather than
+  // silently becoming an add — flagged by round-2 code reviewer (high priority).
+  if (swapFrom && !removedLabel) {
+    await reply(chatId, `I couldn't find "${swapFrom}" in this session — are you sure you added them? I'll add ${swapTo} anyway, but let me know if something's off.`);
+  }
+
+  // 2. Add the new one — known user → participant, unknown → pending invite.
+  const matches = await findUserByName(swapTo.trim());
+  if (matches.length === 1 && matches[0].chat_id !== chatId) {
+    try {
+      await query(
+        "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'partner', 'AWAITING_SCHEDULE')",
+        [crypto.randomUUID(), participant.session_id, matches[0].chat_id]
+      );
+    } catch { /* already in */ }
+    const label = matches[0].name ?? swapTo;
+    await reply(chatId, removedLabel
+      ? `Swapped ${removedLabel} for ${label}.`
+      : `Added ${label} to the session.`);
+    return { action: "swap_complete", to: label };
+  }
+
+  // Unknown — new pending invite (reuses the same session deep link)
+  await createPendingInvite(chatId, null, participant.session_id);
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
+  const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
+  const headline = removedLabel
+    ? `Swapped ${removedLabel} for ${swapTo}.`
+    : `Got it — going with ${swapTo} instead.`;
+  await reply(chatId, `${headline} ${swapTo} isn't in MeetSync yet — share this invite link with them:\n${inviteLink}`);
+  return { action: "swap_complete", to: swapTo };
+}
+
+/**
+ * Amend a previously-confirmed schedule.
+ *
+ * Round-1 bug: users who said "yes" to their parsed schedule and then said
+ * "wait, i also work saturdays" got acknowledgment but no actual re-parse.
+ * Round-2 code review flagged that even after re-parse, if the session had
+ * already moved past the orchestrator's confirmation waitpoint (already
+ * matching or done), the re-confirmation would do nothing because
+ * `wait.completeToken` is idempotent.
+ *
+ * Fix: take the delta text, combine it with the existing schedule_json, and
+ * kick the parser back off. Reset state to AWAITING_CONFIRMATION so the user
+ * can re-confirm. If the session was already past PAIRED (MATCHING/COMPLETED),
+ * the confirm handler will bypass the token and re-trigger matching directly.
+ */
+async function handleAmendSchedule(
+  chatId: string,
+  participant: { id: string; session_id: string; chat_id: string; schedule_json: string | null; state: string },
+  user: UserProfile | null,
+  amendText: string,
+): Promise<Record<string, unknown>> {
+  await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
+  await reply(chatId, "Got it — updating your schedule with that change...");
+
+  // If the session has already progressed past confirmation, reset it back to
+  // PAIRED so checkAllConfirmed can re-fire the match. The confirmed waitpoint
+  // token is already completed from the first round — that's fine, we check
+  // participant states directly and re-run matchCompute manually if needed.
+  const session = await getSessionById(participant.session_id);
+  if (session && ["MATCHING", "MATCHED", "COMPLETED"].includes(session.status)) {
+    await updateSessionStatus(participant.session_id, "PAIRED");
+  }
+
+  // Feed the parser the previous schedule + the amendment so it can produce a
+  // merged result rather than a fresh one (which would lose the original data).
+  const prior = participant.schedule_json
+    ? `Previous parsed schedule JSON: ${participant.schedule_json}\n\nUser's amendment: ${amendText}\n\nRe-extract the full schedule applying the amendment. Keep everything from the previous schedule that wasn't changed, and merge in the new/updated shifts.`
+    : amendText;
+
+  await scheduleParser.trigger({
+    participant_id: participant.id,
+    session_id: participant.session_id,
+    chat_id: participant.chat_id,
+    text_content: prior,
+  });
+  return { action: "schedule_amend_triggered" };
 }

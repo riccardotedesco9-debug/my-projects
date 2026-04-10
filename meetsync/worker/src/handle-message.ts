@@ -42,7 +42,7 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
     );
   }
 
-  await triggerMessageRouter(routerPayload, env);
+  await triggerMessageRouter(routerPayload, env, msg.message_id);
 }
 
 // --- Admin commands (only admin chat ID, classified by Claude Haiku) ---
@@ -157,7 +157,17 @@ Return: { "action": "...", "chat_id": "..." }`,
   }
 }
 
+// Reserved fake chat_ids used for synthetic webhook tests (mirrors TEST_CHAT_IDS in
+// Engineering/trigger-automations/src/trigger/meetsync/telegram-client.ts).
+// Worker-level replies to these ids (admin messages, rate-limit notifications) are
+// logged instead of sent to the real Telegram Bot API.
+const TEST_CHAT_IDS = new Set(["999999001", "999999002"]);
+
 async function sendReply(env: Env, chatId: string, text: string): Promise<void> {
+  if (TEST_CHAT_IDS.has(String(chatId))) {
+    console.log(`[TEST] worker sendReply chat_id=${chatId}:\n${text}`);
+    return;
+  }
   await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -242,10 +252,14 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
 
 async function triggerMessageRouter(
   payload: MessageRouterPayload,
-  env: Env
+  env: Env,
+  telegramMessageId: number
 ): Promise<void> {
   const url = `${env.TRIGGERDEV_API_URL}/api/v1/tasks/meetsync-message-router/trigger`;
 
+  // Idempotency key MUST include the Telegram message_id — otherwise two messages
+  // from the same chat within the same second (timestamp is second-precision)
+  // collide and Trigger.dev silently drops the second one.
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -255,7 +269,7 @@ async function triggerMessageRouter(
     body: JSON.stringify({
       payload,
       options: {
-        idempotencyKey: `tg-${payload.chat_id}-${payload.timestamp}`,
+        idempotencyKey: `tg-${payload.chat_id}-${telegramMessageId}`,
       },
     }),
   });

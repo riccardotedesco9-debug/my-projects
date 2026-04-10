@@ -3,7 +3,7 @@
 // Includes nudge reminders and day-before meetup reminders
 
 import { task, wait } from "@trigger.dev/sdk";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getPendingInviteForSession } from "./d1-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getPendingInviteForSession, getReplyContext } from "./d1-client.js";
 import { sendTextMessage } from "./telegram-client.js";
 import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
@@ -49,6 +49,7 @@ export const sessionOrchestrator = task({
       for (const p of waiting) {
         await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "nudge_reminder", state: p.state,
+          ...(await getReplyContext(p.chat_id)),
         }));
       }
     };
@@ -68,6 +69,7 @@ export const sessionOrchestrator = task({
       await sendTextMessage(invite.inviter_chat_id, await generateResponse({
         scenario: "awaiting_partner_reminder", state: "AWAITING_PARTNER",
         extraContext: "Gentle reminder to re-share the invite link with their friend.",
+        ...(await getReplyContext(invite.inviter_chat_id)),
       }));
     };
     inviteNudge().catch((err) => console.error("Invite nudge error:", err));
@@ -82,6 +84,7 @@ export const sessionOrchestrator = task({
       for (const p of participants) {
         await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "session_expired", state: "EXPIRED",
+          ...(await getReplyContext(p.chat_id)),
         }));
         await updateParticipantState(p.id, "EXPIRED");
       }
@@ -150,6 +153,7 @@ export const sessionOrchestrator = task({
         scenario: "remind_preferences", state: "AWAITING_PREFERENCES",
         slotList: slotListFormatted,
         extraContext: "First time showing slots — ask which days work for them.",
+        ...(await getReplyContext(p.chat_id)),
       }));
     }
 
@@ -180,6 +184,7 @@ export const sessionOrchestrator = task({
           for (const p of allParticipants) {
             await sendTextMessage(p.chat_id, await generateResponse({
               scenario: "meetup_reminder", state: "COMPLETED", matchResult: matchStr,
+              ...(await getReplyContext(p.chat_id)),
             }));
           }
         } catch (err) {

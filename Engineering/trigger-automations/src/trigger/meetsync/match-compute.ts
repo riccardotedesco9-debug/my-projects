@@ -170,21 +170,45 @@ export function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
+/** Add N days to a YYYY-MM-DD string (can be negative). UTC-safe. */
+function shiftDate(date: string, deltaDays: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + deltaDays));
+  return dt.toISOString().split("T")[0];
+}
+
 export function minutesToTime(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
-/** Get free time blocks for a person on a given date (within DAY_START-DAY_END) */
+/** Get free time blocks for a person on a given date (within DAY_START-DAY_END).
+ *  Handles overnight shifts (end < start, e.g. 22:00-06:00) by splitting them
+ *  into (a) a late block on the shift-start date going to end-of-day and
+ *  (b) an early block on the following date starting at 00:00. Without this,
+ *  night-shift workers appear free during their entire sleep window. */
 function getFreeTime(schedule: ParsedShift[], date: string): TimeBlock[] {
-  const workBlocks = schedule
-    .filter((s) => s.date === date)
-    .map((s) => ({
-      start: timeToMinutes(s.start_time),
-      end: timeToMinutes(s.end_time),
-    }))
-    .sort((a, b) => a.start - b.start);
+  const prevDate = shiftDate(date, -1);
+  const workBlocks: TimeBlock[] = [];
+  for (const s of schedule) {
+    const start = timeToMinutes(s.start_time);
+    const end = timeToMinutes(s.end_time);
+    const overnight = end < start && !(start === 0 && end === 0);
+
+    if (s.date === date) {
+      if (overnight) {
+        // Shift starts today, ends tomorrow — today is busy from start to midnight
+        workBlocks.push({ start, end: 24 * 60 });
+      } else {
+        workBlocks.push({ start, end });
+      }
+    } else if (s.date === prevDate && end < start && !(start === 0 && end === 0)) {
+      // Yesterday's overnight shift spills into today from 00:00 to end
+      workBlocks.push({ start: 0, end });
+    }
+  }
+  workBlocks.sort((a, b) => a.start - b.start);
 
   // If no work on this day, the entire day is free
   if (workBlocks.length === 0) {

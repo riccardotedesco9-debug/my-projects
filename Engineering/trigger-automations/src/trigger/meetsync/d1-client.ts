@@ -260,11 +260,6 @@ export async function findUserByPhone(phone: string): Promise<UserProfile | null
   return result.results[0] ?? null;
 }
 
-/** Exact lookup by chat ID */
-export async function findUserByChatId(chatId: string): Promise<UserProfile | null> {
-  return getUser(chatId);
-}
-
 // --- Pending invite helpers ---
 
 export async function createPendingInvite(
@@ -351,6 +346,28 @@ export async function getParticipantCount(sessionId: string): Promise<number> {
     [sessionId]
   );
   return result.results[0]?.cnt ?? 0;
+}
+
+/** Count pending invites for a session (people invited via deep link who haven't joined yet) */
+export async function getPendingInviteCount(sessionId: string): Promise<number> {
+  const result = await query<{ cnt: number }>(
+    "SELECT COUNT(*) as cnt FROM pending_invites WHERE session_id = ? AND status = 'PENDING'",
+    [sessionId]
+  );
+  return result.results[0]?.cnt ?? 0;
+}
+
+/**
+ * Look up a user's stored name + preferred language in one call.
+ * Used by every task that sends replies on behalf of a specific chat_id
+ * so outbound messages stay personalized and in the user's language.
+ */
+export async function getReplyContext(chatId: string): Promise<{ userName?: string; userLanguage?: string }> {
+  const user = await getUser(chatId);
+  return {
+    userName: user?.name ?? undefined,
+    userLanguage: user?.preferred_language ?? undefined,
+  };
 }
 
 /** Find pending invite for a session */

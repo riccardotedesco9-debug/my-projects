@@ -8,6 +8,9 @@ const INTENT_LIST = [
   "resume_partner",
   "new_partner",
   "provide_partner",
+  "remove_partner",
+  "swap_partner",
+  "amend_schedule",
   "provide_name",
   "decline_invite",
   "authorize_outreach",
@@ -35,11 +38,15 @@ export type Intent = (typeof INTENT_LIST)[number];
 export interface IntentResult {
   intent: Intent;
   params: {
-    partner_name?: string; // for provide_partner (user said a name)
+    partner_name?: string; // for provide_partner (single partner by name)
+    partner_names?: string[]; // for provide_partner (multiple partners in one message)
     partner_phone?: string; // for provide_partner (user said a phone number)
+    remove_name?: string; // for remove_partner: who to remove
+    swap_from?: string; // for swap_partner: partner being replaced
+    swap_to?: string; // for swap_partner: replacement
     name?: string; // for provide_name (user sharing their own name)
     slots?: number[]; // for submit_preferences
-    schedule_text?: string; // for upload_schedule_text
+    schedule_text?: string; // for upload_schedule_text / amend_schedule
     clarification?: string; // for clarify_schedule (e.g., "check the whole month")
     detected_language?: string; // language detected from the message (en/mt/it/etc)
     learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
@@ -52,7 +59,11 @@ const intentSchema = z.object({
   intent: z.enum(INTENT_LIST),
   params: z.object({
     partner_name: z.string().optional(),
+    partner_names: z.array(z.string()).optional(), // when the user names multiple partners at once
     partner_phone: z.string().optional(),
+    remove_name: z.string().optional(), // for remove_partner: who to remove
+    swap_from: z.string().optional(), // for swap_partner: partner being replaced
+    swap_to: z.string().optional(), // for swap_partner: replacement
     name: z.string().optional(),
     slots: z.array(z.number()).optional(),
     schedule_text: z.string().optional(),
@@ -71,6 +82,9 @@ Possible intents:
 - resume_partner: user wants to schedule with their existing partner again (e.g., "hey", "hi", "let's plan", "schedule again" — when they have a known partner)
 - new_partner: user wants to switch to a different scheduling partner (e.g., "scheduling with someone new", "different person", "new partner")
 - provide_partner: user is telling the bot WHO they want to schedule with. Extract into params.partner_name (if they said a name like "Diego", "my friend Sarah") or params.partner_phone (if they gave a phone number). This is the primary intent in AWAITING_PARTNER_INFO state.
+- remove_partner: user wants to REMOVE one specific partner from the session WITHOUT naming a replacement (e.g. "take ben out", "drop Sarah", "remove Mike", "nvm about Ben just keep the others"). Extract the name to remove into params.remove_name. Only use this when they're subtracting, not when they're changing their mind to schedule with someone else entirely.
+- swap_partner: user wants to REPLACE one partner with another in the same session (e.g. "wait scratch that, it's Tom not Ben", "actually i meant Tom not Ben", "not Ben, I meant Tom", "change Ben to Tom"). Extract params.swap_from (who's being replaced) and params.swap_to (the replacement). If the user only names the new person but makes clear they're correcting themselves ("oh sorry i meant Tom"), still use swap_partner and leave swap_from unset — the handler will default to removing the most recently added partner. Use this ONLY when the user is explicitly correcting themselves ("not X, I meant Y" / "wait scratch that"). CRITICAL counter-examples that are NOT swaps: "also add Tom" / "plus Tom" / "and one more, Tom" → those are provide_partner (ADDS Tom alongside existing). "not ben" without a replacement → remove_partner.
+- amend_schedule: user in SCHEDULE_CONFIRMED or later state wants to CHANGE their previously confirmed schedule (e.g. "wait, i also work saturdays 10-4", "actually wednesday is off", "i lied, friday im out"). Different from clarify_schedule (which is pre-confirmation refinement) and reject_schedule (which is a full replace). Put the new/delta schedule text in params.schedule_text. Only use this when the participant is in SCHEDULE_CONFIRMED or PAIRED state.
 - provide_name: user is sharing their own name when asked (e.g., "I'm Riccardo", "My name is Diego", "It's Sarah"). Extract into params.name
 - decline_invite: user doesn't want to schedule with the person who invited them (e.g., "no thanks", "not now", "I'm busy")
 - authorize_outreach: user wants the bot to generate an invite link for their partner (e.g., "yes share the link", "go ahead", "send invite"). Only valid in AWAITING_PARTNER state.
@@ -94,7 +108,24 @@ Possible intents:
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.
 
-If the user says ANYTHING that could be useful context in future conversations, include it in params.learned_facts as a short note. This includes but is not limited to: job/work info, schedule details, availability ("free next week", "off on Wednesdays"), preferences, plans, location, relationships ("Diego is my colleague"), uploaded schedule summaries, time constraints, personal details they share. Be generous — if in doubt, store it. Only omit this field if the message is purely functional (like "yes", "1 and 3", "cancel") with zero contextual value.
+CRITICAL — MULTI-PARAM EXTRACTION: regardless of the primary intent, you MUST extract ALL of these whenever they appear in the message:
+- params.name — the USER's own name. Extract from ANY self-introduction anywhere in the message: "im jake", "i'm Martha", "Martha here", "this is Sarah", "my name's Gary", "sono Stefano", "idk im jake lol". Do NOT put their name in learned_facts — put it in params.name. Even in a rambling message, pull it out.
+- params.partner_name — the OTHER person's name when the user names ONE partner: "meeting with Tom", "coordinate with Sarah", "my sister Jane", "my bro mike", "con Giulia"
+- params.partner_names — when the user names TWO OR MORE partners in one message ("meet with Anna, Ben and Carlos", "need time with Alice and Bob"), return them as an ARRAY of first names: ["Anna","Ben","Carlos"]. Prefer partner_names over partner_name when there are 2+ people.
+- params.partner_phone — a 7-15 digit phone number for the partner
+- params.schedule_text — ANY availability info: "I work 9-5", "free all day", "off on Wednesdays", "whenever", "sat 10-2", "this weekend", "mon-fri 9 to 5", "lavoro lun-ven 9-18"
+
+Extract these EVEN IF the primary intent is greeting/create_session/unknown/upload_schedule_text. The message router will use them to skip redundant prompts. Never put user's name or partner's name in learned_facts — they have dedicated fields.
+
+Examples:
+- "hi, I'm Martha and I want to meet with Sarah, I'm flexible" → intent: "create_session", params: { name: "Martha", partner_name: "Sarah", schedule_text: "I'm flexible" }
+- "my schedule lol. idk im jake. im free pretty much always" → intent: "upload_schedule_text", params: { name: "jake", schedule_text: "im free pretty much always" }
+- "ok fine im linda. just share whatever. im free this sat 10-2" → intent: "provide_name", params: { name: "linda", schedule_text: "im free this sat 10-2" }
+- "ciao sono stefano, lavoro lun-ven 9-18" → intent: "provide_name", params: { name: "stefano", schedule_text: "lavoro lun-ven 9-18", detected_language: "it" }
+
+Do NOT make the user repeat things they already told you.
+
+If the user says ANYTHING else that could be useful context in future conversations, include it in params.learned_facts as a short note. This includes but is not limited to: job/work info, schedule details, availability, preferences, plans, location, relationships, time constraints, personal details they share. Be generous — if in doubt, store it. Only omit this field if the message is purely functional (like "yes", "1 and 3", "cancel") with zero contextual value.
 
 Context rules:
 - In AWAITING_PARTNER_INFO state: bias toward provide_partner for names/phones. If the user says they're done adding people or wants to proceed ("that's everyone", "done", "let's start"), return done_adding. If they describe their work schedule, return upload_schedule_text.

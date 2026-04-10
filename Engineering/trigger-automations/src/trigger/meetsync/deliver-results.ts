@@ -3,7 +3,7 @@
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { sendTextMessage, sendDocumentMessage } from "./telegram-client.js";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus } from "./d1-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext } from "./d1-client.js";
 import { createCalendarEvent } from "./google-calendar.js";
 import { generateResponse } from "./response-generator.js";
 
@@ -42,6 +42,7 @@ export const deliverResults = schemaTask({
       for (const p of participants) {
         await sendTextMessage(p.chat_id, await generateResponse({
           scenario: "no_overlap", state: "COMPLETED",
+          ...(await getReplyContext(p.chat_id)),
         }));
         await updateParticipantState(p.id, "COMPLETED");
       }
@@ -76,6 +77,7 @@ export const deliverResults = schemaTask({
     for (const p of participants) {
       await sendTextMessage(p.chat_id, await generateResponse({
         scenario, state: "COMPLETED", matchResult: matchResultStr,
+        ...(await getReplyContext(p.chat_id)),
       }));
       try {
         await sendDocumentMessage(p.chat_id, icsContent, "meetup.ics", "Tap to add to your calendar");

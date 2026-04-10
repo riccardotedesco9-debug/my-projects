@@ -1,6 +1,17 @@
 // Telegram Bot API client — shared by all MeetSync tasks
 
+import { logMessage } from "./d1-client.js";
+
 const TELEGRAM_API_BASE = "https://api.telegram.org";
+
+// Reserved chat_ids for synthetic webhook tests (see meetsync/tools/send-telegram-update.sh).
+// Outbound sends to these ids are intercepted and logged so Claude can test the full
+// pipeline without a real Telegram account and without noisy "chat not found" Bot API errors.
+const TEST_CHAT_IDS = new Set(["999999001", "999999002"]);
+
+function isTestChat(chatId: string): boolean {
+  return TEST_CHAT_IDS.has(String(chatId));
+}
 
 function getConfig() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -8,8 +19,26 @@ function getConfig() {
   return { token };
 }
 
-/** Send a plain text message to a Telegram chat */
+/**
+ * Send a plain text message to a Telegram chat.
+ * Sends first, then logs to conversation_log — so a failed Telegram API call
+ * doesn't create a "phantom" bot message in history that the user never saw.
+ * Every task (schedule-parser, session-orchestrator, deliver-results,
+ * message-router) contributes to the same persistent history, which is
+ * critical for both the AI's context window and for synthetic-webhook tests
+ * that read replies from D1.
+ */
 export async function sendTextMessage(chatId: string, text: string): Promise<void> {
+  if (isTestChat(chatId)) {
+    // Test chats skip the real Bot API but still produce a log entry so
+    // synthetic-webhook tests can read the intended reply back from D1.
+    console.log(`[TEST] sendTextMessage chat_id=${chatId}:\n${text}`);
+    await logMessage(chatId, "bot", text).catch((err) =>
+      console.error("sendTextMessage: logMessage failed:", err)
+    );
+    return;
+  }
+
   const { token } = getConfig();
 
   const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
@@ -26,6 +55,12 @@ export async function sendTextMessage(chatId: string, text: string): Promise<voi
     const err = await response.text();
     throw new Error(`Telegram send failed (${response.status}): ${err}`);
   }
+
+  // Only log AFTER a successful send so a failed API call doesn't leave a
+  // phantom bot message in history that the user never actually saw.
+  await logMessage(chatId, "bot", text).catch((err) =>
+    console.error("sendTextMessage: logMessage failed:", err)
+  );
 }
 
 /** Send a document/file via Telegram (e.g., .ics calendar file) */
@@ -35,6 +70,15 @@ export async function sendDocumentMessage(
   filename: string,
   caption?: string
 ): Promise<void> {
+  if (isTestChat(chatId)) {
+    console.log(
+      `[TEST] sendDocumentMessage chat_id=${chatId} filename=${filename}` +
+        (caption ? ` caption=${caption}` : "") +
+        `\n--- file (${fileContent.length} bytes) ---\n${fileContent.slice(0, 500)}${fileContent.length > 500 ? "…" : ""}`
+    );
+    return;
+  }
+
   const { token } = getConfig();
 
   // Telegram accepts file upload in a single multipart request
