@@ -62,6 +62,28 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
       console.error("Worker pre-log failed:", err);
       // Fall through — task will log inline as fallback
     }
+  } else if (routerPayload.message_type !== "text") {
+    // Log non-text uploads as a synthetic user message so they're visible in
+    // conversation_log for debugging. Without this, media uploads are invisible —
+    // the bot's reply shows up but nothing indicates the user sent an image/PDF.
+    // The stored message includes the file_id so we can re-download via the
+    // Telegram Bot API if we need to re-inspect what the user actually sent.
+    try {
+      const label = routerPayload.message_type === "image"
+        ? `[photo uploaded · file_id=${routerPayload.media_id ?? "?"}]`
+        : routerPayload.message_type === "document"
+        ? `[document uploaded · mime=${routerPayload.mime_type ?? "?"} · file_id=${routerPayload.media_id ?? "?"}]`
+        : routerPayload.message_type === "audio"
+        ? `[voice message · file_id=${routerPayload.media_id ?? "?"}]`
+        : routerPayload.message_type === "contact"
+        ? `[contact shared · phone=${routerPayload.contact_phone ?? "?"}]`
+        : `[${routerPayload.message_type} upload]`;
+      await env.DB.prepare(
+        "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, 'user', ?)"
+      ).bind(routerPayload.chat_id, label).run();
+    } catch (err) {
+      console.error("Worker media-log failed:", err);
+    }
   }
 
   await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, msg.message_id);
