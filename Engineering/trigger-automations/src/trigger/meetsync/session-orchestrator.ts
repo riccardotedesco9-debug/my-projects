@@ -1,9 +1,9 @@
 // Session orchestrator — coordinates the full session lifecycle
 // Uses wait.forToken to pause (zero compute) until both users confirm/submit
-// Includes nudge reminders and day-before meetup reminders
+// Handles match-compute + slot delivery + day-before meetup reminder
 
 import { task, wait } from "@trigger.dev/sdk";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getPendingInviteForSession, getReplyContext } from "./d1-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext } from "./d1-client.js";
 import { sendTextMessage } from "./telegram-client.js";
 import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
@@ -33,50 +33,17 @@ export const sessionOrchestrator = task({
       [confirmedToken.id, preferredToken.id, session_id]
     );
 
-    // --- Single nudge after 3 hours if someone hasn't uploaded ---
-    let bothConfirmed = false;
-
-    const nudgeOnce = async () => {
-      await wait.for({ hours: 3 });
-      if (bothConfirmed) return; // session already progressed, skip nudge
-
-      const participants = await getSessionParticipants(session_id);
-      if (participants.every((p) => p.state === "SCHEDULE_CONFIRMED")) return;
-
-      const waiting = participants.filter((p) =>
-        ["AWAITING_SCHEDULE", "SCHEDULE_RECEIVED", "AWAITING_CONFIRMATION"].includes(p.state)
-      );
-      for (const p of waiting) {
-        await sendTextMessage(p.chat_id, await generateResponse({
-          scenario: "nudge_reminder", state: p.state,
-          ...(await getReplyContext(p.chat_id)),
-        }));
-      }
-    };
-
-    nudgeOnce().catch((err) => console.error("Nudge error:", err));
-
-    // --- Invite nudge: if partner was invited via deep link, remind inviter after 2h ---
-    const inviteNudge = async () => {
-      await wait.for({ hours: 2 });
-      if (bothConfirmed) return;
-
-      const invite = await getPendingInviteForSession(session_id);
-      if (!invite || invite.status !== "PENDING") return;
-
-      // Partner hasn't joined yet — remind inviter to share the link again
-      // (Can't message partner directly on Telegram — they must /start the bot)
-      await sendTextMessage(invite.inviter_chat_id, await generateResponse({
-        scenario: "awaiting_partner_reminder", state: "AWAITING_PARTNER",
-        extraContext: "Gentle reminder to re-share the invite link with their friend.",
-        ...(await getReplyContext(invite.inviter_chat_id)),
-      }));
-    };
-    inviteNudge().catch((err) => console.error("Invite nudge error:", err));
+    // NOTE: previously there were fire-and-forget nudges here (3h "no upload"
+    // reminder and 2h "invite not tapped" reminder) wrapped in IIFEs with
+    // `await wait.for(...)` inside. Round-5 code review found they never fire
+    // in production: `wait.forToken(confirmedToken)` below checkpoints the
+    // task and orphans the IIFE promises, so the inner `wait.for` waitpoints
+    // are silently dropped. Removing rather than shipping dead comfort code.
+    // If nudges are needed, re-implement as proper child tasks triggered from
+    // the main path with their own waitpoints.
 
     // --- Wait for both schedules to be confirmed ---
     const confirmedResult = await wait.forToken(confirmedToken);
-    bothConfirmed = true;
 
     if (!confirmedResult.ok) {
       await updateSessionStatus(session_id, "EXPIRED");

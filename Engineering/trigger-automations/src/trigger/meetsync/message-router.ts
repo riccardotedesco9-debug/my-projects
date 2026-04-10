@@ -895,7 +895,9 @@ async function handleAwaitingPartnerInfo(
       return await addParticipant(chatId, partnerUser.chat_id, participant.session_id, user, partnerUser);
     }
 
-    // Unknown phone — create pending invite, share deep link
+    // Unknown phone — create pending invite, share deep link.
+    // Single LLM-generated reply containing the link + next-step prompt via
+    // extraContext so we get one consolidated message instead of two.
     await createPendingInvite(chatId, null, participant.session_id, partnerPhone);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
     const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
@@ -904,13 +906,8 @@ async function handleAwaitingPartnerInfo(
       inviteLink,
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
+      extraContext: "End with a short prompt asking if they want to add more people or are ready to share their schedule.",
     }));
-    const followUp = await generateResponse({
-      scenario: "ask_more_or_schedule", state: "AWAITING_PARTNER_INFO",
-      userName: user?.name ?? undefined,
-      userLanguage: user?.preferred_language ?? undefined,
-    });
-    await reply(chatId, followUp);
     return { action: "invite_created_link_shared" };
   }
 
@@ -929,7 +926,11 @@ async function handleAwaitingPartnerInfo(
       return { action: "multiple_matches" };
     }
 
-    // No match — create pending invite with deep link
+    // No match — create pending invite with deep link.
+    // One LLM-generated acknowledgment (no URL — that would hallucinate), then
+    // ONE deterministic combined message with the real link + next-step prompt.
+    // Previously this was 3 separate sends which surfaced in round 5 stress
+    // testing as noisy swap/correction flows (e.g. "wait no bob").
     await createPendingInvite(chatId, null, participant.session_id);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
     const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
@@ -939,13 +940,10 @@ async function handleAwaitingPartnerInfo(
       userLanguage: user?.preferred_language ?? undefined,
       extraContext: String(params.partner_name),
     }));
-    await reply(chatId, `Here's your invite link to share with them:\n${inviteLink}`);
-    const followUp = await generateResponse({
-      scenario: "ask_more_or_schedule", state: "AWAITING_PARTNER_INFO",
-      userName: user?.name ?? undefined,
-      userLanguage: user?.preferred_language ?? undefined,
-    });
-    await reply(chatId, followUp);
+    await reply(
+      chatId,
+      `Here's your invite link to share with them:\n${inviteLink}\n\nAdd more people, or go ahead and send your schedule whenever you're ready.`
+    );
     return { action: "partner_not_found_link_shared" };
   }
 

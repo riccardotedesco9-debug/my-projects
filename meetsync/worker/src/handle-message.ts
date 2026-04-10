@@ -183,7 +183,10 @@ Return: { "action": "...", "chat_id": "..." }`,
 // Engineering/trigger-automations/src/trigger/meetsync/telegram-client.ts).
 // Worker-level replies to these ids (admin messages, rate-limit notifications) are
 // logged instead of sent to the real Telegram Bot API.
-const TEST_CHAT_IDS = new Set(["999999001", "999999002"]);
+const TEST_CHAT_IDS = new Set([
+  "999999001", "999999002", "999999003", "999999004", "999999005",
+  "999999006", "999999007", "999999008", "999999009", "999999010",
+]);
 
 async function sendReply(env: Env, chatId: string, text: string): Promise<void> {
   if (TEST_CHAT_IDS.has(String(chatId))) {
