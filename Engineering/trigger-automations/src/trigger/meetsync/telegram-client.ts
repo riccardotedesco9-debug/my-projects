@@ -138,91 +138,49 @@ export async function sendDocumentMessage(
 }
 
 /**
- * Transcribe audio via Cloudflare Workers AI Whisper.
+ * Transcribe audio by POSTing to the Worker's /internal/transcribe endpoint.
  *
- * Tries the modern `whisper-large-v3-turbo` model first (better Opus/OGG
- * support, higher accuracy). Falls back to the legacy `whisper` model if
- * that fails. The two models use DIFFERENT request body formats:
- *   - whisper-large-v3-turbo: `{audio: "<base64 string>"}` (per Cloudflare docs)
- *   - whisper (legacy):       `{audio: [byte, byte, ...]}` (number array)
+ * The Worker has Cloudflare's Workers AI runtime binding (env.AI) which is
+ * implicitly authenticated — no API token scope required. Posting from
+ * Trigger.dev to the Worker bypasses the bot's REST-token-missing-AI-scope
+ * problem entirely.
  *
- * On failure, throws with the actual Cloudflare error messages from both
- * attempts. The turn-handler logs and surfaces the message so debugging
- * doesn't require digging through Trigger.dev run details.
+ * Auth: Bearer <TELEGRAM_BOT_TOKEN>. Both sides already have this token,
+ * so no new env var needed. The Worker validates the header matches its
+ * own env.TELEGRAM_BOT_TOKEN before running the model.
  */
 export async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<string> {
-  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-  const apiToken = process.env.CLOUDFLARE_API_TOKEN;
-  if (!accountId || !apiToken) throw new Error("Cloudflare credentials not set");
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN not set");
 
-  const bytes = new Uint8Array(audioBuffer);
-  // Build base64 (v3-turbo) and number array (legacy) once.
-  let binary = "";
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  const base64Audio = btoa(binary);
-  const byteArray = Array.from(bytes);
+  const workerUrl =
+    process.env.MEETSYNC_WORKER_URL ?? "https://meetsync-worker.riccardotedesco9.workers.dev";
 
-  const tryModel = async (
-    modelId: string,
-    body: string,
-  ): Promise<{ text?: string; error?: string }> => {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiToken}`,
-          "Content-Type": "application/json",
-        },
-        body,
-      });
-      const respText = await response.text();
-      if (!response.ok) {
-        return { error: `[${modelId}] HTTP ${response.status}: ${respText.slice(0, 400)}` };
-      }
-      let data: { result?: { text?: string }; success?: boolean; errors?: Array<{ message?: string }> };
-      try {
-        data = JSON.parse(respText);
-      } catch {
-        return { error: `[${modelId}] non-JSON response: ${respText.slice(0, 300)}` };
-      }
-      if (data.success === false) {
-        const errMsgs = (data.errors ?? []).map((e) => e.message ?? "?").join("; ");
-        return { error: `[${modelId}] success=false: ${errMsgs || respText.slice(0, 300)}` };
-      }
-      const text = data.result?.text?.trim() ?? "";
-      if (!text) return { error: `[${modelId}] empty text: ${respText.slice(0, 300)}` };
-      return { text };
-    } catch (err) {
-      return { error: `[${modelId}] fetch threw: ${String(err).slice(0, 300)}` };
-    }
-  };
+  const response = await fetch(`${workerUrl}/internal/transcribe`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${botToken}`,
+      "Content-Type": "application/octet-stream",
+    },
+    body: audioBuffer,
+  });
 
-  const errors: string[] = [];
-
-  // 1. v3-turbo with base64 string (Cloudflare's documented format)
-  const v3 = await tryModel(
-    "@cf/openai/whisper-large-v3-turbo",
-    JSON.stringify({ audio: base64Audio }),
-  );
-  if (v3.text) return v3.text;
-  if (v3.error) {
-    console.warn("[transcribeAudio]", v3.error);
-    errors.push(v3.error);
+  const respText = await response.text();
+  if (!response.ok) {
+    throw new Error(`Worker /internal/transcribe HTTP ${response.status}: ${respText.slice(0, 400)}`);
   }
 
-  // 2. Legacy whisper with byte array
-  const legacy = await tryModel(
-    "@cf/openai/whisper",
-    JSON.stringify({ audio: byteArray }),
-  );
-  if (legacy.text) return legacy.text;
-  if (legacy.error) {
-    console.warn("[transcribeAudio]", legacy.error);
-    errors.push(legacy.error);
+  let data: { ok?: boolean; text?: string; error?: string; model?: string };
+  try {
+    data = JSON.parse(respText);
+  } catch {
+    throw new Error(`Worker /internal/transcribe non-JSON response: ${respText.slice(0, 300)}`);
   }
 
-  throw new Error(`Transcription failed on all models. ${errors.join(" || ")}`);
+  if (!data.ok || !data.text) {
+    throw new Error(`Worker /internal/transcribe failed: ${data.error ?? respText.slice(0, 300)}`);
+  }
+  return data.text;
 }
 
 /** Download media from Telegram (returns the file as an ArrayBuffer + mime type) */

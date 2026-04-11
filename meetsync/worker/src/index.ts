@@ -6,6 +6,7 @@ import { verifyTelegramSecret } from "./signature.js";
 import { handleMessage } from "./handle-message.js";
 import { renderDashboard } from "./dashboard.js";
 import { handleAuthCallback } from "./google-oauth.js";
+import { handleTranscribe } from "./transcribe.js";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -83,6 +84,14 @@ export default {
     // D1 so deliver-results can auto-add events to the user's calendar.
     if (url.pathname === "/auth/google/callback") {
       return await handleAuthCallback(request, env);
+    }
+
+    // Internal transcription endpoint — Trigger.dev posts voice note bytes
+    // here so the Worker can call env.AI.run() with implicit runtime auth.
+    // Auth via Bearer <bot_token> header (shared secret both sides have).
+    // See transcribe.ts for the rationale.
+    if (url.pathname === "/internal/transcribe") {
+      return await handleTranscribe(request, env);
     }
 
     // Only handle /webhook path
