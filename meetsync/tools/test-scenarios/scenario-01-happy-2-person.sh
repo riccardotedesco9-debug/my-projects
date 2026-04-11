@@ -34,15 +34,19 @@ step "verify spawnOrchestrator ran — session is PAIRED and tokens populated"
 assert_rows "SELECT id FROM sessions WHERE id = '$SESSION_ID' AND status = 'PAIRED' AND both_confirmed_token_id IS NOT NULL AND both_preferred_token_id IS NOT NULL" 1
 tick "[race fix proof] router populated both waitpoint tokens before triggering orchestrator"
 
-step "A confirms parsed schedule"
+step "A confirms parsed schedule (waits for parser to finish first)"
+wait_for "SELECT 1 FROM participants WHERE chat_id = '$TEST_USER_A' AND state = 'AWAITING_CONFIRMATION'" 45
 send_webhook "$TEST_USER_A" "yes"
-sleep 5
+wait_for "SELECT 1 FROM participants WHERE chat_id = '$TEST_USER_A' AND state = 'SCHEDULE_CONFIRMED'" 30
 
-step "B uploads + confirms"
+step "B uploads schedule"
 send_webhook "$TEST_USER_B" "i work mon-fri 2pm to 10pm"
-sleep 15
+wait_for "SELECT 1 FROM participants WHERE chat_id = '$TEST_USER_B' AND state = 'AWAITING_CONFIRMATION'" 45
+
+step "B confirms"
 send_webhook "$TEST_USER_B" "yes"
-sleep 15
+wait_for "SELECT 1 FROM participants WHERE chat_id = '$TEST_USER_B' AND state IN ('SCHEDULE_CONFIRMED','AWAITING_PREFERENCES','PREFERENCES_SUBMITTED','COMPLETED')" 45
+sleep 5
 
 step "verify match pipeline fired (session no longer PAIRED)"
 assert_empty "SELECT id FROM sessions WHERE id = '$SESSION_ID' AND status = 'PAIRED'"
