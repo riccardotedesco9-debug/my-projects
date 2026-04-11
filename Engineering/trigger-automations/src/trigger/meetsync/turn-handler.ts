@@ -174,6 +174,20 @@ async function sendChatAction(chatId: string, action: "typing"): Promise<void> {
   }
 }
 
+/**
+ * Keep the Telegram "typing…" indicator visible for the entire turn.
+ * Telegram's chat action expires after ~5 s, so we re-fire every 4 s.
+ * Returns a stop function — call it before sending the reply (and in
+ * the error/finally path) so the indicator stops cleanly.
+ */
+function startTypingHeartbeat(chatId: string): () => void {
+  void sendChatAction(chatId, "typing"); // immediate first ping
+  const handle = setInterval(() => {
+    void sendChatAction(chatId, "typing");
+  }, 4000);
+  return () => clearInterval(handle);
+}
+
 function buildInlineKeyboard(buttons: ReplyButton[]): InlineKeyboard {
   // Map callback names to the callback_data strings the Worker already
   // understands (phase 06 will swap these to typed pass-through, but for
@@ -267,6 +281,11 @@ export const turnHandler = schemaTask({
  */
 export async function runTurn(payload: TurnPayload): Promise<Record<string, unknown>> {
   const { chat_id: chatId } = payload;
+  // Heartbeat handle — started after burst consolidation passes, cleared
+  // in the finally block. Telegram's chat action expires after ~5 s, so
+  // we re-fire every 4 s to keep the "typing…" indicator visible for the
+  // entire turn instead of just the first ping.
+  let stopTyping: (() => void) | null = null;
 
   try {
     // 1. Register the user (idempotent)
@@ -303,6 +322,11 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
         return { action: "bailed_for_newer_message" };
       }
     }
+
+    // Survived the bail check — start the typing heartbeat. Stays alive
+    // for the rest of the turn (voice transcription, media download,
+    // snapshot load, Sonnet loop, reply send) and stops in finally.
+    stopTyping = startTypingHeartbeat(chatId);
 
     // 3. Voice → text via Cloudflare Workers AI Whisper
     let currentText = payload.text;
@@ -356,9 +380,6 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     // 5. Load snapshot
     const snapshot = await loadSnapshot(chatId);
     const todayLabel = todayInTimezone(snapshot.timezone);
-
-    // 6. Typing indicator — fire-and-forget, doesn't block
-    void sendChatAction(chatId, "typing");
 
     await emitSessionEvent(
       snapshot.activeSessions[0]?.session.id ?? "no-session",
@@ -466,5 +487,9 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
       /* last resort */
     }
     return { action: "error", error: String(err) };
+  } finally {
+    // Always stop the typing heartbeat — bail-for-newer, error, normal
+    // reply, or fallback all funnel through here.
+    if (stopTyping) stopTyping();
   }
 }
