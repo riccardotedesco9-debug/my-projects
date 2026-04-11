@@ -53,6 +53,7 @@ export interface IntentResult {
     timezone?: string; // for change_timezone (IANA string like "Europe/Rome")
     target_language?: string; // for change_language (ISO 639-1 code the user asked to SWITCH to, e.g. "it", "fr", "es")
     detected_language?: string; // language detected from the message (en/mt/it/etc)
+    schedule_for_name?: string; // when the user EXPLICITLY attributes a schedule upload to someone else (e.g. "here's Diego's schedule", "this is for Alice") — empty if the schedule is their own
     learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
     reply?: string; // for unknown intent — inline conversational response
     deep_link_param?: string; // for start_command — the parameter after /start (e.g., "invite_abc123")
@@ -75,6 +76,7 @@ const intentSchema = z.object({
     timezone: z.string().optional(),
     target_language: z.string().optional(),
     detected_language: z.string().optional(),
+    schedule_for_name: z.string().optional(),
     learned_facts: z.string().optional(),
     reply: z.string().optional(),
     deep_link_param: z.string().optional(),
@@ -122,6 +124,7 @@ CRITICAL — MULTI-PARAM EXTRACTION: regardless of the primary intent, you MUST 
 - params.partner_names — when the user names TWO OR MORE partners in one message ("meet with Anna, Ben and Carlos", "need time with Alice and Bob"), return them as an ARRAY of first names: ["Anna","Ben","Carlos"]. Prefer partner_names over partner_name when there are 2+ people.
 - params.partner_phone — a 7-15 digit phone number for the partner
 - params.schedule_text — ANY availability info: "I work 9-5", "free all day", "off on Wednesdays", "whenever", "sat 10-2", "this weekend", "mon-fri 9 to 5", "lavoro lun-ven 9-18"
+- params.schedule_for_name — ONLY when the user is explicitly attributing a schedule upload to a NAMED third party (not themselves). Set this to that person's name. Examples: "Diego here's his schedule" → "Diego", "this is Alice's rota" → "Alice", "for tom, he works mon-fri" → "tom", "uploading bob's availability" → "bob". DO NOT set it for self-descriptions like "I work 9-5" or "my schedule is attached" — that's the user's own, leave schedule_for_name empty. DO NOT set it when the message only names a partner for the session but the schedule is the user's own ("meet with Alice, I work mon-fri" → partner_name: "Alice", schedule_for_name: EMPTY). Only attribute to a third party when the ATTRIBUTION is explicit in the message.
 
 CRITICAL — NEVER treat place names, city names, country names, timezones, or generic words as partner names. "london", "NYC", "tokyo", "italy", "EST", "my office", "the gym" are NOT partners. They can go in params.learned_facts as location context. Partners are PEOPLE with human names:
 - "im in NYC my partner is in london" → NO partner_name extracted. learned_facts: "user in NYC, partner in London". Intent: upload_schedule_text or unknown depending on context.

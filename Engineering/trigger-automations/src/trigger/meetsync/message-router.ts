@@ -8,6 +8,9 @@ import {
   getParticipantByChatId,
   getSessionParticipants,
   getSessionSnapshot,
+  upsertPersonNote,
+  linkPersonNoteToChat,
+  findPersonNote,
   updateParticipantState,
   updateSessionStatus,
   getParticipantCount,
@@ -205,6 +208,48 @@ export const messageRouter = schemaTask({
       // Append learned facts
       if (params.learned_facts) {
         await appendUserContext(chatId, params.learned_facts);
+      }
+
+      // Upsert person_notes for any third-party names the user mentioned.
+      // Creates a per-person knowledge row the first time the user talks
+      // about someone, or updates the updated_at timestamp on repeat
+      // mentions. Covers: partner_name (single), partner_names[] (multi),
+      // and swap_from/swap_to (correction flow). Phone numbers are stored
+      // too when present. learned_facts text is fanned in as per-person
+      // notes via a cheap heuristic — if a fact mentions a partner name,
+      // append it to that person's notes too so we don't lose the
+      // association.
+      const mentionedNames: Array<{ name: string; phone?: string }> = [];
+      if (params.partner_name && typeof params.partner_name === "string") {
+        mentionedNames.push({
+          name: String(params.partner_name),
+          phone: params.partner_phone ? String(params.partner_phone) : undefined,
+        });
+      }
+      if (Array.isArray(params.partner_names)) {
+        for (const n of params.partner_names) {
+          if (typeof n === "string" && n.trim()) mentionedNames.push({ name: String(n) });
+        }
+      }
+      if (params.swap_to && typeof params.swap_to === "string") {
+        mentionedNames.push({ name: String(params.swap_to) });
+      }
+      for (const { name, phone } of mentionedNames) {
+        // Find out if the learned_facts (if any) mention this specific person
+        // by name — lowercase substring match. If so, store it as per-person
+        // notes so the knowledge sticks to them, not to the user's own
+        // context blob.
+        let perPersonFact: string | undefined;
+        if (params.learned_facts && typeof params.learned_facts === "string") {
+          const lower = params.learned_facts.toLowerCase();
+          if (lower.includes(name.toLowerCase())) {
+            perPersonFact = String(params.learned_facts);
+          }
+        }
+        await upsertPersonNote(chatId, name, {
+          phone,
+          notes: perPersonFact,
+        });
       }
 
       // Helper to build response context
@@ -433,6 +478,54 @@ export const messageRouter = schemaTask({
       if (intent === "amend_schedule" && params.schedule_text &&
           (participant.state === "SCHEDULE_CONFIRMED" || participant.state === "AWAITING_CONFIRMATION")) {
         return await handleAmendSchedule(chatId, participant, user, String(params.schedule_text));
+      }
+
+      // Schedule-on-behalf — user uploaded a schedule AND explicitly said
+      // it's for someone else ("here's Diego's schedule"). Route the parsed
+      // result into person_notes.schedule_json instead of the uploader's
+      // participant row. The AI-side attribution used to silently attribute
+      // these to the uploader, causing "that's not mine" rejection loops.
+      //
+      // This path runs BEFORE the regular schedule-upload routing so a
+      // correctly-attributed upload never accidentally lands on the user's
+      // own record.
+      if (typeof params.schedule_for_name === "string" && params.schedule_for_name.trim()) {
+        const forName = String(params.schedule_for_name).trim();
+        // Make sure a person_notes row exists for this name so the parser
+        // has somewhere to write. upsertPersonNote is idempotent.
+        await upsertPersonNote(chatId, forName);
+
+        if (message_type === "image" || message_type === "document") {
+          if (media_id) {
+            await reply(chatId, await generateResponse(responseCtx("parsing_schedule_file", {
+              userMessage: text,
+              extraContext: `This schedule is being saved FOR ${forName}, not the user. Acknowledge briefly.`,
+            })));
+            await scheduleParser.trigger({
+              participant_id: participant?.id ?? "on-behalf",
+              session_id: participant?.session_id ?? "on-behalf",
+              chat_id: chatId,
+              media_id,
+              mime_type: mime_type ?? "image/jpeg",
+              for_person_name: forName,
+            });
+            return { action: "schedule_on_behalf_file", for: forName };
+          }
+        } else if (params.schedule_text) {
+          // Text-typed schedule for a third party — parse directly
+          await reply(chatId, await generateResponse(responseCtx("parsing_schedule_text", {
+            userMessage: text,
+            extraContext: `This typed schedule is FOR ${forName}, not the user.`,
+          })));
+          await scheduleParser.trigger({
+            participant_id: participant?.id ?? "on-behalf",
+            session_id: participant?.session_id ?? "on-behalf",
+            chat_id: chatId,
+            text_content: String(params.schedule_text),
+            for_person_name: forName,
+          });
+          return { action: "schedule_on_behalf_text", for: forName };
+        }
       }
 
       // Smart routing: schedule data from ANY state — always capture it

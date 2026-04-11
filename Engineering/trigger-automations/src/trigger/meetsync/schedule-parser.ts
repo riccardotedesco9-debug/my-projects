@@ -4,10 +4,14 @@
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
 import { downloadMedia, sendTextMessage, yesNoKeyboard } from "./telegram-client.js";
-import { updateParticipantState, getReplyContext, getUserTimezone } from "./d1-client.js";
+import { updateParticipantState, getReplyContext, getUserTimezone, setPersonNoteSchedule } from "./d1-client.js";
 import { generateResponse } from "./response-generator.js";
 
-// Accepts either media (file upload) or text_content (typed schedule)
+// Accepts either media (file upload) or text_content (typed schedule).
+// When for_person_name is set, the parsed schedule is stored in
+// person_notes.schedule_json under that name (owned by chat_id) rather than
+// on the uploader's participant row — used for on-behalf uploads like
+// "here's Diego's schedule".
 const payloadSchema = z.object({
   participant_id: z.string(),
   session_id: z.string(),
@@ -15,6 +19,7 @@ const payloadSchema = z.object({
   media_id: z.string().optional(),
   mime_type: z.string().optional(),
   text_content: z.string().optional(),
+  for_person_name: z.string().optional(),
 });
 
 const parsedShiftSchema = z.object({
@@ -198,7 +203,11 @@ export const scheduleParser = schemaTask({
   retry: { maxAttempts: 2 },
 
   run: async (payload) => {
-    const { participant_id, chat_id, media_id, mime_type, text_content } = payload;
+    const { participant_id, chat_id, media_id, mime_type, text_content, for_person_name } = payload;
+    // On-behalf uploads never touch a participant row — the target is a
+    // person_notes entry owned by chat_id. Skip all participant state
+    // transitions when this flag is set.
+    const isOnBehalf = typeof for_person_name === "string" && for_person_name.trim().length > 0;
 
     const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
@@ -231,7 +240,9 @@ export const scheduleParser = schemaTask({
       }
 
       if (shifts.length === 0) {
-        await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
+        if (!isOnBehalf) {
+          await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
+        }
         await sendTextMessage(chat_id, await generateResponse({
           scenario: "no_shifts_found", state: "AWAITING_SCHEDULE",
           userName, userLanguage,
@@ -241,9 +252,18 @@ export const scheduleParser = schemaTask({
 
       // Store all parsed shifts (no weekday filter — user may work weekends or need a full month view)
       const scheduleJson = JSON.stringify(shifts);
-      await updateParticipantState(participant_id, "AWAITING_CONFIRMATION", {
-        schedule_json: scheduleJson,
-      });
+
+      if (isOnBehalf) {
+        // On-behalf path: write to person_notes, don't touch any participant
+        // state. The uploader is still the chat_id, so the schedule is
+        // owned by them but tagged to for_person_name. match-compute will
+        // pick it up via getPersonNotesForOwner.
+        await setPersonNoteSchedule(chat_id, for_person_name!, scheduleJson);
+      } else {
+        await updateParticipantState(participant_id, "AWAITING_CONFIRMATION", {
+          schedule_json: scheduleJson,
+        });
+      }
 
       // Format shifts for display with confidence warnings
       const shiftList = formatShiftList(shifts);
@@ -252,20 +272,35 @@ export const scheduleParser = schemaTask({
       // counter or the LLM parrots it back as "Plus N other shifts extracted" which
       // confuses users (they see a list + a contradicting count).
       //
-      // Round-9: attach yes/no inline keyboard. The Worker translates a
-      // "confirm_schedule" / "reject_schedule" callback_data tap into a
-      // synthetic text message ("yes" / "no") that flows through the
-      // normal router pipeline, so the rest of the code doesn't need a
-      // parallel callback-handling path. Users who prefer typing still can.
-      await sendTextMessage(chat_id, await generateResponse({
-        scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
-        shiftList, userName, userLanguage,
-      }), yesNoKeyboard());
+      // For on-behalf uploads we skip the yes/no inline keyboard — the
+      // uploader isn't confirming THEIR schedule, so the confirmation UX
+      // would be confusing. Just show the extracted shifts tagged to the
+      // named person so the user can eyeball them.
+      if (isOnBehalf) {
+        await sendTextMessage(chat_id, await generateResponse({
+          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
+          shiftList, userName, userLanguage,
+          partnerName: for_person_name,
+          extraContext: `IMPORTANT: These shifts are for ${for_person_name}, not the user. Phrase the message as "Here's what I pulled out for ${for_person_name}" or similar — make clear it's the third party's schedule, not theirs. Do not ask the user to confirm as if it were their own schedule; instead ask if the shifts look right for ${for_person_name}.`,
+        }));
+      } else {
+        // Round-9: attach yes/no inline keyboard. The Worker translates a
+        // "confirm_schedule" / "reject_schedule" callback_data tap into a
+        // synthetic text message ("yes" / "no") that flows through the
+        // normal router pipeline, so the rest of the code doesn't need a
+        // parallel callback-handling path. Users who prefer typing still can.
+        await sendTextMessage(chat_id, await generateResponse({
+          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
+          shiftList, userName, userLanguage,
+        }), yesNoKeyboard());
+      }
 
-      return { success: true, shift_count: shifts.length };
+      return { success: true, shift_count: shifts.length, on_behalf: isOnBehalf };
     } catch (err) {
       console.error("Schedule parsing error:", err);
-      await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
+      if (!isOnBehalf) {
+        await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
+      }
       await sendTextMessage(chat_id, await generateResponse({
         scenario: "parse_error", state: "AWAITING_SCHEDULE",
         userName, userLanguage,

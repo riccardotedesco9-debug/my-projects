@@ -2,7 +2,7 @@
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { query, getSessionParticipants } from "./d1-client.js";
+import { query, getSessionParticipants, getPersonNotesForOwner } from "./d1-client.js";
 
 const payloadSchema = z.object({
   session_id: z.string(),
@@ -45,13 +45,44 @@ export const matchCompute = schemaTask({
     const { session_id } = payload;
 
     const participants = await getSessionParticipants(session_id);
-    if (participants.length < 2) {
-      throw new Error(`Need at least 2 participants, found ${participants.length}`);
+
+    // Also pull schedule-on-behalf entries from person_notes — people the
+    // creator uploaded schedules for without waiting for them to join. We
+    // look up by the session creator's chat_id and include any person_notes
+    // rows with schedule_json that are NOT already linked to a participant
+    // (the linked ones would double-count).
+    //
+    // The session creator's chat_id is whichever participant has role='creator'.
+    const creator = participants.find((p) => p.role === "creator");
+    const onBehalfSchedules: Array<{ id: string; schedule_json: string | null }> = [];
+    if (creator) {
+      const notes = await getPersonNotesForOwner(creator.chat_id);
+      for (const note of notes) {
+        if (!note.schedule_json) continue;
+        // Skip if already merged into a real participant (linked_chat_id
+        // matches a participant.chat_id). Prevents counting the same
+        // person twice after they've joined the bot.
+        const alreadyParticipant = note.linked_chat_id
+          && participants.some((p) => p.chat_id === note.linked_chat_id);
+        if (alreadyParticipant) continue;
+        onBehalfSchedules.push({
+          id: `on-behalf:${note.id}`,
+          schedule_json: note.schedule_json,
+        });
+      }
     }
 
-    // Parse all participants' schedules. Passing p.id so the Zod error
-    // path can name the row in logs (round-10 code review fix #8).
-    const allSchedules = participants.map((p) => parseSchedule(p.schedule_json, p.id));
+    const totalPeople = participants.length + onBehalfSchedules.length;
+    if (totalPeople < 2) {
+      throw new Error(`Need at least 2 schedules, found ${totalPeople}`);
+    }
+
+    // Parse all schedules — participants + on-behalf. Passing an id so the
+    // Zod error path can name the row in logs (round-10 code review fix #8).
+    const allSchedules = [
+      ...participants.map((p) => parseSchedule(p.schedule_json, p.id)),
+      ...onBehalfSchedules.map((o) => parseSchedule(o.schedule_json, o.id)),
+    ];
 
     // Find the overlapping date range across ALL schedules
     const ranges = allSchedules.map(getDateRange).filter((r): r is { start: string; end: string } => r !== null);

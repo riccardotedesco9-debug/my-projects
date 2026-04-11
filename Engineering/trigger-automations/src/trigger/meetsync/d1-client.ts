@@ -109,6 +109,147 @@ export async function updateSessionStatus(sessionId: string, status: string) {
   await query("UPDATE sessions SET status = ? WHERE id = ?", [status, sessionId]);
 }
 
+// --- Per-person knowledge notes ---
+//
+// person_notes stores structured data about people a user has mentioned but
+// who may or may not have joined the bot yet. Enables schedule-on-behalf
+// uploads, accumulated learned facts per person, and cross-session reuse
+// ("schedule with Diego again — use his saved schedule").
+
+export interface PersonNote {
+  id: number;
+  owner_chat_id: string;
+  name: string;
+  name_normalized: string;
+  phone: string | null;
+  linked_chat_id: string | null;
+  schedule_json: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function normalizePersonName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * Upsert a person_notes row. First mention creates the row with just the
+ * display name. Subsequent mentions with optional fields (phone, notes)
+ * update those fields without clobbering anything set by a previous call.
+ * The unique constraint on (owner_chat_id, name_normalized) makes repeat
+ * mentions idempotent.
+ */
+export async function upsertPersonNote(
+  ownerChatId: string,
+  name: string,
+  opts: { phone?: string; notes?: string } = {},
+): Promise<void> {
+  const normalized = normalizePersonName(name);
+  if (!normalized) return; // Guard against empty / whitespace-only names
+
+  const noteFragment = opts.notes ? opts.notes.trim() : null;
+  const phone = opts.phone ? opts.phone.replace(/[^0-9+]/g, "") : null;
+
+  // INSERT first — if the row already exists the UNIQUE constraint will fire
+  // and we fall through to UPDATE. Doing it in this order means a fresh
+  // mention always creates a row with exactly the data from the current turn,
+  // while repeat mentions preserve any previously-accumulated fields.
+  await query(
+    `INSERT INTO person_notes (owner_chat_id, name, name_normalized, phone, notes, updated_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(owner_chat_id, name_normalized) DO UPDATE SET
+       name = CASE WHEN excluded.name IS NOT NULL AND excluded.name != '' THEN excluded.name ELSE person_notes.name END,
+       phone = COALESCE(excluded.phone, person_notes.phone),
+       notes = CASE
+         WHEN excluded.notes IS NULL THEN person_notes.notes
+         WHEN person_notes.notes IS NULL THEN excluded.notes
+         ELSE person_notes.notes || char(10) || excluded.notes
+       END,
+       updated_at = datetime('now')`,
+    [ownerChatId, name.trim(), normalized, phone, noteFragment],
+  );
+}
+
+/** Look up a person_note by owner + name. Returns null if not found. */
+export async function findPersonNote(
+  ownerChatId: string,
+  name: string,
+): Promise<PersonNote | null> {
+  const normalized = normalizePersonName(name);
+  if (!normalized) return null;
+  const result = await query<PersonNote>(
+    `SELECT * FROM person_notes WHERE owner_chat_id = ? AND name_normalized = ? LIMIT 1`,
+    [ownerChatId, normalized],
+  );
+  return result.results[0] ?? null;
+}
+
+/** All people known to a given owner. Used by the session snapshot so the
+ *  AI sees who the user has talked to the bot about before. */
+export async function getPersonNotesForOwner(
+  ownerChatId: string,
+): Promise<PersonNote[]> {
+  const result = await query<PersonNote>(
+    `SELECT * FROM person_notes WHERE owner_chat_id = ? ORDER BY updated_at DESC`,
+    [ownerChatId],
+  );
+  return result.results;
+}
+
+/** Store/overwrite a pre-parsed schedule on a person_note (schedule-on-behalf path).
+ *  Called by schedule-parser when the uploader explicitly attributes a photo
+ *  to a named third party ("here's Diego's schedule"). */
+export async function setPersonNoteSchedule(
+  ownerChatId: string,
+  name: string,
+  scheduleJson: string,
+): Promise<void> {
+  const normalized = normalizePersonName(name);
+  if (!normalized) return;
+  await query(
+    `UPDATE person_notes SET schedule_json = ?, updated_at = datetime('now')
+     WHERE owner_chat_id = ? AND name_normalized = ?`,
+    [scheduleJson, ownerChatId, normalized],
+  );
+}
+
+/**
+ * Link an existing person_note to a real chat_id (e.g. when Diego taps the
+ * invite link and becomes a real user). Preserves the original row rather
+ * than creating a duplicate under users. Returns the pre-existing notes row
+ * if one was found and linked, or null if no prior notes exist for this name.
+ *
+ * Why lookup by name not chat_id: when Diego joins, we don't know which
+ * owner had notes about him until we check. In practice the caller passes
+ * the inviter's chat_id (from the pending_invite that triggered the join).
+ */
+export async function linkPersonNoteToChat(
+  ownerChatId: string,
+  name: string,
+  linkedChatId: string,
+): Promise<PersonNote | null> {
+  const normalized = normalizePersonName(name);
+  if (!normalized) return null;
+
+  const existing = await findPersonNote(ownerChatId, name);
+  if (!existing) return null;
+
+  // Already linked to a different chat_id — someone else with the same name
+  // already joined. Leave the old link alone and return null to signal the
+  // caller should not transfer the schedule (would be wrong data).
+  if (existing.linked_chat_id && existing.linked_chat_id !== linkedChatId) {
+    return null;
+  }
+
+  await query(
+    `UPDATE person_notes SET linked_chat_id = ?, updated_at = datetime('now')
+     WHERE id = ?`,
+    [linkedChatId, existing.id],
+  );
+  return { ...existing, linked_chat_id: linkedChatId };
+}
+
 /**
  * Build a ground-truth snapshot of the session's state for injection into
  * response-generator prompts. The AI was hallucinating about schedule
@@ -144,9 +285,9 @@ export async function getSessionSnapshot(
   );
 
   // Pending invites — people the creator has invited but who haven't
-  // joined yet. These are NOT participants and have no schedule, but the
-  // AI needs to know they exist so it doesn't confidently claim a
-  // pending-invite person's schedule is "already in the system".
+  // joined yet. These are NOT participants and have no schedule of their
+  // own, but may have a person_notes row with a schedule uploaded on their
+  // behalf, so the AI needs to know they exist either way.
   const invitesResult = await query<{
     id: string;
     invitee_chat_id: string | null;
@@ -159,9 +300,25 @@ export async function getSessionSnapshot(
     [sessionId],
   );
 
+  // Person notes owned by the asking user — the third parties they've told
+  // the bot about. Used to enrich pending-invite lines (if Riccardo uploaded
+  // Diego's schedule on behalf, the snapshot should say so) and to list
+  // people the user has mentioned historically even if no invite exists yet.
+  const personNotes = await getPersonNotesForOwner(selfChatId);
+
   const participants = participantsResult.results;
   const withSchedules = participants.filter((p) => p.has_schedule === 1);
   const pendingInvites = invitesResult.results;
+  // A pending-invite person counts as "has schedule" if their person_notes
+  // row carries a schedule_json (uploaded on behalf). We track this so the
+  // "missing schedules" summary at the bottom reflects reality.
+  const pendingInvitesWithNotes = pendingInvites.filter((_inv) => {
+    // We don't store the intended name on the invite row itself, so we
+    // can't match 1:1 here. Instead, check if the user has ANY person_notes
+    // with schedule_json populated. This is an approximation — for a single
+    // pending invite it's usually correct.
+    return personNotes.some((pn) => pn.schedule_json && !pn.linked_chat_id);
+  }).length;
 
   const lines: string[] = [];
   lines.push("[SESSION SNAPSHOT — ground your answer in THESE facts. Never claim to have data not listed here. Do not invent schedules, participants, or state.]");
@@ -174,20 +331,41 @@ export async function getSessionSnapshot(
     lines.push(`    • ${who} — state: ${p.state}, ${sched}`);
   }
   if (pendingInvites.length > 0) {
-    lines.push(`- Pending invites (${pendingInvites.length}) — these people were mentioned but have NOT joined the session and have NO schedule:`);
+    lines.push(`- Pending invites (${pendingInvites.length}) — mentioned but not yet joined. The user may have uploaded their schedule on their behalf (see person notes below).`);
     for (const inv of pendingInvites) {
       const who = inv.invitee_chat_id ? `person ${inv.invitee_chat_id.slice(-4)}` : "awaiting invite tap";
       lines.push(`    • ${who} — invite status: ${inv.status}`);
     }
   }
 
+  // People the user has told the bot about (with or without a session). The
+  // AI uses this to answer "what do you know about Diego?" and to avoid
+  // duplicating data it already has.
+  const notesWithSchedule = personNotes.filter((pn) => pn.schedule_json);
+  if (personNotes.length > 0) {
+    lines.push(`- People you know about this user (${personNotes.length} person notes):`);
+    for (const pn of personNotes) {
+      const parts: string[] = [pn.name];
+      if (pn.linked_chat_id) parts.push("joined the bot");
+      else parts.push("not joined");
+      if (pn.schedule_json) parts.push("schedule: ✓ UPLOADED on their behalf");
+      else parts.push("schedule: ✗");
+      if (pn.phone) parts.push(`phone: ${pn.phone.slice(-4)}`);
+      if (pn.notes) parts.push(`notes: ${pn.notes.slice(0, 100)}`);
+      lines.push(`    • ${parts.join(" — ")}`);
+    }
+  }
+
   // Actionable summary at the end so the AI sees the bottom line clearly.
+  // A pending-invite person counts as "covered" if there's a person_note
+  // with schedule_json for them.
   const needed = Math.max(2, participants.length + pendingInvites.length);
-  const missing = needed - withSchedules.length;
+  const effectivelyCovered = withSchedules.length + pendingInvitesWithNotes;
+  const missing = Math.max(0, needed - effectivelyCovered);
   if (missing > 0) {
     lines.push(`- MISSING for a match: ${missing} more schedule${missing === 1 ? "" : "s"} needed before free-time can be computed.`);
   } else {
-    lines.push(`- All schedules present — ready to compute free time.`);
+    lines.push(`- All schedules present (including on-behalf uploads in person notes) — ready to compute free time.`);
   }
 
   return lines.join("\n");

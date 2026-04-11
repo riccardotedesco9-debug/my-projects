@@ -28,6 +28,7 @@ import {
   updateInviteStatus,
   getReplyContext,
   emitSessionEvent,
+  linkPersonNoteToChat,
 } from "./d1-client.js";
 import type { UserProfile } from "./d1-client.js";
 import { scheduleParser } from "./schedule-parser.js";
@@ -314,6 +315,32 @@ export async function handleAcceptInvite(
   // running. A second spawn would just burn two token creates and one
   // UPDATE for no effect (dedup'd by Trigger.dev idempotency + the
   // versioned waitpoint key).
+
+  // Link-on-join: if the creator previously told the bot about this
+  // invitee by name (their `inviteeUser.name`), we may already have a
+  // person_notes row for them — possibly with an on-behalf schedule
+  // already uploaded. Link it to the invitee's chat_id instead of
+  // letting a duplicate parallel record form. If the person_note
+  // carries a schedule_json, transfer it directly onto the freshly
+  // created participant row so matching picks it up without the
+  // invitee having to re-upload.
+  if (inviteeUser?.name) {
+    const linked = await linkPersonNoteToChat(
+      session.creator_chat_id,
+      inviteeUser.name,
+      chatId,
+    );
+    if (linked?.schedule_json) {
+      // Hand off the pre-parsed schedule to the participant and jump
+      // straight to AWAITING_CONFIRMATION so the invitee sees "here's
+      // what your colleague uploaded for you, does it look right?"
+      // instead of being asked for a schedule they don't need to send.
+      await query(
+        "UPDATE participants SET schedule_json = ?, state = 'AWAITING_CONFIRMATION' WHERE id = ?",
+        [linked.schedule_json, participantId],
+      );
+    }
+  }
 
   // Notify the creator
   await reply(session.creator_chat_id, await generateResponse({
