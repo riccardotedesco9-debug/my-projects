@@ -137,28 +137,62 @@ export async function sendDocumentMessage(
   }
 }
 
-/** Transcribe audio using Cloudflare Workers AI (Whisper model) */
+/**
+ * Transcribe audio via Cloudflare Workers AI Whisper.
+ *
+ * Tries the modern `whisper-large-v3-turbo` model first (better Opus/OGG
+ * support, much higher accuracy on Telegram voice notes). Falls back to the
+ * legacy `whisper` model if that fails — covers accounts without v3 access.
+ *
+ * Sends the audio as a JSON `{audio: [byte array]}` payload, which is the
+ * format Cloudflare's docs prescribe and is more reliable than raw octet
+ * uploads (which silently misinterpret OGG containers in some regions).
+ */
 export async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<string> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   if (!accountId || !apiToken) throw new Error("Cloudflare credentials not set");
 
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/openai/whisper`,
-    {
+  // Convert the ArrayBuffer to a regular byte array for the JSON payload.
+  // Cloudflare's whisper-large-v3-turbo expects { audio: number[] }.
+  const bytes = Array.from(new Uint8Array(audioBuffer));
+  const jsonBody = JSON.stringify({ audio: bytes });
+
+  const tryModel = async (modelId: string): Promise<string | null> => {
+    const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
+    const response = await fetch(url, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiToken}` },
-      body: audioBuffer,
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        "Content-Type": "application/json",
+      },
+      body: jsonBody,
+    });
+    if (!response.ok) {
+      const errText = await response.text();
+      console.warn(`[transcribeAudio] ${modelId} failed (${response.status}): ${errText.slice(0, 300)}`);
+      return null;
     }
+    const data = (await response.json()) as { result?: { text?: string } };
+    const text = data.result?.text?.trim() ?? "";
+    if (!text) {
+      console.warn(`[transcribeAudio] ${modelId} returned empty text`);
+      return null;
+    }
+    return text;
+  };
+
+  // Modern model first (handles Telegram OGG/Opus reliably)
+  const v3 = await tryModel("@cf/openai/whisper-large-v3-turbo");
+  if (v3) return v3;
+
+  // Legacy fallback
+  const legacy = await tryModel("@cf/openai/whisper");
+  if (legacy) return legacy;
+
+  throw new Error(
+    "Transcription failed on both whisper-large-v3-turbo and whisper. Check Trigger.dev logs for the underlying Cloudflare error.",
   );
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Transcription failed (${response.status}): ${err}`);
-  }
-
-  const data = (await response.json()) as { result?: { text?: string } };
-  return data.result?.text?.trim() ?? "";
 }
 
 /** Download media from Telegram (returns the file as an ArrayBuffer + mime type) */

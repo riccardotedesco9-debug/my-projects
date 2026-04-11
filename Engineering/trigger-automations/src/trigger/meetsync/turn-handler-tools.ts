@@ -70,8 +70,6 @@ export interface ToolContext {
   cachedMedia?: { base64: string; mediaType: string };
   /** Text from the current turn — used when the user types "I work 9-5" without calling parse_schedule on a file. */
   currentText?: string;
-  /** Set by parse_schedule so save_schedule can commit without the model echoing shifts. */
-  lastParsedShifts?: ExtractScheduleResult["shifts"];
   /** Populated by the reply tool. The handler reads this after the loop exits and sends to Telegram. */
   pendingReply?: PendingReply;
   /** Set when the reply tool has been called — signals the handler to exit the loop. */
@@ -107,46 +105,63 @@ function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionE
   return ctx.snapshot.activeSessions[0]; // most recent first
 }
 
-// --- Tool 1: parse_schedule ---
+// --- Tool 1: parse_schedule (auto-saves on success) ---
+//
+// Single tool that extracts AND persists in one shot. Earlier design had
+// parse + save as separate tools, but the parsed shifts vanished across
+// turn boundaries (cached only in the per-turn ToolContext). When the user
+// said "yes" to confirm, the next turn's Claude had no shifts to commit and
+// re-asked for the schedule. The user reported this loop on 2026-04-11.
+//
+// New behaviour: parse_schedule extracts AND immediately writes to D1
+// (participant.schedule_json for the caller, person_notes.schedule_json
+// for on-behalf uploads). Auto-creates a session if the caller has none.
+// "Confirmation" becomes purely conversational — Claude shows the parsed
+// shifts with Yes/No buttons; Yes = "looks good, what's next" (no save
+// needed), No = call parse_schedule again with the user's correction.
 
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract structured shifts from whatever the user provided this turn: a photo of a rota, a PDF, typed hours, a voice-note transcript, a screenshot of Excel, a paragraph of natural language, anything that describes when someone is busy or free. If the current turn has an attached image/PDF and the user didn't retype their hours, omit text_content to use the attached media. If the user typed their hours as text, pass the text in text_content. Use attributed_to_name ONLY when the schedule is for someone OTHER than the user (e.g. 'here's Diego's rota'). Returns the parsed shifts — you can then show them to the user, or save them directly via save_schedule.",
+    "Extract structured shifts from whatever the user provided this turn (photo, PDF, typed hours, voice transcript, Excel screenshot, free text — anything) AND save them to D1 in the same call. If the current turn has an attached image/PDF, omit text_content to parse the attachment. If the user typed their hours, pass them in text_content. Use attributed_to_name ONLY when the schedule belongs to someone OTHER than the user ('here's Diego's rota'). After this returns successfully, reply showing a brief summary of the shifts and ATTACH yes/no buttons (callback: 'confirm' / 'reject') so the user can one-tap confirm. The schedule is already saved — yes = acknowledge and continue, no = ask what to fix and call parse_schedule again with the correction.",
   input_schema: {
     type: "object",
     properties: {
       text_content: {
         type: "string",
-        description:
-          "Typed hours or text description of availability. Omit to parse the current turn's attached media instead.",
+        description: "Typed hours or text description. Omit to parse the current turn's attached media.",
       },
       attributed_to_name: {
         type: "string",
-        description:
-          "Name of the third party this schedule is for, if it's not the user's own schedule. Drives the parser to filter multi-person rotas to that person's row.",
+        description: "Name of the third party this schedule is for, if it's not the user's own schedule.",
+      },
+      session_id: {
+        type: "string",
+        description: "Session to save the user's own schedule to. Defaults to the most recent active session, creates a fresh one if none exists. Ignored when attributed_to_name is set.",
       },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
     const textContent = typeof input.text_content === "string" ? input.text_content : undefined;
-    const attributedToName = typeof input.attributed_to_name === "string" ? input.attributed_to_name : undefined;
+    const attributedToName = typeof input.attributed_to_name === "string" ? input.attributed_to_name.trim() : "";
+    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     try {
+      // 1. Extract shifts via the pure parser
       let result: ExtractScheduleResult;
       if (textContent) {
         result = await extractSchedule({
           text: textContent,
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
-          attributedToName,
+          attributedToName: attributedToName || undefined,
         });
       } else if (ctx.cachedMedia) {
         result = await extractSchedule({
           media: ctx.cachedMedia,
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
-          attributedToName,
+          attributedToName: attributedToName || undefined,
         });
       } else {
         return {
@@ -155,102 +170,119 @@ const parseScheduleTool: ToolDefinition = {
         };
       }
 
-      // Cache for save_schedule
-      ctx.lastParsedShifts = result.shifts;
+      if (result.shifts.length === 0) {
+        return {
+          error: "Couldn't extract any shifts. Tell the user the parse came back empty and ask them to try a clearer photo or type the hours directly.",
+        };
+      }
+
+      const scheduleJson = JSON.stringify(result.shifts);
+
+      // 2. Auto-save to the right target
+      // 2a. On-behalf path → person_notes
+      if (attributedToName) {
+        await upsertPersonNote(ctx.callerChatId, attributedToName);
+        await setPersonNoteSchedule(ctx.callerChatId, attributedToName, scheduleJson);
+        // Update the in-turn snapshot so subsequent tools see the new note
+        const existing = ctx.snapshot.personNotes.find(
+          (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
+        );
+        if (existing) {
+          existing.schedule_json = scheduleJson;
+        } else {
+          ctx.snapshot.personNotes.push({
+            id: 0,
+            owner_chat_id: ctx.callerChatId,
+            name: attributedToName,
+            name_normalized: attributedToName.toLowerCase(),
+            phone: null,
+            linked_chat_id: null,
+            schedule_json: scheduleJson,
+            notes: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return {
+          saved: true,
+          owner_resolved_to: `person_note:${attributedToName}`,
+          shift_count: result.shifts.length,
+          shifts: result.shifts,
+          next_step: `REQUIRED next call: reply with a brief summary of ${attributedToName}'s shifts (don't list every shift unless there are unusual ones — say things like "Mon-Fri 9-5, off weekends") and ATTACH yes/no buttons (callback: 'confirm' for accept, 'reject' for redo). Mention these are ${attributedToName}'s, not the user's, and the schedule is saved.`,
+        };
+      }
+
+      // 2b. Self path → participant.schedule_json
+      // Resolve or create a session — uploading a schedule without one
+      // implies the user wants to start scheduling.
+      let sessionEntry = resolveSession(ctx, explicitSessionId);
+      if (!sessionEntry) {
+        const sessionId = crypto.randomUUID();
+        const code = crypto.randomUUID().slice(0, 6).toUpperCase();
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+        await query(
+          "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
+          [sessionId, code, ctx.callerChatId, expiresAt],
+        );
+        const creatorParticipantId = crypto.randomUUID();
+        await query(
+          "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
+          [creatorParticipantId, sessionId, ctx.callerChatId],
+        );
+        await emitSessionEvent(sessionId, "session_created", { via: "parse_schedule" });
+        sessionEntry = {
+          session: {
+            id: sessionId,
+            code,
+            creator_chat_id: ctx.callerChatId,
+            status: "OPEN",
+            mode: null,
+            created_at: new Date().toISOString(),
+            expires_at: expiresAt,
+          },
+          participants: [
+            {
+              id: creatorParticipantId,
+              chat_id: ctx.callerChatId,
+              role: "creator",
+              state: "ACTIVE",
+              schedule_json: null,
+              preferred_slots: null,
+              name: ctx.snapshot.user.name,
+              has_schedule: false,
+            },
+          ],
+          pendingInvites: [],
+        };
+        ctx.snapshot.activeSessions.unshift(sessionEntry);
+      }
+
+      const myParticipant = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
+      if (!myParticipant) {
+        return { error: `Caller is not a participant in session ${sessionEntry.session.id}.` };
+      }
+      await saveParticipantSchedule(myParticipant.id, scheduleJson);
+      myParticipant.schedule_json = scheduleJson;
+      myParticipant.has_schedule = true;
 
       return {
-        shifts: result.shifts,
+        saved: true,
+        owner_resolved_to: `participant:${ctx.callerChatId}`,
+        session_id: sessionEntry.session.id,
         shift_count: result.shifts.length,
-        attributed_to: attributedToName ?? "caller",
+        shifts: result.shifts,
+        next_step: "REQUIRED next call: reply with a brief summary of the shifts (e.g. 'Mon-Fri 9-5 with two late Saturdays' — DON'T list every shift unless there are unusual ones) and ATTACH yes/no buttons (callback: 'confirm' for accept, 'reject' for redo). The schedule is already saved. Yes = acknowledge and ask the next thing (who to schedule with, etc). No = ask what to fix and call parse_schedule again with the correction in text_content.",
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Structured error for unsupported file types — Claude sees the
-      // UNSUPPORTED_DOCUMENT / UNSUPPORTED_MEDIA prefix and relays a
-      // useful reply to the user.
       return { error: msg };
     }
   },
 };
 
-// --- Tool 2: save_schedule ---
+// (Tool 2 save_schedule was removed — parse_schedule now auto-saves on
+// extraction so cross-turn shift persistence isn't a problem any more.)
 
-const saveScheduleTool: ToolDefinition = {
-  name: "save_schedule",
-  description:
-    "Commit the shifts from your most recent parse_schedule call to a target. MUST be called after parse_schedule and before your terminal reply, unless the user explicitly said not to save. `owner='me'` saves to the caller's own participant row. `owner='person:Diego'` (note the `person:` prefix) saves to the caller's person_notes row for that name — creates the row if absent, use this for on-behalf uploads. Pass session_id to disambiguate when the caller has multiple active sessions.",
-  input_schema: {
-    type: "object",
-    required: ["owner"],
-    properties: {
-      owner: {
-        type: "string",
-        description: "'me' for the caller, or 'person:<name>' for an on-behalf upload (e.g. 'person:Diego').",
-      },
-      session_id: {
-        type: "string",
-        description: "Session to save to. Defaults to the caller's most recent active session.",
-      },
-    },
-  },
-  async execute(input, ctx): Promise<ToolResult> {
-    const owner = typeof input.owner === "string" ? input.owner.trim() : "";
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
-
-    if (!ctx.lastParsedShifts) {
-      return { error: "No parsed shifts available. Call parse_schedule first, then save_schedule." };
-    }
-    if (!owner) {
-      return { error: "Missing owner argument. Pass 'me' or 'person:<name>'." };
-    }
-
-    const scheduleJson = JSON.stringify(ctx.lastParsedShifts);
-
-    // On-behalf path: save to person_notes
-    if (owner.startsWith("person:")) {
-      const personName = owner.slice("person:".length).trim();
-      if (!personName) {
-        return { error: "Missing person name after 'person:'. Example: owner='person:Diego'." };
-      }
-      // Ensure the row exists, then write the schedule.
-      await upsertPersonNote(ctx.callerChatId, personName);
-      await setPersonNoteSchedule(ctx.callerChatId, personName, scheduleJson);
-      return {
-        saved: true,
-        owner_resolved_to: `person_note:${personName}`,
-        shift_count: ctx.lastParsedShifts.length,
-      };
-    }
-
-    // Self path: save to the caller's own participant row in the target session
-    if (owner === "me") {
-      const sessionEntry = resolveSession(ctx, explicitSessionId);
-      if (!sessionEntry) {
-        return {
-          error:
-            "No active session — can't save the caller's own schedule without one. Call session_action(action='new') first, or save this as a person_note instead.",
-        };
-      }
-      const myParticipant = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
-      if (!myParticipant) {
-        return {
-          error: `Caller is not a participant in session ${sessionEntry.session.id}. This shouldn't happen — investigate.`,
-        };
-      }
-      await saveParticipantSchedule(myParticipant.id, scheduleJson);
-      return {
-        saved: true,
-        owner_resolved_to: `participant:${ctx.callerChatId}`,
-        session_id: sessionEntry.session.id,
-        shift_count: ctx.lastParsedShifts.length,
-      };
-    }
-
-    return {
-      error: `Unknown owner format: '${owner}'. Use 'me' or 'person:<name>'.`,
-    };
-  },
-};
 
 // --- Tool 3: add_or_invite_partner ---
 
@@ -783,7 +815,6 @@ const replyTool: ToolDefinition = {
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   parseScheduleTool,
-  saveScheduleTool,
   addOrInvitePartnerTool,
   removePartnerTool,
   computeAndDeliverMatchTool,
