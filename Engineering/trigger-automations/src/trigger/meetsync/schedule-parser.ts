@@ -341,51 +341,6 @@ async function callClaude(
   return validated.data.shifts;
 }
 
-// --- Display formatting ---
-
-function formatShiftList(
-  shifts: Array<{ date: string; start_time: string; end_time: string; label?: string; confidence?: number }>
-): string {
-  const MAX_DISPLAY = 15;
-  const CONFIDENCE_THRESHOLD = 0.85;
-
-  // Detect "fully free" placeholder entries (start = end = "00:00") and render
-  // them as a single summary line instead of 14 ugly 00:00-00:00 entries.
-  const fullyFree = shifts.filter((s) => s.start_time === "00:00" && s.end_time === "00:00");
-  const busy = shifts.filter((s) => !(s.start_time === "00:00" && s.end_time === "00:00"));
-
-  const lines: string[] = [];
-
-  if (fullyFree.length > 0) {
-    const freeDates = fullyFree.map((s) => s.date).sort();
-    const first = freeDates[0];
-    const last = freeDates[freeDates.length - 1];
-    if (freeDates.length === 1) {
-      const dayName = new Date(first).toLocaleDateString("en-US", { weekday: "short" });
-      lines.push(`- Fully free on ${dayName} ${first}`);
-    } else {
-      lines.push(`- Fully free from ${first} through ${last} (${freeDates.length} days)`);
-    }
-  }
-
-  const display = busy.slice(0, MAX_DISPLAY);
-  for (const s of display) {
-    const dayName = new Date(s.date).toLocaleDateString("en-US", { weekday: "short" });
-    const timeRange = `${s.start_time}-${s.end_time}`;
-    const label = s.label ? ` (${s.label})` : "";
-    const warning = (s.confidence !== undefined && s.confidence < CONFIDENCE_THRESHOLD)
-      ? " _not 100% sure_"
-      : "";
-    lines.push(`- ${dayName} ${s.date}: ${timeRange}${label}${warning}`);
-  }
-
-  if (busy.length > MAX_DISPLAY) {
-    lines.push(`...and ${busy.length - MAX_DISPLAY} more busy blocks.`);
-  }
-
-  return lines.join("\n");
-}
-
 // --- Utils ---
 
 /**
