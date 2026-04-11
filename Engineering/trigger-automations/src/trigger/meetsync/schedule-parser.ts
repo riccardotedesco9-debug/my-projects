@@ -304,11 +304,17 @@ async function callClaude(
   const textBlock = data.content.find((b) => b.type === "text");
   if (!textBlock?.text) throw new Error("No text response from Claude");
 
-  // Strip Markdown code fences Claude sometimes wraps its JSON in. Old
-  // regex was `/```json?\n?/g` which (by design or accident) also matches
-  // `jso` — the second replace for bare backticks hides that ambiguity.
-  // Round-10 code review cleanup: make the intent explicit.
-  const jsonStr = textBlock.text.replace(/```(?:json)?\n?/g, "").replace(/```/g, "").trim();
+  // Strip Markdown code fences AND prose preamble/postamble. Sonnet
+  // sometimes ignores "ONLY JSON" instructions and writes "I'll
+  // carefully analyze the schedule. Here's the result:\n{...}\n\nLet
+  // me know if you need anything." Slice between the first { and last
+  // } to extract just the JSON object.
+  let jsonStr = textBlock.text.replace(/```(?:json)?\n?/g, "").replace(/```/g, "").trim();
+  const firstBrace = jsonStr.indexOf("{");
+  const lastBrace = jsonStr.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+  }
 
   // Log-loud-on-parse-failure: the round-6 review flagged schedule_parser as
   // silently failing when Claude returns a malformed schema. Previously both
