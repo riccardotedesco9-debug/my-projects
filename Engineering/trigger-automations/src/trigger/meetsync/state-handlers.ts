@@ -401,11 +401,18 @@ export async function handleAwaitingSchedule(
   // something other than a schedule. Don't parrot "please send your
   // schedule" — let the AI fully address their message and only nudge
   // toward schedule upload if they haven't signaled a different intent.
+  //
+  // Hard anti-nag guard: the AI previously saw "state is AWAITING_SCHEDULE"
+  // and kept reinjecting the schedule ask every turn even when the user
+  // explicitly asked to defer or do something else. Now we pass a very
+  // strong "do not nag" instruction AND let the AI see the conversation
+  // history (via getReplyContext) so it can notice when we've already
+  // asked multiple times and drop it entirely.
   await reply(chatId, await generateResponse({
     scenario: "unknown_intent", state: "AWAITING_SCHEDULE",
     userMessage: userMessage ?? payload.text,
     ...(await getReplyContext(chatId)),
-    extraContext: "State is AWAITING_SCHEDULE — I'm hoping they'll send a schedule eventually. BUT if they want to do something else right now (add another person, ask a question, tell me about their week, change direction), GO WITH IT fully. Only suggest sending the schedule if nothing else is going on in their message.",
+    extraContext: "State is AWAITING_SCHEDULE. CRITICAL anti-nag rules: (a) If the user expressed a different intent (defer, add partner, ask a question, share context, push back, change direction, express frustration) — GO WITH IT. Do NOT append 'please share your schedule' as a tail reminder. (b) Check the recent conversation history — if you've ALREADY asked for their schedule 2+ times in the last several messages, STOP asking. Do not repeat yourself. Just address what they actually said and let the conversation breathe. (c) If the user is pushing back ('just use X for now', 'I'll give it later', 'why do you need mine'), acknowledge their position, answer the implicit question if there is one, and DROP the schedule ask entirely from this turn's reply. You are a helpful assistant, not a rigid form. Be graceful about deferrals.",
   }));
   return { action: "conversational_in_schedule" };
 }
