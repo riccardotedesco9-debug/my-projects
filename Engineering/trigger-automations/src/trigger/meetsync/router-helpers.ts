@@ -3,7 +3,7 @@
 // without pulling in the full message-router.ts closure.
 
 import { z } from "zod";
-import { sendTextMessage } from "./telegram-client.js";
+import { sendTextMessage, type InlineKeyboard } from "./telegram-client.js";
 import { getParticipantCount, getPendingInviteCount } from "./d1-client.js";
 
 /**
@@ -65,9 +65,13 @@ export async function canProceedToScheduling(sessionId: string): Promise<boolean
  * Telegram's 4096) leaves headroom for the bot's own username and any
  * entity framing the API adds.
  */
-export async function reply(chatId: string, msg: string): Promise<void> {
+export async function reply(
+  chatId: string,
+  msg: string,
+  keyboard?: InlineKeyboard,
+): Promise<void> {
   if (msg.length <= 4000) {
-    await sendTextMessage(chatId, msg);
+    await sendTextMessage(chatId, msg, keyboard);
     return;
   }
   const chunks: string[] = [];
@@ -82,7 +86,10 @@ export async function reply(chatId: string, msg: string): Promise<void> {
     chunks.push(remaining.slice(0, splitPoint));
     remaining = remaining.slice(splitPoint).trimStart();
   }
-  for (const chunk of chunks) {
-    await sendTextMessage(chatId, chunk);
+  // Only the LAST chunk gets the keyboard — attaching it to the middle
+  // chunks would orphan the buttons on stale messages.
+  for (let i = 0; i < chunks.length; i++) {
+    const isLast = i === chunks.length - 1;
+    await sendTextMessage(chatId, chunks[i], isLast ? keyboard : undefined);
   }
 }

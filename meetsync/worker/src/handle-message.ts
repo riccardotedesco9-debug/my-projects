@@ -1,19 +1,60 @@
 // Parse Telegram webhook update and trigger Trigger.dev tasks
 
-import type { Env, TelegramUpdate, TelegramMessage } from "./types.js";
+import type { Env, TelegramUpdate, TelegramMessage, TelegramCallbackQuery } from "./types.js";
 import type { MessageRouterPayload } from "../../shared/types.js";
 import { checkRateLimit, isBlocked } from "./rate-limit.js";
+
+/**
+ * Callback-data string (sent with inline-keyboard buttons) → synthetic
+ * text the user "typed". Keeps the router pipeline unchanged: button
+ * taps look like regular text messages to the intent classifier.
+ * Extend this table when adding new keyboards — if a callback_data
+ * isn't mapped, we fall through with the raw data string as the text.
+ */
+const CALLBACK_DATA_TO_TEXT: Record<string, string> = {
+  confirm_schedule: "yes",
+  reject_schedule: "no",
+};
 
 /**
  * Extract message from Telegram update and trigger Trigger.dev task.
  * Returns immediately — Telegram requires fast ack to avoid retries.
  */
 export async function handleMessage(update: TelegramUpdate, env: Env): Promise<void> {
+  // Round-9: inline-keyboard support. Telegram delivers button taps as
+  // `callback_query` updates, not `message` updates. We translate the
+  // callback_data into a synthetic text message representing what the
+  // button click meant ("yes" / "no" / etc.) and feed it through the
+  // normal pipeline. We also answer the callback query synchronously
+  // so the spinner on the button goes away; without this the button
+  // shows "loading" until the 60s Telegram timeout.
+  if (update.callback_query) {
+    await answerCallbackQuery(env, update.callback_query.id);
+    const synthesized = synthesizeFromCallback(update.callback_query);
+    if (!synthesized) return;
+    await routeExtractedPayload(synthesized, env, update.callback_query.message?.message_id ?? 0);
+    return;
+  }
+
   const msg = update.message;
   if (!msg) return;
 
   const routerPayload = extractPayload(msg);
   if (!routerPayload) return;
+  await routeExtractedPayload(routerPayload, env, msg.message_id);
+}
+
+/**
+ * Shared "post-extraction" pipeline — admin check, blocklist, rate
+ * limit, pre-log to conversation_log, fire the trigger.dev task.
+ * Extracted from handleMessage so both the normal message path and
+ * the callback_query path can share it without duplication.
+ */
+async function routeExtractedPayload(
+  routerPayload: MessageRouterPayload,
+  env: Env,
+  telegramMessageId: number,
+): Promise<void> {
 
   // Admin commands — only the admin chat ID can run these
   if (env.ADMIN_CHAT_ID && routerPayload.chat_id === env.ADMIN_CHAT_ID && routerPayload.text) {
@@ -86,7 +127,44 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
     }
   }
 
-  await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, msg.message_id);
+  await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, telegramMessageId);
+}
+
+/**
+ * Build a MessageRouterPayload from a callback_query. The `data`
+ * field is translated via CALLBACK_DATA_TO_TEXT so e.g. a tap on a
+ * button with callback_data "confirm_schedule" produces a synthetic
+ * text message "yes" — which the existing intent classifier already
+ * recognizes without any new router branches.
+ */
+function synthesizeFromCallback(cq: TelegramCallbackQuery): MessageRouterPayload | null {
+  if (!cq.data) return null;
+  const text = CALLBACK_DATA_TO_TEXT[cq.data] ?? cq.data;
+  return {
+    chat_id: String(cq.from.id),
+    message_type: "text",
+    text,
+    timestamp: new Date().toISOString(),
+    telegram_language_code: cq.from.language_code,
+  };
+}
+
+/**
+ * Dismiss the loading spinner on a tapped inline-keyboard button.
+ * Telegram requires every callback_query be answered within 60s or
+ * the button shows "loading" forever; we don't attach any visible
+ * text or alert — just the acknowledgment.
+ */
+async function answerCallbackQuery(env: Env, callbackQueryId: string): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callback_query_id: callbackQueryId }),
+    });
+  } catch (err) {
+    console.warn("answerCallbackQuery failed:", err);
+  }
 }
 
 // --- Admin commands (only admin chat ID, classified by Claude Haiku) ---

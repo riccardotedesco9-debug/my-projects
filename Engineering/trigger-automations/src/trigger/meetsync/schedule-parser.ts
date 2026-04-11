@@ -3,7 +3,7 @@
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { downloadMedia, sendTextMessage } from "./telegram-client.js";
+import { downloadMedia, sendTextMessage, yesNoKeyboard } from "./telegram-client.js";
 import { updateParticipantState, getReplyContext, getUserTimezone } from "./d1-client.js";
 import { generateResponse } from "./response-generator.js";
 
@@ -251,10 +251,16 @@ export const scheduleParser = schemaTask({
       // Only pass the shift list itself — don't pass a separate "N shifts extracted"
       // counter or the LLM parrots it back as "Plus N other shifts extracted" which
       // confuses users (they see a list + a contradicting count).
+      //
+      // Round-9: attach yes/no inline keyboard. The Worker translates a
+      // "confirm_schedule" / "reject_schedule" callback_data tap into a
+      // synthetic text message ("yes" / "no") that flows through the
+      // normal router pipeline, so the rest of the code doesn't need a
+      // parallel callback-handling path. Users who prefer typing still can.
       await sendTextMessage(chat_id, await generateResponse({
         scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
         shiftList, userName, userLanguage,
-      }));
+      }), yesNoKeyboard());
 
       return { success: true, shift_count: shifts.length };
     } catch (err) {

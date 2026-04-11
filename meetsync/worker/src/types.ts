@@ -15,6 +15,20 @@ export interface Env {
 export interface TelegramUpdate {
   update_id: number;
   message?: TelegramMessage;
+  callback_query?: TelegramCallbackQuery;
+}
+
+export interface TelegramCallbackQuery {
+  id: string;
+  from: TelegramUser;
+  // The message the button was attached to. Present for inline keyboards
+  // on bot messages; we mostly only need from.id for routing but this
+  // lets us answer the callback against the original message if needed.
+  message?: TelegramMessage;
+  // String payload the bot sent with the button (e.g. "confirm_schedule").
+  // The Worker translates this into a synthetic text message so the
+  // router's existing intent classifier can handle it like a typed reply.
+  data?: string;
 }
 
 export interface TelegramMessage {

@@ -22,6 +22,7 @@ import {
   getPendingInviteForSession,
   getSessionById,
   updateInviteStatus,
+  updateUserTimezone,
   appendUserContext,
   logMessage,
   getRecentMessages,
@@ -286,6 +287,25 @@ export const messageRouter = schemaTask({
           await updateSessionStatus(participant.session_id, "EXPIRED");
         }
         return await handleNewSession(chatId, user);
+      }
+
+      // --- Timezone override — user tells bot their IANA tz ("I'm in Tokyo") ---
+      // Works from any state; persists on the users row so all subsequent
+      // schedule parses and calendar events use the new tz. The intent
+      // classifier maps common city/abbrev names to IANA strings.
+      if (intent === "change_timezone" && typeof params.timezone === "string") {
+        const tz = String(params.timezone).trim();
+        if (tz) {
+          await updateUserTimezone(chatId, tz);
+          await reply(chatId, await generateResponse({
+            scenario: "timezone_updated", state: currentState,
+            userName: user?.name ?? undefined,
+            userLanguage: user?.preferred_language ?? undefined,
+            userMessage: text,
+            extraContext: tz,
+          }));
+          return { action: "timezone_updated", timezone: tz };
+        }
       }
 
       // --- Compute match — user asks "when are we free" ---

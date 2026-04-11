@@ -24,6 +24,27 @@ function getConfig() {
 }
 
 /**
+ * Telegram inline keyboard — a 2D array of button rows. Each button's
+ * `callback_data` is what the Worker will receive in the subsequent
+ * `callback_query` update when the user taps it.
+ */
+export interface InlineKeyboard {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+}
+
+/**
+ * Common keyboards reused across scenarios. Kept minimal on purpose —
+ * every additional variant is one more callback_data string the router
+ * needs to recognize.
+ */
+export const yesNoKeyboard = (): InlineKeyboard => ({
+  inline_keyboard: [[
+    { text: "✓ Yes", callback_data: "confirm_schedule" },
+    { text: "✗ No", callback_data: "reject_schedule" },
+  ]],
+});
+
+/**
  * Send a plain text message to a Telegram chat.
  * Sends first, then logs to conversation_log — so a failed Telegram API call
  * doesn't create a "phantom" bot message in history that the user never saw.
@@ -31,8 +52,18 @@ function getConfig() {
  * message-router) contributes to the same persistent history, which is
  * critical for both the AI's context window and for synthetic-webhook tests
  * that read replies from D1.
+ *
+ * Optional `keyboard` attaches an inline keyboard via Telegram's
+ * `reply_markup`. The Worker translates button taps into synthetic text
+ * messages (e.g. "confirm_schedule" callback → text "yes") so the rest
+ * of the router pipeline sees them as normal user input and doesn't
+ * need a parallel callback-handling path.
  */
-export async function sendTextMessage(chatId: string, text: string): Promise<void> {
+export async function sendTextMessage(
+  chatId: string,
+  text: string,
+  keyboard?: InlineKeyboard,
+): Promise<void> {
   if (isTestChat(chatId)) {
     // Test chats skip the real Bot API but still produce a log entry so
     // synthetic-webhook tests can read the intended reply back from D1.
@@ -45,14 +76,17 @@ export async function sendTextMessage(chatId: string, text: string): Promise<voi
 
   const { token } = getConfig();
 
+  const body: Record<string, unknown> = {
+    chat_id: chatId,
+    text,
+    parse_mode: "Markdown",
+  };
+  if (keyboard) body.reply_markup = keyboard;
+
   const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: "Markdown",
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {

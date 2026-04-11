@@ -30,6 +30,7 @@ const INTENT_LIST = [
   "greeting",
   "done_adding",
   "compute_match",
+  "change_timezone",
   "unknown",
 ] as const;
 
@@ -48,6 +49,7 @@ export interface IntentResult {
     slots?: number[]; // for submit_preferences
     schedule_text?: string; // for upload_schedule_text / amend_schedule
     clarification?: string; // for clarify_schedule (e.g., "check the whole month")
+    timezone?: string; // for change_timezone (IANA string like "Europe/Rome")
     detected_language?: string; // language detected from the message (en/mt/it/etc)
     learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
     reply?: string; // for unknown intent — inline conversational response
@@ -68,6 +70,7 @@ const intentSchema = z.object({
     slots: z.array(z.number()).optional(),
     schedule_text: z.string().optional(),
     clarification: z.string().optional(),
+    timezone: z.string().optional(),
     detected_language: z.string().optional(),
     learned_facts: z.string().optional(),
     reply: z.string().optional(),
@@ -104,6 +107,7 @@ Possible intents:
 - greeting: casual greeting without clear intent when user has no active session AND no known partner
 - compute_match: user wants to find overlapping free time NOW (e.g., "when are we both free", "find a time", "check availability", "compare schedules", "what works for everyone"). This triggers the actual matching computation.
 - done_adding: user is done adding participants and wants to proceed (e.g., "that's everyone", "done", "proceed", "let's go", "no one else"). Only valid in AWAITING_PARTNER_INFO state.
+- change_timezone: user is telling the bot their timezone or location so calendar events land at the right wall-clock time (e.g., "I'm in Tokyo", "set my timezone to Europe/Rome", "I'm on CET", "my tz is America/New_York"). Extract the best IANA timezone string you can into params.timezone. Map common names yourself: "Tokyo" → "Asia/Tokyo", "NYC"/"New York" → "America/New_York", "London" → "Europe/London", "Berlin" → "Europe/Berlin", "CET" → "Europe/Paris", "PST"/"LA" → "America/Los_Angeles", "Sydney" → "Australia/Sydney". If the user only says a city name in passing without clearly asking to set their tz ("my partner is in london"), do NOT use change_timezone — that's just context for learned_facts.
 - unknown: can't determine intent. Include a brief, helpful reply in params.reply that addresses what the user said and gently nudges them toward the next step based on their state.
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.

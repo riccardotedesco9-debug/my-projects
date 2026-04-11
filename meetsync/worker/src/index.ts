@@ -4,6 +4,7 @@
 import type { Env, TelegramUpdate } from "./types.js";
 import { verifyTelegramSecret } from "./signature.js";
 import { handleMessage } from "./handle-message.js";
+import { renderDashboard } from "./dashboard.js";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -30,6 +31,49 @@ export default {
 <p>For questions, message the bot with "help" or contact the developer.</p>
 </body></html>`,
         { headers: { "Content-Type": "text/html" } }
+      );
+    }
+
+    // Admin observability dashboard — session_events viewer.
+    // Gated on a query-string token matching TELEGRAM_WEBHOOK_SECRET
+    // so it's not publicly browsable. Not bulletproof (same secret
+    // used for webhook verification) but good enough to keep casual
+    // URL guessers out while letting the admin bookmark a one-URL
+    // view that doesn't need a full auth system.
+    if (url.pathname === "/dashboard") {
+      const token = url.searchParams.get("token");
+      if (!token || token !== env.TELEGRAM_WEBHOOK_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      return await renderDashboard(env);
+    }
+
+    // One-shot webhook (re-)registration. Needed after round-9 to
+    // include "callback_query" in allowed_updates so Telegram
+    // actually delivers button-tap events — default is just ["message"]
+    // which silently drops callbacks. Secret-gated like /dashboard.
+    if (url.pathname === "/setup-webhook") {
+      const token = url.searchParams.get("token");
+      if (!token || token !== env.TELEGRAM_WEBHOOK_SECRET) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      const webhookUrl = `${url.origin}/webhook`;
+      const tgResp = await fetch(
+        `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/setWebhook`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: webhookUrl,
+            secret_token: env.TELEGRAM_WEBHOOK_SECRET,
+            allowed_updates: ["message", "callback_query"],
+          }),
+        }
+      );
+      const body = await tgResp.text();
+      return new Response(
+        `Webhook registered at ${webhookUrl}\nallowed_updates: [message, callback_query]\n\nTelegram response:\n${body}`,
+        { status: tgResp.ok ? 200 : 500, headers: { "Content-Type": "text/plain" } }
       );
     }
 
