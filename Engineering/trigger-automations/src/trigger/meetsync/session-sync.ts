@@ -27,6 +27,7 @@ import {
   getSessionById,
   getUser,
   getReplyContext,
+  emitSessionEvent,
 } from "./d1-client.js";
 import { sendTextMessage } from "./telegram-client.js";
 import { generateResponse } from "./response-generator.js";
@@ -74,6 +75,8 @@ export async function spawnOrchestrator(sessionId: string): Promise<void> {
     },
     { idempotencyKey: `orch-${sessionId}-v${attempt}` }
   );
+
+  await emitSessionEvent(sessionId, "orchestrator_spawned", { match_attempt: attempt });
 }
 
 /**
@@ -129,6 +132,7 @@ export async function restartOrchestratorForAmend(
     [sessionId]
   );
 
+  await emitSessionEvent(sessionId, "amend_restart", { previous_status: previousStatus });
   await spawnOrchestrator(sessionId);
 }
 
@@ -239,6 +243,7 @@ export async function checkAllConfirmed(sessionId: string): Promise<void> {
   }
   try {
     await wait.completeToken(tokenId, { cancelled: false });
+    await emitSessionEvent(sessionId, "confirmed_gate_completed");
   } catch (err) {
     // Token already completed (e.g. two racing checkAllConfirmed calls)
     // is harmless — the orchestrator woke once and is doing its thing.
@@ -269,6 +274,7 @@ export async function checkAllPreferred(sessionId: string): Promise<void> {
   }
   try {
     await wait.completeToken(tokenId, { cancelled: false });
+    await emitSessionEvent(sessionId, "preferred_gate_completed");
   } catch (err) {
     console.warn(`[checkAllPreferred] completeToken for ${sessionId} threw:`, err);
   }

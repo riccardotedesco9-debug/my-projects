@@ -21,7 +21,7 @@
 // reminder.
 
 import { task, wait } from "@trigger.dev/sdk";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext } from "./d1-client.js";
+import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext, emitSessionEvent } from "./d1-client.js";
 import { sendTextMessage } from "./telegram-client.js";
 import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
@@ -57,11 +57,13 @@ export const sessionOrchestrator = task({
         }));
         await updateParticipantState(p.id, "EXPIRED");
       }
+      await emitSessionEvent(session_id, "session_expired", { stage: "confirmation" });
       return { status: "expired", stage: "confirmation" };
     }
 
     // Amend flow asked us to bail — fresh orchestrator is taking over.
     if (confirmedResult.output?.cancelled) {
+      await emitSessionEvent(session_id, "orchestrator_cancelled", { stage: "confirmation", match_attempt });
       return { status: "cancelled_by_amend", stage: "confirmation" };
     }
 
@@ -140,6 +142,7 @@ export const sessionOrchestrator = task({
 
     // Amend flow asked us to bail mid-preference — fresh orchestrator is taking over.
     if (preferredResult.ok && preferredResult.output?.cancelled) {
+      await emitSessionEvent(session_id, "orchestrator_cancelled", { stage: "preferences", match_attempt });
       return { status: "cancelled_by_amend", stage: "preferences" };
     }
 

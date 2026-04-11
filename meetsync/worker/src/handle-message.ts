@@ -233,6 +233,10 @@ async function sendAdminReply(env: Env, text: string): Promise<void> {
 function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
   const chatId = String(msg.chat.id);
   const timestamp = new Date(msg.date * 1000).toISOString();
+  // Telegram populates `from.language_code` on almost every message (it's
+  // the client UI language). Forward it so the router can guess a
+  // timezone for first-time users.
+  const telegram_language_code = msg.from?.language_code;
 
   // Text message
   if (msg.text) {
@@ -241,6 +245,7 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
       message_type: "text",
       text: msg.text.trim(),
       timestamp,
+      telegram_language_code,
     };
   }
 
@@ -253,6 +258,7 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
       media_id: photo.file_id,
       mime_type: "image/jpeg", // Telegram photos are always JPEG
       timestamp,
+      telegram_language_code,
     };
   }
 
@@ -264,6 +270,7 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
       media_id: msg.document.file_id,
       mime_type: msg.document.mime_type ?? "application/octet-stream",
       timestamp,
+      telegram_language_code,
     };
   }
 
@@ -275,6 +282,7 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
       media_id: msg.voice.file_id,
       mime_type: msg.voice.mime_type ?? "audio/ogg",
       timestamp,
+      telegram_language_code,
     };
   }
 
@@ -286,6 +294,7 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
       contact_phone: msg.contact.phone_number,
       text: `Shared contact: ${msg.contact.first_name} ${msg.contact.last_name ?? ""}`.trim(),
       timestamp,
+      telegram_language_code,
     };
   }
 

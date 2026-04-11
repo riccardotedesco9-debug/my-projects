@@ -18,7 +18,8 @@ export async function createCalendarEvent(
   date: string, // YYYY-MM-DD
   startTime: string, // HH:MM
   endTime: string, // HH:MM
-  summary: string = "Meetup"
+  summary: string = "Meetup",
+  timezone: string = "Europe/Malta",
 ): Promise<boolean> {
   const token = await getGoogleToken(chatId);
   if (!token) return false; // user hasn't connected Google Calendar
@@ -37,11 +38,11 @@ export async function createCalendarEvent(
     summary,
     start: {
       dateTime: `${date}T${startTime}:00`,
-      timeZone: "Europe/Malta",
+      timeZone: timezone,
     },
     end: {
       dateTime: `${date}T${endTime}:00`,
-      timeZone: "Europe/Malta",
+      timeZone: timezone,
     },
     description: "Scheduled via MeetSync",
   };

@@ -82,6 +82,13 @@ export interface MessageRouterPayload {
    * media-only turns) the task falls back to logging inline.
    */
   log_id?: number;
+  /**
+   * Telegram `msg.from.language_code` — e.g. "en", "it", "ja-JP". Used by
+   * the router to guess an IANA timezone for first-time users so their
+   * calendar events render at the right wall-clock time. Existing users'
+   * tz is NOT overwritten by subsequent messages — only set on INSERT.
+   */
+  telegram_language_code?: string;
 }
 
 export interface ScheduleParserPayload {

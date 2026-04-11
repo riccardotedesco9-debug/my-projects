@@ -77,7 +77,7 @@ export const messageRouter = schemaTask({
       // inserted row. But getUser / getParticipantByChatId / getRecentMessages are all
       // read-only and independent, so we fire them in parallel for a meaningful latency
       // win (each D1 call is ~30–80 ms over the public API; 3 parallel ≈ 1 sequential).
-      await registerUser(chatId);
+      await registerUser(chatId, undefined, undefined, payload.telegram_language_code);
       const [userResult, participantEarly, recentEarly] = await Promise.all([
         getUser(chatId),
         getParticipantByChatId(chatId),
@@ -269,12 +269,16 @@ export const messageRouter = schemaTask({
           return { action: "reset_confirmation_asked" };
         }
 
-        // Confirmed — do the full wipe
+        // Confirmed — do the full wipe. Reset reply goes directly through
+        // the static fallback via the `reset_all` scenario since the user
+        // row is gone by the time we'd otherwise getReplyContext.
         await resetUserData(chatId);
         await query("DELETE FROM conversation_log WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM participants WHERE chat_id = ?", [chatId]);
         await query("DELETE FROM users WHERE chat_id = ?", [chatId]);
-        await reply(chatId, "Done — everything wiped. Send me a message to start fresh.");
+        await reply(chatId, await generateResponse({
+          scenario: "reset_all", state: "IDLE",
+        }));
         return { action: "reset" };
       }
       if (intent === "new_partner") {
@@ -331,7 +335,12 @@ export const messageRouter = schemaTask({
         // the rest of this handler will pick it up below. Only reply with the
         // short acknowledgment if there's nothing else to do.
         if (!params.partner_name && !params.partner_phone && !params.schedule_text) {
-          await reply(chatId, `Got it, ${params.name}!`);
+          await reply(chatId, await generateResponse({
+            scenario: "ack_name", state: currentState,
+            userName: String(params.name),
+            userLanguage: user?.preferred_language ?? undefined,
+            userMessage: text,
+          }));
           return { action: "name_updated", name: params.name };
         }
         // Otherwise a richer acknowledgment will be produced downstream by the
@@ -397,7 +406,13 @@ export const messageRouter = schemaTask({
             const pUser = await getUser(p.chat_id);
             if (pUser?.name && recentLower.includes(pUser.name.toLowerCase())) {
               targetParticipant = { ...participant, id: p.id, chat_id: p.chat_id };
-              await reply(chatId, `Got it — saving this as ${pUser.name}'s schedule.`);
+              await reply(chatId, await generateResponse({
+                scenario: "ack_schedule_for_partner", state: currentState,
+                userName: user?.name ?? undefined,
+                userLanguage: user?.preferred_language ?? undefined,
+                partnerName: pUser.name,
+                userMessage: text,
+              }));
               break;
             }
           }
@@ -448,7 +463,11 @@ export const messageRouter = schemaTask({
         case "AWAITING_CONFIRMATION":
           if ((message_type === "image" || message_type === "document") && media_id) {
             await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-            await reply(chatId, "Got your updated schedule! Re-analyzing...");
+            await reply(chatId, await generateResponse({
+              scenario: "reparsing_updated_schedule", state: "SCHEDULE_RECEIVED",
+              userMessage: text,
+              ...(await getReplyContext(chatId)),
+            }));
             await scheduleParser.trigger({
               participant_id: participant.id, session_id: participant.session_id,
               chat_id: chatId, media_id, mime_type: mime_type ?? "image/jpeg",
@@ -494,7 +513,9 @@ export const messageRouter = schemaTask({
     } catch (err) {
       console.error("Message router error:", err);
       try {
-        await reply(chatId, "Sorry, something went wrong on my end. Try again or send /new to start fresh.");
+        await reply(chatId, await generateResponse({
+          scenario: "internal_error", state: "IDLE",
+        }));
       } catch { /* last resort */ }
       return { action: "error", error: String(err) };
     }
@@ -541,7 +562,15 @@ async function handleIdleUser(
   if (invite) {
     if (intent === "decline_invite") {
       await updateInviteStatus(invite.id, "DECLINED");
-      await reply(chatId, "No problem! Send /new when you're ready to schedule.");
+      await reply(chatId, await generateResponse({
+        scenario: "invite_declined_ok", state: "IDLE",
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+        userMessage,
+      }));
+      // The inviter notification stays hardcoded — it's a cross-user message
+      // where we don't have the inviter's userMessage context, and the
+      // inviter's language we'd need getUser() for. Acceptable for now.
       await reply(invite.inviter_chat_id,
         `${user?.name ?? "Your invitee"} isn't available right now. You can add someone else or send /new to try again.`);
       return { action: "invite_declined" };

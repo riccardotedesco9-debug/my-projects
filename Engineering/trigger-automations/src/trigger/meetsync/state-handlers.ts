@@ -124,7 +124,12 @@ export async function handleAwaitingPartnerInfo(
 
     if (partnerUser) {
       if (partnerUser.chat_id === chatId) {
-        await reply(chatId, "That's your own number! Add someone else.");
+        await reply(chatId, await generateResponse({
+          scenario: "self_number_rejected", state: "AWAITING_PARTNER_INFO",
+          userName: user?.name ?? undefined,
+          userLanguage: user?.preferred_language ?? undefined,
+          userMessage,
+        }));
         return { action: "self_invite_rejected" };
       }
       return await addParticipant(chatId, partnerUser.chat_id, participant.session_id, user, partnerUser);
@@ -260,7 +265,11 @@ export async function handleAcceptInvite(
   const session = await getSessionById(invite.session_id);
   if (!session || session.status === "EXPIRED" || session.status === "COMPLETED" || new Date(session.expires_at) < new Date()) {
     await updateInviteStatus(invite.id, "EXPIRED");
-    await reply(chatId, "That scheduling session expired. Send /new to start fresh!");
+    await reply(chatId, await generateResponse({
+      scenario: "session_expired", state: "EXPIRED",
+      userName: inviteeUser?.name ?? undefined,
+      userLanguage: inviteeUser?.preferred_language ?? undefined,
+    }));
     return { action: "invite_session_expired" };
   }
 
@@ -277,7 +286,11 @@ export async function handleAcceptInvite(
     );
   } catch {
     // UNIQUE constraint — already joined
-    await reply(chatId, "You're already in this session! Send your work schedule.");
+    await reply(chatId, await generateResponse({
+      scenario: "already_joined", state: "AWAITING_SCHEDULE",
+      userName: inviteeUser?.name ?? undefined,
+      userLanguage: inviteeUser?.preferred_language ?? undefined,
+    }));
     return { action: "already_joined" };
   }
 
@@ -320,7 +333,11 @@ export async function handleAwaitingSchedule(
   // File upload (image or document)
   if (message_type === "image" || message_type === "document") {
     if (!media_id) {
-      await reply(chatId, "I couldn't receive that file. Try sending it again.");
+      await reply(chatId, await generateResponse({
+        scenario: "missing_media", state: "AWAITING_SCHEDULE",
+        userMessage,
+        ...(await getReplyContext(chatId)),
+      }));
       return { action: "missing_media" };
     }
 
@@ -442,13 +459,21 @@ export async function handleSendAvailability(
 ): Promise<Record<string, unknown>> {
   const slots = computeSinglePersonSlots(participant.schedule_json);
   if (slots.length === 0) {
-    await reply(chatId, "Couldn't compute free time from your schedule. Try uploading it again.");
+    await reply(chatId, await generateResponse({
+      scenario: "no_free_slots_computed", state: "SCHEDULE_CONFIRMED",
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+    }));
     return { action: "no_free_slots" };
   }
 
   const otherParticipants = await getOtherParticipants(participant.session_id, chatId);
   if (otherParticipants.length === 0) {
-    await reply(chatId, "No other participants found for this session. Send /new to start fresh.");
+    await reply(chatId, await generateResponse({
+      scenario: "no_other_participants", state: "SCHEDULE_CONFIRMED",
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+    }));
     return { action: "no_other_participants" };
   }
 
@@ -462,16 +487,26 @@ export async function handleSendAvailability(
     );
   }
 
-  // Set mediated mode and complete orchestrator tokens so the
-  // orchestrator advances through both gates without waiting on the
-  // normal confirm/prefer flow.
+  // Round-8 fix for pre-existing double-delivery bug:
+  // In mediated mode, handleSendAvailability owns the slot computation
+  // (single-person slots from the creator's schedule) AND the eventual
+  // deliverResults call (from handleAwaitingPreferences once the partner
+  // picks). The orchestrator should NOT also run matchCompute +
+  // deliverResults — doing so overwrites free_slots with N-way overlap
+  // (wrong in mediated) and fires deliverResults twice (duplicate ics +
+  // duplicate Telegram messages).
+  //
+  // Previously this code completed both tokens with `{completed: true}`
+  // which woke the orchestrator through the non-mediated path. Now we
+  // complete them with `{cancelled: true}` so the orchestrator returns
+  // via its cancellation branch and stays out of the mediated pipeline.
   await updateSessionMode(participant.session_id, "MEDIATED");
   const session = await getSessionById(participant.session_id);
   if (session?.both_confirmed_token_id) {
-    try { await wait.completeToken(session.both_confirmed_token_id, { completed: true }); } catch { /* already completed */ }
+    try { await wait.completeToken(session.both_confirmed_token_id, { cancelled: true }); } catch { /* already completed */ }
   }
   if (session?.both_preferred_token_id) {
-    try { await wait.completeToken(session.both_preferred_token_id, { completed: true }); } catch { /* already completed */ }
+    try { await wait.completeToken(session.both_preferred_token_id, { cancelled: true }); } catch { /* already completed */ }
   }
 
   // Format slot list
@@ -552,7 +587,10 @@ export async function handleAwaitingPreferences(
         const result = await deliverResults.triggerAndWait({ session_id: participant.session_id });
         if (!result.ok) throw new Error("Delivery failed");
       } catch {
-        await reply(participant.chat_id, "Something went wrong finding the match. Try sending /new to start over.");
+        await reply(participant.chat_id, await generateResponse({
+          scenario: "match_delivery_failed", state: "MATCHING",
+          ...(await getReplyContext(participant.chat_id)),
+        }));
       }
       return { action: "mediated_preferences_submitted", slots };
     }

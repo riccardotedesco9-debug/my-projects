@@ -162,20 +162,85 @@ export interface UserProfile {
   name: string | null;
   preferred_language: string;
   context: string | null;
+  timezone: string;
   first_seen: string;
   last_seen: string;
 }
 
-/** Register or update a user — called on every inbound message */
-export async function registerUser(chatId: string, name?: string, language?: string) {
+/** Update user's timezone */
+export async function updateUserTimezone(chatId: string, timezone: string) {
   await query(
-    `INSERT INTO users (chat_id, name, preferred_language)
-     VALUES (?, ?, ?)
+    "UPDATE users SET timezone = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [timezone, chatId]
+  );
+}
+
+/**
+ * Best-effort IANA timezone from a Telegram language_code. Only covers
+ * a handful of common cases; everything else falls back to Europe/Malta
+ * (MeetSync's origin). Users can always override with an explicit tz.
+ *
+ * Intentionally NOT exhaustive — building a language→region→tz table is
+ * out of scope. The goal is "don't silently put a Tokyo user on Malta
+ * time"; for everyone else the default is fine until we learn otherwise.
+ */
+export function guessTimezoneFromLocale(languageCode?: string | null): string {
+  if (!languageCode) return "Europe/Malta";
+  const lc = languageCode.toLowerCase().split("-")[0];
+  const map: Record<string, string> = {
+    it: "Europe/Rome",
+    en: "Europe/Malta",
+    de: "Europe/Berlin",
+    fr: "Europe/Paris",
+    es: "Europe/Madrid",
+    pt: "Europe/Lisbon",
+    nl: "Europe/Amsterdam",
+    pl: "Europe/Warsaw",
+    sv: "Europe/Stockholm",
+    fi: "Europe/Helsinki",
+    ru: "Europe/Moscow",
+    uk: "Europe/Kyiv",
+    tr: "Europe/Istanbul",
+    ja: "Asia/Tokyo",
+    ko: "Asia/Seoul",
+    zh: "Asia/Shanghai",
+    vi: "Asia/Ho_Chi_Minh",
+    th: "Asia/Bangkok",
+    id: "Asia/Jakarta",
+    hi: "Asia/Kolkata",
+    ar: "Asia/Dubai",
+    he: "Asia/Jerusalem",
+  };
+  return map[lc] ?? "Europe/Malta";
+}
+
+/**
+ * Register or update a user — called on every inbound message.
+ *
+ * `telegramLanguageCode` is the `language_code` field from Telegram's
+ * `from` payload (e.g. "en", "it", "ja-JP"). When present on the
+ * first-insert path, we use it to guess an IANA timezone via
+ * guessTimezoneFromLocale so calendar events render at the correct
+ * wall-clock time for non-Malta users. On the ON-CONFLICT update we
+ * deliberately do NOT touch timezone — once the row exists, only an
+ * explicit updateUserTimezone call changes it, so users who override
+ * their tz don't get reset by a new message with a different locale.
+ */
+export async function registerUser(
+  chatId: string,
+  name?: string,
+  language?: string,
+  telegramLanguageCode?: string,
+) {
+  const tz = guessTimezoneFromLocale(telegramLanguageCode);
+  await query(
+    `INSERT INTO users (chat_id, name, preferred_language, timezone)
+     VALUES (?, ?, ?, ?)
      ON CONFLICT(chat_id) DO UPDATE SET
        last_seen = datetime('now'),
        name = COALESCE(?, users.name),
        preferred_language = COALESCE(?, users.preferred_language)`,
-    [chatId, name ?? null, language ?? "en", name ?? null, language ?? null]
+    [chatId, name ?? null, language ?? "en", tz, name ?? null, language ?? null]
   );
 }
 
@@ -370,6 +435,18 @@ export async function getReplyContext(chatId: string): Promise<{ userName?: stri
   };
 }
 
+/**
+ * Look up a user's timezone (IANA string, e.g. "Europe/Rome"), falling
+ * back to Europe/Malta when the user row is missing or the column is
+ * null. Used by schedule-parser (weekday-lookup "today" computation)
+ * and deliver-results (.ics + Google Calendar timezone fields) so
+ * non-Malta users don't get dates drifted by 1+ hours.
+ */
+export async function getUserTimezone(chatId: string): Promise<string> {
+  const user = await getUser(chatId);
+  return user?.timezone ?? "Europe/Malta";
+}
+
 /** Find pending invite for a session */
 export async function getPendingInviteForSession(sessionId: string) {
   const result = await query<{
@@ -429,4 +506,31 @@ export async function getRecentMessages(chatId: string) {
   );
   // Reverse so oldest first (chronological order)
   return result.results.reverse();
+}
+
+/**
+ * Log a session-level event for observability. Fire-and-forget — if the
+ * insert fails we swallow the error rather than blow up the happy path.
+ * The round-8 audit found stuck sessions were invisible until users
+ * complained; emitting an event at every material transition means the
+ * stuck-session query is:
+ *   SELECT session_id, MAX(created_at) FROM session_events
+ *    GROUP BY session_id
+ *    HAVING MAX(created_at) < datetime('now','-10 minutes')
+ *
+ * `data` is a free-form JSON string (caller's choice of payload).
+ */
+export async function emitSessionEvent(
+  sessionId: string,
+  event: string,
+  data?: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await query(
+      "INSERT INTO session_events (session_id, event, data) VALUES (?, ?, ?)",
+      [sessionId, event, data ? JSON.stringify(data) : null]
+    );
+  } catch (err) {
+    console.warn(`[session-events] emit failed for ${sessionId}/${event}:`, err);
+  }
 }

@@ -25,6 +25,10 @@ export const payloadSchema = z.object({
   contact_phone: z.string().optional(),
   timestamp: z.string(),
   log_id: z.number().optional(),
+  // Round-8 addition — forwarded by Worker from msg.from.language_code
+  // so the router can seed users.timezone on first insert. Existing
+  // users' tz is preserved by the ON CONFLICT clause in registerUser.
+  telegram_language_code: z.string().optional(),
 });
 
 export type RouterPayload = z.infer<typeof payloadSchema>;

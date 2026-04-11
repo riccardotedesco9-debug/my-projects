@@ -34,6 +34,10 @@ export interface TelegramUser {
   first_name: string;
   last_name?: string;
   username?: string;
+  // IETF BCP 47 language tag of the user's Telegram client (e.g. "en",
+  // "it", "ja-JP"). Used by the router to guess an IANA timezone for
+  // first-time users.
+  language_code?: string;
 }
 
 export interface TelegramPhotoSize {
