@@ -107,23 +107,16 @@ function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionE
 
 // --- Tool 1: parse_schedule (auto-saves on success) ---
 //
-// Single tool that extracts AND persists in one shot. Earlier design had
-// parse + save as separate tools, but the parsed shifts vanished across
-// turn boundaries (cached only in the per-turn ToolContext). When the user
-// said "yes" to confirm, the next turn's Claude had no shifts to commit and
-// re-asked for the schedule. The user reported this loop on 2026-04-11.
-//
-// New behaviour: parse_schedule extracts AND immediately writes to D1
-// (participant.schedule_json for the caller, person_notes.schedule_json
-// for on-behalf uploads). Auto-creates a session if the caller has none.
-// "Confirmation" becomes purely conversational — Claude shows the parsed
-// shifts with Yes/No buttons; Yes = "looks good, what's next" (no save
-// needed), No = call parse_schedule again with the user's correction.
+// Extracts shifts and writes them straight to D1 in one call —
+// participant.schedule_json for the caller's own schedule,
+// person_notes.schedule_json when attributed_to_name is set. Auto-creates
+// a session if the caller has none. Returns the parsed shifts. Claude
+// reads the result and decides how to reply.
 
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract structured shifts from whatever the user provided this turn (photo, PDF, typed hours, voice transcript, Excel screenshot, free text — anything) AND save them to D1 in the same call. If the current turn has an attached image/PDF, omit text_content to parse the attachment. If the user typed their hours, pass them in text_content. Use attributed_to_name ONLY when the schedule belongs to someone OTHER than the user ('here's Diego's rota'). After this returns successfully, reply showing a brief summary of the shifts and ATTACH yes/no buttons (callback: 'confirm' / 'reject') so the user can one-tap confirm. The schedule is already saved — yes = acknowledge and continue, no = ask what to fix and call parse_schedule again with the correction.",
+    "Extract and save shifts from a schedule the user shared (photo, PDF, voice transcript, typed text, screenshot — any format). Auto-saves to D1. Pass text_content for typed input, or omit it to use the current turn's attached media. Use attributed_to_name when the schedule is for someone other than the user. Returns the parsed shifts.",
   input_schema: {
     type: "object",
     properties: {
@@ -171,9 +164,7 @@ const parseScheduleTool: ToolDefinition = {
       }
 
       if (result.shifts.length === 0) {
-        return {
-          error: "Couldn't extract any shifts. Tell the user the parse came back empty and ask them to try a clearer photo or type the hours directly.",
-        };
+        return { error: "Parser returned no shifts." };
       }
 
       const scheduleJson = JSON.stringify(result.shifts);
@@ -205,10 +196,9 @@ const parseScheduleTool: ToolDefinition = {
         }
         return {
           saved: true,
-          owner_resolved_to: `person_note:${attributedToName}`,
+          saved_to: `person_note:${attributedToName}`,
           shift_count: result.shifts.length,
           shifts: result.shifts,
-          next_step: `REQUIRED next call: reply with a brief summary of ${attributedToName}'s shifts (don't list every shift unless there are unusual ones — say things like "Mon-Fri 9-5, off weekends") and ATTACH yes/no buttons (callback: 'confirm' for accept, 'reject' for redo). Mention these are ${attributedToName}'s, not the user's, and the schedule is saved.`,
         };
       }
 
@@ -267,11 +257,10 @@ const parseScheduleTool: ToolDefinition = {
 
       return {
         saved: true,
-        owner_resolved_to: `participant:${ctx.callerChatId}`,
+        saved_to: `participant:${ctx.callerChatId}`,
         session_id: sessionEntry.session.id,
         shift_count: result.shifts.length,
         shifts: result.shifts,
-        next_step: "REQUIRED next call: reply with a brief summary of the shifts (e.g. 'Mon-Fri 9-5 with two late Saturdays' — DON'T list every shift unless there are unusual ones) and ATTACH yes/no buttons (callback: 'confirm' for accept, 'reject' for redo). The schedule is already saved. Yes = acknowledge and ask the next thing (who to schedule with, etc). No = ask what to fix and call parse_schedule again with the correction in text_content.",
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -289,7 +278,7 @@ const parseScheduleTool: ToolDefinition = {
 const addOrInvitePartnerTool: ToolDefinition = {
   name: "add_or_invite_partner",
   description:
-    "Add someone to the current session. Provide either a name or a phone number (or both). If the person is a known bot user, they're added as a participant directly. If not, a pending invite is created and the deep-link URL is returned for you to share with the caller. For ambiguous name matches (multiple bot users with the same name), returns candidates for the caller to disambiguate.",
+    "Add someone to the current session by name or phone. Known bot users are added directly; unknown people get a pending invite + deep-link URL the caller can share. Returns ambiguous candidates when multiple users share a name.",
   input_schema: {
     type: "object",
     properties: {
@@ -462,8 +451,7 @@ async function addKnownParticipant(
 
 const removePartnerTool: ToolDefinition = {
   name: "remove_partner",
-  description:
-    "Remove a partner from the current session by name. Handles real participants and pending invites. Returns {ambiguous: true, candidates} if the name matches multiple people in the session, or {not_found: true} if no match.",
+  description: "Remove a partner from the current session by name. Returns ambiguous candidates on multi-match, not_found on no match.",
   input_schema: {
     type: "object",
     required: ["name"],
@@ -519,15 +507,12 @@ const removePartnerTool: ToolDefinition = {
 const computeAndDeliverMatchTool: ToolDefinition = {
   name: "compute_and_deliver_match",
   description:
-    "Compute overlapping free time across all participants (including any on-behalf schedules from person_notes) and deliver the best slot to everyone via Telegram + .ics + Google Calendar. Use when the user explicitly asks 'when are we all free?' OR when they confirm they're ready to finalise. Set force_mediated=true to switch to mediator mode: the caller has a schedule, partners pick from the caller's free slots without uploading their own — use this when the user says 'just send them my free times'.",
+    "Find overlapping free time across everyone in the session (including on-behalf schedules) and deliver the best slot to all participants via Telegram + .ics + Google Calendar. Set force_mediated=true to use only the caller's schedule and send their free times for partners to pick from.",
   input_schema: {
     type: "object",
     properties: {
       session_id: { type: "string" },
-      force_mediated: {
-        type: "boolean",
-        description: "If true, use the caller's schedule as the only source and send their free slots to partners without requiring partner uploads.",
-      },
+      force_mediated: { type: "boolean" },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
@@ -608,7 +593,7 @@ const computeAndDeliverMatchTool: ToolDefinition = {
 const upsertKnowledgeTool: ToolDefinition = {
   name: "upsert_knowledge",
   description:
-    "Remember something for future conversations. target='user' saves to the caller's own profile (name, language, timezone, or freeform fact). target='person' saves to a named third party's person_notes row (creates the row if absent). Use this whenever you learn something worth persisting: the user's name, preferred language, timezone, accumulated facts about themselves, or facts about other people they've mentioned.",
+    "Persist knowledge across conversations. target='user' updates the caller's own profile (name, language, timezone, freeform fact). target='person' updates a person_notes row for a named third party (creates it if absent).",
   input_schema: {
     type: "object",
     required: ["target"],
@@ -683,7 +668,7 @@ const upsertKnowledgeTool: ToolDefinition = {
 const sessionActionTool: ToolDefinition = {
   name: "session_action",
   description:
-    "Take an action on the caller's session. 'new' starts a fresh session (expires any existing one). 'cancel' marks the current session EXPIRED. 'reset_all' wipes ALL the caller's data (sessions, conversation history, person_notes). For reset_all: ask once, then on the user's first 'yes' / Confirm tap / explicit 'wipe it' message, JUST DO IT — do not ask a second time, do not stall, do not require any specific phrasing. After the wipe completes, send a brief confirmation reply so the user knows it worked. 'reopen' flips the most-recent COMPLETED session back to OPEN for amend-after-delivered — preserves existing schedules so the user only sends the delta.",
+    "Session lifecycle action. 'new' starts a fresh session (expires existing). 'cancel' marks the current session EXPIRED. 'reopen' flips the most-recent COMPLETED session back to OPEN preserving its schedules (for amend-after-delivered). 'reset_all' wipes ALL the caller's data — sessions, history, person_notes — so use it only when the user clearly asks to start completely over.",
   input_schema: {
     type: "object",
     required: ["action"],
@@ -745,11 +730,7 @@ const sessionActionTool: ToolDefinition = {
       await query("DELETE FROM participants WHERE chat_id = ?", [ctx.callerChatId]);
       await query("DELETE FROM person_notes WHERE owner_chat_id = ?", [ctx.callerChatId]);
       await query("DELETE FROM users WHERE chat_id = ?", [ctx.callerChatId]);
-      return {
-        action: "reset",
-        notes: "All caller data wiped successfully.",
-        next_step: "REQUIRED: call the reply tool now with a brief friendly confirmation in the user's language so they know the wipe worked. Example: 'All gone — your data has been wiped clean. Send anything when you want to start fresh.' Do not skip this reply.",
-      };
+      return { action: "reset", notes: "All caller data wiped successfully." };
     }
 
     return { error: `Unknown action: ${String(action)}` };
@@ -761,7 +742,7 @@ const sessionActionTool: ToolDefinition = {
 const replyTool: ToolDefinition = {
   name: "reply",
   description:
-    "Send the user a reply. This is ALWAYS the LAST tool call of your turn. Use `text` for a single message. Use `messages` for 2+ separate messages in order (e.g. acknowledgment + invite link). Use `buttons` when a yes/no confirmation would make the user's response one-tap — buttons attach to the last message only.",
+    "Send the user a reply. This is the terminal tool of your turn. Use text for a single message, messages[] for multiple messages in order, or buttons[] for one-tap yes/no replies (buttons attach to the last message).",
   input_schema: {
     type: "object",
     properties: {
