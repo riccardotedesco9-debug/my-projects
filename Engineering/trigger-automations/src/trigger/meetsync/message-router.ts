@@ -103,7 +103,10 @@ export const messageRouter = schemaTask({
           }
         } catch (err) {
           console.error("Voice transcription failed:", err);
-          await reply(chatId, "I had trouble processing your voice message. Could you type it instead?");
+          await reply(chatId, await generateResponse({
+            scenario: "voice_transcription_failed", state: "IDLE",
+            ...(await getReplyContext(chatId)),
+          }));
           return { action: "voice_transcription_failed" };
         }
       }
@@ -241,7 +244,11 @@ export const messageRouter = schemaTask({
         return { action: "status" };
       }
       if (intent === "unsupported_media") {
-        await reply(chatId, "I can't process videos or stickers — but I handle text, photos, PDFs, and voice messages!");
+        await reply(chatId, await generateResponse({
+          scenario: "unsupported_file", state: participant?.state ?? "IDLE",
+          userMessage: text,
+          ...(await getReplyContext(chatId)),
+        }));
         return { action: "unsupported_media" };
       }
       if (intent === "reset_all") {
@@ -282,16 +289,27 @@ export const messageRouter = schemaTask({
         const participants = await getSessionParticipants(participant.session_id);
         const withSchedules = participants.filter((p) => p.schedule_json);
         if (withSchedules.length < 2) {
-          await reply(chatId, "I need at least 2 people's schedules before I can find overlaps. Share more schedules first!");
+          await reply(chatId, await generateResponse({
+            scenario: "need_more_schedules", state: participant.state,
+            userMessage: text,
+            ...(await getReplyContext(chatId)),
+          }));
           return { action: "not_enough_schedules" };
         }
-        await reply(chatId, "Checking everyone's schedules for overlapping free time...");
+        await reply(chatId, await generateResponse({
+          scenario: "checking_overlaps", state: participant.state,
+          userMessage: text,
+          ...(await getReplyContext(chatId)),
+        }));
         await updateSessionStatus(participant.session_id, "MATCHING");
         const result = await matchCompute.triggerAndWait({ session_id: participant.session_id });
         if (result.ok && result.output.slot_count > 0) {
           await deliverResults.triggerAndWait({ session_id: participant.session_id });
         } else {
-          await reply(chatId, "Couldn't find any overlapping free time. Try sharing updated schedules.");
+          await reply(chatId, await generateResponse({
+            scenario: "no_overlap", state: participant.state,
+            ...(await getReplyContext(chatId)),
+          }));
         }
         return { action: "match_computed" };
       }

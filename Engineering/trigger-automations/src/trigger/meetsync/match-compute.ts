@@ -19,6 +19,18 @@ interface ParsedShift {
   end_time: string;
 }
 
+// Runtime schema for stored schedule_json — same shape as
+// schedule-parser's parsedShiftSchema but loosened on optional fields.
+// Used to validate D1-stored JSON before computing matches, so a
+// corrupted row fails loudly instead of silently returning [] and
+// reporting "no overlap" to the user.
+const storedShiftSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  start_time: z.string().regex(/^\d{2}:\d{2}$/),
+  end_time: z.string().regex(/^\d{2}:\d{2}$/),
+}).passthrough();
+const storedScheduleSchema = z.array(storedShiftSchema);
+
 // Reasonable free time window (8am-10pm)
 const DAY_START = 8 * 60; // 08:00
 const DAY_END = 22 * 60; // 22:00
@@ -156,13 +168,33 @@ function getDateRange(shifts: ParsedShift[]): { start: string; end: string } | n
   return { start: dates[0], end: dates[dates.length - 1] };
 }
 
-function parseSchedule(json: string | null): ParsedShift[] {
+function parseSchedule(json: string | null, participantId?: string): ParsedShift[] {
   if (!json) return [];
+
+  // Round-7 fix: the previous implementation silently returned [] on any
+  // parse error, so corrupted schedule_json in D1 would flow through
+  // match-compute as "no free time" without any signal to the logs. Now
+  // we log-loud on both JSON.parse and Zod validation failures so a
+  // malformed row can actually be diagnosed.
+  let raw: unknown;
   try {
-    return JSON.parse(json) as ParsedShift[];
-  } catch {
+    raw = JSON.parse(json);
+  } catch (err) {
+    console.error(
+      `[match-compute] schedule_json JSON.parse failed${participantId ? ` for participant ${participantId}` : ""}. Raw (first 300): ${json.slice(0, 300)}`
+    );
     return [];
   }
+
+  const validated = storedScheduleSchema.safeParse(raw);
+  if (!validated.success) {
+    console.error(
+      `[match-compute] schedule_json schema validation failed${participantId ? ` for participant ${participantId}` : ""}. Issues: ${JSON.stringify(validated.error.issues.slice(0, 5))}. Raw (first 300): ${json.slice(0, 300)}`
+    );
+    return [];
+  }
+
+  return validated.data as ParsedShift[];
 }
 
 export function timeToMinutes(time: string): number {

@@ -25,7 +25,11 @@ import {
   updateParticipantState,
   updateSessionStatus,
   getSessionById,
+  getUser,
+  getReplyContext,
 } from "./d1-client.js";
+import { sendTextMessage } from "./telegram-client.js";
+import { generateResponse } from "./response-generator.js";
 import { sessionOrchestrator } from "./session-orchestrator.js";
 
 /**
@@ -180,8 +184,31 @@ export async function checkAllConfirmed(sessionId: string): Promise<void> {
     ["MATCHING", "MATCHED", "COMPLETED", "PAIRED"].includes(session.status) &&
     !everyoneStillInConfirmPhase
   ) {
+    // Round-7 UX fix: before silently pulling other participants back into
+    // an active flow, notify each one that someone amended so the
+    // re-prompt they're about to get has context. The amender is the
+    // participant in SCHEDULE_CONFIRMED state (just re-confirmed); others
+    // are in later stages and are the ones being reset.
+    const amender = participants.find((p) => p.state === "SCHEDULE_CONFIRMED");
+    const amenderUser = amender ? await getUser(amender.chat_id) : null;
+    const amenderName = amenderUser?.name ?? null;
+
     for (const p of participants) {
       if (p.state !== "SCHEDULE_CONFIRMED") {
+        // Notify them BEFORE the state reset so the message is
+        // standalone context. If the notification fails we still proceed
+        // with the reset — the orchestrator's fresh slot-list message
+        // will still arrive, just without the explanation.
+        try {
+          await sendTextMessage(p.chat_id, await generateResponse({
+            scenario: "amend_notify_others",
+            state: p.state,
+            partnerName: amenderName ?? undefined,
+            ...(await getReplyContext(p.chat_id)),
+          }));
+        } catch (err) {
+          console.warn(`[amend-notify] failed for ${p.chat_id}:`, err);
+        }
         await updateParticipantState(p.id, "SCHEDULE_CONFIRMED");
       }
     }

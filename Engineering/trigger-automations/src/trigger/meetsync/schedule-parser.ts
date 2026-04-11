@@ -288,8 +288,36 @@ async function callClaude(
   if (!textBlock?.text) throw new Error("No text response from Claude");
 
   const jsonStr = textBlock.text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-  const parsed = parseResultSchema.parse(JSON.parse(jsonStr));
-  return parsed.shifts;
+
+  // Log-loud-on-parse-failure: the round-6 review flagged schedule_parser as
+  // silently failing when Claude returns a malformed schema. Previously both
+  // JSON.parse errors and Zod validation errors bubbled up as a generic
+  // "parse_error" with no diagnostic info — users saw "parse_error" in
+  // Telegram while the real cause (e.g. Claude returned `"start_time": "9:00"`
+  // instead of the regex-required `"09:00"`) was invisible. Now we log the
+  // raw output head + structured validation errors so the next user report
+  // is actually actionable.
+  let rawJson: unknown;
+  try {
+    rawJson = JSON.parse(jsonStr);
+  } catch (err) {
+    console.error(
+      `[schedule-parser] JSON.parse failed. Raw Claude output (first 500 chars): ${jsonStr.slice(0, 500)}`,
+    );
+    throw new Error(`schedule-parser JSON parse failed: ${(err as Error).message}`);
+  }
+
+  const validated = parseResultSchema.safeParse(rawJson);
+  if (!validated.success) {
+    console.error(
+      `[schedule-parser] Zod validation failed. Issues: ${JSON.stringify(validated.error.issues)}. Raw output (first 500 chars): ${jsonStr.slice(0, 500)}`,
+    );
+    throw new Error(
+      `schedule-parser output did not match schema: ${validated.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ")}`
+    );
+  }
+
+  return validated.data.shifts;
 }
 
 // --- Display formatting ---

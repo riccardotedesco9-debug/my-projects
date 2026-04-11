@@ -103,7 +103,13 @@ export async function handleRemovePartner(
     removedLabel = candidates[0].name;
   } else if (candidates.length > 1) {
     const list = candidates.map((c) => c.name).join(", ");
-    await reply(chatId, `I have ${list} — which one do you want me to remove? Tell me the full name.`);
+    await reply(chatId, await generateResponse({
+      scenario: "remove_ambiguous", state: participant.state,
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      userMessage,
+      extraContext: list,
+    }));
     return { action: "remove_ambiguous" };
   }
 
@@ -123,7 +129,13 @@ export async function handleRemovePartner(
   }
 
   if (!removedLabel) {
-    await reply(chatId, `I don't have ${removeName} in this session to remove. Who did you mean?`);
+    await reply(chatId, await generateResponse({
+      scenario: "remove_not_found", state: participant.state,
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      userMessage,
+      partnerName: removeName,
+    }));
     return { action: "remove_partner_not_found", target: removeName };
   }
 
@@ -159,7 +171,12 @@ export async function handleSwapPartner(
   userMessage?: string,
 ): Promise<Record<string, unknown>> {
   if (!swapTo) {
-    await reply(chatId, "Got it — but who should I swap them with? Give me the new name or phone number.");
+    await reply(chatId, await generateResponse({
+      scenario: "swap_missing_target", state: participant.state,
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      userMessage,
+    }));
     return { action: "swap_missing_target" };
   }
 
@@ -190,7 +207,13 @@ export async function handleSwapPartner(
       removedLabel = candidates[0].name;
     } else if (candidates.length > 1) {
       const list = candidates.map((c) => c.name).join(", ");
-      await reply(chatId, `I have ${list} — which one do you want me to replace? Tell me the full name.`);
+      await reply(chatId, await generateResponse({
+        scenario: "swap_ambiguous", state: participant.state,
+        userName: user?.name ?? undefined,
+        userLanguage: user?.preferred_language ?? undefined,
+        userMessage,
+        extraContext: list,
+      }));
       return { action: "swap_ambiguous" };
     }
     // No candidate — fall through to the pending-invite drop below.
@@ -219,7 +242,13 @@ export async function handleSwapPartner(
   // rather than silently becoming an add — flagged by round-2 code
   // reviewer (high priority).
   if (swapFrom && !removedLabel) {
-    await reply(chatId, `I couldn't find "${swapFrom}" in this session — are you sure you added them? I'll add ${swapTo} anyway, but let me know if something's off.`);
+    await reply(chatId, await generateResponse({
+      scenario: "swap_from_not_found", state: participant.state,
+      userName: user?.name ?? undefined,
+      userLanguage: user?.preferred_language ?? undefined,
+      userMessage,
+      extraContext: swapFrom,
+    }));
   }
 
   // 2. Add the new one — known user → participant, unknown → pending
@@ -291,7 +320,12 @@ export async function handleAmendSchedule(
   amendText: string,
 ): Promise<Record<string, unknown>> {
   await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-  await reply(chatId, "Got it — updating your schedule with that change...");
+  await reply(chatId, await generateResponse({
+    scenario: "parsing_schedule_amend", state: "SCHEDULE_RECEIVED",
+    userName: user?.name ?? undefined,
+    userLanguage: user?.preferred_language ?? undefined,
+    userMessage: amendText,
+  }));
 
   // Feed the parser the previous schedule + the amendment so it can
   // produce a merged result rather than a fresh one (which would lose

@@ -155,7 +155,13 @@ export async function handleAwaitingPartnerInfo(
 
     if (matches.length > 1) {
       const list = matches.map((m, i) => `${i + 1}. ${m.name} (${String(m.chat_id).slice(-4)})`).join("\n");
-      await reply(chatId, `I know a few people with that name:\n\n${list}\n\nWhich one? Send their phone number.`);
+      await reply(chatId, await generateResponse({
+        scenario: "multiple_name_matches", state: "AWAITING_PARTNER_INFO",
+        userName: user?.name ?? undefined,
+        userMessage,
+        userLanguage: user?.preferred_language ?? undefined,
+        extraContext: list,
+      }));
       return { action: "multiple_matches" };
     }
 
@@ -198,7 +204,12 @@ export async function addParticipant(
     [sessionId, newParticipantChatId]
   );
   if (existing.results.length > 0) {
-    await reply(creatorChatId, `${newUser?.name ?? "That person"} is already in this session.`);
+    await reply(creatorChatId, await generateResponse({
+      scenario: "participant_already_in", state: "AWAITING_PARTNER_INFO",
+      userName: creatorUser?.name ?? undefined,
+      userLanguage: creatorUser?.preferred_language ?? undefined,
+      partnerName: newUser?.name ?? undefined,
+    }));
     return { action: "already_in_session" };
   }
 
@@ -314,7 +325,11 @@ export async function handleAwaitingSchedule(
     }
 
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await reply(chatId, "Got your schedule! Analyzing it now...");
+    await reply(chatId, await generateResponse({
+      scenario: "parsing_schedule_file", state: "SCHEDULE_RECEIVED",
+      userMessage,
+      ...(await getReplyContext(chatId)),
+    }));
 
     await scheduleParser.trigger({
       participant_id: participant.id,
@@ -333,7 +348,11 @@ export async function handleAwaitingSchedule(
   // there in the same message. Don't make them retype it.
   if (params.schedule_text && intent !== "confirm_schedule" && intent !== "reject_schedule" && intent !== "clarify_schedule") {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await reply(chatId, "Got it! Parsing your schedule...");
+    await reply(chatId, await generateResponse({
+      scenario: "parsing_schedule_text", state: "SCHEDULE_RECEIVED",
+      userMessage,
+      ...(await getReplyContext(chatId)),
+    }));
 
     // Enrich with user context (may contain earlier schedule mentions)
     const userProfile = await getUser(chatId);
@@ -394,7 +413,11 @@ export async function handleAwaitingConfirmation(
 
   if (intent === "clarify_schedule" && params.clarification && participant.schedule_json) {
     await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
-    await reply(participant.chat_id, "Got it, re-analyzing with your feedback...");
+    await reply(participant.chat_id, await generateResponse({
+      scenario: "parsing_schedule_clarify", state: "SCHEDULE_RECEIVED",
+      userMessage,
+      ...(await getReplyContext(participant.chat_id)),
+    }));
 
     await scheduleParser.trigger({
       participant_id: participant.id,
@@ -518,7 +541,12 @@ export async function handleAwaitingPreferences(
       }
 
       // Everyone has submitted — compute and deliver
-      await reply(participant.chat_id, `Got it — slots ${slots.join(", ")}! Finding the best match...`);
+      await reply(participant.chat_id, await generateResponse({
+        scenario: "mediated_finding_match", state: "PREFERENCES_SUBMITTED",
+        userMessage,
+        ...(await getReplyContext(participant.chat_id)),
+        extraContext: `slots ${slots.join(", ")}`,
+      }));
       await updateSessionStatus(participant.session_id, "MATCHING");
       try {
         const result = await deliverResults.triggerAndWait({ session_id: participant.session_id });
