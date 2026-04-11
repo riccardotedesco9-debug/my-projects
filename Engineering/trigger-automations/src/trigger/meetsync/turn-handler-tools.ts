@@ -118,13 +118,27 @@ function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionE
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract and save shifts from a schedule. Three input modes: (1) text_content for typed input, (2) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in the recent history; pass that exact file_id), (3) omit both to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. Auto-saves to D1.",
+    "Extract and save shifts from a schedule. Four input modes (in priority order): (1) shifts — pass a structured shifts array directly when you've already read the schedule yourself from an attached image/PDF/voice transcript and just need to save it (skips the parser entirely, fastest and most reliable path); (2) text_content for typed input the user gave you; (3) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in recent history; pass that exact file_id); (4) omit all to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. Auto-saves to D1.",
   input_schema: {
     type: "object",
     properties: {
+      shifts: {
+        type: "array",
+        description: "Pre-extracted shifts to save directly. Use this when you can already see the schedule in an attached file or in the user's text — skips the parser entirely. Each shift: {date: 'YYYY-MM-DD', start_time: 'HH:MM', end_time: 'HH:MM', label?: string}. Use 24-hour times. For days off, use start='00:00' end='00:00' with label='off' or 'free'.",
+        items: {
+          type: "object",
+          required: ["date", "start_time", "end_time"],
+          properties: {
+            date: { type: "string", description: "YYYY-MM-DD" },
+            start_time: { type: "string", description: "HH:MM (24h)" },
+            end_time: { type: "string", description: "HH:MM (24h)" },
+            label: { type: "string" },
+          },
+        },
+      },
       text_content: {
         type: "string",
-        description: "Typed hours or text description. Use this when the user typed their schedule.",
+        description: "Typed hours or text description. Use this when the user typed their schedule and you want the parser to extract structured shifts.",
       },
       media_id: {
         type: "string",
@@ -132,7 +146,7 @@ const parseScheduleTool: ToolDefinition = {
       },
       mime_type: {
         type: "string",
-        description: "MIME type for media_id (e.g. 'image/jpeg', 'application/pdf'). Optional — defaults to JPEG if omitted.",
+        description: "MIME type for media_id. Optional — defaults to JPEG.",
       },
       attributed_to_name: {
         type: "string",
@@ -145,6 +159,7 @@ const parseScheduleTool: ToolDefinition = {
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
+    const directShifts = Array.isArray(input.shifts) ? (input.shifts as Array<Record<string, unknown>>) : undefined;
     const textContent = typeof input.text_content === "string" ? input.text_content : undefined;
     const explicitMediaId = typeof input.media_id === "string" ? input.media_id.trim() : "";
     const explicitMimeType = typeof input.mime_type === "string" ? input.mime_type : undefined;
@@ -152,6 +167,32 @@ const parseScheduleTool: ToolDefinition = {
     const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     try {
+      // 0. Direct-shifts path: Claude already extracted shifts from a file
+      //    it can see in its multimodal context (attached image/PDF/voice
+      //    transcript). Skip the parser entirely. This is the escape hatch
+      //    for when extractSchedule's separate Sonnet call has trouble with
+      //    a file that Claude itself reads fine.
+      if (directShifts && directShifts.length > 0) {
+        const validated: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+        const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+        const timeRe = /^\d{2}:\d{2}$/;
+        for (const raw of directShifts) {
+          const date = typeof raw.date === "string" ? raw.date : "";
+          const start = typeof raw.start_time === "string" ? raw.start_time : "";
+          const end = typeof raw.end_time === "string" ? raw.end_time : "";
+          const label = typeof raw.label === "string" ? raw.label : undefined;
+          if (!dateRe.test(date) || !timeRe.test(start) || !timeRe.test(end)) {
+            return {
+              ok: false,
+              error: `Invalid shift format: date='${date}' start='${start}' end='${end}'. Each shift needs date='YYYY-MM-DD', start_time='HH:MM', end_time='HH:MM'. Fix the array and call again.`,
+            };
+          }
+          validated.push({ date, start_time: start, end_time: end, ...(label ? { label } : {}) });
+        }
+        const fakeResult: ExtractScheduleResult = { shifts: validated };
+        return await persistShifts(ctx, fakeResult, attributedToName, explicitSessionId, "direct");
+      }
+
       // 1. Resolve media: explicit media_id (download from Telegram) wins,
       //    then current-turn cachedMedia, then text_content as a last resort.
       //    The explicit media_id path is what lets the bot recover the user's
@@ -213,107 +254,139 @@ const parseScheduleTool: ToolDefinition = {
         };
       }
 
-      const scheduleJson = JSON.stringify(result.shifts);
-
-      // 2. Auto-save to the right target
-      // 2a. On-behalf path → person_notes
-      if (attributedToName) {
-        await upsertPersonNote(ctx.callerChatId, attributedToName);
-        await setPersonNoteSchedule(ctx.callerChatId, attributedToName, scheduleJson);
-        // Update the in-turn snapshot so subsequent tools see the new note
-        const existing = ctx.snapshot.personNotes.find(
-          (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
-        );
-        if (existing) {
-          existing.schedule_json = scheduleJson;
-        } else {
-          ctx.snapshot.personNotes.push({
-            id: 0,
-            owner_chat_id: ctx.callerChatId,
-            name: attributedToName,
-            name_normalized: attributedToName.toLowerCase(),
-            phone: null,
-            linked_chat_id: null,
-            schedule_json: scheduleJson,
-            notes: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        }
-        return {
-          saved: true,
-          saved_to: `person_note:${attributedToName}`,
-          shift_count: result.shifts.length,
-          shifts: result.shifts,
-        };
-      }
-
-      // 2b. Self path → participant.schedule_json
-      // Resolve or create a session — uploading a schedule without one
-      // implies the user wants to start scheduling.
-      let sessionEntry = resolveSession(ctx, explicitSessionId);
-      if (!sessionEntry) {
-        const sessionId = crypto.randomUUID();
-        const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-        await query(
-          "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
-          [sessionId, code, ctx.callerChatId, expiresAt],
-        );
-        const creatorParticipantId = crypto.randomUUID();
-        await query(
-          "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
-          [creatorParticipantId, sessionId, ctx.callerChatId],
-        );
-        await emitSessionEvent(sessionId, "session_created", { via: "parse_schedule" });
-        sessionEntry = {
-          session: {
-            id: sessionId,
-            code,
-            creator_chat_id: ctx.callerChatId,
-            status: "OPEN",
-            mode: null,
-            created_at: new Date().toISOString(),
-            expires_at: expiresAt,
-          },
-          participants: [
-            {
-              id: creatorParticipantId,
-              chat_id: ctx.callerChatId,
-              role: "creator",
-              state: "ACTIVE",
-              schedule_json: null,
-              preferred_slots: null,
-              name: ctx.snapshot.user.name,
-              has_schedule: false,
-            },
-          ],
-          pendingInvites: [],
-        };
-        ctx.snapshot.activeSessions.unshift(sessionEntry);
-      }
-
-      const myParticipant = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
-      if (!myParticipant) {
-        return { error: `Caller is not a participant in session ${sessionEntry.session.id}.` };
-      }
-      await saveParticipantSchedule(myParticipant.id, scheduleJson);
-      myParticipant.schedule_json = scheduleJson;
-      myParticipant.has_schedule = true;
-
-      return {
-        saved: true,
-        saved_to: `participant:${ctx.callerChatId}`,
-        session_id: sessionEntry.session.id,
-        shift_count: result.shifts.length,
-        shifts: result.shifts,
-      };
+      return await persistShifts(ctx, result, attributedToName, explicitSessionId, textContent ? "text" : "media");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      return { error: msg };
+      // Surface the underlying error to the dashboard so we can see WHY
+      // extractSchedule keeps throwing on certain inputs (Sonnet schema
+      // mismatch, JSON parse failure, API timeout, etc).
+      await emitSessionEvent(
+        ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+        "parse_schedule_threw",
+        { chat_id: ctx.callerChatId, error: msg.slice(0, 400) },
+      );
+      return {
+        ok: false,
+        error: `parse_schedule threw: ${msg.slice(0, 300)}. If you can read the schedule yourself from an attached file, retry by passing the shifts array directly via the 'shifts' input — it skips the parser entirely. Otherwise tell the user honestly that extraction failed and ask them to type it.`,
+      };
     }
   },
 };
+
+/**
+ * Save extracted shifts to the right target (person_note or participant)
+ * and sync the in-turn snapshot. Used by both the parser path and the
+ * direct-shifts escape hatch.
+ */
+async function persistShifts(
+  ctx: ToolContext,
+  result: ExtractScheduleResult,
+  attributedToName: string,
+  explicitSessionId: string | undefined,
+  source: "direct" | "text" | "media",
+): Promise<ToolResult> {
+  const scheduleJson = JSON.stringify(result.shifts);
+
+  // On-behalf path → person_notes
+  if (attributedToName) {
+    await upsertPersonNote(ctx.callerChatId, attributedToName);
+    await setPersonNoteSchedule(ctx.callerChatId, attributedToName, scheduleJson);
+    const existing = ctx.snapshot.personNotes.find(
+      (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
+    );
+    if (existing) {
+      existing.schedule_json = scheduleJson;
+    } else {
+      ctx.snapshot.personNotes.push({
+        id: 0,
+        owner_chat_id: ctx.callerChatId,
+        name: attributedToName,
+        name_normalized: attributedToName.toLowerCase(),
+        phone: null,
+        linked_chat_id: null,
+        schedule_json: scheduleJson,
+        notes: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
+    await emitSessionEvent(
+      ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+      "parse_schedule_saved",
+      { chat_id: ctx.callerChatId, source, target: `person_note:${attributedToName}`, shift_count: result.shifts.length },
+    );
+    return {
+      saved: true,
+      saved_to: `person_note:${attributedToName}`,
+      shift_count: result.shifts.length,
+      shifts: result.shifts,
+    };
+  }
+
+  // Self path → participant.schedule_json
+  let sessionEntry = resolveSession(ctx, explicitSessionId);
+  if (!sessionEntry) {
+    const sessionId = crypto.randomUUID();
+    const code = crypto.randomUUID().slice(0, 6).toUpperCase();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    await query(
+      "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
+      [sessionId, code, ctx.callerChatId, expiresAt],
+    );
+    const creatorParticipantId = crypto.randomUUID();
+    await query(
+      "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
+      [creatorParticipantId, sessionId, ctx.callerChatId],
+    );
+    await emitSessionEvent(sessionId, "session_created", { via: "parse_schedule" });
+    sessionEntry = {
+      session: {
+        id: sessionId,
+        code,
+        creator_chat_id: ctx.callerChatId,
+        status: "OPEN",
+        mode: null,
+        created_at: new Date().toISOString(),
+        expires_at: expiresAt,
+      },
+      participants: [
+        {
+          id: creatorParticipantId,
+          chat_id: ctx.callerChatId,
+          role: "creator",
+          state: "ACTIVE",
+          schedule_json: null,
+          preferred_slots: null,
+          name: ctx.snapshot.user.name,
+          has_schedule: false,
+        },
+      ],
+      pendingInvites: [],
+    };
+    ctx.snapshot.activeSessions.unshift(sessionEntry);
+  }
+
+  const myParticipant = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
+  if (!myParticipant) {
+    return { ok: false, error: `Caller is not a participant in session ${sessionEntry.session.id}.` };
+  }
+  await saveParticipantSchedule(myParticipant.id, scheduleJson);
+  myParticipant.schedule_json = scheduleJson;
+  myParticipant.has_schedule = true;
+
+  await emitSessionEvent(
+    sessionEntry.session.id,
+    "parse_schedule_saved",
+    { chat_id: ctx.callerChatId, source, target: `participant:${ctx.callerChatId}`, shift_count: result.shifts.length },
+  );
+  return {
+    saved: true,
+    saved_to: `participant:${ctx.callerChatId}`,
+    session_id: sessionEntry.session.id,
+    shift_count: result.shifts.length,
+    shifts: result.shifts,
+  };
+}
 
 // (Tool 2 save_schedule was removed — parse_schedule now auto-saves on
 // extraction so cross-turn shift persistence isn't a problem any more.)
