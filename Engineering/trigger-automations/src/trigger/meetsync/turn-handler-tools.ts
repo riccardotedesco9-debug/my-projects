@@ -802,7 +802,7 @@ const removePartnerTool: ToolDefinition = {
 const computeAndDeliverMatchTool: ToolDefinition = {
   name: "compute_and_deliver_match",
   description:
-    "Find overlapping free time across everyone in the session (including on-behalf schedules) and deliver the best slot to all participants via Telegram + .ics + Google Calendar. Set force_mediated=true to use only the caller's schedule and send their free times for partners to pick from.",
+    "Find overlapping free time across everyone in the session (including on-behalf schedules). Returns all slots sorted longest-first plus the chosen best one. Sends .ics + Google Calendar event to every participant; other participants get a short text notification, the caller doesn't (avoids duplicating your reply tool). Session stays OPEN after delivery so follow-up questions still work. force_mediated=true uses only the caller's schedule and offers their free times to partners.",
   input_schema: {
     type: "object",
     properties: {
@@ -816,11 +816,12 @@ const computeAndDeliverMatchTool: ToolDefinition = {
     const sessionEntry = resolveSession(ctx, explicitSessionId);
     if (!sessionEntry) return { error: "No active session to compute against." };
     const sessionId = sessionEntry.session.id;
+    const deliverOptions = {
+      excludeTextForChatId: ctx.callerChatId,
+      keepSessionOpen: true,
+    };
 
     if (forceMediated) {
-      // Mediator mode: compute free slots from the caller's schedule only,
-      // write to free_slots, and deliver to all other participants as
-      // "pick a time" options.
       const caller = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
       if (!caller?.schedule_json) {
         return { error: "Can't run mediator mode — caller hasn't confirmed their own schedule yet." };
@@ -829,16 +830,16 @@ const computeAndDeliverMatchTool: ToolDefinition = {
       if (slots.length === 0) {
         return { status: "no_slots_from_single_schedule" };
       }
-      // Persist + mark session as mediated + deliver
       await persistComputedSlots(
         sessionId,
         slots.map((s) => ({ ...s, explanation: "caller-only availability" })),
       );
       await query("UPDATE sessions SET mode = 'MEDIATED' WHERE id = ?", [sessionId]);
-      const result = await deliverMatchToSession(sessionId);
+      const result = await deliverMatchToSession(sessionId, deliverOptions);
       return {
         status: result.match ? "delivered_mediated" : (result.reason ?? "no_match"),
         match: result.match,
+        all_slots: result.all_slots,
       };
     }
 
@@ -874,10 +875,11 @@ const computeAndDeliverMatchTool: ToolDefinition = {
       return { status: "no_overlap" };
     }
     await persistComputedSlots(sessionId, slots);
-    const delivery = await deliverMatchToSession(sessionId);
+    const delivery = await deliverMatchToSession(sessionId, deliverOptions);
     return {
       status: delivery.match ? "delivered" : (delivery.reason ?? "no_match"),
       match: delivery.match,
+      all_slots: delivery.all_slots,
       slot_count: slots.length,
     };
   },
