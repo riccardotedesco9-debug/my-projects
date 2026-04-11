@@ -35,6 +35,11 @@ import {
   resetUserData,
   emitSessionEvent,
   getSessionParticipants,
+  getSessionById,
+  getUser,
+  getPersonNotesForOwner,
+  linkPersonNoteToChat,
+  updateInviteStatus,
   type Snapshot,
   type SnapshotSessionEntry,
 } from "./d1-client.js";
@@ -51,7 +56,7 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { deliverMatchToSession } from "./deliver-results.js";
-import { downloadMedia } from "./telegram-client.js";
+import { downloadMedia, sendTextMessage } from "./telegram-client.js";
 
 // --- Types ---
 
@@ -566,6 +571,177 @@ async function addKnownParticipant(
   };
 }
 
+// --- Tool 3.5: accept_invite ---
+//
+// When a user taps a deep link like t.me/<bot>?start=invite_<sessionId>,
+// Telegram delivers it as a text message "/start invite_<sessionId>" to the
+// bot. Claude reads that in the user_message tag and calls this tool with
+// the session_id parsed out. The tool joins the caller to the existing
+// session, transfers any on-behalf schedule the inviter had uploaded for
+// them (best-effort name match), notifies the inviter, and updates the
+// in-turn snapshot so subsequent tools see the new state.
+
+const acceptInviteTool: ToolDefinition = {
+  name: "accept_invite",
+  description:
+    "Accept an invite to join an existing session via deep link. Call this when the user's first message is `/start invite_<sessionId>` (Telegram delivers tapped invite links this way) — extract the part after `invite_` as the session_id and pass it here. The tool adds the caller as a participant in the inviter's session, transfers any schedule the inviter previously uploaded on the caller's behalf (so they don't have to re-send it), notifies the inviter that the caller joined, and returns the resolved session_id and inviter info so you can welcome the new user with context.",
+  input_schema: {
+    type: "object",
+    required: ["session_id"],
+    properties: {
+      session_id: {
+        type: "string",
+        description: "The session_id from the /start invite_<sessionId> deep link.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const sessionId = typeof input.session_id === "string" ? input.session_id.trim() : "";
+    if (!sessionId) return { ok: false, error: "Missing session_id." };
+
+    // 1. Validate session
+    const session = await getSessionById(sessionId);
+    if (!session) return { ok: false, error: `No session found with id ${sessionId}.` };
+    if (session.status === "EXPIRED" || session.status === "COMPLETED") {
+      return { ok: false, error: `Session ${sessionId} is ${session.status}. Tell the user the invite has expired and ask if they want to start a fresh session.` };
+    }
+    if (new Date(session.expires_at) < new Date()) {
+      return { ok: false, error: `Session ${sessionId} expired at ${session.expires_at}. Tell the user the invite has timed out.` };
+    }
+
+    // 2. Idempotency: already a participant?
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM participants WHERE session_id = ? AND chat_id = ? LIMIT 1",
+      [sessionId, ctx.callerChatId],
+    );
+    if (existing.results.length > 0) {
+      return {
+        ok: true,
+        already_joined: true,
+        session_id: sessionId,
+        notes: "Caller is already a participant. Welcome them and ask for their schedule if they haven't sent it yet.",
+      };
+    }
+
+    // 3. Insert participant row
+    const participantId = crypto.randomUUID();
+    await query(
+      "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'partner', 'ACTIVE')",
+      [participantId, sessionId, ctx.callerChatId],
+    );
+
+    // 4. Mark the pending invite as ACCEPTED (best-effort — there may not
+    //    be an exact row matching this caller, since pending_invites are
+    //    created without invitee_chat_id when the inviter only had a name).
+    const pendingInvites = await query<{ id: string }>(
+      "SELECT id FROM pending_invites WHERE session_id = ? AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1",
+      [sessionId],
+    );
+    if (pendingInvites.results[0]) {
+      await updateInviteStatus(pendingInvites.results[0].id, "ACCEPTED");
+    }
+
+    // 5. Try to link an on-behalf person_note. The inviter may have already
+    //    uploaded a schedule for the caller under their name. We try a few
+    //    matching strategies (best-effort, no error if nothing matches).
+    let linkedScheduleJson: string | null = null;
+    let linkedName: string | null = null;
+    try {
+      const callerProfile = await getUser(ctx.callerChatId);
+      const inviterNotes = await getPersonNotesForOwner(session.creator_chat_id);
+      const unlinked = inviterNotes.filter((n) => !n.linked_chat_id);
+
+      let candidate = null;
+      // Strategy 1: caller's display name matches a person_note name
+      if (callerProfile?.name) {
+        const nameLower = callerProfile.name.toLowerCase();
+        candidate = unlinked.find((n) => n.name.toLowerCase() === nameLower)
+          ?? unlinked.find((n) => n.name.toLowerCase().includes(nameLower) || nameLower.includes(n.name.toLowerCase()));
+      }
+      // Strategy 2: only one unlinked note → assume it's this person
+      if (!candidate && unlinked.length === 1) candidate = unlinked[0];
+
+      if (candidate) {
+        const linked = await linkPersonNoteToChat(session.creator_chat_id, candidate.name, ctx.callerChatId);
+        if (linked) {
+          linkedName = linked.name;
+          if (linked.schedule_json) {
+            // Transfer the on-behalf schedule onto the new participant row
+            await saveParticipantSchedule(participantId, linked.schedule_json);
+            linkedScheduleJson = linked.schedule_json;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("[accept_invite] person_note link best-effort failed:", err);
+    }
+
+    // 6. Notify the inviter (best-effort — failure shouldn't block the join)
+    let inviterName: string | null = null;
+    try {
+      const creatorUser = await getUser(session.creator_chat_id);
+      inviterName = creatorUser?.name ?? null;
+      const lang = creatorUser?.preferred_language ?? "en";
+      const callerName = (await getUser(ctx.callerChatId))?.name ?? "Your invitee";
+      const msg =
+        lang === "it" ? `${callerName} ha accettato il tuo invito! 🎉`
+        : lang === "es" ? `${callerName} aceptó tu invitación! 🎉`
+        : lang === "fr" ? `${callerName} a accepté votre invitation ! 🎉`
+        : lang === "de" ? `${callerName} hat deine Einladung angenommen! 🎉`
+        : lang === "pt" ? `${callerName} aceitou o seu convite! 🎉`
+        : `${callerName} just joined your session! 🎉`;
+      await sendTextMessage(session.creator_chat_id, msg);
+    } catch (err) {
+      console.warn("[accept_invite] inviter notification failed:", err);
+    }
+
+    // 7. Sync in-turn snapshot so subsequent tools (and Claude's reply
+    //    composition) see the new session.
+    const newSessionEntry: SnapshotSessionEntry = {
+      session: {
+        id: session.id,
+        code: session.code,
+        creator_chat_id: session.creator_chat_id,
+        status: session.status,
+        mode: session.mode,
+        created_at: new Date().toISOString(),
+        expires_at: session.expires_at,
+      },
+      participants: [
+        {
+          id: participantId,
+          chat_id: ctx.callerChatId,
+          role: "partner",
+          state: "ACTIVE",
+          schedule_json: linkedScheduleJson,
+          preferred_slots: null,
+          name: ctx.snapshot.user.name,
+          has_schedule: linkedScheduleJson !== null,
+        },
+      ],
+      pendingInvites: [],
+    };
+    ctx.snapshot.activeSessions.unshift(newSessionEntry);
+
+    await emitSessionEvent(sessionId, "invite_accepted", {
+      caller_chat_id: ctx.callerChatId,
+      transferred_schedule: linkedScheduleJson !== null,
+      linked_person_note: linkedName,
+    });
+
+    return {
+      ok: true,
+      session_id: sessionId,
+      inviter_name: inviterName,
+      transferred_schedule: linkedScheduleJson !== null,
+      transferred_shift_count: linkedScheduleJson ? (JSON.parse(linkedScheduleJson) as unknown[]).length : 0,
+      notes: linkedScheduleJson
+        ? `Caller joined the session. Their schedule was already uploaded on-behalf by ${inviterName ?? "the inviter"} — no need to ask them to send it. Welcome them, mention the inviter, confirm the shift count, and ask if it looks right.`
+        : `Caller joined the session. Welcome them, mention the inviter (${inviterName ?? "their friend"}), and ask them to send their schedule.`,
+    };
+  },
+};
+
 // --- Tool 4: remove_partner ---
 
 const removePartnerTool: ToolDefinition = {
@@ -952,6 +1128,7 @@ const replyTool: ToolDefinition = {
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   parseScheduleTool,
   addOrInvitePartnerTool,
+  acceptInviteTool,
   removePartnerTool,
   computeAndDeliverMatchTool,
   upsertKnowledgeTool,
