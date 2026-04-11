@@ -291,7 +291,9 @@ export async function handleSwapPartner(
     ...(await getReplyContext(chatId)),
     extraContext: `${headline}. ${swapTo} isn't in MeetSync yet — an invite link is coming in the NEXT message (do NOT include any URLs in your reply, just acknowledge). ALSO address anything else the user said. 1-3 lines.`,
   }));
-  await reply(chatId, `Here's your invite link to share with ${swapTo}:\n${inviteLink}`);
+  // Markdown inline-link format — raw URLs with `_` in `invite_<uuid>` blow
+  // up Telegram's legacy Markdown parser.
+  await reply(chatId, `Here's your [invite link](${inviteLink}) to share with ${swapTo}.`);
   return { action: "swap_complete", to: swapTo };
 }
 

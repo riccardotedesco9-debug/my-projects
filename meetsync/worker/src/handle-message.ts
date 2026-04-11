@@ -33,8 +33,26 @@ export async function handleMessage(update: TelegramUpdate, env: Env, workerOrig
   // so the spinner on the button goes away; without this the button
   // shows "loading" until the 60s Telegram timeout.
   if (update.callback_query) {
-    await answerCallbackQuery(env, update.callback_query.id);
-    const synthesized = synthesizeFromCallback(update.callback_query);
+    const cq = update.callback_query;
+    // Show an immediate toast near the top of the user's screen so the tap
+    // feels responsive even when the router takes a few seconds to reply.
+    // Without this the button just stops spinning silently and impatient
+    // users spam-tap — which (a) wastes Trigger.dev runs and (b) the
+    // idempotency-bucket-per-callback_query_id means each tap spawns a
+    // distinct run, so spam-tapping produces N replies instead of 1.
+    const toastText =
+      cq.data === "confirm_schedule" ? "Confirming…"
+      : cq.data === "reject_schedule" ? "Got it, try again…"
+      : "Got it…";
+    await answerCallbackQuery(env, cq.id, toastText);
+    // Strip the inline keyboard from the original message so the user
+    // physically can't re-tap. editMessageReplyMarkup with an empty
+    // inline_keyboard array removes the buttons but leaves the message
+    // text intact — the user still sees what they tapped on.
+    if (cq.message) {
+      await clearInlineKeyboard(env, cq.message.chat.id, cq.message.message_id);
+    }
+    const synthesized = synthesizeFromCallback(cq);
     if (!synthesized) return;
     // Use callback_query.id as the idempotency bucket — it's globally
     // unique per tap. The inline-keyboard message may be re-used across
@@ -43,7 +61,7 @@ export async function handleMessage(update: TelegramUpdate, env: Env, workerOrig
     // Trigger.dev's dedup, silently dropping subsequent runs. Found the
     // hard way when scenario-03 passed the first run and hung on every
     // subsequent run because my synthetic callback hardcoded message_id=1.
-    await routeExtractedPayload(synthesized, env, `cb-${update.callback_query.id}`);
+    await routeExtractedPayload(synthesized, env, `cb-${cq.id}`);
     return;
   }
 
@@ -213,20 +231,55 @@ function synthesizeFromCallback(cq: TelegramCallbackQuery): MessageRouterPayload
 }
 
 /**
- * Dismiss the loading spinner on a tapped inline-keyboard button.
- * Telegram requires every callback_query be answered within 60s or
- * the button shows "loading" forever; we don't attach any visible
- * text or alert — just the acknowledgment.
+ * Dismiss the loading spinner on a tapped inline-keyboard button AND
+ * show a brief toast near the top of the user's screen. Telegram
+ * requires every callback_query be answered within 60s or the button
+ * shows "loading" forever; passing a `text` parameter turns that
+ * ack into a small visible toast that confirms the tap was received
+ * while the router processes in the background.
  */
-async function answerCallbackQuery(env: Env, callbackQueryId: string): Promise<void> {
+async function answerCallbackQuery(
+  env: Env,
+  callbackQueryId: string,
+  text?: string,
+): Promise<void> {
   try {
     await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callback_query_id: callbackQueryId }),
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        ...(text ? { text } : {}),
+      }),
     });
   } catch (err) {
     console.warn("answerCallbackQuery failed:", err);
+  }
+}
+
+/**
+ * Remove the inline keyboard from a bot message so the user physically
+ * cannot tap the buttons again. Called right after a button tap to
+ * prevent spam-tapping while the router is still processing. Leaves the
+ * message text untouched — the user still sees what the message said.
+ */
+async function clearInlineKeyboard(
+  env: Env,
+  chatId: number | string,
+  messageId: number,
+): Promise<void> {
+  try {
+    await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/editMessageReplyMarkup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        reply_markup: { inline_keyboard: [] },
+      }),
+    });
+  } catch (err) {
+    console.warn("clearInlineKeyboard failed:", err);
   }
 }
 

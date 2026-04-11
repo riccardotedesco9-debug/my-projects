@@ -137,16 +137,25 @@ export async function handleAwaitingPartnerInfo(
     }
 
     // Unknown phone — create pending invite, share deep link.
+    // Split into two messages: AI-generated acknowledgment (no URL) + a
+    // code-generated message with the link in Markdown inline-link format.
+    // Reason: legacy Telegram Markdown parses `_` inside raw URLs as italic
+    // markers, so `?start=invite_<uuid>` with its underscore throws a 400
+    // "can't parse entities" from the Bot API. `[label](url)` bypasses the
+    // parser for the URL portion entirely.
     await createPendingInvite(chatId, null, participant.session_id, partnerPhone);
     const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
     const inviteLink = `https://t.me/${botUsername}?start=invite_${participant.session_id}`;
     await reply(chatId, await generateResponse({
-      scenario: "invite_link_shared", state: "AWAITING_PARTNER_INFO",
-      inviteLink,
+      scenario: "partner_not_found", state: "AWAITING_PARTNER_INFO",
       userName: user?.name ?? undefined,
       userLanguage: user?.preferred_language ?? undefined,
-      extraContext: "End with a short prompt asking if they want to add more people or are ready to share their schedule.",
+      extraContext: `phone ${partnerPhone}`,
     }));
+    await reply(
+      chatId,
+      `Here's your [invite link](${inviteLink}) to share with them. Add more people, or go ahead and send your schedule whenever you're ready.`
+    );
     return { action: "invite_created_link_shared" };
   }
 
@@ -181,9 +190,12 @@ export async function handleAwaitingPartnerInfo(
       userLanguage: user?.preferred_language ?? undefined,
       extraContext: String(params.partner_name),
     }));
+    // Markdown inline-link format `[label](url)` — the URL inside `()` is
+    // NOT parsed for formatting characters, so underscores in session_id
+    // don't blow up the Markdown parser like a raw URL would.
     await reply(
       chatId,
-      `Here's your invite link to share with them:\n${inviteLink}\n\nAdd more people, or go ahead and send your schedule whenever you're ready.`
+      `Here's your [invite link](${inviteLink}) to share with them. Add more people, or go ahead and send your schedule whenever you're ready.`
     );
     return { action: "partner_not_found_link_shared" };
   }
@@ -385,11 +397,15 @@ export async function handleAwaitingSchedule(
     return { action: "schedule_received_text" };
   }
 
-  // Conversational default
+  // Conversational default — the user is in AWAITING_SCHEDULE but said
+  // something other than a schedule. Don't parrot "please send your
+  // schedule" — let the AI fully address their message and only nudge
+  // toward schedule upload if they haven't signaled a different intent.
   await reply(chatId, await generateResponse({
     scenario: "unknown_intent", state: "AWAITING_SCHEDULE",
     userMessage: userMessage ?? payload.text,
-    extraContext: "User needs to send their work schedule (photo, PDF, or type hours). Answer what they said FIRST, then remind them to send their schedule.",
+    ...(await getReplyContext(chatId)),
+    extraContext: "State is AWAITING_SCHEDULE — I'm hoping they'll send a schedule eventually. BUT if they want to do something else right now (add another person, ask a question, tell me about their week, change direction), GO WITH IT fully. Only suggest sending the schedule if nothing else is going on in their message.",
   }));
   return { action: "conversational_in_schedule" };
 }
