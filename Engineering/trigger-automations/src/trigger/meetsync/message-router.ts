@@ -188,11 +188,13 @@ export const messageRouter = schemaTask({
       // Classify intent via Claude Haiku (or fast-path for media)
       const { intent, params } = await classifyIntent(text, message_type, currentState, conversationHistory);
 
-      // Update language if detected — only on substantial text (not names/short replies).
-      // Mutate the in-memory user object too, so this turn's reply honors the new
-      // language immediately instead of waiting for the next message.
+      // Implicit language detection — if the user JUST STARTS writing in a
+      // different language (e.g. they naturally switch to Italian), pick it
+      // up and update their preference. Gate on 2+ words so single-word
+      // replies ("yes", "no", "ciao") don't flap the preference around on
+      // ambiguous single-token classification.
       if (params.detected_language && user && params.detected_language !== user.preferred_language) {
-        const isSubstantialText = text && text.split(/\s+/).length >= 4;
+        const isSubstantialText = text && text.split(/\s+/).length >= 2;
         if (isSubstantialText) {
           await updateUserLanguage(chatId, params.detected_language);
           user = { ...user, preferred_language: params.detected_language } as UserProfile;
@@ -306,6 +308,28 @@ export const messageRouter = schemaTask({
           }));
           return { action: "timezone_updated", timezone: tz };
         }
+      }
+
+      // --- Language override — user explicitly asks to switch reply language ---
+      // Works from any state. Updates the users row and mutates the in-memory
+      // `user` object so THIS turn's confirmation is already generated in the
+      // new language. Separate from detected_language (which tracks which
+      // language the user happened to write in) — target_language is their
+      // stated preference for how the bot should reply going forward.
+      if (intent === "change_language" && typeof params.target_language === "string" && user) {
+        const targetLang = String(params.target_language).trim().toLowerCase();
+        if (targetLang && targetLang !== user.preferred_language) {
+          await updateUserLanguage(chatId, targetLang);
+          user = { ...user, preferred_language: targetLang } as UserProfile;
+        }
+        await reply(chatId, await generateResponse({
+          scenario: "language_updated", state: currentState,
+          userName: user?.name ?? undefined,
+          userLanguage: targetLang,
+          userMessage: text,
+          extraContext: targetLang,
+        }));
+        return { action: "language_updated", language: targetLang };
       }
 
       // --- Compute match — user asks "when are we free" ---

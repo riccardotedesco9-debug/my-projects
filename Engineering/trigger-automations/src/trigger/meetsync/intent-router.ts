@@ -31,6 +31,7 @@ const INTENT_LIST = [
   "done_adding",
   "compute_match",
   "change_timezone",
+  "change_language",
   "unknown",
 ] as const;
 
@@ -50,6 +51,7 @@ export interface IntentResult {
     schedule_text?: string; // for upload_schedule_text / amend_schedule
     clarification?: string; // for clarify_schedule (e.g., "check the whole month")
     timezone?: string; // for change_timezone (IANA string like "Europe/Rome")
+    target_language?: string; // for change_language (ISO 639-1 code the user asked to SWITCH to, e.g. "it", "fr", "es")
     detected_language?: string; // language detected from the message (en/mt/it/etc)
     learned_facts?: string; // new facts about the user worth remembering (e.g., "works night shifts")
     reply?: string; // for unknown intent — inline conversational response
@@ -71,6 +73,7 @@ const intentSchema = z.object({
     schedule_text: z.string().optional(),
     clarification: z.string().optional(),
     timezone: z.string().optional(),
+    target_language: z.string().optional(),
     detected_language: z.string().optional(),
     learned_facts: z.string().optional(),
     reply: z.string().optional(),
@@ -108,6 +111,7 @@ Possible intents:
 - compute_match: user wants to find overlapping free time NOW (e.g., "when are we both free", "find a time", "check availability", "compare schedules", "what works for everyone"). This triggers the actual matching computation.
 - done_adding: user is done adding participants and wants to proceed (e.g., "that's everyone", "done", "proceed", "let's go", "no one else"). Only valid in AWAITING_PARTNER_INFO state.
 - change_timezone: user is telling the bot their timezone or location so calendar events land at the right wall-clock time (e.g., "I'm in Tokyo", "set my timezone to Europe/Rome", "I'm on CET", "my tz is America/New_York"). Extract the best IANA timezone string you can into params.timezone. Map common names yourself: "Tokyo" → "Asia/Tokyo", "NYC"/"New York" → "America/New_York", "London" → "Europe/London", "Berlin" → "Europe/Berlin", "CET" → "Europe/Paris", "PST"/"LA" → "America/Los_Angeles", "Sydney" → "Australia/Sydney". If the user only says a city name in passing without clearly asking to set their tz ("my partner is in london"), do NOT use change_timezone — that's just context for learned_facts.
+- change_language: user is EXPLICITLY asking the bot to reply to them in a different language going forward (e.g. "can you talk to me in Italian", "speak Spanish please", "rispondimi in italiano", "parlez français", "switch to French", "I prefer German"). Extract the target language as an ISO 639-1 code into params.target_language: "italian"/"italiano" → "it", "spanish"/"español" → "es", "french"/"français" → "fr", "german"/"deutsch" → "de", "portuguese" → "pt", "dutch" → "nl", "japanese" → "ja", "chinese" → "zh", "maltese" → "mt", "english" → "en". Do NOT use change_language just because the USER wrote in a different language — that's handled separately via detected_language. ONLY use change_language when they're making an explicit ask.
 - unknown: can't determine intent. Include a brief, helpful reply in params.reply that addresses what the user said and gently nudges them toward the next step based on their state.
 
 ALWAYS include params.detected_language — the ISO 639-1 code of the language the user wrote in (e.g., "en", "mt", "it", "fr"). Detect from the actual message text.
@@ -137,6 +141,8 @@ Examples:
 - "my schedule lol. idk im jake. im free pretty much always" → intent: "upload_schedule_text", params: { name: "jake", schedule_text: "im free pretty much always" }
 - "ok fine im linda. just share whatever. im free this sat 10-2" → intent: "provide_name", params: { name: "linda", schedule_text: "im free this sat 10-2" }
 - "ciao sono stefano, lavoro lun-ven 9-18" → intent: "provide_name", params: { name: "stefano", schedule_text: "lavoro lun-ven 9-18", detected_language: "it" }
+- "can you reply in italian from now on" → intent: "change_language", params: { target_language: "it", detected_language: "en" }
+- "parlez français s'il vous plaît" → intent: "change_language", params: { target_language: "fr", detected_language: "fr" }
 
 Do NOT make the user repeat things they already told you.
 
