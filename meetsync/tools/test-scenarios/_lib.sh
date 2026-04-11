@@ -37,6 +37,31 @@ send_webhook() {
     "$TOOLS_DIR/send-telegram-update.sh" "$chat_id" "$text" >/dev/null
 }
 
+# Send a synthetic callback_query (inline-keyboard button tap).
+send_callback() {
+  local chat_id="$1"
+  local callback_data="$2"
+  MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' \
+    "$TOOLS_DIR/send-telegram-callback.sh" "$chat_id" "$callback_data" >/dev/null
+}
+
+# Seed a session directly in D1, bypassing the conversational flow.
+# Creates a session row + a creator participant row in AWAITING_CONFIRMATION
+# state with a pre-populated schedule_json so the next user action can be a
+# "yes"/"no" confirmation without needing the parser to run.
+#
+# Usage: seed_confirming_session <session_id> <creator_chat_id>
+seed_confirming_session() {
+  local sid="$1"
+  local creator="$2"
+  local sched_json='[{"date":"2026-04-13","start_time":"09:00","end_time":"17:00","label":"Monday"}]'
+  local pid
+  pid=$(python -c 'import uuid; print(uuid.uuid4())')
+  d1_query "INSERT INTO sessions (id, code, creator_chat_id, status, created_at, expires_at) VALUES ('$sid', '$sid', '$creator', 'OPEN', datetime('now'), datetime('now','+7 days'))" >/dev/null
+  d1_query "INSERT INTO participants (id, session_id, chat_id, role, state, schedule_json) VALUES ('$pid', '$sid', '$creator', 'creator', 'AWAITING_CONFIRMATION', '$sched_json')" >/dev/null
+  tick "seeded session $sid with participant $creator in AWAITING_CONFIRMATION"
+}
+
 # Execute a SELECT against D1 and return JSON results on stdout.
 # Usage: d1_query "SELECT status FROM sessions WHERE id = 'x'"
 # Returns raw wrangler output (which includes headers, logs, and a JSON

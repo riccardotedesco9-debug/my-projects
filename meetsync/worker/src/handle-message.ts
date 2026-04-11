@@ -32,7 +32,14 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
     await answerCallbackQuery(env, update.callback_query.id);
     const synthesized = synthesizeFromCallback(update.callback_query);
     if (!synthesized) return;
-    await routeExtractedPayload(synthesized, env, update.callback_query.message?.message_id ?? 0);
+    // Use callback_query.id as the idempotency bucket — it's globally
+    // unique per tap. The inline-keyboard message may be re-used across
+    // many taps (users can tap the same button multiple times), so the
+    // attached message.message_id is NOT unique and would collide in
+    // Trigger.dev's dedup, silently dropping subsequent runs. Found the
+    // hard way when scenario-03 passed the first run and hung on every
+    // subsequent run because my synthetic callback hardcoded message_id=1.
+    await routeExtractedPayload(synthesized, env, `cb-${update.callback_query.id}`);
     return;
   }
 
@@ -41,7 +48,7 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
 
   const routerPayload = extractPayload(msg);
   if (!routerPayload) return;
-  await routeExtractedPayload(routerPayload, env, msg.message_id);
+  await routeExtractedPayload(routerPayload, env, `msg-${msg.message_id}`);
 }
 
 /**
@@ -53,7 +60,11 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
 async function routeExtractedPayload(
   routerPayload: MessageRouterPayload,
   env: Env,
-  telegramMessageId: number,
+  // Globally-unique idempotency bucket for this inbound event. Prefixed
+  // with "msg-" for regular text messages (msg.message_id) or "cb-" for
+  // callback_query taps (cq.id). Must be unique per event or Trigger.dev
+  // will dedup and silently drop repeats.
+  idempotencyBucket: string,
 ): Promise<void> {
 
   // Admin commands — only the admin chat ID can run these
@@ -127,7 +138,7 @@ async function routeExtractedPayload(
     }
   }
 
-  await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, telegramMessageId);
+  await triggerMessageRouter({ ...routerPayload, log_id: logId }, env, idempotencyBucket);
 }
 
 /**
@@ -387,16 +398,19 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
 async function triggerMessageRouter(
   payload: MessageRouterPayload,
   env: Env,
-  telegramMessageId: number
+  // Unique bucket for this inbound event ("msg-<id>" or "cb-<id>"). The
+  // router idempotency key is `tg-<chat_id>-<bucket>` — same chat + same
+  // bucket collapses to a single run (desirable for retries, fatal for
+  // distinct events that happen to share an id). Callers must construct
+  // the bucket so it's unique per Telegram update.
+  idempotencyBucket: string,
 ): Promise<void> {
   const url = `${env.TRIGGERDEV_API_URL}/api/v1/tasks/meetsync-message-router/trigger`;
 
-  // Idempotency key MUST include the Telegram message_id — otherwise two messages
-  // from the same chat within the same second (timestamp is second-precision)
-  // collide and Trigger.dev silently drops the second one. The burst/race consolidation
-  // is handled inside the router task itself via a logMessage row-id "bail if newer"
-  // guard (see message-router.ts) — NOT via a Trigger.dev queue, because FIFO
-  // serialization breaks the consolidation scan.
+  // The burst/race consolidation is handled inside the router task itself
+  // via a logMessage row-id "bail if newer" guard (see message-router.ts)
+  // — NOT via a Trigger.dev queue, because FIFO serialization breaks the
+  // consolidation scan.
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -406,7 +420,7 @@ async function triggerMessageRouter(
     body: JSON.stringify({
       payload,
       options: {
-        idempotencyKey: `tg-${payload.chat_id}-${telegramMessageId}`,
+        idempotencyKey: `tg-${payload.chat_id}-${idempotencyBucket}`,
       },
     }),
   });

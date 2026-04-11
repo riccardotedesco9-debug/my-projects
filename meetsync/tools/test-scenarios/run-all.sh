@@ -24,6 +24,9 @@ _RESET=$'\033[0m'
 SCENARIOS=(
   scenario-01-happy-2-person.sh
   # scenario-02-amend-after-match.sh  # FLAKY — see file header. Run manually.
+  scenario-03-inline-keyboard-callback.sh
+  scenario-04-timezone-override.sh
+  scenario-05-dashboard-stuck.sh
 )
 
 PASSED=0
