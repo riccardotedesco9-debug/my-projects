@@ -149,8 +149,19 @@ export async function restartOrchestratorForAmend(
  *      confirms — complete the pre-created confirmed token so the
  *      orchestrator advances to matching. Token is guaranteed to exist
  *      (created synchronously in spawnOrchestrator), so no polling.
+ *
+ * `justConfirmedChatId` (optional) is the chat_id of the participant who
+ * just transitioned to SCHEDULE_CONFIRMED and triggered this call. In
+ * Case B (amend flow) it identifies the amender whose name should appear
+ * in the "X updated their schedule" notification to others — previously
+ * we inferred the amender by searching for the first participant in
+ * SCHEDULE_CONFIRMED state, which was racy when two amends landed
+ * back-to-back. Now the caller tells us explicitly.
  */
-export async function checkAllConfirmed(sessionId: string): Promise<void> {
+export async function checkAllConfirmed(
+  sessionId: string,
+  justConfirmedChatId?: string,
+): Promise<void> {
   // Treat "preferences-but-not-yet-complete" AND "already-completed"
   // participants as confirmed for amend purposes — a post-match amend
   // resets the amender to AWAITING_CONFIRMATION and then back to
@@ -188,13 +199,22 @@ export async function checkAllConfirmed(sessionId: string): Promise<void> {
     ["MATCHING", "MATCHED", "COMPLETED", "PAIRED"].includes(session.status) &&
     !everyoneStillInConfirmPhase
   ) {
-    // Round-7 UX fix: before silently pulling other participants back into
-    // an active flow, notify each one that someone amended so the
-    // re-prompt they're about to get has context. The amender is the
-    // participant in SCHEDULE_CONFIRMED state (just re-confirmed); others
-    // are in later stages and are the ones being reset.
-    const amender = participants.find((p) => p.state === "SCHEDULE_CONFIRMED");
-    const amenderUser = amender ? await getUser(amender.chat_id) : null;
+    // Round-7 UX fix: before silently pulling other participants back
+    // into an active flow, notify each one that someone amended so the
+    // re-prompt they're about to get has context.
+    //
+    // Round-10 fix (code review finding #1): the amender is resolved
+    // from the `justConfirmedChatId` parameter passed by the caller,
+    // not inferred by scanning for a SCHEDULE_CONFIRMED participant.
+    // The old inference was racy when two amendments landed
+    // near-simultaneously: the first call reset the second amender's
+    // state, then the second call saw two SCHEDULE_CONFIRMED rows and
+    // `find()` returned the wrong one. Fallback to the old heuristic
+    // only when the caller didn't tell us (backwards compat).
+    const amenderChatId = justConfirmedChatId
+      ?? participants.find((p) => p.state === "SCHEDULE_CONFIRMED")?.chat_id
+      ?? null;
+    const amenderUser = amenderChatId ? await getUser(amenderChatId) : null;
     const amenderName = amenderUser?.name ?? null;
 
     for (const p of participants) {

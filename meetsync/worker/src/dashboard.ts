@@ -136,6 +136,14 @@ export async function renderDashboard(env: Env): Promise<Response> {
  * minutes AND whose last event isn't a terminal one. A session with a
  * terminal event (match_delivered, no_overlap_final, session_expired)
  * is "done" even if it's been a long time since the event fired.
+ *
+ * Round-10 fix (code review finding #4): the original query only
+ * looked at session_events, so a session that crashed BEFORE
+ * `orchestrator_spawned` ever emitted was invisible — it sat forever
+ * in `sessions` with status=PAIRED/OPEN/MATCHING and zero events.
+ * The second subquery catches those: sessions whose age exceeds the
+ * threshold, whose status is non-terminal, and which have no events
+ * at all. UNION ALL so both lists render together in the stuck table.
  */
 async function findStuckSessions(env: Env): Promise<StuckRow[]> {
   const result = await env.DB.prepare(`
@@ -148,11 +156,24 @@ async function findStuckSessions(env: Env): Promise<StuckRow[]> {
     WHERE se.id = (
       SELECT MAX(id) FROM session_events WHERE session_id = se.session_id
     )
-    AND event NOT IN ('match_delivered', 'no_overlap_final', 'session_expired')
+    AND event NOT IN ('match_delivered', 'no_overlap_final', 'session_expired', 'delivery_failed')
     AND (julianday('now') - julianday(created_at)) * 24 * 60 > ?
+
+    UNION ALL
+
+    SELECT
+      s.id AS session_id,
+      '(no events — crashed before emit)' AS last_event,
+      s.created_at AS last_seen,
+      CAST((julianday('now') - julianday(s.created_at)) * 24 * 60 AS INTEGER) AS minutes_ago
+    FROM sessions s
+    WHERE s.status NOT IN ('COMPLETED', 'EXPIRED')
+      AND (julianday('now') - julianday(s.created_at)) * 24 * 60 > ?
+      AND NOT EXISTS (SELECT 1 FROM session_events WHERE session_id = s.id)
+
     ORDER BY minutes_ago DESC
     LIMIT 50
-  `).bind(STUCK_THRESHOLD_MIN).all<StuckRow>();
+  `).bind(STUCK_THRESHOLD_MIN, STUCK_THRESHOLD_MIN).all<StuckRow>();
   return result.results ?? [];
 }
 

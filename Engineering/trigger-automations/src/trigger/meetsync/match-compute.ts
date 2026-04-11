@@ -49,8 +49,9 @@ export const matchCompute = schemaTask({
       throw new Error(`Need at least 2 participants, found ${participants.length}`);
     }
 
-    // Parse all participants' schedules
-    const allSchedules = participants.map((p) => parseSchedule(p.schedule_json));
+    // Parse all participants' schedules. Passing p.id so the Zod error
+    // path can name the row in logs (round-10 code review fix #8).
+    const allSchedules = participants.map((p) => parseSchedule(p.schedule_json, p.id));
 
     // Find the overlapping date range across ALL schedules
     const ranges = allSchedules.map(getDateRange).filter((r): r is { start: string; end: string } => r !== null);

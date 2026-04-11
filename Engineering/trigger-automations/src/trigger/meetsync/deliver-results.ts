@@ -88,7 +88,7 @@ export const deliverResults = schemaTask({
     // Calendar helper.
     for (const p of participants) {
       const tz = await getUserTimezone(p.chat_id);
-      const icsContent = generateIcs(bestSlot, tz);
+      const icsContent = generateIcs(bestSlot, tz, session_id);
 
       await sendTextMessage(p.chat_id, await generateResponse({
         scenario, state: "COMPLETED", matchResult: matchResultStr,
@@ -150,11 +150,19 @@ function generateIcs(
     end_time: string;
   },
   timezone: string,
+  sessionId: string,
 ): string {
   // Convert "2026-04-09" + "14:00" to "20260409T140000"
   const dtStart = slot.day.replace(/-/g, "") + "T" + slot.start_time.replace(":", "") + "00";
   const dtEnd = slot.day.replace(/-/g, "") + "T" + slot.end_time.replace(":", "") + "00";
 
+  // Round-10 fix (code review finding #6): UID must be stable per
+  // meetup, not per recipient. Previously used `Date.now()` inside
+  // the per-participant loop, producing a different UID for every
+  // participant's .ics — which breaks RFC 5545 dedup if users forward
+  // invites or import multiple .ics files for the same meetup.
+  // Using session_id as the UID suffix gives one meetup = one UID
+  // across all recipients.
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
@@ -164,7 +172,7 @@ function generateIcs(
     `DTEND;TZID=${timezone}:${dtEnd}`,
     "SUMMARY:Meetup",
     "DESCRIPTION:Scheduled via MeetSync",
-    `UID:meetsync-${slot.day}-${Date.now()}@meetsync`,
+    `UID:meetsync-${sessionId}-${slot.day}@meetsync`,
     "END:VEVENT",
     "END:VCALENDAR",
   ].join("\r\n");

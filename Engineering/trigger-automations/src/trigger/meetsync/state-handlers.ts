@@ -27,6 +27,7 @@ import {
   updateSessionMode,
   updateInviteStatus,
   getReplyContext,
+  emitSessionEvent,
 } from "./d1-client.js";
 import type { UserProfile } from "./d1-client.js";
 import { scheduleParser } from "./schedule-parser.js";
@@ -413,7 +414,10 @@ export async function handleAwaitingConfirmation(
       ...(await getReplyContext(participant.chat_id)),
       extraContext: "The user's schedule is now confirmed. Address what they actually said in their message FIRST (answer any questions, acknowledge any details they shared), then briefly confirm their schedule is locked in and you're waiting for the other participants. Keep it 2-4 lines total. Do NOT ignore questions they asked.",
     }));
-    await checkAllConfirmed(participant.session_id);
+    // Pass participant.chat_id explicitly so checkAllConfirmed Case B
+    // (amend flow) knows which participant just re-confirmed, instead of
+    // racing to find them by state (round-10 code review fix #1).
+    await checkAllConfirmed(participant.session_id, participant.chat_id);
     return { action: "schedule_confirmed" };
   }
 
@@ -586,7 +590,15 @@ export async function handleAwaitingPreferences(
       try {
         const result = await deliverResults.triggerAndWait({ session_id: participant.session_id });
         if (!result.ok) throw new Error("Delivery failed");
-      } catch {
+      } catch (err) {
+        // Round-10 code review fix #12: emit a terminal-esque event
+        // so the dashboard's stuck-session query doesn't flag this
+        // session forever. Without this, a deliverResults crash in
+        // mediated mode left no signal in session_events at all.
+        await emitSessionEvent(participant.session_id, "delivery_failed", {
+          mode: "mediated",
+          error: String(err),
+        });
         await reply(participant.chat_id, await generateResponse({
           scenario: "match_delivery_failed", state: "MATCHING",
           ...(await getReplyContext(participant.chat_id)),
