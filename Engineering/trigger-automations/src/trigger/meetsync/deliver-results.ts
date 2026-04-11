@@ -44,8 +44,14 @@ export interface DeliverMatchResult {
  */
 export async function deliverMatchToSession(session_id: string): Promise<DeliverMatchResult> {
     const participants = await getSessionParticipants(session_id);
-    if (participants.length < 2) {
-      throw new Error(`Need at least 2 participants, found ${participants.length}`);
+    // No < 2 check: compute_and_deliver_match already validates that there
+    // are >= 2 schedules across (participants ∪ on-behalf person_notes).
+    // It's fine for the session to have just 1 real participant when the
+    // other side is an on-behalf upload — that on-behalf person isn't a
+    // bot user and can't receive a Telegram message anyway, so we deliver
+    // to whoever is in the participants list (typically the creator).
+    if (participants.length === 0) {
+      throw new Error(`Session ${session_id} has zero participants`);
     }
 
     // Get free slots
