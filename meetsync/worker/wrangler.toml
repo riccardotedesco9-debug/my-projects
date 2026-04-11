@@ -8,6 +8,14 @@ binding = "DB"
 database_name = "meetsync-db"
 database_id = "a750c8fe-0b58-410c-b07c-fc2972b2c35d"
 
+# Workers AI binding — gives the worker runtime access to Cloudflare's
+# Whisper models (and any other AI model) without needing an API token.
+# Used by /internal/transcribe to convert Telegram voice notes to text,
+# called from the Trigger.dev turn handler. Bypasses the API-token-scope
+# issue that blocks the REST API path.
+[ai]
+binding = "AI"
+
 # Environment variables (set via wrangler secret or dashboard)
 # TELEGRAM_BOT_TOKEN
 # TELEGRAM_WEBHOOK_SECRET

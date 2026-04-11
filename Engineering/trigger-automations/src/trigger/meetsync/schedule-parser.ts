@@ -1,26 +1,18 @@
-// Schedule parser — extracts work shifts from images/PDFs/text via Claude API
-// Supports file uploads (Telegram media) and typed schedule descriptions
+// Schedule parser — extracts work shifts from images/PDFs/text via Claude API.
+//
+// Public API:
+//   - `extractSchedule(input)` — pure async function. Takes media base64 +
+//     mime type OR text, returns parsed shifts. No D1 writes, no Telegram
+//     sends. Called by the agentic turn-handler as its parse_schedule tool
+//     implementation.
+//   - `mapMimeType`, `arrayBufferToBase64` — utilities the turn-handler
+//     uses when preparing media for the parser.
+//
+// The legacy `scheduleParser` Trigger.dev schemaTask was removed in phase
+// 05 of the agentic rewrite — its only callers (old state/intent handlers)
+// were deleted in the same commit.
 
-import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { downloadMedia, sendTextMessage, yesNoKeyboard } from "./telegram-client.js";
-import { updateParticipantState, getReplyContext, getUserTimezone, setPersonNoteSchedule } from "./d1-client.js";
-import { generateResponse } from "./response-generator.js";
-
-// Accepts either media (file upload) or text_content (typed schedule).
-// When for_person_name is set, the parsed schedule is stored in
-// person_notes.schedule_json under that name (owned by chat_id) rather than
-// on the uploader's participant row — used for on-behalf uploads like
-// "here's Diego's schedule".
-const payloadSchema = z.object({
-  participant_id: z.string(),
-  session_id: z.string(),
-  chat_id: z.string(),
-  media_id: z.string().optional(),
-  mime_type: z.string().optional(),
-  text_content: z.string().optional(),
-  for_person_name: z.string().optional(),
-});
 
 const parsedShiftSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -140,8 +132,8 @@ The user may describe their availability in either of TWO framings — handle BO
 FRAMING A — "I work/am busy at these times" (work shifts, classes, meetings):
 → Extract each busy window as a shift entry with real start_time and end_time.
 → For recurring weekly patterns like "I work Mon-Fri 9-5", emit ONE entry per matching
-   date across the ENTIRE 14-day lookup window above. So "Mon-Fri 9-5" with 2 weeks
-   visible = 10 entries (two Mondays, two Tuesdays, ..., two Fridays), all 09:00–17:00.
+   date across the ENTIRE 28-day lookup window above. So "Mon-Fri 9-5" = ~20 entries
+   (four of each weekday across four weeks), all 09:00–17:00.
 → Each entry's label should match the shift's actual weekday, and its date MUST be a
    date from the lookup table that corresponds to that weekday. E.g. if the lookup
    shows "Monday 2026-04-13" and "Monday 2026-04-20", both Monday entries go on those
@@ -151,11 +143,11 @@ FRAMING B — "I'm free at these times" or "I'm totally free" / "whenever":
 → The user has NO busy blocks for the dates they mention. Emit placeholder entries
    with start_time = "00:00" and end_time = "00:00" for each date in their stated
    range, so the scheduler has a date range to work with. Label each "fully free".
-   Example: "I'm free all day for the next 2 weeks" → use every row in the 14-day lookup
+   Example: "I'm free all day for the next 4 weeks" → use every row in the 28-day lookup
    window above, each as a 00:00–00:00 entry.
-   Example: "I'm free Tue and Thu" → the 2 Tue rows + 2 Thu rows, all 00:00–00:00.
+   Example: "I'm free Tue and Thu" → the 4 Tue rows + 4 Thu rows, all 00:00–00:00.
    If the user says "free all day every day" without a time bound, use the full
-   14-day lookup window above.
+   28-day lookup window above.
 
 Rules:
 - Return a JSON object with a "shifts" array
@@ -196,119 +188,71 @@ Example (framing B — fully free for 3 days):
 }`;
 }
 
-export const scheduleParser = schemaTask({
-  id: "meetsync-schedule-parser",
-  schema: payloadSchema,
-  maxDuration: 120,
-  retry: { maxAttempts: 2 },
+// --- Pure extraction function (new agentic-handler entry point) ---
 
-  run: async (payload) => {
-    const { participant_id, chat_id, media_id, mime_type, text_content, for_person_name } = payload;
-    // On-behalf uploads never touch a participant row — the target is a
-    // person_notes entry owned by chat_id. Skip all participant state
-    // transitions when this flag is set.
-    const isOnBehalf = typeof for_person_name === "string" && for_person_name.trim().length > 0;
+export interface ExtractScheduleInput {
+  /** Base64-encoded media bytes + mime type. Use this for image/PDF uploads. */
+  media?: { base64: string; mediaType: string };
+  /** Plain-text schedule description (typed hours, voice transcript, etc). */
+  text?: string;
+  /** Display name of the user the schedule is for. Used to filter multi-person rotas. */
+  userName?: string;
+  /** IANA timezone (e.g. "Europe/Malta"). Drives the 28-day weekday lookup anchor. */
+  timezone: string;
+  /**
+   * When the schedule is for someone OTHER than the user (on-behalf upload,
+   * e.g. "this is Diego's rota"), pass the third party's name here. Overrides
+   * `userName` for prompt-building purposes so the parser filters to the
+   * named person's row on a multi-person rota.
+   */
+  attributedToName?: string;
+}
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+export interface ExtractScheduleResult {
+  shifts: Array<{
+    date: string;
+    start_time: string;
+    end_time: string;
+    label?: string;
+    confidence?: number;
+  }>;
+}
 
-    // Look up user so all replies honor their preferred language (Italian, etc.)
-    const { userName, userLanguage } = await getReplyContext(chat_id);
-    // Fetch tz separately so the weekday-lookup anchor respects it.
-    const timezone = await getUserTimezone(chat_id);
+/**
+ * Pure schedule extraction. No D1 writes, no Telegram sends, no state transitions.
+ *
+ * The agentic turn-handler calls this as the body of its `parse_schedule` tool
+ * and gets back a plain shifts array. The handler decides what to do with the
+ * result (save to participant / save to person_notes / show to user for
+ * confirmation / etc).
+ *
+ * Either `text` OR `media` must be provided. If both are passed, `media` wins.
+ */
+export async function extractSchedule(input: ExtractScheduleInput): Promise<ExtractScheduleResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
 
-    try {
-      let shifts: Array<{
-        date: string;
-        start_time: string;
-        end_time: string;
-        label?: string;
-        confidence?: number;
-      }>;
+  // Prompt construction uses attributedToName (the on-behalf target) if set,
+  // otherwise falls back to the caller's own name. Empty string / undefined
+  // both land on the "no user name available" path in getExtractionPrompt.
+  const effectiveName = input.attributedToName?.trim() || input.userName?.trim() || undefined;
 
-      if (text_content) {
-        // Text-based schedule input
-        shifts = await parseTextWithClaude(apiKey, text_content, userName, timezone);
-      } else if (media_id && mime_type) {
-        // File upload (image/PDF)
-        const { buffer } = await downloadMedia(media_id);
-        const base64 = arrayBufferToBase64(buffer);
-        const claudeMediaType = mapMimeType(mime_type);
-        shifts = await parseMediaWithClaude(apiKey, base64, claudeMediaType, userName, timezone);
-      } else {
-        throw new Error("No media_id or text_content provided");
-      }
-
-      if (shifts.length === 0) {
-        if (!isOnBehalf) {
-          await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-        }
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "no_shifts_found", state: "AWAITING_SCHEDULE",
-          userName, userLanguage,
-        }));
-        return { success: false, reason: "no_shifts_found" };
-      }
-
-      // Store all parsed shifts (no weekday filter — user may work weekends or need a full month view)
-      const scheduleJson = JSON.stringify(shifts);
-
-      if (isOnBehalf) {
-        // On-behalf path: write to person_notes, don't touch any participant
-        // state. The uploader is still the chat_id, so the schedule is
-        // owned by them but tagged to for_person_name. match-compute will
-        // pick it up via getPersonNotesForOwner.
-        await setPersonNoteSchedule(chat_id, for_person_name!, scheduleJson);
-      } else {
-        await updateParticipantState(participant_id, "AWAITING_CONFIRMATION", {
-          schedule_json: scheduleJson,
-        });
-      }
-
-      // Format shifts for display with confidence warnings
-      const shiftList = formatShiftList(shifts);
-
-      // Only pass the shift list itself — don't pass a separate "N shifts extracted"
-      // counter or the LLM parrots it back as "Plus N other shifts extracted" which
-      // confuses users (they see a list + a contradicting count).
-      //
-      // For on-behalf uploads we skip the yes/no inline keyboard — the
-      // uploader isn't confirming THEIR schedule, so the confirmation UX
-      // would be confusing. Just show the extracted shifts tagged to the
-      // named person so the user can eyeball them.
-      if (isOnBehalf) {
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
-          shiftList, userName, userLanguage,
-          partnerName: for_person_name,
-          extraContext: `IMPORTANT: These shifts are for ${for_person_name}, not the user. Phrase the message as "Here's what I pulled out for ${for_person_name}" or similar — make clear it's the third party's schedule, not theirs. Do not ask the user to confirm as if it were their own schedule; instead ask if the shifts look right for ${for_person_name}.`,
-        }));
-      } else {
-        // Round-9: attach yes/no inline keyboard. The Worker translates a
-        // "confirm_schedule" / "reject_schedule" callback_data tap into a
-        // synthetic text message ("yes" / "no") that flows through the
-        // normal router pipeline, so the rest of the code doesn't need a
-        // parallel callback-handling path. Users who prefer typing still can.
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
-          shiftList, userName, userLanguage,
-        }), yesNoKeyboard());
-      }
-
-      return { success: true, shift_count: shifts.length, on_behalf: isOnBehalf };
-    } catch (err) {
-      console.error("Schedule parsing error:", err);
-      if (!isOnBehalf) {
-        await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-      }
-      await sendTextMessage(chat_id, await generateResponse({
-        scenario: "parse_error", state: "AWAITING_SCHEDULE",
-        userName, userLanguage,
-      }));
-      return { success: false, reason: String(err) };
-    }
-  },
-});
+  if (input.media) {
+    const shifts = await parseMediaWithClaude(
+      apiKey,
+      input.media.base64,
+      input.media.mediaType,
+      effectiveName,
+      input.timezone,
+    );
+    return { shifts };
+  }
+  if (input.text) {
+    const shifts = await parseTextWithClaude(apiKey, input.text, effectiveName, input.timezone);
+    return { shifts };
+  }
+  throw new Error("extractSchedule requires either `media` or `text` input");
+}
 
 // --- Claude API calls ---
 
@@ -342,7 +286,7 @@ async function callClaude(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       max_tokens: 8192,
       messages: [{ role: "user", content }],
     }),
@@ -360,11 +304,17 @@ async function callClaude(
   const textBlock = data.content.find((b) => b.type === "text");
   if (!textBlock?.text) throw new Error("No text response from Claude");
 
-  // Strip Markdown code fences Claude sometimes wraps its JSON in. Old
-  // regex was `/```json?\n?/g` which (by design or accident) also matches
-  // `jso` — the second replace for bare backticks hides that ambiguity.
-  // Round-10 code review cleanup: make the intent explicit.
-  const jsonStr = textBlock.text.replace(/```(?:json)?\n?/g, "").replace(/```/g, "").trim();
+  // Strip Markdown code fences AND prose preamble/postamble. Sonnet
+  // sometimes ignores "ONLY JSON" instructions and writes "I'll
+  // carefully analyze the schedule. Here's the result:\n{...}\n\nLet
+  // me know if you need anything." Slice between the first { and last
+  // } to extract just the JSON object.
+  let jsonStr = textBlock.text.replace(/```(?:json)?\n?/g, "").replace(/```/g, "").trim();
+  const firstBrace = jsonStr.indexOf("{");
+  const lastBrace = jsonStr.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    jsonStr = jsonStr.slice(firstBrace, lastBrace + 1);
+  }
 
   // Log-loud-on-parse-failure: the round-6 review flagged schedule_parser as
   // silently failing when Claude returns a malformed schema. Previously both
@@ -397,62 +347,40 @@ async function callClaude(
   return validated.data.shifts;
 }
 
-// --- Display formatting ---
-
-function formatShiftList(
-  shifts: Array<{ date: string; start_time: string; end_time: string; label?: string; confidence?: number }>
-): string {
-  const MAX_DISPLAY = 15;
-  const CONFIDENCE_THRESHOLD = 0.85;
-
-  // Detect "fully free" placeholder entries (start = end = "00:00") and render
-  // them as a single summary line instead of 14 ugly 00:00-00:00 entries.
-  const fullyFree = shifts.filter((s) => s.start_time === "00:00" && s.end_time === "00:00");
-  const busy = shifts.filter((s) => !(s.start_time === "00:00" && s.end_time === "00:00"));
-
-  const lines: string[] = [];
-
-  if (fullyFree.length > 0) {
-    const freeDates = fullyFree.map((s) => s.date).sort();
-    const first = freeDates[0];
-    const last = freeDates[freeDates.length - 1];
-    if (freeDates.length === 1) {
-      const dayName = new Date(first).toLocaleDateString("en-US", { weekday: "short" });
-      lines.push(`- Fully free on ${dayName} ${first}`);
-    } else {
-      lines.push(`- Fully free from ${first} through ${last} (${freeDates.length} days)`);
-    }
-  }
-
-  const display = busy.slice(0, MAX_DISPLAY);
-  for (const s of display) {
-    const dayName = new Date(s.date).toLocaleDateString("en-US", { weekday: "short" });
-    const timeRange = `${s.start_time}-${s.end_time}`;
-    const label = s.label ? ` (${s.label})` : "";
-    const warning = (s.confidence !== undefined && s.confidence < CONFIDENCE_THRESHOLD)
-      ? " _not 100% sure_"
-      : "";
-    lines.push(`- ${dayName} ${s.date}: ${timeRange}${label}${warning}`);
-  }
-
-  if (busy.length > MAX_DISPLAY) {
-    lines.push(`...and ${busy.length - MAX_DISPLAY} more busy blocks.`);
-  }
-
-  return lines.join("\n");
-}
-
 // --- Utils ---
 
-function mapMimeType(mime: string): string {
+/**
+ * Map a Telegram-supplied mime type to what Claude vision accepts.
+ * Throws a descriptive error for unsupported types (xlsx, csv, docx, audio,
+ * video, etc) so the caller — or the turn-handler's parse_schedule tool —
+ * can surface a clear "please screenshot or paste as text" response instead
+ * of silently falling through to image/jpeg and producing an opaque Claude
+ * vision error downstream.
+ */
+export function mapMimeType(mime: string): string {
   if (mime.startsWith("image/jpeg")) return "image/jpeg";
   if (mime.startsWith("image/png")) return "image/png";
   if (mime.startsWith("image/webp")) return "image/webp";
+  if (mime.startsWith("image/gif")) return "image/gif";
   if (mime.startsWith("application/pdf")) return "application/pdf";
-  return "image/jpeg";
+  // Common unsupported document types get a specific error so the caller
+  // can relay a useful message to the user. Everything else gets a generic
+  // "unsupported" error.
+  if (
+    mime.includes("spreadsheetml") ||        // xlsx
+    mime.includes("ms-excel") ||             // xls
+    mime.includes("csv") ||
+    mime.includes("wordprocessingml") ||     // docx
+    mime.includes("msword")                  // doc
+  ) {
+    throw new Error(
+      `UNSUPPORTED_DOCUMENT: ${mime} — ask the user to send a screenshot of the schedule or type the hours as text.`,
+    );
+  }
+  throw new Error(`UNSUPPORTED_MEDIA: ${mime} — only JPEG, PNG, WebP, GIF, and PDF are supported.`);
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {

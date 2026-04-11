@@ -6,15 +6,18 @@ import { checkRateLimit, isBlocked } from "./rate-limit.js";
 import { buildAuthUrl } from "./google-oauth.js";
 
 /**
- * Callback-data string (sent with inline-keyboard buttons) → synthetic
- * text the user "typed". Keeps the router pipeline unchanged: button
- * taps look like regular text messages to the intent classifier.
- * Extend this table when adding new keyboards — if a callback_data
- * isn't mapped, we fall through with the raw data string as the text.
+ * Callback-data string (sent with inline-keyboard buttons) → human-readable
+ * label the turn handler shows Claude as the synthetic text for that turn.
+ * The turn handler reads "User tapped: Confirm" in conversation history and
+ * understands what the user meant from context — no need for an intent
+ * classifier translation step.
+ *
+ * Extend this table when adding new keyboards. Unknown callback_data falls
+ * through as the raw payload string (Claude can usually parse e.g. "slot_pick:3").
  */
 const CALLBACK_DATA_TO_TEXT: Record<string, string> = {
-  confirm_schedule: "yes",
-  reject_schedule: "no",
+  confirm_schedule: "[tapped: Confirm]",
+  reject_schedule: "[tapped: Reject]",
 };
 
 /**
@@ -522,13 +525,15 @@ async function triggerMessageRouter(
   payload: MessageRouterPayload,
   env: Env,
   // Unique bucket for this inbound event ("msg-<id>" or "cb-<id>"). The
-  // router idempotency key is `tg-<chat_id>-<bucket>` — same chat + same
-  // bucket collapses to a single run (desirable for retries, fatal for
-  // distinct events that happen to share an id). Callers must construct
-  // the bucket so it's unique per Telegram update.
+  // turn-handler idempotency key is `tg-<chat_id>-<bucket>` — same chat +
+  // same bucket collapses to a single run (desirable for retries, fatal
+  // for distinct events that happen to share an id). Callers must
+  // construct the bucket so it's unique per Telegram update.
   idempotencyBucket: string,
 ): Promise<void> {
-  const url = `${env.TRIGGERDEV_API_URL}/api/v1/tasks/meetsync-message-router/trigger`;
+  // Phase 06 cutover: Worker now triggers the agentic turn-handler
+  // directly, bypassing the legacy message-router task id.
+  const url = `${env.TRIGGERDEV_API_URL}/api/v1/tasks/meetsync-turn-handler/trigger`;
 
   // The burst/race consolidation is handled inside the router task itself
   // via a logMessage row-id "bail if newer" guard (see message-router.ts)

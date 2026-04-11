@@ -2,6 +2,11 @@
 
 export interface Env {
   DB: D1Database;
+  // Workers AI runtime binding — used by /internal/transcribe to call Whisper
+  // without needing an API token. Bound via wrangler.toml [ai] section.
+  AI: {
+    run: (model: string, input: Record<string, unknown>) => Promise<{ text?: string }>;
+  };
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   TRIGGERDEV_API_KEY: string;
