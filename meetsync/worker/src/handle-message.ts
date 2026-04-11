@@ -3,6 +3,7 @@
 import type { Env, TelegramUpdate, TelegramMessage, TelegramCallbackQuery } from "./types.js";
 import type { MessageRouterPayload } from "../../shared/types.js";
 import { checkRateLimit, isBlocked } from "./rate-limit.js";
+import { buildAuthUrl } from "./google-oauth.js";
 
 /**
  * Callback-data string (sent with inline-keyboard buttons) → synthetic
@@ -19,8 +20,11 @@ const CALLBACK_DATA_TO_TEXT: Record<string, string> = {
 /**
  * Extract message from Telegram update and trigger Trigger.dev task.
  * Returns immediately — Telegram requires fast ack to avoid retries.
+ *
+ * @param workerOrigin e.g. "https://meetsync-worker.example.workers.dev" —
+ *   needed to build the Google OAuth redirect URI for the `/connect` command.
  */
-export async function handleMessage(update: TelegramUpdate, env: Env): Promise<void> {
+export async function handleMessage(update: TelegramUpdate, env: Env, workerOrigin: string): Promise<void> {
   // Round-9: inline-keyboard support. Telegram delivers button taps as
   // `callback_query` updates, not `message` updates. We translate the
   // callback_data into a synthetic text message representing what the
@@ -48,7 +52,44 @@ export async function handleMessage(update: TelegramUpdate, env: Env): Promise<v
 
   const routerPayload = extractPayload(msg);
   if (!routerPayload) return;
+
+  // Handle bot-level commands here before rate limiting / intent classification.
+  // `/connect` kicks off the Google Calendar OAuth flow — the Worker sends the
+  // signed consent URL directly and short-circuits the router so we don't burn
+  // a Trigger.dev run on a link-send.
+  if (routerPayload.text && isConnectCommand(routerPayload.text)) {
+    await handleConnectCommand(routerPayload.chat_id, env, workerOrigin);
+    return;
+  }
+
   await routeExtractedPayload(routerPayload, env, `msg-${msg.message_id}`);
+}
+
+/** Matches `/connect`, `/connect@BotName`, and `/connectcalendar` — case-insensitive.
+ *  We don't accept natural-language phrases here (keeps the Worker deterministic);
+ *  the user always has a discoverable command. */
+function isConnectCommand(text: string): boolean {
+  const first = text.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  // Strip "@BotName" suffix Telegram adds in group chats.
+  const cmd = first.split("@")[0];
+  return cmd === "/connect" || cmd === "/connectcalendar";
+}
+
+async function handleConnectCommand(chatId: string, env: Env, origin: string): Promise<void> {
+  const authUrl = await buildAuthUrl(chatId, env, origin);
+  if (!authUrl) {
+    await sendReply(env, chatId,
+      "Google Calendar integration isn't configured on this bot yet. Ask the admin to set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`."
+    );
+    return;
+  }
+  // We bypass Markdown here and use a plain URL — Telegram auto-linkifies it,
+  // and the auth URL contains characters (`?`, `&`, `=`) that don't play well
+  // with Markdown parsing.
+  await sendPlainReply(env, chatId,
+    "Tap the link below to connect your Google Calendar. MeetSync will then auto-add any future matched meetups to your primary calendar. The link expires in 15 minutes.\n\n" +
+    authUrl
+  );
 }
 
 /**
@@ -322,6 +363,24 @@ async function sendReply(env: Env, chatId: string, text: string): Promise<void> 
       chat_id: chatId,
       text,
       parse_mode: "Markdown",
+    }),
+  });
+}
+
+/** Like sendReply but without Markdown parsing — used by `/connect` to send
+ *  a raw URL without worrying about escape sequences. */
+async function sendPlainReply(env: Env, chatId: string, text: string): Promise<void> {
+  if (TEST_CHAT_IDS.has(String(chatId))) {
+    console.log(`[TEST] worker sendPlainReply chat_id=${chatId}:\n${text}`);
+    return;
+  }
+  await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      disable_web_page_preview: true,
     }),
   });
 }

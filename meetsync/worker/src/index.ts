@@ -5,6 +5,7 @@ import type { Env, TelegramUpdate } from "./types.js";
 import { verifyTelegramSecret } from "./signature.js";
 import { handleMessage } from "./handle-message.js";
 import { renderDashboard } from "./dashboard.js";
+import { handleAuthCallback } from "./google-oauth.js";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -77,6 +78,13 @@ export default {
       );
     }
 
+    // Google Calendar OAuth callback — Google redirects here after the
+    // user consents. Verifies the signed state and stores the tokens in
+    // D1 so deliver-results can auto-add events to the user's calendar.
+    if (url.pathname === "/auth/google/callback") {
+      return await handleAuthCallback(request, env);
+    }
+
     // Only handle /webhook path
     if (url.pathname !== "/webhook") {
       return new Response("Not Found", { status: 404 });
@@ -94,7 +102,7 @@ export default {
       // Parse and process — use waitUntil so Worker responds 200 immediately
       try {
         const update: TelegramUpdate = await request.json();
-        ctx.waitUntil(handleMessage(update, env));
+        ctx.waitUntil(handleMessage(update, env, url.origin));
       } catch (err) {
         console.error("Failed to parse Telegram update:", err);
       }

@@ -8,6 +8,10 @@ export interface Env {
   TRIGGERDEV_API_URL: string;
   ADMIN_CHAT_ID: string; // Your Telegram chat ID — only this user can run admin commands
   ANTHROPIC_API_KEY: string; // For admin command classification via Haiku
+  // --- Google Calendar OAuth (optional — bot works without these, just can't
+  // auto-add events to users' calendars) ---
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 // --- Incoming Telegram update ---
