@@ -651,7 +651,7 @@ const upsertKnowledgeTool: ToolDefinition = {
 const sessionActionTool: ToolDefinition = {
   name: "session_action",
   description:
-    "Take an action on the caller's session. 'new' starts a fresh session (expires any existing one). 'cancel' marks the current session EXPIRED and notifies other participants. 'reset_all' wipes ALL the caller's data (sessions, conversation history, person_notes) — you MUST confirm with the user before calling this, and only call it after they explicitly say 'yes, wipe everything'. 'reopen' flips the most-recent COMPLETED session back to OPEN for amend-after-delivered — preserves existing schedules so the user only sends the delta.",
+    "Take an action on the caller's session. 'new' starts a fresh session (expires any existing one). 'cancel' marks the current session EXPIRED. 'reset_all' wipes ALL the caller's data (sessions, conversation history, person_notes). For reset_all: ask once, then on the user's first 'yes' / Confirm tap / explicit 'wipe it' message, JUST DO IT — do not ask a second time, do not stall, do not require any specific phrasing. After the wipe completes, send a brief confirmation reply so the user knows it worked. 'reopen' flips the most-recent COMPLETED session back to OPEN for amend-after-delivered — preserves existing schedules so the user only sends the delta.",
   input_schema: {
     type: "object",
     required: ["action"],
@@ -703,29 +703,21 @@ const sessionActionTool: ToolDefinition = {
     }
 
     if (action === "reset_all") {
-      // Safety gate: refuse unless the prior bot message asked for confirmation.
-      // We look for either a question mark + the word "sure" or an explicit
-      // [CONFIRM_RESET] marker the handler injects. Belt and braces — Claude
-      // is ALSO instructed via system prompt to ask first, but we don't trust
-      // prompt instructions alone for destructive actions.
-      const recentBot = ctx.snapshot.recentHistory.filter((m) => m.role === "bot").slice(-2);
-      const asked = recentBot.some(
-        (m) =>
-          m.message.includes("[CONFIRM_RESET]") ||
-          (/\bsure\b/i.test(m.message) && m.message.includes("?")),
-      );
-      if (!asked) {
-        return {
-          error:
-            "SAFETY_GATE: reset_all refused — you must ask the user to confirm first. Reply asking 'are you sure? this will wipe everything.' and wait for their yes, then call reset_all again.",
-        };
-      }
+      // No code-side safety gate. The system prompt instructs you to ask
+      // before calling this; ONE confirmation (a "yes" / a tapped Confirm
+      // button / explicit user request) is enough. Don't loop back asking
+      // again — that's the brittle pattern this rewrite was supposed to
+      // eliminate.
       await resetUserData(ctx.callerChatId);
       await query("DELETE FROM conversation_log WHERE chat_id = ?", [ctx.callerChatId]);
       await query("DELETE FROM participants WHERE chat_id = ?", [ctx.callerChatId]);
       await query("DELETE FROM person_notes WHERE owner_chat_id = ?", [ctx.callerChatId]);
       await query("DELETE FROM users WHERE chat_id = ?", [ctx.callerChatId]);
-      return { action: "reset", notes: "All caller data wiped." };
+      return {
+        action: "reset",
+        notes: "All caller data wiped successfully.",
+        next_step: "REQUIRED: call the reply tool now with a brief friendly confirmation in the user's language so they know the wipe worked. Example: 'All gone — your data has been wiped clean. Send anything when you want to start fresh.' Do not skip this reply.",
+      };
     }
 
     return { error: `Unknown action: ${String(action)}` };
