@@ -109,6 +109,90 @@ export async function updateSessionStatus(sessionId: string, status: string) {
   await query("UPDATE sessions SET status = ? WHERE id = ?", [status, sessionId]);
 }
 
+/**
+ * Build a ground-truth snapshot of the session's state for injection into
+ * response-generator prompts. The AI was hallucinating about schedule
+ * ownership and participant count because it only saw conversation history
+ * — which includes names mentioned in passing ("Diego") that the AI then
+ * confidently claimed were real participants with real schedules. This
+ * snapshot gives the AI the actual DB state so it can ground replies in
+ * reality instead of pattern-matching from chat history.
+ *
+ * Call this from the response context builder — it's one extra D1 round
+ * trip per reply (two SELECTs on small indexed tables), acceptable in
+ * exchange for eliminating hallucinated-state bugs.
+ */
+export async function getSessionSnapshot(
+  sessionId: string,
+  selfChatId: string,
+): Promise<string> {
+  // Participants with schedule presence flag + names from users join
+  const participantsResult = await query<{
+    chat_id: string;
+    state: string;
+    has_schedule: number;
+    name: string | null;
+  }>(
+    `SELECT p.chat_id, p.state,
+            CASE WHEN p.schedule_json IS NOT NULL AND p.schedule_json != '' THEN 1 ELSE 0 END as has_schedule,
+            u.name
+     FROM participants p
+     LEFT JOIN users u ON u.chat_id = p.chat_id
+     WHERE p.session_id = ?
+     ORDER BY p.created_at ASC`,
+    [sessionId],
+  );
+
+  // Pending invites — people the creator has invited but who haven't
+  // joined yet. These are NOT participants and have no schedule, but the
+  // AI needs to know they exist so it doesn't confidently claim a
+  // pending-invite person's schedule is "already in the system".
+  const invitesResult = await query<{
+    id: string;
+    invitee_chat_id: string | null;
+    status: string;
+  }>(
+    `SELECT id, invitee_chat_id, status
+     FROM pending_invites
+     WHERE session_id = ? AND status = 'PENDING'
+     ORDER BY created_at ASC`,
+    [sessionId],
+  );
+
+  const participants = participantsResult.results;
+  const withSchedules = participants.filter((p) => p.has_schedule === 1);
+  const pendingInvites = invitesResult.results;
+
+  const lines: string[] = [];
+  lines.push("[SESSION SNAPSHOT — ground your answer in THESE facts. Never claim to have data not listed here. Do not invent schedules, participants, or state.]");
+  lines.push(`- Session id: ${sessionId.slice(0, 8)}`);
+  lines.push(`- Schedules present: ${withSchedules.length} of ${participants.length + pendingInvites.length} total people`);
+  lines.push(`- Participants in session (${participants.length}):`);
+  for (const p of participants) {
+    const who = p.chat_id === selfChatId ? `${p.name ?? "user"} (YOU)` : (p.name ?? `person ${p.chat_id.slice(-4)}`);
+    const sched = p.has_schedule === 1 ? "schedule: ✓ UPLOADED" : "schedule: ✗ NOT YET";
+    lines.push(`    • ${who} — state: ${p.state}, ${sched}`);
+  }
+  if (pendingInvites.length > 0) {
+    lines.push(`- Pending invites (${pendingInvites.length}) — these people were mentioned but have NOT joined the session and have NO schedule:`);
+    for (const inv of pendingInvites) {
+      const who = inv.invitee_chat_id ? `person ${inv.invitee_chat_id.slice(-4)}` : "awaiting invite tap";
+      lines.push(`    • ${who} — invite status: ${inv.status}`);
+    }
+  }
+
+  // Actionable summary at the end so the AI sees the bottom line clearly.
+  const needed = Math.max(2, participants.length + pendingInvites.length);
+  const missing = needed - withSchedules.length;
+  if (missing > 0) {
+    lines.push(`- MISSING for a match: ${missing} more schedule${missing === 1 ? "" : "s"} needed before free-time can be computed.`);
+  } else {
+    lines.push(`- All schedules present — ready to compute free time.`);
+  }
+
+  return lines.join("\n");
+}
+
 /** Clear all data for a chat ID (reset) — expires sessions where user is a participant */
 export async function resetUserData(chatId: string) {
   // Expire sessions where this user is creator
