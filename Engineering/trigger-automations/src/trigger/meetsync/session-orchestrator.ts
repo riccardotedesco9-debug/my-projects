@@ -1,6 +1,24 @@
 // Session orchestrator — coordinates the full session lifecycle
-// Uses wait.forToken to pause (zero compute) until both users confirm/submit
-// Handles match-compute + slot delivery + day-before meetup reminder
+// Round 6: tokens are now created by message-router BEFORE triggering this
+// task. Orchestrator receives token IDs AND a `match_attempt` version via
+// payload and waits on the tokens. This eliminates the fire-and-forget race
+// where the router polled for token IDs that the orchestrator hadn't
+// created yet.
+//
+// Cancellation protocol: message-router can complete either token with
+// `{cancelled: true}` to make the orchestrator exit cleanly mid-flight (used
+// by the amend flow to cancel the current orchestrator before spawning a
+// fresh one). Without this, amending a matched session left the old
+// orchestrator parked at gate B until the 7d timeout, then firing a bogus
+// "session expired" message on top of the successful match.
+//
+// Ghost-reminder protection: after deliverResults the orchestrator parks on
+// `wait.until(reminderDate)` for up to 24h. If an amend arrives during that
+// window it cannot be cancelled via waitpoint (wait.until has no token). To
+// prevent duplicate reminders from the stale orchestrator, we compare our
+// spawn-time `match_attempt` to the current DB value on wake-up and skip
+// the reminder if it has moved — a fresh orchestrator will own the new
+// reminder.
 
 import { task, wait } from "@trigger.dev/sdk";
 import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext } from "./d1-client.js";
@@ -9,43 +27,27 @@ import { matchCompute } from "./match-compute.js";
 import { deliverResults } from "./deliver-results.js";
 import { generateResponse } from "./response-generator.js";
 
+type GateSignal = { cancelled?: boolean } | null;
+
 export const sessionOrchestrator = task({
   id: "meetsync-session-orchestrator",
   maxDuration: 604800, // 7 days (mostly paused via waitpoints)
 
-  run: async (payload: { session_id: string }) => {
-    const { session_id } = payload;
+  run: async (payload: {
+    session_id: string;
+    confirmed_token_id: string;
+    preferred_token_id: string;
+    match_attempt: number;
+  }) => {
+    const { session_id, confirmed_token_id, preferred_token_id, match_attempt } = payload;
 
-    // Create waitpoint tokens for the two checkpoints
-    const confirmedToken = await wait.createToken({
-      idempotencyKey: `confirmed-${session_id}`,
-      timeout: "7d",
-    });
-
-    const preferredToken = await wait.createToken({
-      idempotencyKey: `preferred-${session_id}`,
-      timeout: "4h",
-    });
-
-    // Store token IDs in session so message-router can complete them
-    await query(
-      "UPDATE sessions SET both_confirmed_token_id = ?, both_preferred_token_id = ? WHERE id = ?",
-      [confirmedToken.id, preferredToken.id, session_id]
-    );
-
-    // NOTE: previously there were fire-and-forget nudges here (3h "no upload"
-    // reminder and 2h "invite not tapped" reminder) wrapped in IIFEs with
-    // `await wait.for(...)` inside. Round-5 code review found they never fire
-    // in production: `wait.forToken(confirmedToken)` below checkpoints the
-    // task and orphans the IIFE promises, so the inner `wait.for` waitpoints
-    // are silently dropped. Removing rather than shipping dead comfort code.
-    // If nudges are needed, re-implement as proper child tasks triggered from
-    // the main path with their own waitpoints.
-
-    // --- Wait for both schedules to be confirmed ---
-    const confirmedResult = await wait.forToken(confirmedToken);
+    // --- Wait for both schedules to be confirmed (gate A) ---
+    // Tokens were pre-created by message-router before triggering this task,
+    // so `wait.forToken` is guaranteed to find them.
+    const confirmedResult = await wait.forToken<GateSignal>(confirmed_token_id);
 
     if (!confirmedResult.ok) {
+      // Timeout (7d) — nobody confirmed. Expire the session.
       await updateSessionStatus(session_id, "EXPIRED");
       const participants = await getSessionParticipants(session_id);
       for (const p of participants) {
@@ -56,6 +58,11 @@ export const sessionOrchestrator = task({
         await updateParticipantState(p.id, "EXPIRED");
       }
       return { status: "expired", stage: "confirmation" };
+    }
+
+    // Amend flow asked us to bail — fresh orchestrator is taking over.
+    if (confirmedResult.output?.cancelled) {
+      return { status: "cancelled_by_amend", stage: "confirmation" };
     }
 
     // --- Compute matches ---
@@ -124,11 +131,16 @@ export const sessionOrchestrator = task({
       }));
     }
 
-    // --- Wait for both to submit preferences ---
-    const preferredResult = await wait.forToken(preferredToken);
+    // --- Wait for both to submit preferences (gate B) ---
+    const preferredResult = await wait.forToken<GateSignal>(preferred_token_id);
 
     if (!preferredResult.ok) {
       console.log("Preference timeout — delivering best match without preferences");
+    }
+
+    // Amend flow asked us to bail mid-preference — fresh orchestrator is taking over.
+    if (preferredResult.ok && preferredResult.output?.cancelled) {
+      return { status: "cancelled_by_amend", stage: "preferences" };
     }
 
     // --- Deliver final result ---
@@ -144,6 +156,22 @@ export const sessionOrchestrator = task({
       if (reminderDate > new Date()) {
         try {
           await wait.until({ date: reminderDate });
+
+          // Ghost-reminder guard: if match_attempt moved while we were
+          // parked on wait.until, an amend spawned a fresh orchestrator
+          // that now owns the reminder. Skip ours to avoid duplicate
+          // notifications to participants.
+          const current = await query<{ match_attempt: number }>(
+            "SELECT match_attempt FROM sessions WHERE id = ?",
+            [session_id]
+          );
+          const currentAttempt = current.results[0]?.match_attempt ?? match_attempt;
+          if (currentAttempt !== match_attempt) {
+            console.log(
+              `[orchestrator] skipping reminder for ${session_id} — match_attempt moved ${match_attempt} -> ${currentAttempt}`
+            );
+            return { status: "superseded_before_reminder", slot_count: slotCount };
+          }
 
           const allParticipants = await getSessionParticipants(session_id);
           const match = deliverResult.output.match;

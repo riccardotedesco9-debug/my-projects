@@ -85,6 +85,116 @@ async function reply(chatId: string, msg: string): Promise<void> {
   }
 }
 
+/**
+ * Round-6 token-ownership flip: waitpoint tokens are now created by the
+ * router (this file), not by the orchestrator. The router creates both
+ * tokens, writes their IDs into the sessions row, then triggers the
+ * orchestrator with the IDs embedded in the payload.
+ *
+ * Why this exists: the old flow was `trigger()` → orchestrator cold-starts →
+ * orchestrator creates tokens → orchestrator writes IDs → router polls IDs.
+ * Under real-world cold-start latency the poll window (5x2s) expired
+ * silently and sessions got stuck forever. Creating the tokens up-front
+ * removes every sleep and retry loop from the critical path.
+ *
+ * The idempotency keys are versioned by `sessions.match_attempt` so that the
+ * amend flow (which bumps `match_attempt` before calling this) gets fresh
+ * tokens instead of the stale completed ones from the previous attempt —
+ * Trigger.dev returns the original waitpoint on key reuse, even if that
+ * waitpoint has already been completed.
+ */
+async function spawnOrchestrator(sessionId: string): Promise<void> {
+  const row = await query<{ match_attempt: number }>(
+    "SELECT match_attempt FROM sessions WHERE id = ?",
+    [sessionId]
+  );
+  const attempt = row.results[0]?.match_attempt ?? 0;
+
+  const confirmedToken = await wait.createToken({
+    idempotencyKey: `confirmed-${sessionId}-v${attempt}`,
+    timeout: "7d",
+  });
+  const preferredToken = await wait.createToken({
+    idempotencyKey: `preferred-${sessionId}-v${attempt}`,
+    timeout: "4h",
+  });
+
+  await query(
+    "UPDATE sessions SET both_confirmed_token_id = ?, both_preferred_token_id = ? WHERE id = ?",
+    [confirmedToken.id, preferredToken.id, sessionId]
+  );
+
+  await sessionOrchestrator.trigger(
+    {
+      session_id: sessionId,
+      confirmed_token_id: confirmedToken.id,
+      preferred_token_id: preferredToken.id,
+      match_attempt: attempt,
+    },
+    { idempotencyKey: `orch-${sessionId}-v${attempt}` }
+  );
+}
+
+/**
+ * Cancel whichever gate the current orchestrator is parked at and spawn a
+ * fresh orchestrator to rerun matching. Used by the amend flow: when a user
+ * edits their schedule after a match was already delivered, we don't want
+ * two competing matching pipelines running in parallel, and we don't want
+ * the old orchestrator to eventually fire a bogus "expired" message on top
+ * of the successful rematch.
+ *
+ * Gate resolution is by session status:
+ *   PAIRED / MATCHING  → old orchestrator at gate A (confirmed)
+ *   MATCHED            → old orchestrator at gate B (preferred)
+ *   COMPLETED/EXPIRED  → nothing running, just spawn fresh
+ */
+async function restartOrchestratorForAmend(
+  sessionId: string,
+  previousStatus: string,
+): Promise<void> {
+  const existing = await query<{
+    both_confirmed_token_id: string | null;
+    both_preferred_token_id: string | null;
+  }>(
+    "SELECT both_confirmed_token_id, both_preferred_token_id FROM sessions WHERE id = ?",
+    [sessionId]
+  );
+  const oldConfirmed = existing.results[0]?.both_confirmed_token_id;
+  const oldPreferred = existing.results[0]?.both_preferred_token_id;
+
+  // Cancel the currently-parked gate so the old orchestrator exits cleanly.
+  // Wrapped in try/catch because SDK behavior on double-complete is
+  // undocumented; if it turns out to be a pure no-op we can drop the catch.
+  // Gate resolution:
+  //   PAIRED / MATCHING → parked on confirmed_token (gate A)
+  //   MATCHED           → parked on preferred_token (gate B)
+  //   COMPLETED         → parked on `wait.until(reminderDate)` which has no
+  //                       token; ghost-reminder guard in session-orchestrator
+  //                       handles that case by checking match_attempt on wake.
+  try {
+    if (["PAIRED", "MATCHING"].includes(previousStatus) && oldConfirmed) {
+      await wait.completeToken(oldConfirmed, { cancelled: true });
+    } else if (previousStatus === "MATCHED" && oldPreferred) {
+      await wait.completeToken(oldPreferred, { cancelled: true });
+    }
+  } catch (err) {
+    console.warn(`[amend] completeToken for ${sessionId} failed (probably already completed):`, err);
+  }
+
+  // Bump match_attempt so fresh tokens use a new idempotency key version.
+  // Null out the old IDs at the same time for sanity.
+  await query(
+    `UPDATE sessions
+        SET match_attempt = match_attempt + 1,
+            both_confirmed_token_id = NULL,
+            both_preferred_token_id = NULL
+      WHERE id = ?`,
+    [sessionId]
+  );
+
+  await spawnOrchestrator(sessionId);
+}
+
 const payloadSchema = z.object({
   chat_id: z.string(),
   message_type: z.enum(["text", "image", "document", "audio", "contact", "unknown"]),
@@ -161,17 +271,25 @@ export const messageRouter = schemaTask({
         myLogId = await logMessage(chatId, "user", text);
       }
 
-      // Consolidation race guard — rapid bursts spawn parallel task runs. The
-      // Worker pre-logged all sibling messages before firing their triggers,
-      // so by the time any task runs, every sibling row is already committed.
-      // Each task sleeps briefly then checks if a HIGHER row id exists for
-      // this chat; if yes, a later sibling is the "winner" and it will
-      // consolidate our message via the unreplied-scan loop below. Only the
-      // run with the highest log_id responds.
+      // Consolidation race guard — rapid bursts spawn parallel task runs.
       //
-      // 1.2s covers typical Trigger.dev cold-start stagger (~500-1000ms) plus
-      // a small safety margin. Single-message turns eat the 1.2s unconditionally
-      // which is an acceptable UX cost for reliable burst handling.
+      // The Worker pre-logs each user message BEFORE triggering its router
+      // task, so by the time any router task runs, its own log_id is in the
+      // DB. But sibling messages from the same burst may still be in-flight
+      // (not yet at the Worker, so not yet logged). The 1.2s sleep is there
+      // specifically to buffer for siblings that haven't arrived yet — no
+      // amount of atomic DB magic can check against rows that don't exist
+      // yet, so the sleep is load-bearing.
+      //
+      // After the sleep, each task checks MAX(id) for this chat: if a
+      // higher sibling exists, a later run will consolidate our message via
+      // the unreplied-scan loop below, so we bail. Only the run with the
+      // highest log_id responds. Single-message turns eat the 1.2s
+      // unconditionally — acceptable UX cost for reliable burst handling.
+      //
+      // If Trigger.dev cold-start ever routinely exceeds ~1.5s this guard
+      // can misfire (two tasks each think they're the latest at different
+      // moments). Rework only if that becomes observable in production.
       if (text && message_type === "text" && myLogId > 0) {
         await new Promise((resolve) => setTimeout(resolve, 1200));
 
@@ -426,10 +544,7 @@ export const messageRouter = schemaTask({
           const count = await getParticipantCount(participant.session_id);
           if (count >= 2) {
             await updateSessionStatus(participant.session_id, "PAIRED");
-            await sessionOrchestrator.trigger(
-              { session_id: participant.session_id },
-              { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
-            );
+            await spawnOrchestrator(participant.session_id);
           }
         }
 
@@ -693,10 +808,7 @@ async function handleIdleUser(
         await updateParticipantState(freshParticipant.id, "SCHEDULE_RECEIVED");
         if (await canProceedToScheduling(freshParticipant.session_id)) {
           await updateSessionStatus(freshParticipant.session_id, "PAIRED");
-          await sessionOrchestrator.trigger(
-            { session_id: freshParticipant.session_id },
-            { idempotencyKey: `orch-${freshParticipant.session_id}-${Date.now()}` }
-          );
+          await spawnOrchestrator(freshParticipant.session_id);
         }
         await scheduleParser.trigger({
           participant_id: freshParticipant.id,
@@ -877,10 +989,7 @@ async function handleAwaitingPartnerInfo(
     }
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
     await updateSessionStatus(participant.session_id, "PAIRED");
-    await sessionOrchestrator.trigger(
-      { session_id: participant.session_id },
-      { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
-    );
+    await spawnOrchestrator(participant.session_id);
     const msg = await generateResponse({
       scenario: "all_notified", state: "AWAITING_SCHEDULE",
       userName: user?.name ?? undefined,
@@ -906,10 +1015,7 @@ async function handleAwaitingPartnerInfo(
     }
     await updateParticipantState(participant.id, "AWAITING_SCHEDULE");
     await updateSessionStatus(participant.session_id, "PAIRED");
-    await sessionOrchestrator.trigger(
-      { session_id: participant.session_id },
-      { idempotencyKey: `orch-${participant.session_id}-${Date.now()}` }
-    );
+    await spawnOrchestrator(participant.session_id);
     if (payload) {
       return await handleAwaitingSchedule(participant, payload, intent, params, userMessage);
     }
@@ -1089,16 +1195,12 @@ async function handleAcceptInvite(
     return { action: "already_joined" };
   }
 
-  // Determine if scheduling has started (PAIRED) or creator is still adding (OPEN)
-  const sessionAlreadyPaired = session.status === "PAIRED";
-
-  // Start orchestrator if session is already running, otherwise wait for creator to proceed
-  if (sessionAlreadyPaired) {
-    await sessionOrchestrator.trigger(
-      { session_id: invite.session_id },
-      { idempotencyKey: `orch-${invite.session_id}-${Date.now()}` }
-    );
-  }
+  // Note (round-6): we used to call spawnOrchestrator here when the session
+  // was already PAIRED. That branch is now dead code — every path that sets
+  // status to PAIRED immediately calls spawnOrchestrator itself, so by the
+  // time we get here the orchestrator is already running. A second spawn
+  // would just burn two token creates and one UPDATE for no effect
+  // (dedup'd by Trigger.dev idempotency + createToken key reuse).
 
   // Notify the creator
   await reply(session.creator_chat_id, await generateResponse({
@@ -1410,6 +1512,23 @@ async function handleCancel(
 
 // --- Waitpoint helpers ---
 
+/**
+ * Called whenever a participant's state changes to SCHEDULE_CONFIRMED. If
+ * all participants in the session are now confirmed, wake the orchestrator.
+ *
+ * Three cases:
+ *   A) Fresh session, status=OPEN — spawn the orchestrator (it will wait on
+ *      the confirmed gate we just created).
+ *   B) Session already running and everyone is newly re-confirming after
+ *      an amend — cancel the parked orchestrator and spawn a fresh one via
+ *      restartOrchestratorForAmend. Covers the "I changed my schedule after
+ *      the match was already delivered" flow.
+ *   C) Session already running and everyone is in SCHEDULE_CONFIRMED (first
+ *      confirm) — just complete the pre-created confirmed token. No polling,
+ *      no sleeping: the token was created synchronously by spawnOrchestrator
+ *      before the task that called us was triggered, so it is guaranteed
+ *      to exist by the time we get here.
+ */
 async function checkAllConfirmed(sessionId: string) {
   // Treat "preferences-but-not-yet-complete" AND "already-completed" participants
   // as confirmed for amend purposes — a post-match amend resets the amender to
@@ -1428,74 +1547,83 @@ async function checkAllConfirmed(sessionId: string) {
   const everyoneStillInConfirmPhase = participants.every((p) => p.state === "SCHEDULE_CONFIRMED");
 
   const session = await getSessionById(sessionId);
+  if (!session) return;
 
-  // Fresh confirmation path — boot the orchestrator (classic flow)
-  if (session && session.status === "OPEN" && everyoneStillInConfirmPhase) {
+  // Case A — fresh session, boot the orchestrator for the first time.
+  if (session.status === "OPEN" && everyoneStillInConfirmPhase) {
     await updateSessionStatus(sessionId, "PAIRED");
-    await sessionOrchestrator.trigger(
-      { session_id: sessionId },
-      { idempotencyKey: `orch-${sessionId}-${Date.now()}` }
-    );
-    // Give orchestrator time to create the token
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await spawnOrchestrator(sessionId);
+    return;
   }
 
-  // Post-amend path — session was already matched, now someone amended and re-confirmed.
-  // Re-run matching directly. Reset any "later" participants back to SCHEDULE_CONFIRMED
-  // first so subsequent state transitions make sense.
-  if (session && ["MATCHING", "MATCHED", "COMPLETED", "PAIRED"].includes(session.status) && !everyoneStillInConfirmPhase) {
+  // Case B — amend flow: someone edited after an already-running session.
+  // Reset late-stage participants back to SCHEDULE_CONFIRMED and hand off
+  // to the amend-aware restart helper, which cancels the parked orchestrator
+  // and spawns a fresh one with a bumped match_attempt.
+  if (
+    ["MATCHING", "MATCHED", "COMPLETED", "PAIRED"].includes(session.status) &&
+    !everyoneStillInConfirmPhase
+  ) {
     for (const p of participants) {
       if (p.state !== "SCHEDULE_CONFIRMED") {
         await updateParticipantState(p.id, "SCHEDULE_CONFIRMED");
       }
     }
-    await updateSessionStatus(sessionId, "MATCHING");
-    // Clean old free_slots before recomputing so the "best slot" picker sees fresh data
+    // Clean old free_slots so the rematch picks fresh data.
     await query("DELETE FROM free_slots WHERE session_id = ?", [sessionId]);
-    const result = await matchCompute.triggerAndWait({ session_id: sessionId });
-    if (result.ok && result.output.slot_count > 0) {
-      await deliverResults.triggerAndWait({ session_id: sessionId });
-    } else {
-      // No overlap after amend — notify all participants
-      for (const p of participants) {
-        await sendTextMessage(p.chat_id,
-          "After the update, I couldn't find any overlapping free time. Try adjusting your schedule or sending /new to start over.");
-      }
-      await updateSessionStatus(sessionId, "COMPLETED");
-    }
+    await updateSessionStatus(sessionId, "MATCHING");
+    await restartOrchestratorForAmend(sessionId, session.status);
     return;
   }
 
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const result = await query<{ both_confirmed_token_id: string | null }>(
-      "SELECT both_confirmed_token_id FROM sessions WHERE id = ?", [sessionId]
-    );
-    const tokenId = result.results[0]?.both_confirmed_token_id;
-    if (tokenId) {
-      await wait.completeToken(tokenId, { completed: true });
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+  // Case C — normal confirm: orchestrator is already parked at the confirmed
+  // gate, just wake it. Token was pre-created by spawnOrchestrator, so we
+  // read it directly from the sessions row with no retries.
+  const result = await query<{ both_confirmed_token_id: string | null }>(
+    "SELECT both_confirmed_token_id FROM sessions WHERE id = ?",
+    [sessionId]
+  );
+  const tokenId = result.results[0]?.both_confirmed_token_id;
+  if (!tokenId) {
+    // Should never happen — token is written inside spawnOrchestrator before
+    // the task that would eventually call us is triggered. If it does, the
+    // session is in an inconsistent state and we'd rather fail loudly than
+    // leave users waiting silently.
+    throw new Error(`[checkAllConfirmed] No confirmed token for session ${sessionId} — orchestrator was never spawned?`);
   }
-  console.warn(`Confirmed token not found for session ${sessionId}`);
+  try {
+    await wait.completeToken(tokenId, { cancelled: false });
+  } catch (err) {
+    // Token already completed (e.g. two racing checkAllConfirmed calls) is
+    // harmless — the orchestrator woke once and is doing its thing. Only
+    // warn, don't throw.
+    console.warn(`[checkAllConfirmed] completeToken for ${sessionId} threw:`, err);
+  }
 }
 
+/**
+ * Called whenever a participant's state changes to PREFERENCES_SUBMITTED.
+ * If everyone has submitted, wake the orchestrator's gate B. Same contract
+ * as checkAllConfirmed — token is guaranteed to exist (pre-created by
+ * spawnOrchestrator), so no polling.
+ */
 async function checkAllPreferred(sessionId: string) {
   const participants = await getSessionParticipants(sessionId);
   if (!participants.every((p) => p.state === "PREFERENCES_SUBMITTED")) return;
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const result = await query<{ both_preferred_token_id: string | null }>(
-      "SELECT both_preferred_token_id FROM sessions WHERE id = ?", [sessionId]
-    );
-    const tokenId = result.results[0]?.both_preferred_token_id;
-    if (tokenId) {
-      await wait.completeToken(tokenId, { completed: true });
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+  const result = await query<{ both_preferred_token_id: string | null }>(
+    "SELECT both_preferred_token_id FROM sessions WHERE id = ?",
+    [sessionId]
+  );
+  const tokenId = result.results[0]?.both_preferred_token_id;
+  if (!tokenId) {
+    throw new Error(`[checkAllPreferred] No preferred token for session ${sessionId} — orchestrator was never spawned?`);
   }
-  console.warn(`Preference token not found for session ${sessionId}`);
+  try {
+    await wait.completeToken(tokenId, { cancelled: false });
+  } catch (err) {
+    console.warn(`[checkAllPreferred] completeToken for ${sessionId} threw:`, err);
+  }
 }
 
 /**
@@ -1704,15 +1832,17 @@ async function handleSwapPartner(
  *
  * Round-1 bug: users who said "yes" to their parsed schedule and then said
  * "wait, i also work saturdays" got acknowledgment but no actual re-parse.
- * Round-2 code review flagged that even after re-parse, if the session had
- * already moved past the orchestrator's confirmation waitpoint (already
- * matching or done), the re-confirmation would do nothing because
- * `wait.completeToken` is idempotent.
+ * Round-2 flagged that re-parse alone didn't wake the match pipeline.
+ * Round-6 (current): we leave session.status UNCHANGED here on purpose —
+ * `checkAllConfirmed` Case B reads the real previous status (MATCHING /
+ * MATCHED / COMPLETED / PAIRED) and routes to the correct gate when
+ * cancelling the parked orchestrator. Overwriting to PAIRED here would
+ * hide gate-B parks (MATCHED) and leave old orchestrators stranded on the
+ * preference waitpoint until they time out.
  *
- * Fix: take the delta text, combine it with the existing schedule_json, and
- * kick the parser back off. Reset state to AWAITING_CONFIRMATION so the user
- * can re-confirm. If the session was already past PAIRED (MATCHING/COMPLETED),
- * the confirm handler will bypass the token and re-trigger matching directly.
+ * Flow: reset amender to SCHEDULE_RECEIVED → parser re-runs → user
+ * re-confirms → checkAllConfirmed detects not-all-in-confirm-phase + a
+ * running session → restartOrchestratorForAmend(sessionId, realStatus).
  */
 async function handleAmendSchedule(
   chatId: string,
@@ -1722,15 +1852,6 @@ async function handleAmendSchedule(
 ): Promise<Record<string, unknown>> {
   await updateParticipantState(participant.id, "SCHEDULE_RECEIVED");
   await reply(chatId, "Got it — updating your schedule with that change...");
-
-  // If the session has already progressed past confirmation, reset it back to
-  // PAIRED so checkAllConfirmed can re-fire the match. The confirmed waitpoint
-  // token is already completed from the first round — that's fine, we check
-  // participant states directly and re-run matchCompute manually if needed.
-  const session = await getSessionById(participant.session_id);
-  if (session && ["MATCHING", "MATCHED", "COMPLETED"].includes(session.status)) {
-    await updateSessionStatus(participant.session_id, "PAIRED");
-  }
 
   // Feed the parser the previous schedule + the amendment so it can produce a
   // merged result rather than a fresh one (which would lose the original data).
