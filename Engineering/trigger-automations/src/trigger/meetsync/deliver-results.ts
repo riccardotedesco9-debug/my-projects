@@ -1,4 +1,14 @@
-// Deliver results — sends final meeting match to all participants
+// Deliver results — sends final meeting match to all participants.
+//
+// Public API:
+//   - `deliverMatchToSession(sessionId)` — pure async entry point. Reads
+//     free_slots + participant preferences, picks the best slot, sends
+//     ics + Telegram message + Google Calendar event to every participant,
+//     marks session COMPLETED. Used by the agentic turn-handler's
+//     compute_and_deliver_match tool.
+//   - `deliverResults` — Trigger.dev schemaTask wrapper, thin shim over
+//     `deliverMatchToSession` kept for the legacy orchestrator. Deleted in
+//     phase 05.
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
@@ -11,14 +21,33 @@ const payloadSchema = z.object({
   session_id: z.string(),
 });
 
-export const deliverResults = schemaTask({
-  id: "meetsync-deliver-results",
-  schema: payloadSchema,
-  maxDuration: 30,
+export interface DeliverMatchResult {
+  match: {
+    day: string;
+    day_name: string;
+    start_time: string;
+    end_time: string;
+    duration_minutes: number;
+    mutual_preference: boolean;
+  } | null;
+  reason?: string;
+}
 
-  run: async (payload) => {
-    const { session_id } = payload;
-
+/**
+ * Pure delivery entry point. Reads free_slots for the session, picks the
+ * best slot (mutual preference first, then longest duration, chronological
+ * tiebreaker), sends the .ics + Telegram message + Google Calendar event
+ * to every participant, marks session COMPLETED.
+ *
+ * Called by the turn-handler's compute_and_deliver_match tool AFTER
+ * `computeOverlaps` + `persistComputedSlots` have populated free_slots.
+ * Can also be called directly if slots were computed elsewhere.
+ *
+ * Throws if fewer than 2 participants exist. Returns `{ match: null,
+ * reason: "no_overlap" }` if free_slots is empty (and sends the
+ * "no overlap" notification to all participants as part of the flow).
+ */
+export async function deliverMatchToSession(session_id: string): Promise<DeliverMatchResult> {
     const participants = await getSessionParticipants(session_id);
     if (participants.length < 2) {
       throw new Error(`Need at least 2 participants, found ${participants.length}`);
@@ -139,7 +168,17 @@ export const deliverResults = schemaTask({
         mutual_preference: mutual.length > 0,
       },
     };
-  },
+}
+
+// --- Legacy Trigger.dev task wrapper ---
+// Thin shim over deliverMatchToSession. Kept for the legacy orchestrator +
+// amend flow. Deleted in phase 05 of the agentic rewrite.
+
+export const deliverResults = schemaTask({
+  id: "meetsync-deliver-results",
+  schema: payloadSchema,
+  maxDuration: 30,
+  run: async (payload) => deliverMatchToSession(payload.session_id),
 });
 
 function generateIcs(

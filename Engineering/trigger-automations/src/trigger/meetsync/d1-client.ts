@@ -796,3 +796,218 @@ export async function emitSessionEvent(
     console.warn(`[session-events] emit failed for ${sessionId}/${event}:`, err);
   }
 }
+
+// --- Agentic turn-handler snapshot loader (new) ---
+//
+// Single entry point for building the [STATE] block the turn handler passes
+// to Claude Sonnet at the start of every turn. Returns a structured snapshot
+// containing the caller's user profile, ALL their active sessions (plural —
+// Riccardo may be coordinating two meetups in parallel), per-session
+// participants with resolved names and schedule flags, pending invites,
+// caller-owned person_notes (privacy: strictly owner-scoped via
+// getPersonNotesForOwner, other users cannot see these), recent
+// conversation history, and IANA timezone.
+//
+// Parallelises independent reads with Promise.all. Total ~4-10 D1 round
+// trips depending on how many active sessions the caller has (0-3 typical).
+
+export interface SnapshotSessionEntry {
+  session: {
+    id: string;
+    code: string;
+    creator_chat_id: string;
+    status: string;
+    mode: string | null;
+    created_at: string;
+    expires_at: string;
+  };
+  participants: Array<{
+    id: string;
+    chat_id: string;
+    role: string;
+    state: string;
+    schedule_json: string | null;
+    preferred_slots: string | null;
+    name: string | null;
+    has_schedule: boolean;
+  }>;
+  pendingInvites: Array<{
+    id: string;
+    invitee_chat_id: string | null;
+    invitee_phone: string | null;
+    status: string;
+  }>;
+}
+
+export interface Snapshot {
+  user: UserProfile;
+  activeSessions: SnapshotSessionEntry[];
+  personNotes: PersonNote[];
+  recentHistory: Array<{ role: string; message: string; created_at: string }>;
+  timezone: string;
+}
+
+/**
+ * Load the complete conversational state for a caller in one round.
+ * Guarantees: `user` is never null (registerUser must have been called
+ * before this, which the turn handler does at turn start). `activeSessions`
+ * contains EVERY non-terminal, non-expired session this user participates
+ * in, most-recent first. `personNotes` is owner-scoped to this caller only.
+ */
+export async function loadSnapshot(chatId: string): Promise<Snapshot> {
+  const [userRow, sessionRows, personNotes, recentHistory] = await Promise.all([
+    getUser(chatId),
+    query<{
+      id: string;
+      code: string;
+      creator_chat_id: string;
+      status: string;
+      mode: string | null;
+      created_at: string;
+      expires_at: string;
+    }>(
+      `SELECT DISTINCT s.id, s.code, s.creator_chat_id, s.status, s.mode, s.created_at, s.expires_at
+         FROM sessions s
+         JOIN participants p ON p.session_id = s.id
+        WHERE p.chat_id = ?
+          AND s.status NOT IN ('EXPIRED', 'COMPLETED')
+          AND s.expires_at > datetime('now')
+        ORDER BY s.created_at DESC`,
+      [chatId],
+    ),
+    getPersonNotesForOwner(chatId),
+    getRecentMessages(chatId),
+  ]);
+
+  // User row should always exist — turn handler calls registerUser before
+  // loadSnapshot. If it doesn't, something is wrong; fall back to a minimal
+  // synthetic profile so the turn handler doesn't crash on a cold user.
+  const user: UserProfile = userRow ?? {
+    chat_id: chatId,
+    phone: null,
+    username: null,
+    name: null,
+    preferred_language: "en",
+    context: null,
+    timezone: "Europe/Malta",
+    first_seen: new Date().toISOString(),
+    last_seen: new Date().toISOString(),
+  };
+
+  // For each active session, fetch participants + pending invites in
+  // parallel. For 0-3 sessions this is 0-6 extra D1 calls.
+  const activeSessions: SnapshotSessionEntry[] = await Promise.all(
+    sessionRows.results.map(async (session) => {
+      const [participantsResult, invitesResult] = await Promise.all([
+        query<{
+          id: string;
+          chat_id: string;
+          role: string;
+          state: string;
+          schedule_json: string | null;
+          preferred_slots: string | null;
+          name: string | null;
+        }>(
+          `SELECT p.id, p.chat_id, p.role, p.state, p.schedule_json, p.preferred_slots, u.name
+             FROM participants p
+             LEFT JOIN users u ON u.chat_id = p.chat_id
+            WHERE p.session_id = ?
+            ORDER BY p.created_at ASC`,
+          [session.id],
+        ),
+        query<{
+          id: string;
+          invitee_chat_id: string | null;
+          invitee_phone: string | null;
+          status: string;
+        }>(
+          `SELECT id, invitee_chat_id, invitee_phone, status
+             FROM pending_invites
+            WHERE session_id = ? AND status = 'PENDING'
+            ORDER BY created_at ASC`,
+          [session.id],
+        ),
+      ]);
+
+      return {
+        session,
+        participants: participantsResult.results.map((p) => ({
+          ...p,
+          has_schedule: p.schedule_json !== null && p.schedule_json !== "",
+        })),
+        pendingInvites: invitesResult.results,
+      };
+    }),
+  );
+
+  return {
+    user,
+    activeSessions,
+    personNotes,
+    recentHistory,
+    timezone: user.timezone ?? "Europe/Malta",
+  };
+}
+
+/**
+ * Save a parsed schedule to a participant row WITHOUT changing state.
+ * The old flow transitioned AWAITING_SCHEDULE → AWAITING_CONFIRMATION
+ * as a side effect of saving; the new flow has no state machine and
+ * confirmation is just a conversation thread. Turn handler decides
+ * whether to ask the user to confirm.
+ */
+export async function saveParticipantSchedule(
+  participantId: string,
+  scheduleJson: string,
+): Promise<void> {
+  await query(
+    "UPDATE participants SET schedule_json = ?, updated_at = datetime('now') WHERE id = ?",
+    [scheduleJson, participantId],
+  );
+}
+
+/**
+ * Cancel a session — marks it EXPIRED, notifies observability. The turn
+ * handler's session_action tool calls this when the user says "cancel"
+ * or "nvm". Does NOT send Telegram messages to other participants —
+ * that's the turn handler's job, so it can use the agentic reply tool
+ * with proper per-recipient language handling.
+ */
+export async function cancelSession(sessionId: string): Promise<void> {
+  await query("UPDATE sessions SET status = 'EXPIRED' WHERE id = ?", [sessionId]);
+  await query(
+    "UPDATE pending_invites SET status = 'CANCELLED' WHERE session_id = ? AND status = 'PENDING'",
+    [sessionId],
+  );
+  await emitSessionEvent(sessionId, "session_cancelled");
+}
+
+/**
+ * Reopen the most-recent COMPLETED session for a user so they can amend
+ * after a match was already delivered. Flips status OPEN, does NOT touch
+ * schedule_json (preserving the existing uploads), does NOT create new
+ * waitpoint tokens. Returns the reopened session id, or null if the user
+ * has no completed session to reopen.
+ */
+export async function reopenLastCompletedSession(chatId: string): Promise<string | null> {
+  const result = await query<{ id: string }>(
+    `SELECT s.id FROM sessions s
+       JOIN participants p ON p.session_id = s.id
+      WHERE p.chat_id = ? AND s.status = 'COMPLETED'
+      ORDER BY s.created_at DESC
+      LIMIT 1`,
+    [chatId],
+  );
+  const sessionId = result.results[0]?.id;
+  if (!sessionId) return null;
+  // Reset to OPEN + extend expiry 7 days from now so the reopened session
+  // doesn't immediately time out. Leave schedule_json and preferred_slots
+  // intact — the user is amending, not restarting.
+  const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  await query(
+    "UPDATE sessions SET status = 'OPEN', expires_at = ? WHERE id = ?",
+    [newExpiry, sessionId],
+  );
+  await emitSessionEvent(sessionId, "session_reopened");
+  return sessionId;
+}

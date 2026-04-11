@@ -1,4 +1,16 @@
-// Match compute — finds overlapping free time between two participants
+// Match compute — finds overlapping free time across N participants.
+//
+// Public API:
+//   - `computeOverlaps(schedules)` — pure N-way intersection. Takes an array
+//     of per-person schedule_json blobs, returns sorted free-slot list. No
+//     D1 writes. Used by the agentic turn-handler as the body of its
+//     `compute_and_deliver_match` tool.
+//   - `persistComputedSlots(sessionId, slots)` — writes the computed slots
+//     to free_slots (used by the legacy orchestrator and optionally by the
+//     new turn-handler when it wants the slots indexed for deliver-results).
+//   - `matchCompute` — Trigger.dev schemaTask wrapper, kept for the legacy
+//     message-router pipeline. Deleted in phase 05.
+//   - `computeSinglePersonSlots` — single-person "free time" for mediator mode.
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
@@ -35,6 +47,101 @@ const storedScheduleSchema = z.array(storedShiftSchema);
 const DAY_START = 8 * 60; // 08:00
 const DAY_END = 22 * 60; // 22:00
 const MIN_BLOCK_MINUTES = 120; // 2 hours minimum
+
+// --- Pure N-way overlap computation (new agentic-handler entry point) ---
+
+export interface ComputedFreeSlot {
+  day: string;
+  day_name: string;
+  start_time: string;
+  end_time: string;
+  duration_minutes: number;
+  explanation: string;
+}
+
+/**
+ * Pure N-way overlap computation. Takes an array of schedule_json strings
+ * (one per participant, including on-behalf uploads) and returns sorted
+ * free slots. Zero D1 writes. Used by the turn-handler's
+ * compute_and_deliver_match tool so it can decide whether to persist
+ * and deliver, or just preview, or both.
+ */
+export function computeOverlaps(
+  scheduleJsonList: Array<{ id: string; schedule_json: string | null }>,
+): ComputedFreeSlot[] {
+  const allSchedules = scheduleJsonList.map((s) => parseSchedule(s.schedule_json, s.id));
+  const ranges = allSchedules
+    .map(getDateRange)
+    .filter((r): r is { start: string; end: string } => r !== null);
+
+  if (ranges.length < 2) return [];
+
+  const overlapStart = ranges.reduce((max, r) => (r.start > max ? r.start : max), ranges[0].start);
+  const overlapEnd = ranges.reduce((min, r) => (r.end < min ? r.end : min), ranges[0].end);
+  if (overlapStart > overlapEnd) return [];
+
+  const allDates = new Set<string>();
+  const start = new Date(overlapStart + "T12:00:00Z");
+  const end = new Date(overlapEnd + "T12:00:00Z");
+  for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    allDates.add(d.toISOString().split("T")[0]);
+  }
+
+  const freeSlots: ComputedFreeSlot[] = [];
+  for (const date of [...allDates].sort()) {
+    const allFreeBlocks = allSchedules.map((schedule) => getFreeTime(schedule, date));
+    const allShiftsForDay = allSchedules.flatMap((schedule) => schedule.filter((s) => s.date === date));
+    const overlap = allFreeBlocks.reduce((acc, blocks) => intersectBlocks(acc, blocks));
+
+    for (const block of overlap) {
+      const duration = block.end - block.start;
+      if (duration >= MIN_BLOCK_MINUTES) {
+        freeSlots.push({
+          day: date,
+          day_name: new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }),
+          start_time: minutesToTime(block.start),
+          end_time: minutesToTime(block.end),
+          duration_minutes: duration,
+          explanation: explainSlotN(block, allShiftsForDay),
+        });
+      }
+    }
+  }
+
+  freeSlots.sort((a, b) => {
+    const dateCompare = a.day.localeCompare(b.day);
+    if (dateCompare !== 0) return dateCompare;
+    return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+  });
+
+  return freeSlots;
+}
+
+/**
+ * Persist computed free slots to the free_slots table for a session.
+ * The turn-handler's compute_and_deliver_match tool calls this immediately
+ * before triggering deliver-results so the delivery logic finds indexed rows.
+ */
+export async function persistComputedSlots(sessionId: string, slots: ComputedFreeSlot[]): Promise<void> {
+  await query("DELETE FROM free_slots WHERE session_id = ?", [sessionId]);
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    await query(
+      "INSERT INTO free_slots (id, session_id, slot_number, day, day_name, start_time, end_time, duration_minutes, explanation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [
+        crypto.randomUUID(),
+        sessionId,
+        i + 1,
+        slot.day,
+        slot.day_name,
+        slot.start_time,
+        slot.end_time,
+        slot.duration_minutes,
+        slot.explanation,
+      ],
+    );
+  }
+}
 
 export const matchCompute = schemaTask({
   id: "meetsync-match-compute",

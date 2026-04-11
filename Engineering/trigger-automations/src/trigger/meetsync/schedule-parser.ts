@@ -1,5 +1,17 @@
 // Schedule parser — extracts work shifts from images/PDFs/text via Claude API
-// Supports file uploads (Telegram media) and typed schedule descriptions
+// Supports file uploads (Telegram media) and typed schedule descriptions.
+//
+// Public API — two ways to call the parser:
+//
+//   1. `extractSchedule(input)` — pure async function. Takes media base64 +
+//      mime type OR text, returns parsed shifts. No side effects. Used by the
+//      agentic turn-handler as a tool implementation. Prefer this in new code.
+//
+//   2. `scheduleParser` — Trigger.dev schemaTask wrapper. Kept for the legacy
+//      message-router pipeline (scheduled for deletion in phase 05 of the
+//      agentic rewrite). Still owns the participant-state transitions,
+//      on-behalf person_notes writes, and Telegram reply sends. Do NOT add
+//      new callers — those belong to the turn-handler now.
 
 import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
@@ -196,6 +208,77 @@ Example (framing B — fully free for 3 days):
 }`;
 }
 
+// --- Pure extraction function (new agentic-handler entry point) ---
+
+export interface ExtractScheduleInput {
+  /** Base64-encoded media bytes + mime type. Use this for image/PDF uploads. */
+  media?: { base64: string; mediaType: string };
+  /** Plain-text schedule description (typed hours, voice transcript, etc). */
+  text?: string;
+  /** Display name of the user the schedule is for. Used to filter multi-person rotas. */
+  userName?: string;
+  /** IANA timezone (e.g. "Europe/Malta"). Drives the 28-day weekday lookup anchor. */
+  timezone: string;
+  /**
+   * When the schedule is for someone OTHER than the user (on-behalf upload,
+   * e.g. "this is Diego's rota"), pass the third party's name here. Overrides
+   * `userName` for prompt-building purposes so the parser filters to the
+   * named person's row on a multi-person rota.
+   */
+  attributedToName?: string;
+}
+
+export interface ExtractScheduleResult {
+  shifts: Array<{
+    date: string;
+    start_time: string;
+    end_time: string;
+    label?: string;
+    confidence?: number;
+  }>;
+}
+
+/**
+ * Pure schedule extraction. No D1 writes, no Telegram sends, no state transitions.
+ *
+ * The agentic turn-handler calls this as the body of its `parse_schedule` tool
+ * and gets back a plain shifts array. The handler decides what to do with the
+ * result (save to participant / save to person_notes / show to user for
+ * confirmation / etc).
+ *
+ * Either `text` OR `media` must be provided. If both are passed, `media` wins.
+ */
+export async function extractSchedule(input: ExtractScheduleInput): Promise<ExtractScheduleResult> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
+
+  // Prompt construction uses attributedToName (the on-behalf target) if set,
+  // otherwise falls back to the caller's own name. Empty string / undefined
+  // both land on the "no user name available" path in getExtractionPrompt.
+  const effectiveName = input.attributedToName?.trim() || input.userName?.trim() || undefined;
+
+  if (input.media) {
+    const shifts = await parseMediaWithClaude(
+      apiKey,
+      input.media.base64,
+      input.media.mediaType,
+      effectiveName,
+      input.timezone,
+    );
+    return { shifts };
+  }
+  if (input.text) {
+    const shifts = await parseTextWithClaude(apiKey, input.text, effectiveName, input.timezone);
+    return { shifts };
+  }
+  throw new Error("extractSchedule requires either `media` or `text` input");
+}
+
+// --- Legacy Trigger.dev task wrapper ---
+// Still used by the old message-router pipeline. Deleted in phase 05 of the
+// agentic rewrite along with its callers. Do NOT add new invocations — the
+// turn-handler calls `extractSchedule` directly instead.
+
 export const scheduleParser = schemaTask({
   id: "meetsync-schedule-parser",
   schema: payloadSchema,
@@ -342,7 +425,7 @@ async function callClaude(
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-sonnet-4-6",
       max_tokens: 8192,
       messages: [{ role: "user", content }],
     }),
@@ -444,15 +527,38 @@ function formatShiftList(
 
 // --- Utils ---
 
-function mapMimeType(mime: string): string {
+/**
+ * Map a Telegram-supplied mime type to what Claude vision accepts.
+ * Throws a descriptive error for unsupported types (xlsx, csv, docx, audio,
+ * video, etc) so the caller — or the turn-handler's parse_schedule tool —
+ * can surface a clear "please screenshot or paste as text" response instead
+ * of silently falling through to image/jpeg and producing an opaque Claude
+ * vision error downstream.
+ */
+export function mapMimeType(mime: string): string {
   if (mime.startsWith("image/jpeg")) return "image/jpeg";
   if (mime.startsWith("image/png")) return "image/png";
   if (mime.startsWith("image/webp")) return "image/webp";
+  if (mime.startsWith("image/gif")) return "image/gif";
   if (mime.startsWith("application/pdf")) return "application/pdf";
-  return "image/jpeg";
+  // Common unsupported document types get a specific error so the caller
+  // can relay a useful message to the user. Everything else gets a generic
+  // "unsupported" error.
+  if (
+    mime.includes("spreadsheetml") ||        // xlsx
+    mime.includes("ms-excel") ||             // xls
+    mime.includes("csv") ||
+    mime.includes("wordprocessingml") ||     // docx
+    mime.includes("msword")                  // doc
+  ) {
+    throw new Error(
+      `UNSUPPORTED_DOCUMENT: ${mime} — ask the user to send a screenshot of the schedule or type the hours as text.`,
+    );
+  }
+  throw new Error(`UNSUPPORTED_MEDIA: ${mime} — only JPEG, PNG, WebP, GIF, and PDF are supported.`);
 }
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
+export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = "";
   for (let i = 0; i < bytes.length; i++) {
