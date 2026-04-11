@@ -41,6 +41,7 @@ import {
 import {
   extractSchedule,
   mapMimeType,
+  arrayBufferToBase64,
   type ExtractScheduleResult,
 } from "./schedule-parser.js";
 import {
@@ -50,6 +51,7 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { deliverMatchToSession } from "./deliver-results.js";
+import { downloadMedia } from "./telegram-client.js";
 
 // --- Types ---
 
@@ -116,13 +118,21 @@ function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionE
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract and save shifts from a schedule the user shared (photo, PDF, voice transcript, typed text, screenshot — any format). Auto-saves to D1. Pass text_content for typed input, or omit it to use the current turn's attached media. Use attributed_to_name when the schedule is for someone other than the user. Returns the parsed shifts.",
+    "Extract and save shifts from a schedule. Three input modes: (1) text_content for typed input, (2) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in the recent history; pass that exact file_id), (3) omit both to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. Auto-saves to D1.",
   input_schema: {
     type: "object",
     properties: {
       text_content: {
         type: "string",
-        description: "Typed hours or text description. Omit to parse the current turn's attached media.",
+        description: "Typed hours or text description. Use this when the user typed their schedule.",
+      },
+      media_id: {
+        type: "string",
+        description: "Telegram file_id from a previous turn's history entry. Use this when the user references a file they already sent.",
+      },
+      mime_type: {
+        type: "string",
+        description: "MIME type for media_id (e.g. 'image/jpeg', 'application/pdf'). Optional — defaults to JPEG if omitted.",
       },
       attributed_to_name: {
         type: "string",
@@ -130,17 +140,45 @@ const parseScheduleTool: ToolDefinition = {
       },
       session_id: {
         type: "string",
-        description: "Session to save the user's own schedule to. Defaults to the most recent active session, creates a fresh one if none exists. Ignored when attributed_to_name is set.",
+        description: "Session to save the user's own schedule to. Defaults to the most recent active session, creates a fresh one if none exists.",
       },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
     const textContent = typeof input.text_content === "string" ? input.text_content : undefined;
+    const explicitMediaId = typeof input.media_id === "string" ? input.media_id.trim() : "";
+    const explicitMimeType = typeof input.mime_type === "string" ? input.mime_type : undefined;
     const attributedToName = typeof input.attributed_to_name === "string" ? input.attributed_to_name.trim() : "";
     const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     try {
-      // 1. Extract shifts via the pure parser
+      // 1. Resolve media: explicit media_id (download from Telegram) wins,
+      //    then current-turn cachedMedia, then text_content as a last resort.
+      //    The explicit media_id path is what lets the bot recover the user's
+      //    "I already sent it" reference — Claude reads the file_id from
+      //    conversation history and passes it here.
+      let resolvedMedia: { base64: string; mediaType: string } | undefined;
+      if (explicitMediaId) {
+        try {
+          const { buffer, mimeType: detectedMime } = await downloadMedia(explicitMediaId);
+          const mediaType = mapMimeType(explicitMimeType ?? detectedMime ?? "image/jpeg");
+          resolvedMedia = { base64: arrayBufferToBase64(buffer), mediaType };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await emitSessionEvent(
+            ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+            "parse_schedule_media_download_failed",
+            { chat_id: ctx.callerChatId, media_id: explicitMediaId, error: msg.slice(0, 200) },
+          );
+          return {
+            ok: false,
+            error: `Couldn't download file_id=${explicitMediaId} from Telegram. The file may have expired (Telegram file_ids are session-scoped) or the id is wrong. Tell the user honestly that the previous file isn't fetchable any more and ask them to re-send it. Underlying: ${msg.slice(0, 200)}`,
+          };
+        }
+      } else if (ctx.cachedMedia) {
+        resolvedMedia = ctx.cachedMedia;
+      }
+
       let result: ExtractScheduleResult;
       if (textContent) {
         result = await extractSchedule({
@@ -149,22 +187,30 @@ const parseScheduleTool: ToolDefinition = {
           timezone: ctx.snapshot.timezone,
           attributedToName: attributedToName || undefined,
         });
-      } else if (ctx.cachedMedia) {
+      } else if (resolvedMedia) {
         result = await extractSchedule({
-          media: ctx.cachedMedia,
+          media: resolvedMedia,
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
           attributedToName: attributedToName || undefined,
         });
       } else {
         return {
-          error:
-            "No media attached to this turn and no text_content provided. Ask the user to send their schedule or type their hours.",
+          ok: false,
+          error: "No media available and no text_content provided. Tell the user honestly that nothing was passed to the parser, ask them to either send the schedule or type their hours.",
         };
       }
 
       if (result.shifts.length === 0) {
-        return { error: "Parser returned no shifts." };
+        await emitSessionEvent(
+          ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+          "parse_schedule_zero_shifts",
+          { chat_id: ctx.callerChatId, input_kind: textContent ? "text" : "media", attributed: attributedToName || null },
+        );
+        return {
+          ok: false,
+          error: "Sonnet vision extracted 0 shifts from the input. The file may be unreadable, low-resolution, or not a schedule. Tell the user honestly: 'I couldn't make out any shifts from that — could you send a clearer photo, or type the hours out?' Do NOT pretend it worked.",
+        };
       }
 
       const scheduleJson = JSON.stringify(result.shifts);
@@ -682,7 +728,8 @@ const sessionActionTool: ToolDefinition = {
     const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     if (action === "new") {
-      // Expire any existing sessions the caller creates or participates in, then create a fresh one
+      // Expire any existing sessions the caller creates or participates in,
+      // then create a fresh one.
       await query(
         "UPDATE sessions SET status = 'EXPIRED' WHERE creator_chat_id = ? AND status NOT IN ('EXPIRED','COMPLETED')",
         [ctx.callerChatId],
@@ -694,11 +741,46 @@ const sessionActionTool: ToolDefinition = {
         "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
         [sessionId, code, ctx.callerChatId, expiresAt],
       );
+      const creatorParticipantId = crypto.randomUUID();
       await query(
         "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
-        [crypto.randomUUID(), sessionId, ctx.callerChatId],
+        [creatorParticipantId, sessionId, ctx.callerChatId],
       );
       await emitSessionEvent(sessionId, "session_created", { via: "session_action.new" });
+
+      // CRITICAL: sync the in-turn snapshot. Without this, a subsequent
+      // parse_schedule call in the same turn would still see the old
+      // (now-expired) sessions in ctx.snapshot.activeSessions and try to
+      // save into a stale participant row — schedule lands in an expired
+      // session and disappears from loadSnapshot next turn. Live test
+      // 2026-04-11 16:53-16:55 hit this exact bug.
+      ctx.snapshot.activeSessions = [
+        {
+          session: {
+            id: sessionId,
+            code,
+            creator_chat_id: ctx.callerChatId,
+            status: "OPEN",
+            mode: null,
+            created_at: new Date().toISOString(),
+            expires_at: expiresAt,
+          },
+          participants: [
+            {
+              id: creatorParticipantId,
+              chat_id: ctx.callerChatId,
+              role: "creator",
+              state: "ACTIVE",
+              schedule_json: null,
+              preferred_slots: null,
+              name: ctx.snapshot.user.name,
+              has_schedule: false,
+            },
+          ],
+          pendingInvites: [],
+        },
+      ];
+
       return { action: "new", session_id: sessionId };
     }
 
