@@ -272,16 +272,27 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     // 1. Register the user (idempotent)
     await registerUser(chatId, undefined, undefined, payload.telegram_language_code);
 
-    // 2. Burst consolidation — bail if a newer user message has arrived
-    //    for this chat. Only runs for text turns where the Worker pre-logged
-    //    the row id; media turns don't consolidate (each photo is its own
-    //    turn with full history, per the trust-Claude philosophy).
+    // 2. Burst consolidation — bail if a newer user message has arrived for
+    //    this chat. Runs for ALL message types, not just text. Media turns
+    //    were originally exempted on the theory that "each photo stands on
+    //    its own context", but live testing showed that was wrong: 3 uploads
+    //    in ~15s spawn 3 parallel Trigger.dev runs that compete on parse_schedule
+    //    and produce hallucinated "parser is broken" replies. With the guard
+    //    extended, only the latest turn in the burst runs; the earlier turns
+    //    bail and their content is still visible to the winning turn via
+    //    conversation_log history (the Worker pre-logs every message including
+    //    [photo uploaded · file_id=...] entries).
     let myLogId = payload.log_id ?? 0;
-    if (payload.message_type === "text" && payload.text && myLogId === 0) {
-      // Fallback path: worker didn't pre-log, log inline
-      myLogId = await logMessage(chatId, "user", payload.text);
+    if (myLogId === 0) {
+      // Fallback log path for any message type the Worker didn't pre-log
+      const fallbackText = payload.text
+        ?? (payload.message_type === "image" ? `[photo uploaded · file_id=${payload.media_id ?? "?"}]`
+          : payload.message_type === "document" ? `[document uploaded · mime=${payload.mime_type ?? "?"} · file_id=${payload.media_id ?? "?"}]`
+          : payload.message_type === "audio" ? `[voice message · file_id=${payload.media_id ?? "?"}]`
+          : `[${payload.message_type} upload]`);
+      myLogId = await logMessage(chatId, "user", fallbackText);
     }
-    if (myLogId > 0 && payload.message_type === "text") {
+    if (myLogId > 0) {
       await new Promise((resolve) => setTimeout(resolve, BURST_GRACE_MS));
       const newer = await query<{ max_id: number | null }>(
         "SELECT MAX(id) as max_id FROM conversation_log WHERE chat_id = ? AND role = 'user'",
