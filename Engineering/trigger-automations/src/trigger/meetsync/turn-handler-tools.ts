@@ -255,7 +255,7 @@ const parseScheduleTool: ToolDefinition = {
         );
         return {
           ok: false,
-          error: "Sonnet vision extracted 0 shifts from the input. The file may be unreadable, low-resolution, or not a schedule. Tell the user honestly: 'I couldn't make out any shifts from that — could you send a clearer photo, or type the hours out?' Do NOT pretend it worked.",
+          error: "Parser returned 0 shifts. The file may be unreadable, low-resolution, or not contain a schedule.",
         };
       }
 
@@ -270,10 +270,7 @@ const parseScheduleTool: ToolDefinition = {
         "parse_schedule_threw",
         { chat_id: ctx.callerChatId, error: msg.slice(0, 400) },
       );
-      return {
-        ok: false,
-        error: `parse_schedule threw: ${msg.slice(0, 300)}. If you can read the schedule yourself from an attached file, retry by passing the shifts array directly via the 'shifts' input — it skips the parser entirely. Otherwise tell the user honestly that extraction failed and ask them to type it.`,
-      };
+      return { ok: false, error: `parse_schedule threw: ${msg.slice(0, 300)}` };
     }
   },
 };
@@ -615,12 +612,7 @@ const acceptInviteTool: ToolDefinition = {
       [sessionId, ctx.callerChatId],
     );
     if (existing.results.length > 0) {
-      return {
-        ok: true,
-        already_joined: true,
-        session_id: sessionId,
-        notes: "Caller is already a participant. Welcome them and ask for their schedule if they haven't sent it yet.",
-      };
+      return { ok: true, already_joined: true, session_id: sessionId };
     }
 
     // 3. Insert participant row
@@ -696,7 +688,26 @@ const acceptInviteTool: ToolDefinition = {
     }
 
     // 7. Sync in-turn snapshot so subsequent tools (and Claude's reply
-    //    composition) see the new session.
+    //    composition) see the new session — including the creator (so
+    //    Claude knows who the inviter is) AND the caller (the new joinee).
+    const allParticipantsFromDb = await getSessionParticipants(session.id);
+    const builtParticipants = await Promise.all(
+      allParticipantsFromDb.map(async (p) => {
+        const u = p.chat_id === ctx.callerChatId
+          ? ctx.snapshot.user
+          : await getUser(p.chat_id);
+        return {
+          id: p.id,
+          chat_id: p.chat_id,
+          role: p.role,
+          state: p.state,
+          schedule_json: p.schedule_json,
+          preferred_slots: p.preferred_slots,
+          name: u?.name ?? null,
+          has_schedule: p.schedule_json !== null && p.schedule_json !== "",
+        };
+      }),
+    );
     const newSessionEntry: SnapshotSessionEntry = {
       session: {
         id: session.id,
@@ -704,21 +715,10 @@ const acceptInviteTool: ToolDefinition = {
         creator_chat_id: session.creator_chat_id,
         status: session.status,
         mode: session.mode,
-        created_at: new Date().toISOString(),
+        created_at: session.expires_at, // session row doesn't expose created_at via getSessionById; use expires_at as a stand-in
         expires_at: session.expires_at,
       },
-      participants: [
-        {
-          id: participantId,
-          chat_id: ctx.callerChatId,
-          role: "partner",
-          state: "ACTIVE",
-          schedule_json: linkedScheduleJson,
-          preferred_slots: null,
-          name: ctx.snapshot.user.name,
-          has_schedule: linkedScheduleJson !== null,
-        },
-      ],
+      participants: builtParticipants,
       pendingInvites: [],
     };
     ctx.snapshot.activeSessions.unshift(newSessionEntry);
@@ -735,9 +735,6 @@ const acceptInviteTool: ToolDefinition = {
       inviter_name: inviterName,
       transferred_schedule: linkedScheduleJson !== null,
       transferred_shift_count: linkedScheduleJson ? (JSON.parse(linkedScheduleJson) as unknown[]).length : 0,
-      notes: linkedScheduleJson
-        ? `Caller joined the session. Their schedule was already uploaded on-behalf by ${inviterName ?? "the inviter"} — no need to ask them to send it. Welcome them, mention the inviter, confirm the shift count, and ask if it looks right.`
-        : `Caller joined the session. Welcome them, mention the inviter (${inviterName ?? "their friend"}), and ask them to send their schedule.`,
     };
   },
 };

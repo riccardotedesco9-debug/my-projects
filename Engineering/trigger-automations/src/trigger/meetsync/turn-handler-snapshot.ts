@@ -177,16 +177,6 @@ function formatSessionSection(
     }
   }
 
-  // Summary: how many schedules present vs needed for a match
-  const withSchedule = entry.participants.filter((p) => p.has_schedule).length;
-  const total = entry.participants.length + entry.pendingInvites.length;
-  if (withSchedule < total) {
-    const missing = total - withSchedule;
-    lines.push(`${indent}→ ${missing} more schedule${missing === 1 ? "" : "s"} needed before you can compute a match.`);
-  } else if (total >= 2) {
-    lines.push(`${indent}→ All schedules present. Ready to compute_and_deliver_match when user asks.`);
-  }
-
   return lines;
 }
 

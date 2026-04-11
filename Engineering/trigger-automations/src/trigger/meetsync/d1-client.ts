@@ -84,27 +84,6 @@ export async function getSessionParticipants(sessionId: string) {
   return result.results;
 }
 
-export async function updateParticipantState(
-  participantId: string,
-  state: string,
-  extra?: Record<string, unknown>
-) {
-  const sets = ["state = ?", "updated_at = datetime('now')"];
-  const params: unknown[] = [state];
-
-  if (extra) {
-    const ALLOWED_COLUMNS = new Set(["schedule_json", "preferred_slots"]);
-    for (const [key, value] of Object.entries(extra)) {
-      if (!ALLOWED_COLUMNS.has(key)) throw new Error(`Invalid column: ${key}`);
-      sets.push(`${key} = ?`);
-      params.push(value);
-    }
-  }
-
-  params.push(participantId);
-  await query(`UPDATE participants SET ${sets.join(", ")} WHERE id = ?`, params);
-}
-
 export async function updateSessionStatus(sessionId: string, status: string) {
   await query("UPDATE sessions SET status = ? WHERE id = ?", [status, sessionId]);
 }
@@ -248,127 +227,6 @@ export async function linkPersonNoteToChat(
     [linkedChatId, existing.id],
   );
   return { ...existing, linked_chat_id: linkedChatId };
-}
-
-/**
- * Build a ground-truth snapshot of the session's state for injection into
- * response-generator prompts. The AI was hallucinating about schedule
- * ownership and participant count because it only saw conversation history
- * — which includes names mentioned in passing ("Diego") that the AI then
- * confidently claimed were real participants with real schedules. This
- * snapshot gives the AI the actual DB state so it can ground replies in
- * reality instead of pattern-matching from chat history.
- *
- * Call this from the response context builder — it's one extra D1 round
- * trip per reply (two SELECTs on small indexed tables), acceptable in
- * exchange for eliminating hallucinated-state bugs.
- */
-export async function getSessionSnapshot(
-  sessionId: string,
-  selfChatId: string,
-): Promise<string> {
-  // Participants with schedule presence flag + names from users join
-  const participantsResult = await query<{
-    chat_id: string;
-    state: string;
-    has_schedule: number;
-    name: string | null;
-  }>(
-    `SELECT p.chat_id, p.state,
-            CASE WHEN p.schedule_json IS NOT NULL AND p.schedule_json != '' THEN 1 ELSE 0 END as has_schedule,
-            u.name
-     FROM participants p
-     LEFT JOIN users u ON u.chat_id = p.chat_id
-     WHERE p.session_id = ?
-     ORDER BY p.created_at ASC`,
-    [sessionId],
-  );
-
-  // Pending invites — people the creator has invited but who haven't
-  // joined yet. These are NOT participants and have no schedule of their
-  // own, but may have a person_notes row with a schedule uploaded on their
-  // behalf, so the AI needs to know they exist either way.
-  const invitesResult = await query<{
-    id: string;
-    invitee_chat_id: string | null;
-    status: string;
-  }>(
-    `SELECT id, invitee_chat_id, status
-     FROM pending_invites
-     WHERE session_id = ? AND status = 'PENDING'
-     ORDER BY created_at ASC`,
-    [sessionId],
-  );
-
-  // Person notes owned by the asking user — the third parties they've told
-  // the bot about. Used to enrich pending-invite lines (if Riccardo uploaded
-  // Diego's schedule on behalf, the snapshot should say so) and to list
-  // people the user has mentioned historically even if no invite exists yet.
-  const personNotes = await getPersonNotesForOwner(selfChatId);
-
-  const participants = participantsResult.results;
-  const withSchedules = participants.filter((p) => p.has_schedule === 1);
-  const pendingInvites = invitesResult.results;
-  // A pending-invite person counts as "has schedule" if their person_notes
-  // row carries a schedule_json (uploaded on behalf). We track this so the
-  // "missing schedules" summary at the bottom reflects reality.
-  const pendingInvitesWithNotes = pendingInvites.filter((_inv) => {
-    // We don't store the intended name on the invite row itself, so we
-    // can't match 1:1 here. Instead, check if the user has ANY person_notes
-    // with schedule_json populated. This is an approximation — for a single
-    // pending invite it's usually correct.
-    return personNotes.some((pn) => pn.schedule_json && !pn.linked_chat_id);
-  }).length;
-
-  const lines: string[] = [];
-  lines.push("[SESSION SNAPSHOT — ground your answer in THESE facts. Never claim to have data not listed here. Do not invent schedules, participants, or state.]");
-  lines.push(`- Session id: ${sessionId.slice(0, 8)}`);
-  lines.push(`- Schedules present: ${withSchedules.length} of ${participants.length + pendingInvites.length} total people`);
-  lines.push(`- Participants in session (${participants.length}):`);
-  for (const p of participants) {
-    const who = p.chat_id === selfChatId ? `${p.name ?? "user"} (YOU)` : (p.name ?? `person ${p.chat_id.slice(-4)}`);
-    const sched = p.has_schedule === 1 ? "schedule: ✓ UPLOADED" : "schedule: ✗ NOT YET";
-    lines.push(`    • ${who} — state: ${p.state}, ${sched}`);
-  }
-  if (pendingInvites.length > 0) {
-    lines.push(`- Pending invites (${pendingInvites.length}) — mentioned but not yet joined. The user may have uploaded their schedule on their behalf (see person notes below).`);
-    for (const inv of pendingInvites) {
-      const who = inv.invitee_chat_id ? `person ${inv.invitee_chat_id.slice(-4)}` : "awaiting invite tap";
-      lines.push(`    • ${who} — invite status: ${inv.status}`);
-    }
-  }
-
-  // People the user has told the bot about (with or without a session). The
-  // AI uses this to answer "what do you know about Diego?" and to avoid
-  // duplicating data it already has.
-  const notesWithSchedule = personNotes.filter((pn) => pn.schedule_json);
-  if (personNotes.length > 0) {
-    lines.push(`- People you know about this user (${personNotes.length} person notes):`);
-    for (const pn of personNotes) {
-      const parts: string[] = [pn.name];
-      if (pn.linked_chat_id) parts.push("joined the bot");
-      else parts.push("not joined");
-      if (pn.schedule_json) parts.push("schedule: ✓ UPLOADED on their behalf");
-      else parts.push("schedule: ✗");
-      if (pn.phone) parts.push(`phone: ${pn.phone.slice(-4)}`);
-      if (pn.notes) parts.push(`notes: ${pn.notes.slice(0, 100)}`);
-      lines.push(`    • ${parts.join(" — ")}`);
-    }
-  }
-
-  // Actionable summary at the end so the AI sees the bottom line clearly.
-  // A pending-invite person counts as "covered" if there's a person_note
-  // with schedule_json for them.
-  const needed = Math.max(2, participants.length + pendingInvites.length);
-  const effectivelyCovered = withSchedules.length + pendingInvitesWithNotes;
-  const missing = Math.max(0, needed - effectivelyCovered);
-  if (missing > 0) {
-    lines.push(`- MISSING for a match: ${missing} more schedule${missing === 1 ? "" : "s"} needed before free-time can be computed.`);
-  } else {
-    lines.push(`- All schedules present (including on-behalf uploads in person notes) — ready to compute free time.`);
-  }
-
-  return lines.join("\n");
 }
 
 /** Clear all data for a chat ID (reset) — expires sessions where user is a participant */
@@ -531,14 +389,6 @@ export async function updateUserPhone(chatId: string, phone: string) {
   );
 }
 
-/** Store user's Telegram username */
-export async function updateUserUsername(chatId: string, username: string) {
-  await query(
-    "UPDATE users SET username = ?, last_seen = datetime('now') WHERE chat_id = ?",
-    [username, chatId]
-  );
-}
-
 /** Append learned facts to user's context (newline-separated, capped at 2000 chars) */
 export async function appendUserContext(chatId: string, facts: string) {
   // Sanitize: reject facts that look like prompt injection attempts
@@ -605,25 +455,6 @@ export async function createPendingInvite(
   return id;
 }
 
-/** Check if someone has been invited — returns the active invite if any */
-export async function getPendingInviteForChatId(chatId: string) {
-  const result = await query<{
-    id: string;
-    inviter_chat_id: string;
-    invitee_chat_id: string | null;
-    invitee_phone: string | null;
-    session_id: string;
-    status: string;
-    expires_at: string;
-  }>(
-    `SELECT * FROM pending_invites
-     WHERE invitee_chat_id = ? AND status = 'PENDING' AND expires_at > datetime('now')
-     ORDER BY created_at DESC LIMIT 1`,
-    [chatId]
-  );
-  return result.results[0] ?? null;
-}
-
 /** Update invite status (ACCEPTED, EXPIRED, CANCELLED, OUTREACH_SENT) */
 export async function updateInviteStatus(id: string, status: string) {
   await query(
@@ -652,51 +483,6 @@ export async function getSessionById(sessionId: string) {
   return result.results[0] ?? null;
 }
 
-/** Get all non-creator participants for a session */
-export async function getOtherParticipants(sessionId: string, excludeChatId: string) {
-  const result = await query<{
-    id: string;
-    chat_id: string;
-    role: string;
-    state: string;
-  }>(
-    "SELECT * FROM participants WHERE session_id = ? AND chat_id != ?",
-    [sessionId, excludeChatId]
-  );
-  return result.results;
-}
-
-/** Count participants in a session */
-export async function getParticipantCount(sessionId: string): Promise<number> {
-  const result = await query<{ cnt: number }>(
-    "SELECT COUNT(*) as cnt FROM participants WHERE session_id = ?",
-    [sessionId]
-  );
-  return result.results[0]?.cnt ?? 0;
-}
-
-/** Count pending invites for a session (people invited via deep link who haven't joined yet) */
-export async function getPendingInviteCount(sessionId: string): Promise<number> {
-  const result = await query<{ cnt: number }>(
-    "SELECT COUNT(*) as cnt FROM pending_invites WHERE session_id = ? AND status = 'PENDING'",
-    [sessionId]
-  );
-  return result.results[0]?.cnt ?? 0;
-}
-
-/**
- * Look up a user's stored name + preferred language in one call.
- * Used by every task that sends replies on behalf of a specific chat_id
- * so outbound messages stay personalized and in the user's language.
- */
-export async function getReplyContext(chatId: string): Promise<{ userName?: string; userLanguage?: string }> {
-  const user = await getUser(chatId);
-  return {
-    userName: user?.name ?? undefined,
-    userLanguage: user?.preferred_language ?? undefined,
-  };
-}
-
 /**
  * Look up a user's timezone (IANA string, e.g. "Europe/Rome"), falling
  * back to Europe/Malta when the user row is missing or the column is
@@ -709,27 +495,6 @@ export async function getUserTimezone(chatId: string): Promise<string> {
   return user?.timezone ?? "Europe/Malta";
 }
 
-/** Find pending invite for a session */
-export async function getPendingInviteForSession(sessionId: string) {
-  const result = await query<{
-    id: string;
-    inviter_chat_id: string;
-    invitee_chat_id: string | null;
-    invitee_phone: string | null;
-    session_id: string;
-    status: string;
-    expires_at: string;
-  }>(
-    "SELECT * FROM pending_invites WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
-    [sessionId]
-  );
-  return result.results[0] ?? null;
-}
-
-/** Update session mode (NULL = classic, 'MEDIATED' = share availability) */
-export async function updateSessionMode(sessionId: string, mode: string | null) {
-  await query("UPDATE sessions SET mode = ? WHERE id = ?", [mode, sessionId]);
-}
 
 // --- Conversation log helpers ---
 

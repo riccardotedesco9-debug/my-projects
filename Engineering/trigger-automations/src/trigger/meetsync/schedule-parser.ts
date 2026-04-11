@@ -132,8 +132,8 @@ The user may describe their availability in either of TWO framings — handle BO
 FRAMING A — "I work/am busy at these times" (work shifts, classes, meetings):
 → Extract each busy window as a shift entry with real start_time and end_time.
 → For recurring weekly patterns like "I work Mon-Fri 9-5", emit ONE entry per matching
-   date across the ENTIRE 14-day lookup window above. So "Mon-Fri 9-5" with 2 weeks
-   visible = 10 entries (two Mondays, two Tuesdays, ..., two Fridays), all 09:00–17:00.
+   date across the ENTIRE 28-day lookup window above. So "Mon-Fri 9-5" = ~20 entries
+   (four of each weekday across four weeks), all 09:00–17:00.
 → Each entry's label should match the shift's actual weekday, and its date MUST be a
    date from the lookup table that corresponds to that weekday. E.g. if the lookup
    shows "Monday 2026-04-13" and "Monday 2026-04-20", both Monday entries go on those
@@ -143,11 +143,11 @@ FRAMING B — "I'm free at these times" or "I'm totally free" / "whenever":
 → The user has NO busy blocks for the dates they mention. Emit placeholder entries
    with start_time = "00:00" and end_time = "00:00" for each date in their stated
    range, so the scheduler has a date range to work with. Label each "fully free".
-   Example: "I'm free all day for the next 2 weeks" → use every row in the 14-day lookup
+   Example: "I'm free all day for the next 4 weeks" → use every row in the 28-day lookup
    window above, each as a 00:00–00:00 entry.
-   Example: "I'm free Tue and Thu" → the 2 Tue rows + 2 Thu rows, all 00:00–00:00.
+   Example: "I'm free Tue and Thu" → the 4 Tue rows + 4 Thu rows, all 00:00–00:00.
    If the user says "free all day every day" without a time bound, use the full
-   14-day lookup window above.
+   28-day lookup window above.
 
 Rules:
 - Return a JSON object with a "shifts" array

@@ -31,6 +31,7 @@ import {
   query,
   loadSnapshot,
   emitSessionEvent,
+  getUser,
 } from "./d1-client.js";
 import {
   downloadMedia,
@@ -253,16 +254,50 @@ async function callClaude(
 }
 
 // --- Fallback when the model gives up or we hit the iteration cap ---
+//
+// These bypass Claude (we got here because Claude failed), so we localize
+// from a small static table. en + it covers actual users; everything else
+// falls back to en. Keep additions narrow.
 
-async function sendFallback(chatId: string, kind: "empty" | "cap" | "api_error"): Promise<void> {
-  const text =
-    kind === "cap"
-      ? "Give me a sec — can you rephrase that or break it into a smaller step?"
-      : kind === "api_error"
-      ? "Something glitched on my end. Try that again in a sec?"
-      : "Hmm, I didn't quite follow that — can you rephrase?";
+const FALLBACK_TEXT: Record<string, Record<string, string>> = {
+  cap: {
+    en: "Give me a sec — can you rephrase that or break it into a smaller step?",
+    it: "Dammi un attimo — puoi riformulare o spezzarlo in qualcosa di più piccolo?",
+  },
+  api_error: {
+    en: "Something glitched on my end. Try again in a sec?",
+    it: "Ho avuto un piccolo intoppo. Riprova tra un secondo?",
+  },
+  empty: {
+    en: "Hmm, I didn't quite follow that — can you rephrase?",
+    it: "Mmm, non ho capito bene — puoi riformulare?",
+  },
+  unsupported: {
+    en: "I can't read that file format directly — send a JPEG/PNG screenshot or type the hours out and I'll take it from there.",
+    it: "Non riesco a leggere quel formato di file — manda uno screenshot JPEG/PNG o scrivi gli orari e ci penso io.",
+  },
+  download_failed: {
+    en: "I couldn't download that file. Can you try sending it again?",
+    it: "Non sono riuscito a scaricare il file. Puoi rimandarlo?",
+  },
+  unhandled: {
+    en: "Something broke on my end. Try again in a moment.",
+    it: "Qualcosa è andato storto. Riprova tra poco.",
+  },
+};
+
+function localizedFallback(kind: keyof typeof FALLBACK_TEXT, lang: string | undefined): string {
+  const table = FALLBACK_TEXT[kind];
+  return table[lang ?? "en"] ?? table.en;
+}
+
+async function sendFallback(
+  chatId: string,
+  kind: "empty" | "cap" | "api_error",
+  lang?: string,
+): Promise<void> {
   try {
-    await sendTextMessage(chatId, text);
+    await sendTextMessage(chatId, localizedFallback(kind, lang));
   } catch {
     /* last resort */
   }
@@ -288,10 +323,15 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
   // we re-fire every 4 s to keep the "typing…" indicator visible for the
   // entire turn instead of just the first ping.
   let stopTyping: (() => void) | null = null;
+  // Caller's preferred language — read once, used by all bypass-Claude
+  // fallbacks (sendFallback, media download/format failures, unhandled
+  // catch). Defaults to en if user row doesn't exist yet.
+  let userLang: string | undefined;
 
   try {
-    // 1. Register the user (idempotent)
+    // 1. Register the user (idempotent), then read their language for fallbacks
     await registerUser(chatId, undefined, undefined, payload.telegram_language_code);
+    userLang = (await getUser(chatId))?.preferred_language ?? "en";
 
     // 2. Burst consolidation — bail if a newer user message has arrived for
     //    this chat. Runs for ALL message types, not just text. Media turns
@@ -364,17 +404,12 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
         mediaCache = { base64: arrayBufferToBase64(buffer), mediaType };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        // mapMimeType throws UNSUPPORTED_* errors with helpful messages —
-        // surface them to the user directly so they know to screenshot.
         if (msg.startsWith("UNSUPPORTED_")) {
-          await sendTextMessage(
-            chatId,
-            "I can't read that file format directly — send a JPEG/PNG screenshot or type the hours out and I'll take it from there.",
-          );
+          await sendTextMessage(chatId, localizedFallback("unsupported", userLang));
           return { action: "unsupported_media", detail: msg };
         }
         console.error("Media download failed:", err);
-        await sendTextMessage(chatId, "I couldn't download that file. Can you try sending it again?");
+        await sendTextMessage(chatId, localizedFallback("download_failed", userLang));
         return { action: "media_download_failed" };
       }
     }
@@ -412,7 +447,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
         response = await callClaude(systemPrompt, messages);
       } catch (err) {
         console.error(`[turn-handler] Claude API error on iter ${iter}:`, err);
-        await sendFallback(chatId, "api_error");
+        await sendFallback(chatId, "api_error", userLang);
         return { action: "claude_api_error", error: String(err) };
       }
 
@@ -431,7 +466,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
           );
           return { action: "replied_direct", iterations: iter + 1 };
         }
-        await sendFallback(chatId, "empty");
+        await sendFallback(chatId, "empty", userLang);
         return { action: "replied_empty_fallback" };
       }
 
@@ -474,7 +509,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     }
 
     // Hit the iteration cap without calling reply
-    await sendFallback(chatId, "cap");
+    await sendFallback(chatId, "cap", userLang);
     await emitSessionEvent(
       snapshot.activeSessions[0]?.session.id ?? "no-session",
       "turn_exceeded_tool_cap",
@@ -484,7 +519,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
   } catch (err) {
     console.error("[turn-handler] unhandled error:", err);
     try {
-      await sendTextMessage(chatId, "Something broke on my end. Try again in a moment.");
+      await sendTextMessage(chatId, localizedFallback("unhandled", userLang));
     } catch {
       /* last resort */
     }
