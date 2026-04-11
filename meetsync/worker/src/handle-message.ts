@@ -147,6 +147,17 @@ async function routeExtractedPayload(
  * button with callback_data "confirm_schedule" produces a synthetic
  * text message "yes" — which the existing intent classifier already
  * recognizes without any new router branches.
+ *
+ * Security note (round-10 code review C1): we use `cq.from.id` as
+ * the chat_id, NOT `cq.message.chat.id`. This is intentional — the
+ * message the button was attached to was sent BY the bot, so its
+ * chat.id and the tapping user's from.id are the same for private
+ * chats (MeetSync is private-only). In a group chat they'd differ,
+ * and using message.chat.id would let one user spoof another; we
+ * correctly trust the tapper's from.id instead. The `data` payload
+ * is trusted only because the bot sent it — Telegram guarantees
+ * button data is round-tripped from the original reply_markup, not
+ * forgeable by the client.
  */
 function synthesizeFromCallback(cq: TelegramCallbackQuery): MessageRouterPayload | null {
   if (!cq.data) return null;

@@ -504,6 +504,12 @@ export async function handleSendAvailability(
   // which woke the orchestrator through the non-mediated path. Now we
   // complete them with `{cancelled: true}` so the orchestrator returns
   // via its cancellation branch and stays out of the mediated pipeline.
+  //
+  // Round-10 code review fix: also NULL out the token IDs on the
+  // sessions row after cancellation. Otherwise a subsequent amend
+  // flow reads stale token IDs and tries to complete them again —
+  // harmless (caught by the try/catch in restartOrchestratorForAmend)
+  // but each leaked completion is a wasted Trigger.dev API call.
   await updateSessionMode(participant.session_id, "MEDIATED");
   const session = await getSessionById(participant.session_id);
   if (session?.both_confirmed_token_id) {
@@ -511,6 +517,12 @@ export async function handleSendAvailability(
   }
   if (session?.both_preferred_token_id) {
     try { await wait.completeToken(session.both_preferred_token_id, { cancelled: true }); } catch { /* already completed */ }
+  }
+  if (session?.both_confirmed_token_id || session?.both_preferred_token_id) {
+    await query(
+      "UPDATE sessions SET both_confirmed_token_id = NULL, both_preferred_token_id = NULL WHERE id = ?",
+      [participant.session_id]
+    );
   }
 
   // Format slot list

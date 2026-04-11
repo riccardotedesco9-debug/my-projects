@@ -108,15 +108,29 @@ export async function restartOrchestratorForAmend(
   const oldConfirmed = existing.results[0]?.both_confirmed_token_id;
   const oldPreferred = existing.results[0]?.both_preferred_token_id;
 
-  // Cancel the currently-parked gate so the old orchestrator exits cleanly.
-  // Wrapped in try/catch because SDK behavior on double-complete is
-  // undocumented; if it turns out to be a pure no-op we can drop the catch.
+  // Cancel the currently-parked gate so the old orchestrator exits
+  // cleanly. Wrapped in try/catch because SDK behavior on
+  // double-complete is undocumented; if it turns out to be a pure
+  // no-op we can drop the catch.
+  //
+  // Round-10 code review finding H3: when previousStatus === COMPLETED
+  // the old orchestrator is parked on `wait.until(reminderDate)`, not
+  // a token gate. Trigger.dev SDK v4.4.3 doesn't expose a way to
+  // cancel a wait.until from another task, so the old run lingers as
+  // a ghost until it wakes 24h later. The match_attempt guard in
+  // session-orchestrator.ts catches it (currentAttempt !== match_attempt
+  // → return before sending reminder), so there's no user-visible
+  // double-reminder. The cost is one held Trigger.dev run slot per
+  // amend-after-completion — acceptable for current volume, revisit
+  // if worker concurrency becomes a bottleneck.
   try {
     if (["PAIRED", "MATCHING"].includes(previousStatus) && oldConfirmed) {
       await wait.completeToken(oldConfirmed, { cancelled: true });
     } else if (previousStatus === "MATCHED" && oldPreferred) {
       await wait.completeToken(oldPreferred, { cancelled: true });
     }
+    // else (COMPLETED / EXPIRED): fall through — no token to complete,
+    // ghost wait.until run cleaned up via match_attempt bump instead.
   } catch (err) {
     console.warn(`[amend] completeToken for ${sessionId} failed (probably already completed):`, err);
   }
