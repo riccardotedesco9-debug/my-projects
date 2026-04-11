@@ -1,25 +1,20 @@
 // Deliver results — sends final meeting match to all participants.
 //
-// Public API:
-//   - `deliverMatchToSession(sessionId)` — pure async entry point. Reads
-//     free_slots + participant preferences, picks the best slot, sends
-//     ics + Telegram message + Google Calendar event to every participant,
-//     marks session COMPLETED. Used by the agentic turn-handler's
-//     compute_and_deliver_match tool.
-//   - `deliverResults` — Trigger.dev schemaTask wrapper, thin shim over
-//     `deliverMatchToSession` kept for the legacy orchestrator. Deleted in
-//     phase 05.
+// Called by the agentic turn-handler's compute_and_deliver_match tool.
+// Reads free_slots + participant preferences, picks the best slot
+// (mutual preference → longest duration → chronological tiebreaker),
+// sends a .ics file + Telegram notification + Google Calendar event to
+// every participant, marks the session COMPLETED. Pure async function,
+// no Trigger.dev task wrapper (legacy schemaTask removed in phase 05).
+//
+// Each participant gets their message in their own preferred language
+// via a tiny multi-language template table — no scenario system, no
+// extra LLM calls. The philosophy of the rewrite is to trust Claude
+// for agent reasoning and use plain code for mechanical delivery.
 
-import { schemaTask } from "@trigger.dev/sdk";
-import { z } from "zod";
 import { sendTextMessage, sendDocumentMessage } from "./telegram-client.js";
-import { query, getSessionParticipants, updateParticipantState, updateSessionStatus, getReplyContext, getUserTimezone, emitSessionEvent } from "./d1-client.js";
+import { query, getSessionParticipants, updateSessionStatus, getUser, getUserTimezone, emitSessionEvent } from "./d1-client.js";
 import { createCalendarEvent } from "./google-calendar.js";
-import { generateResponse } from "./response-generator.js";
-
-const payloadSchema = z.object({
-  session_id: z.string(),
-});
 
 export interface DeliverMatchResult {
   match: {
@@ -69,11 +64,8 @@ export async function deliverMatchToSession(session_id: string): Promise<Deliver
     const slots = slotsResult.results;
     if (slots.length === 0) {
       for (const p of participants) {
-        await sendTextMessage(p.chat_id, await generateResponse({
-          scenario: "no_overlap", state: "COMPLETED",
-          ...(await getReplyContext(p.chat_id)),
-        }));
-        await updateParticipantState(p.id, "COMPLETED");
+        const lang = await getUserLanguage(p.chat_id);
+        await sendTextMessage(p.chat_id, NO_OVERLAP_TEMPLATES[lang] ?? NO_OVERLAP_TEMPLATES.en);
       }
       await updateSessionStatus(session_id, "COMPLETED");
       await emitSessionEvent(session_id, "no_overlap_final");
@@ -103,12 +95,12 @@ export async function deliverMatchToSession(session_id: string): Promise<Deliver
     const pool = mutualSlots.length > 0 ? mutualSlots : slots;
     const bestSlot = [...pool].sort(rankByDuration)[0] ?? slots[0];
 
-    // Format the match result for the response generator
+    // Format the match result for the per-recipient template
     const hours = Math.floor(bestSlot.duration_minutes / 60);
     const mins = bestSlot.duration_minutes % 60;
     const durationStr = mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-    const matchResultStr = `*${bestSlot.day_name} ${bestSlot.day}*\n${bestSlot.start_time} - ${bestSlot.end_time} (${durationStr})`;
-    const scenario = mutual.length > 0 ? "mutual_match" : "best_match";
+    const matchLine = `*${bestSlot.day_name} ${bestSlot.day}*\n${bestSlot.start_time} – ${bestSlot.end_time} (${durationStr})`;
+    const isMutual = mutual.length > 0;
 
     // Send result message + calendar file to each participant. Each
     // participant may have a different timezone (e.g. a Tokyo user
@@ -117,14 +109,15 @@ export async function deliverMatchToSession(session_id: string): Promise<Deliver
     // Calendar helper.
     for (const p of participants) {
       const tz = await getUserTimezone(p.chat_id);
+      const lang = await getUserLanguage(p.chat_id);
       const icsContent = generateIcs(bestSlot, tz, session_id);
 
-      await sendTextMessage(p.chat_id, await generateResponse({
-        scenario, state: "COMPLETED", matchResult: matchResultStr,
-        ...(await getReplyContext(p.chat_id)),
-      }));
+      const template = (isMutual ? MUTUAL_MATCH_TEMPLATES : BEST_MATCH_TEMPLATES)[lang]
+        ?? (isMutual ? MUTUAL_MATCH_TEMPLATES.en : BEST_MATCH_TEMPLATES.en);
+      await sendTextMessage(p.chat_id, template.replace("{MATCH}", matchLine));
+
       try {
-        await sendDocumentMessage(p.chat_id, icsContent, "meetup.ics", "Tap to add to your calendar");
+        await sendDocumentMessage(p.chat_id, icsContent, "meetup.ics", CALENDAR_CAPTIONS[lang] ?? CALENDAR_CAPTIONS.en);
       } catch (err) {
         console.error("Failed to send .ics file:", err);
       }
@@ -140,14 +133,12 @@ export async function deliverMatchToSession(session_id: string): Promise<Deliver
           tz,
         );
         if (added) {
-          await sendTextMessage(p.chat_id, "Added to your Google Calendar.");
+          await sendTextMessage(p.chat_id, GCAL_CONFIRMATION[lang] ?? GCAL_CONFIRMATION.en);
         }
       } catch (err) {
         // Google Calendar is optional — never fail the flow
         console.error("Google Calendar event creation failed:", err);
       }
-
-      await updateParticipantState(p.id, "COMPLETED");
     }
 
     await updateSessionStatus(session_id, "COMPLETED");
@@ -170,16 +161,62 @@ export async function deliverMatchToSession(session_id: string): Promise<Deliver
     };
 }
 
-// --- Legacy Trigger.dev task wrapper ---
-// Thin shim over deliverMatchToSession. Kept for the legacy orchestrator +
-// amend flow. Deleted in phase 05 of the agentic rewrite.
+// --- Multi-language templates for match delivery ---
+//
+// The caller's reply is composed by the turn-handler's reply tool (Claude
+// writes it), but the OTHER participants aren't in the current turn so
+// their notifications go through these static templates. One line per
+// language per scenario — trivial to extend. Fallback is English.
 
-export const deliverResults = schemaTask({
-  id: "meetsync-deliver-results",
-  schema: payloadSchema,
-  maxDuration: 30,
-  run: async (payload) => deliverMatchToSession(payload.session_id),
-});
+const NO_OVERLAP_TEMPLATES: Record<string, string> = {
+  en: "Couldn't find any overlapping free time across your schedules. Try uploading updated schedules or aim for a different week.",
+  it: "Non sono riuscito a trovare orari liberi in comune. Prova a caricare orari aggiornati o a puntare a un'altra settimana.",
+  es: "No encontré horarios libres que coincidan. Intenta subir horarios actualizados o mirar otra semana.",
+  fr: "Je n'ai trouvé aucun créneau libre en commun. Essayez de mettre à jour les horaires ou de viser une autre semaine.",
+  de: "Ich habe keine gemeinsame freie Zeit gefunden. Probier aktualisierte Zeiten hochzuladen oder eine andere Woche.",
+  pt: "Não encontrei horários livres em comum. Tente enviar horários atualizados ou apontar para outra semana.",
+};
+
+const MUTUAL_MATCH_TEMPLATES: Record<string, string> = {
+  en: "You all picked the same slot — done!\n\n{MATCH}\n\nEnjoy the meetup.",
+  it: "Avete scelto tutti lo stesso orario — fatto!\n\n{MATCH}\n\nBuon incontro.",
+  es: "¡Todos eligieron el mismo hueco — listo!\n\n{MATCH}\n\nDisfruten.",
+  fr: "Vous avez tous choisi le même créneau — c'est bon !\n\n{MATCH}\n\nBon rendez-vous.",
+  de: "Alle haben denselben Slot gewählt — fertig!\n\n{MATCH}\n\nViel Spaß.",
+  pt: "Todos escolheram o mesmo horário — pronto!\n\n{MATCH}\n\nAproveitem.",
+};
+
+const BEST_MATCH_TEMPLATES: Record<string, string> = {
+  en: "Here's one that fits everyone:\n\n{MATCH}\n\nLet me know if you'd like to see other options.",
+  it: "Ecco un orario che va bene per tutti:\n\n{MATCH}\n\nDimmi se vuoi vedere altre opzioni.",
+  es: "Aquí tienen un hueco que les sirve a todos:\n\n{MATCH}\n\nAvísenme si quieren ver otras opciones.",
+  fr: "Voilà un créneau qui convient à tout le monde :\n\n{MATCH}\n\nDites-moi si vous voulez voir d'autres options.",
+  de: "Hier ist einer, der für alle passt:\n\n{MATCH}\n\nSag Bescheid, wenn du andere Optionen sehen willst.",
+  pt: "Aqui está um horário que serve a todos:\n\n{MATCH}\n\nAvisem se quiserem ver outras opções.",
+};
+
+const CALENDAR_CAPTIONS: Record<string, string> = {
+  en: "Tap to add to your calendar",
+  it: "Tocca per aggiungere al calendario",
+  es: "Toca para añadir a tu calendario",
+  fr: "Touchez pour ajouter à votre calendrier",
+  de: "Tippen, um dem Kalender hinzuzufügen",
+  pt: "Toque para adicionar ao calendário",
+};
+
+const GCAL_CONFIRMATION: Record<string, string> = {
+  en: "Added to your Google Calendar.",
+  it: "Aggiunto al tuo Google Calendar.",
+  es: "Añadido a tu Google Calendar.",
+  fr: "Ajouté à votre Google Calendar.",
+  de: "Zu deinem Google Kalender hinzugefügt.",
+  pt: "Adicionado ao seu Google Agenda.",
+};
+
+async function getUserLanguage(chatId: string): Promise<string> {
+  const user = await getUser(chatId);
+  return user?.preferred_language ?? "en";
+}
 
 function generateIcs(
   slot: {

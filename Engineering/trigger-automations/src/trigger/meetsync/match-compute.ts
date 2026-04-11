@@ -5,20 +5,14 @@
 //     of per-person schedule_json blobs, returns sorted free-slot list. No
 //     D1 writes. Used by the agentic turn-handler as the body of its
 //     `compute_and_deliver_match` tool.
-//   - `persistComputedSlots(sessionId, slots)` — writes the computed slots
-//     to free_slots (used by the legacy orchestrator and optionally by the
-//     new turn-handler when it wants the slots indexed for deliver-results).
-//   - `matchCompute` — Trigger.dev schemaTask wrapper, kept for the legacy
-//     message-router pipeline. Deleted in phase 05.
+//   - `persistComputedSlots(sessionId, slots)` — writes computed slots to
+//     the free_slots table so deliver-results can index them.
 //   - `computeSinglePersonSlots` — single-person "free time" for mediator mode.
+//
+// The legacy `matchCompute` Trigger.dev schemaTask was removed in phase 05.
 
-import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { query, getSessionParticipants, getPersonNotesForOwner } from "./d1-client.js";
-
-const payloadSchema = z.object({
-  session_id: z.string(),
-});
+import { query } from "./d1-client.js";
 
 interface TimeBlock {
   start: number; // minutes since midnight
@@ -142,145 +136,6 @@ export async function persistComputedSlots(sessionId: string, slots: ComputedFre
     );
   }
 }
-
-export const matchCompute = schemaTask({
-  id: "meetsync-match-compute",
-  schema: payloadSchema,
-  maxDuration: 30,
-
-  run: async (payload) => {
-    const { session_id } = payload;
-
-    const participants = await getSessionParticipants(session_id);
-
-    // Also pull schedule-on-behalf entries from person_notes — people the
-    // creator uploaded schedules for without waiting for them to join. We
-    // look up by the session creator's chat_id and include any person_notes
-    // rows with schedule_json that are NOT already linked to a participant
-    // (the linked ones would double-count).
-    //
-    // The session creator's chat_id is whichever participant has role='creator'.
-    const creator = participants.find((p) => p.role === "creator");
-    const onBehalfSchedules: Array<{ id: string; schedule_json: string | null }> = [];
-    if (creator) {
-      const notes = await getPersonNotesForOwner(creator.chat_id);
-      for (const note of notes) {
-        if (!note.schedule_json) continue;
-        // Skip if already merged into a real participant (linked_chat_id
-        // matches a participant.chat_id). Prevents counting the same
-        // person twice after they've joined the bot.
-        const alreadyParticipant = note.linked_chat_id
-          && participants.some((p) => p.chat_id === note.linked_chat_id);
-        if (alreadyParticipant) continue;
-        onBehalfSchedules.push({
-          id: `on-behalf:${note.id}`,
-          schedule_json: note.schedule_json,
-        });
-      }
-    }
-
-    const totalPeople = participants.length + onBehalfSchedules.length;
-    if (totalPeople < 2) {
-      throw new Error(`Need at least 2 schedules, found ${totalPeople}`);
-    }
-
-    // Parse all schedules — participants + on-behalf. Passing an id so the
-    // Zod error path can name the row in logs (round-10 code review fix #8).
-    const allSchedules = [
-      ...participants.map((p) => parseSchedule(p.schedule_json, p.id)),
-      ...onBehalfSchedules.map((o) => parseSchedule(o.schedule_json, o.id)),
-    ];
-
-    // Find the overlapping date range across ALL schedules
-    const ranges = allSchedules.map(getDateRange).filter((r): r is { start: string; end: string } => r !== null);
-
-    if (ranges.length < 2) {
-      return { slot_count: 0, slots: [] };
-    }
-
-    // Overlap = latest start to earliest end across all schedules
-    const overlapStart = ranges.reduce((max, r) => r.start > max ? r.start : max, ranges[0].start);
-    const overlapEnd = ranges.reduce((min, r) => r.end < min ? r.end : min, ranges[0].end);
-
-    if (overlapStart > overlapEnd) {
-      return { slot_count: 0, slots: [] };
-    }
-
-    // Build the set of all dates within the overlapping range (including weekends)
-    const allDates = new Set<string>();
-    const start = new Date(overlapStart + "T12:00:00Z");
-    const end = new Date(overlapEnd + "T12:00:00Z");
-    for (let d = new Date(start); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
-      allDates.add(d.toISOString().split("T")[0]);
-    }
-
-    const freeSlots: Array<{
-      day: string;
-      day_name: string;
-      start_time: string;
-      end_time: string;
-      duration_minutes: number;
-      explanation: string;
-    }> = [];
-
-    for (const date of [...allDates].sort()) {
-
-      // N-way intersection: get each person's free time, then intersect all
-      const allFreeBlocks = allSchedules.map((schedule) => getFreeTime(schedule, date));
-      const allShiftsForDay = allSchedules.flatMap((schedule) => schedule.filter((s) => s.date === date));
-
-      // Reduce: intersect free time across all participants
-      const overlap = allFreeBlocks.reduce((acc, blocks) => intersectBlocks(acc, blocks));
-
-      for (const block of overlap) {
-        const duration = block.end - block.start;
-        if (duration >= MIN_BLOCK_MINUTES) {
-          freeSlots.push({
-            day: date,
-            day_name: new Date(date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" }),
-            start_time: minutesToTime(block.start),
-            end_time: minutesToTime(block.end),
-            duration_minutes: duration,
-            explanation: explainSlotN(block, allShiftsForDay),
-          });
-        }
-      }
-    }
-
-    // Sort chronologically (by date, then by start time)
-    freeSlots.sort((a, b) => {
-      const dateCompare = a.day.localeCompare(b.day);
-      if (dateCompare !== 0) return dateCompare;
-      return timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
-    });
-
-    // Store ALL qualifying slots (no cap — show the full picture)
-    const allSlots = freeSlots;
-
-    // Clear existing slots for this session
-    await query("DELETE FROM free_slots WHERE session_id = ?", [session_id]);
-
-    for (let i = 0; i < allSlots.length; i++) {
-      const slot = allSlots[i];
-      await query(
-        "INSERT INTO free_slots (id, session_id, slot_number, day, day_name, start_time, end_time, duration_minutes, explanation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        [
-          crypto.randomUUID(),
-          session_id,
-          i + 1,
-          slot.day,
-          slot.day_name,
-          slot.start_time,
-          slot.end_time,
-          slot.duration_minutes,
-          slot.explanation,
-        ]
-      );
-    }
-
-    return { slot_count: allSlots.length, slots: allSlots };
-  },
-});
 
 // --- Time utilities ---
 

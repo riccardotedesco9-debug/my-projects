@@ -1,38 +1,18 @@
-// Schedule parser — extracts work shifts from images/PDFs/text via Claude API
-// Supports file uploads (Telegram media) and typed schedule descriptions.
+// Schedule parser — extracts work shifts from images/PDFs/text via Claude API.
 //
-// Public API — two ways to call the parser:
+// Public API:
+//   - `extractSchedule(input)` — pure async function. Takes media base64 +
+//     mime type OR text, returns parsed shifts. No D1 writes, no Telegram
+//     sends. Called by the agentic turn-handler as its parse_schedule tool
+//     implementation.
+//   - `mapMimeType`, `arrayBufferToBase64` — utilities the turn-handler
+//     uses when preparing media for the parser.
 //
-//   1. `extractSchedule(input)` — pure async function. Takes media base64 +
-//      mime type OR text, returns parsed shifts. No side effects. Used by the
-//      agentic turn-handler as a tool implementation. Prefer this in new code.
-//
-//   2. `scheduleParser` — Trigger.dev schemaTask wrapper. Kept for the legacy
-//      message-router pipeline (scheduled for deletion in phase 05 of the
-//      agentic rewrite). Still owns the participant-state transitions,
-//      on-behalf person_notes writes, and Telegram reply sends. Do NOT add
-//      new callers — those belong to the turn-handler now.
+// The legacy `scheduleParser` Trigger.dev schemaTask was removed in phase
+// 05 of the agentic rewrite — its only callers (old state/intent handlers)
+// were deleted in the same commit.
 
-import { schemaTask } from "@trigger.dev/sdk";
 import { z } from "zod";
-import { downloadMedia, sendTextMessage, yesNoKeyboard } from "./telegram-client.js";
-import { updateParticipantState, getReplyContext, getUserTimezone, setPersonNoteSchedule } from "./d1-client.js";
-import { generateResponse } from "./response-generator.js";
-
-// Accepts either media (file upload) or text_content (typed schedule).
-// When for_person_name is set, the parsed schedule is stored in
-// person_notes.schedule_json under that name (owned by chat_id) rather than
-// on the uploader's participant row — used for on-behalf uploads like
-// "here's Diego's schedule".
-const payloadSchema = z.object({
-  participant_id: z.string(),
-  session_id: z.string(),
-  chat_id: z.string(),
-  media_id: z.string().optional(),
-  mime_type: z.string().optional(),
-  text_content: z.string().optional(),
-  for_person_name: z.string().optional(),
-});
 
 const parsedShiftSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -273,125 +253,6 @@ export async function extractSchedule(input: ExtractScheduleInput): Promise<Extr
   }
   throw new Error("extractSchedule requires either `media` or `text` input");
 }
-
-// --- Legacy Trigger.dev task wrapper ---
-// Still used by the old message-router pipeline. Deleted in phase 05 of the
-// agentic rewrite along with its callers. Do NOT add new invocations — the
-// turn-handler calls `extractSchedule` directly instead.
-
-export const scheduleParser = schemaTask({
-  id: "meetsync-schedule-parser",
-  schema: payloadSchema,
-  maxDuration: 120,
-  retry: { maxAttempts: 2 },
-
-  run: async (payload) => {
-    const { participant_id, chat_id, media_id, mime_type, text_content, for_person_name } = payload;
-    // On-behalf uploads never touch a participant row — the target is a
-    // person_notes entry owned by chat_id. Skip all participant state
-    // transitions when this flag is set.
-    const isOnBehalf = typeof for_person_name === "string" && for_person_name.trim().length > 0;
-
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
-
-    // Look up user so all replies honor their preferred language (Italian, etc.)
-    const { userName, userLanguage } = await getReplyContext(chat_id);
-    // Fetch tz separately so the weekday-lookup anchor respects it.
-    const timezone = await getUserTimezone(chat_id);
-
-    try {
-      let shifts: Array<{
-        date: string;
-        start_time: string;
-        end_time: string;
-        label?: string;
-        confidence?: number;
-      }>;
-
-      if (text_content) {
-        // Text-based schedule input
-        shifts = await parseTextWithClaude(apiKey, text_content, userName, timezone);
-      } else if (media_id && mime_type) {
-        // File upload (image/PDF)
-        const { buffer } = await downloadMedia(media_id);
-        const base64 = arrayBufferToBase64(buffer);
-        const claudeMediaType = mapMimeType(mime_type);
-        shifts = await parseMediaWithClaude(apiKey, base64, claudeMediaType, userName, timezone);
-      } else {
-        throw new Error("No media_id or text_content provided");
-      }
-
-      if (shifts.length === 0) {
-        if (!isOnBehalf) {
-          await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-        }
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "no_shifts_found", state: "AWAITING_SCHEDULE",
-          userName, userLanguage,
-        }));
-        return { success: false, reason: "no_shifts_found" };
-      }
-
-      // Store all parsed shifts (no weekday filter — user may work weekends or need a full month view)
-      const scheduleJson = JSON.stringify(shifts);
-
-      if (isOnBehalf) {
-        // On-behalf path: write to person_notes, don't touch any participant
-        // state. The uploader is still the chat_id, so the schedule is
-        // owned by them but tagged to for_person_name. match-compute will
-        // pick it up via getPersonNotesForOwner.
-        await setPersonNoteSchedule(chat_id, for_person_name!, scheduleJson);
-      } else {
-        await updateParticipantState(participant_id, "AWAITING_CONFIRMATION", {
-          schedule_json: scheduleJson,
-        });
-      }
-
-      // Format shifts for display with confidence warnings
-      const shiftList = formatShiftList(shifts);
-
-      // Only pass the shift list itself — don't pass a separate "N shifts extracted"
-      // counter or the LLM parrots it back as "Plus N other shifts extracted" which
-      // confuses users (they see a list + a contradicting count).
-      //
-      // For on-behalf uploads we skip the yes/no inline keyboard — the
-      // uploader isn't confirming THEIR schedule, so the confirmation UX
-      // would be confusing. Just show the extracted shifts tagged to the
-      // named person so the user can eyeball them.
-      if (isOnBehalf) {
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
-          shiftList, userName, userLanguage,
-          partnerName: for_person_name,
-          extraContext: `IMPORTANT: These shifts are for ${for_person_name}, not the user. Phrase the message as "Here's what I pulled out for ${for_person_name}" or similar — make clear it's the third party's schedule, not theirs. Do not ask the user to confirm as if it were their own schedule; instead ask if the shifts look right for ${for_person_name}.`,
-        }));
-      } else {
-        // Round-9: attach yes/no inline keyboard. The Worker translates a
-        // "confirm_schedule" / "reject_schedule" callback_data tap into a
-        // synthetic text message ("yes" / "no") that flows through the
-        // normal router pipeline, so the rest of the code doesn't need a
-        // parallel callback-handling path. Users who prefer typing still can.
-        await sendTextMessage(chat_id, await generateResponse({
-          scenario: "shifts_extracted", state: "AWAITING_CONFIRMATION",
-          shiftList, userName, userLanguage,
-        }), yesNoKeyboard());
-      }
-
-      return { success: true, shift_count: shifts.length, on_behalf: isOnBehalf };
-    } catch (err) {
-      console.error("Schedule parsing error:", err);
-      if (!isOnBehalf) {
-        await updateParticipantState(participant_id, "AWAITING_SCHEDULE");
-      }
-      await sendTextMessage(chat_id, await generateResponse({
-        scenario: "parse_error", state: "AWAITING_SCHEDULE",
-        userName, userLanguage,
-      }));
-      return { success: false, reason: String(err) };
-    }
-  },
-});
 
 // --- Claude API calls ---
 
