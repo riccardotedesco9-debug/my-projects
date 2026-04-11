@@ -141,58 +141,88 @@ export async function sendDocumentMessage(
  * Transcribe audio via Cloudflare Workers AI Whisper.
  *
  * Tries the modern `whisper-large-v3-turbo` model first (better Opus/OGG
- * support, much higher accuracy on Telegram voice notes). Falls back to the
- * legacy `whisper` model if that fails — covers accounts without v3 access.
+ * support, higher accuracy). Falls back to the legacy `whisper` model if
+ * that fails. The two models use DIFFERENT request body formats:
+ *   - whisper-large-v3-turbo: `{audio: "<base64 string>"}` (per Cloudflare docs)
+ *   - whisper (legacy):       `{audio: [byte, byte, ...]}` (number array)
  *
- * Sends the audio as a JSON `{audio: [byte array]}` payload, which is the
- * format Cloudflare's docs prescribe and is more reliable than raw octet
- * uploads (which silently misinterpret OGG containers in some regions).
+ * On failure, throws with the actual Cloudflare error messages from both
+ * attempts. The turn-handler logs and surfaces the message so debugging
+ * doesn't require digging through Trigger.dev run details.
  */
 export async function transcribeAudio(audioBuffer: ArrayBuffer): Promise<string> {
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   const apiToken = process.env.CLOUDFLARE_API_TOKEN;
   if (!accountId || !apiToken) throw new Error("Cloudflare credentials not set");
 
-  // Convert the ArrayBuffer to a regular byte array for the JSON payload.
-  // Cloudflare's whisper-large-v3-turbo expects { audio: number[] }.
-  const bytes = Array.from(new Uint8Array(audioBuffer));
-  const jsonBody = JSON.stringify({ audio: bytes });
+  const bytes = new Uint8Array(audioBuffer);
+  // Build base64 (v3-turbo) and number array (legacy) once.
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const base64Audio = btoa(binary);
+  const byteArray = Array.from(bytes);
 
-  const tryModel = async (modelId: string): Promise<string | null> => {
+  const tryModel = async (
+    modelId: string,
+    body: string,
+  ): Promise<{ text?: string; error?: string }> => {
     const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${modelId}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        "Content-Type": "application/json",
-      },
-      body: jsonBody,
-    });
-    if (!response.ok) {
-      const errText = await response.text();
-      console.warn(`[transcribeAudio] ${modelId} failed (${response.status}): ${errText.slice(0, 300)}`);
-      return null;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+      const respText = await response.text();
+      if (!response.ok) {
+        return { error: `[${modelId}] HTTP ${response.status}: ${respText.slice(0, 400)}` };
+      }
+      let data: { result?: { text?: string }; success?: boolean; errors?: Array<{ message?: string }> };
+      try {
+        data = JSON.parse(respText);
+      } catch {
+        return { error: `[${modelId}] non-JSON response: ${respText.slice(0, 300)}` };
+      }
+      if (data.success === false) {
+        const errMsgs = (data.errors ?? []).map((e) => e.message ?? "?").join("; ");
+        return { error: `[${modelId}] success=false: ${errMsgs || respText.slice(0, 300)}` };
+      }
+      const text = data.result?.text?.trim() ?? "";
+      if (!text) return { error: `[${modelId}] empty text: ${respText.slice(0, 300)}` };
+      return { text };
+    } catch (err) {
+      return { error: `[${modelId}] fetch threw: ${String(err).slice(0, 300)}` };
     }
-    const data = (await response.json()) as { result?: { text?: string } };
-    const text = data.result?.text?.trim() ?? "";
-    if (!text) {
-      console.warn(`[transcribeAudio] ${modelId} returned empty text`);
-      return null;
-    }
-    return text;
   };
 
-  // Modern model first (handles Telegram OGG/Opus reliably)
-  const v3 = await tryModel("@cf/openai/whisper-large-v3-turbo");
-  if (v3) return v3;
+  const errors: string[] = [];
 
-  // Legacy fallback
-  const legacy = await tryModel("@cf/openai/whisper");
-  if (legacy) return legacy;
-
-  throw new Error(
-    "Transcription failed on both whisper-large-v3-turbo and whisper. Check Trigger.dev logs for the underlying Cloudflare error.",
+  // 1. v3-turbo with base64 string (Cloudflare's documented format)
+  const v3 = await tryModel(
+    "@cf/openai/whisper-large-v3-turbo",
+    JSON.stringify({ audio: base64Audio }),
   );
+  if (v3.text) return v3.text;
+  if (v3.error) {
+    console.warn("[transcribeAudio]", v3.error);
+    errors.push(v3.error);
+  }
+
+  // 2. Legacy whisper with byte array
+  const legacy = await tryModel(
+    "@cf/openai/whisper",
+    JSON.stringify({ audio: byteArray }),
+  );
+  if (legacy.text) return legacy.text;
+  if (legacy.error) {
+    console.warn("[transcribeAudio]", legacy.error);
+    errors.push(legacy.error);
+  }
+
+  throw new Error(`Transcription failed on all models. ${errors.join(" || ")}`);
 }
 
 /** Download media from Telegram (returns the file as an ArrayBuffer + mime type) */

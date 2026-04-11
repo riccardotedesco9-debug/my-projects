@@ -315,11 +315,22 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
       try {
         const { buffer } = await downloadMedia(payload.media_id);
         const transcription = await transcribeAudio(buffer);
-        if (transcription) currentText = transcription;
+        if (transcription) {
+          currentText = transcription;
+        } else {
+          // Empty transcription: surface as a failure note Claude can read
+          // and respond to gracefully instead of bailing the turn.
+          currentText = "[VOICE_NOTE_RECEIVED — transcription returned empty. Tell the user the voice note came through but you couldn't make out any words; ask them to type their hours or try again.]";
+        }
       } catch (err) {
-        console.error("Voice transcription failed:", err);
-        await sendTextMessage(chatId, "I couldn't process that voice note — can you type it instead?");
-        return { action: "voice_transcription_failed" };
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error("Voice transcription failed:", errMsg);
+        // Pass the failure (with the underlying Cloudflare error) into the
+        // turn so Claude composes a useful reply instead of the handler
+        // sending a generic "can't process" string. The user sees what
+        // actually broke and can either type their hours or report back
+        // for debugging.
+        currentText = `[VOICE_NOTE_TRANSCRIPTION_FAILED — Cloudflare Workers AI returned an error. Tell the user the voice note arrived but transcription failed, ask them to type their hours instead, and (only if it seems like a config issue) mention the underlying error briefly so they can flag it. Underlying error: ${errMsg.slice(0, 500)}]`;
       }
     }
 
