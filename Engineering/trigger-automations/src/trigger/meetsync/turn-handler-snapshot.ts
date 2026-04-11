@@ -98,8 +98,50 @@ function formatPersonNotesSection(notes: PersonNote[]): string[] {
       parts.push(`notes: ${trimmed}`);
     }
     lines.push(`  - ${parts.join(" — ")}`);
+    if (n.schedule_json) {
+      const shiftLines = renderShiftListCompact(n.schedule_json, "      ");
+      lines.push(...shiftLines);
+    }
   }
   return lines;
+}
+
+/**
+ * Parse a stored schedule_json blob and return a compact, human-readable
+ * shift list for inclusion in the [STATE] block. Lets Claude answer
+ * personal-availability questions like "am I free at 10am tomorrow?"
+ * directly from the snapshot — no extra tool call needed.
+ *
+ * Format: one line per shift, "Mon 30 Mar  15:00–00:00" (or "OFF" for
+ * 00:00–00:00 fully-free placeholders). Capped at 35 entries to keep
+ * the snapshot from blowing up on multi-month rotas.
+ */
+function renderShiftListCompact(scheduleJson: string, indent: string): string[] {
+  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+  try {
+    const parsed = JSON.parse(scheduleJson);
+    if (Array.isArray(parsed)) shifts = parsed;
+  } catch {
+    return [`${indent}(schedule data unparseable)`];
+  }
+  if (shifts.length === 0) return [];
+  const out: string[] = [];
+  out.push(`${indent}shifts:`);
+  const MAX = 35;
+  const display = shifts.slice(0, MAX);
+  for (const s of display) {
+    const d = new Date(s.date + "T12:00:00Z");
+    const dayName = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+    const dayNum = d.getUTCDate();
+    const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+    const isOff = s.start_time === "00:00" && s.end_time === "00:00";
+    const time = isOff ? "OFF" : `${s.start_time}–${s.end_time}`;
+    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${time}`);
+  }
+  if (shifts.length > MAX) {
+    out.push(`${indent}  …and ${shifts.length - MAX} more shifts`);
+  }
+  return out;
 }
 
 function formatSessionSection(
@@ -121,6 +163,9 @@ function formatSessionSection(
     const sched = p.has_schedule ? "schedule: ✓ UPLOADED" : "schedule: ✗ not yet";
     const prefs = p.preferred_slots ? `, picks: ${p.preferred_slots}` : "";
     lines.push(`${indent}  - ${who} — role: ${p.role}, ${sched}${prefs}`);
+    if (p.schedule_json) {
+      lines.push(...renderShiftListCompact(p.schedule_json, `${indent}    `));
+    }
   }
   if (entry.pendingInvites.length > 0) {
     lines.push(`${indent}pending invites (${entry.pendingInvites.length}):`);
