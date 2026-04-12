@@ -12,7 +12,11 @@ interface CalendarEvent {
   description?: string;
 }
 
-/** Create a Google Calendar event for a user. Returns true if successful. */
+/**
+ * Create a Google Calendar event for a user.
+ * Returns true on success, false on unknown failure, "token_expired" when
+ * the refresh token is revoked/expired (user needs to /connect again).
+ */
 export async function createCalendarEvent(
   chatId: string,
   date: string, // YYYY-MM-DD
@@ -20,7 +24,7 @@ export async function createCalendarEvent(
   endTime: string, // HH:MM
   summary: string = "Meetup",
   timezone: string = "Europe/Malta",
-): Promise<boolean> {
+): Promise<boolean | "token_expired"> {
   const token = await getGoogleToken(chatId);
   if (!token) return false; // user hasn't connected Google Calendar
 
@@ -29,6 +33,7 @@ export async function createCalendarEvent(
   // Refresh if expired
   if (new Date(token.expires_at) <= new Date()) {
     const refreshed = await refreshAccessToken(token.refresh_token);
+    if (refreshed === "invalid_grant") return "token_expired";
     if (!refreshed) return false;
     accessToken = refreshed.access_token;
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
@@ -67,7 +72,7 @@ export async function createCalendarEvent(
 
 async function refreshAccessToken(
   refreshToken: string
-): Promise<{ access_token: string; expires_at: string } | null> {
+): Promise<{ access_token: string; expires_at: string } | "invalid_grant" | null> {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) return null;
@@ -83,7 +88,12 @@ async function refreshAccessToken(
     }),
   });
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const errBody = await response.text();
+    console.error(`Google token refresh failed (${response.status}): ${errBody}`);
+    if (errBody.includes("invalid_grant")) return "invalid_grant";
+    return null;
+  }
 
   const data = (await response.json()) as { access_token: string; expires_in: number };
   return {

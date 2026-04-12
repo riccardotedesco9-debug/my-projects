@@ -32,7 +32,6 @@ import {
   saveParticipantSchedule,
   cancelSession,
   reopenLastCompletedSession,
-  resetUserData,
   emitSessionEvent,
   getSessionParticipants,
   getSessionById,
@@ -57,6 +56,10 @@ import {
 } from "./match-compute.js";
 import { deliverMatchToSession } from "./deliver-results.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
+
+// --- Config ---
+
+const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // --- Types ---
 
@@ -123,7 +126,7 @@ function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionE
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract and save shifts from a schedule. Four input modes (in priority order): (1) shifts — pass a structured shifts array directly when you've already read the schedule yourself from an attached image/PDF/voice transcript and just need to save it (skips the parser entirely, fastest and most reliable path); (2) text_content for typed input the user gave you; (3) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in recent history; pass that exact file_id); (4) omit all to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. Auto-saves to D1.",
+    "Extract and save shifts from a schedule. Four input modes (in priority order): (1) shifts — pass a structured shifts array directly when you've already read the schedule yourself from an attached image/PDF/voice transcript and just need to save it (skips the parser entirely, fastest and most reliable path); (2) text_content for typed input the user gave you; (3) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in recent history; pass that exact file_id); (4) omit all to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. Auto-saves to D1. IMPORTANT: Never call this on voice/audio messages — they are already transcribed to text. Read the transcription and use the 'shifts' parameter or 'text_content' instead.",
   input_schema: {
     type: "object",
     properties: {
@@ -211,6 +214,12 @@ const parseScheduleTool: ToolDefinition = {
           resolvedMedia = { base64: arrayBufferToBase64(buffer), mediaType };
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
+          if (msg.includes("audio/") || (explicitMimeType && explicitMimeType.startsWith("audio/"))) {
+            return {
+              ok: false,
+              error: "This is a voice/audio file, not a schedule image. The voice note was already transcribed to text — read the transcription in the user's message and either extract shifts directly (pass them in the 'shifts' array) or pass the text via 'text_content'.",
+            };
+          }
           await emitSessionEvent(
             ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
             "parse_schedule_media_download_failed",
@@ -330,7 +339,7 @@ async function persistShifts(
   if (!sessionEntry) {
     const sessionId = crypto.randomUUID();
     const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
     await query(
       "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
       [sessionId, code, ctx.callerChatId, expiresAt],
@@ -430,7 +439,7 @@ const addOrInvitePartnerTool: ToolDefinition = {
       // which are going away in phase 05). Small inline insert is fine.
       const sessionId = crypto.randomUUID();
       const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
       await query(
         "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
         [sessionId, code, ctx.callerChatId, expiresAt],
@@ -962,12 +971,12 @@ const upsertKnowledgeTool: ToolDefinition = {
 const sessionActionTool: ToolDefinition = {
   name: "session_action",
   description:
-    "Session lifecycle action. 'new' starts a fresh session (expires existing). 'cancel' marks the current session EXPIRED. 'reopen' flips the most-recent COMPLETED session back to OPEN preserving its schedules (for amend-after-delivered). 'reset_all' wipes ALL the caller's data — sessions, history, person_notes — so use it only when the user clearly asks to start completely over.",
+    "Session lifecycle action. 'new' starts a fresh scheduling session — expires the current one but keeps everything the bot knows: user profile, saved contacts/person_notes (with their schedules), and conversation history. Use this when someone says 'start over', 'new meetup', 'fresh start', etc. 'cancel' marks the current session EXPIRED without starting a new one. 'reopen' flips the most-recent COMPLETED session back to OPEN preserving its schedules (for amend-after-delivered). Knowledge about people is permanent and central — it survives across sessions so the bot never forgets who Marco is or what his schedule looks like.",
   input_schema: {
     type: "object",
     required: ["action"],
     properties: {
-      action: { type: "string", enum: ["new", "cancel", "reset_all", "reopen"] },
+      action: { type: "string", enum: ["new", "cancel", "reopen"] },
       session_id: { type: "string" },
     },
   },
@@ -984,7 +993,7 @@ const sessionActionTool: ToolDefinition = {
       );
       const sessionId = crypto.randomUUID();
       const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
       await query(
         "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
         [sessionId, code, ctx.callerChatId, expiresAt],
@@ -1029,7 +1038,11 @@ const sessionActionTool: ToolDefinition = {
         },
       ];
 
-      return { action: "new", session_id: sessionId };
+      return {
+        action: "new",
+        session_id: sessionId,
+        notes: "Fresh session created. Profile, contacts, and history are all preserved — only the previous scheduling session was closed.",
+      };
     }
 
     if (action === "cancel") {
@@ -1047,20 +1060,6 @@ const sessionActionTool: ToolDefinition = {
       const reopenedId = await reopenLastCompletedSession(ctx.callerChatId);
       if (!reopenedId) return { error: "No completed session to reopen." };
       return { action: "reopened", session_id: reopenedId };
-    }
-
-    if (action === "reset_all") {
-      // No code-side safety gate. The system prompt instructs you to ask
-      // before calling this; ONE confirmation (a "yes" / a tapped Confirm
-      // button / explicit user request) is enough. Don't loop back asking
-      // again — that's the brittle pattern this rewrite was supposed to
-      // eliminate.
-      await resetUserData(ctx.callerChatId);
-      await query("DELETE FROM conversation_log WHERE chat_id = ?", [ctx.callerChatId]);
-      await query("DELETE FROM participants WHERE chat_id = ?", [ctx.callerChatId]);
-      await query("DELETE FROM person_notes WHERE owner_chat_id = ?", [ctx.callerChatId]);
-      await query("DELETE FROM users WHERE chat_id = ?", [ctx.callerChatId]);
-      return { action: "reset", notes: "All caller data wiped successfully." };
     }
 
     return { error: `Unknown action: ${String(action)}` };

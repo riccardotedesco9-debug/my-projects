@@ -192,9 +192,11 @@ async function routeExtractedPayload(
         : routerPayload.message_type === "contact"
         ? `[contact shared · phone=${routerPayload.contact_phone ?? "?"}]`
         : `[${routerPayload.message_type} upload]`;
-      await env.DB.prepare(
+      const insert = await env.DB.prepare(
         "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, 'user', ?)"
       ).bind(routerPayload.chat_id, label).run();
+      const rawId = insert.meta.last_row_id;
+      if (typeof rawId === "number") logId = rawId;
     } catch (err) {
       console.error("Worker media-log failed:", err);
     }

@@ -169,7 +169,9 @@ export async function deliverMatchToSession(
           "Meetup",
           tz,
         );
-        if (added && !isCaller) {
+        if (added === "token_expired") {
+          await sendTextMessage(p.chat_id, GCAL_RECONNECT[lang] ?? GCAL_RECONNECT.en);
+        } else if (added && !isCaller) {
           await sendTextMessage(p.chat_id, GCAL_CONFIRMATION[lang] ?? GCAL_CONFIRMATION.en);
         }
       } catch (err) {
@@ -237,6 +239,11 @@ const CALENDAR_CAPTIONS: Record<string, string> = {
 const GCAL_CONFIRMATION: Record<string, string> = {
   en: "Added to your Google Calendar.",
   it: "Aggiunto al tuo Google Calendar.",
+};
+
+const GCAL_RECONNECT: Record<string, string> = {
+  en: "Your Google Calendar connection has expired. Send /connect to reconnect — I'll add events automatically once you do.",
+  it: "La connessione a Google Calendar è scaduta. Manda /connect per ricollegarti — aggiungerò gli eventi automaticamente.",
 };
 
 async function getUserLanguage(chatId: string): Promise<string> {

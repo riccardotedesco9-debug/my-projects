@@ -28,7 +28,7 @@ export default {
 <h2>How We Use It</h2>
 <p>Your data is used solely to compute overlapping free time between two participants. We do not sell, share, or use your data for advertising.</p>
 <h2>Data Retention</h2>
-<p>Session data is automatically deleted after 7 days. We do not retain schedule images after parsing.</p>
+<p>Session data is automatically deleted after 30 days. We do not retain schedule images after parsing.</p>
 <h2>Contact</h2>
 <p>For questions, message the bot with "help" or contact the developer.</p>
 </body></html>`,

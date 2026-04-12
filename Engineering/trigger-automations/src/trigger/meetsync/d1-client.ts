@@ -510,15 +510,15 @@ export async function logMessage(
   message: string
 ): Promise<number> {
   // Cap message length to prevent bloat
-  const trimmed = message.slice(0, 500);
+  const trimmed = message.slice(0, 1000);
   const result = await query(
     "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, ?, ?)",
     [chatId, role, trimmed]
   );
-  // Keep only last 20 messages per user (best-effort cleanup)
+  // Keep only last 50 messages per user (best-effort cleanup)
   query(
     `DELETE FROM conversation_log WHERE chat_id = ? AND id NOT IN (
-      SELECT id FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 20
+      SELECT id FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50
     )`,
     [chatId, chatId]
   ).catch(() => {});
@@ -765,10 +765,10 @@ export async function reopenLastCompletedSession(chatId: string): Promise<string
   );
   const sessionId = result.results[0]?.id;
   if (!sessionId) return null;
-  // Reset to OPEN + extend expiry 7 days from now so the reopened session
+  // Reset to OPEN + extend expiry 30 days from now so the reopened session
   // doesn't immediately time out. Leave schedule_json and preferred_slots
   // intact — the user is amending, not restarting.
-  const newExpiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
   await query(
     "UPDATE sessions SET status = 'OPEN', expires_at = ? WHERE id = ?",
     [newExpiry, sessionId],
