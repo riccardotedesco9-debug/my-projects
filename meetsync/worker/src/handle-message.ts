@@ -18,6 +18,7 @@ import { buildAuthUrl } from "./google-oauth.js";
 const CALLBACK_DATA_TO_TEXT: Record<string, string> = {
   confirm_schedule: "[tapped: Confirm]",
   reject_schedule: "[tapped: Reject]",
+  new_session: "[tapped: New session]",
 };
 
 /**

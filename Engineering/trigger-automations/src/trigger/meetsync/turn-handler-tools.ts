@@ -65,7 +65,7 @@ const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 export interface ReplyButton {
   text: string;
-  callback: "confirm" | "reject" | "yes" | "no";
+  callback: "confirm" | "reject" | "yes" | "no" | "new_session";
 }
 
 export interface PendingReply {
@@ -1089,7 +1089,7 @@ const replyTool: ToolDefinition = {
           required: ["text", "callback"],
           properties: {
             text: { type: "string" },
-            callback: { type: "string", enum: ["confirm", "reject", "yes", "no"] },
+            callback: { type: "string", enum: ["confirm", "reject", "yes", "no", "new_session"] },
           },
         },
       },
@@ -1112,7 +1112,7 @@ const replyTool: ToolDefinition = {
             !!b &&
             typeof b === "object" &&
             typeof (b as ReplyButton).text === "string" &&
-            ["confirm", "reject", "yes", "no"].includes((b as ReplyButton).callback),
+            ["confirm", "reject", "yes", "no", "new_session"].includes((b as ReplyButton).callback),
         ) as ReplyButton[])
       : undefined;
     ctx.pendingReply = { messages, buttons: buttons && buttons.length > 0 ? buttons : undefined };
