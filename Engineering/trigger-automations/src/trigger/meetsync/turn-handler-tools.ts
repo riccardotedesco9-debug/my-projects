@@ -502,16 +502,50 @@ const addOrInvitePartnerTool: ToolDefinition = {
     if (phone) {
       const existing = await findUserByPhone(phone);
       if (existing && existing.chat_id !== ctx.callerChatId) {
-        return await addKnownParticipant(ctx, sessionEntry, existing.chat_id, existing.name ?? null);
+        // Also capture the phone on the user row + caller's person_note so
+        // subsequent phone-based lookups succeed without a re-share.
+        if (!existing.phone) await updateUserPhone(existing.chat_id, phone);
+        if (name) {
+          await upsertPersonNote(ctx.callerChatId, name, { phone });
+          await linkPersonNoteToChat(ctx.callerChatId, name, existing.chat_id);
+        }
+        return await addKnownParticipant(ctx, sessionEntry, existing.chat_id, existing.name ?? name ?? null);
       }
       if (existing && existing.chat_id === ctx.callerChatId) {
         return { error: "That's the caller's own phone number — can't add themselves." };
       }
-      // Unknown phone — invite
+      // Phone didn't match any user row. BUT if the caller also gave a name,
+      // try name-lookup as a fallback — a bot user may exist under this name
+      // without having shared their phone (common: users who ran /start but
+      // didn't tap the contact-share button). Only commit when there's a
+      // single unambiguous match — no fuzzy guessing.
+      if (name) {
+        const byName = (await findUserByName(name)).filter(
+          (u) => u.chat_id !== ctx.callerChatId,
+        );
+        if (byName.length === 1) {
+          const u = byName[0];
+          if (!u.phone) await updateUserPhone(u.chat_id, phone);
+          await upsertPersonNote(ctx.callerChatId, name, { phone });
+          await linkPersonNoteToChat(ctx.callerChatId, name, u.chat_id);
+          return await addKnownParticipant(ctx, sessionEntry, u.chat_id, u.name ?? name);
+        }
+        if (byName.length > 1) {
+          return {
+            ambiguous: true,
+            candidates: byName.map((m) => ({
+              name: m.name,
+              phone_last_4: m.phone ? m.phone.slice(-4) : null,
+            })),
+            notes:
+              "Multiple bot users match this name — the phone didn't match any of them. Ask the caller to clarify which one.",
+          };
+        }
+      }
+      // Nothing matched by phone OR name — create the invite.
       await createPendingInvite(ctx.callerChatId, null, sessionEntry.session.id, phone);
       const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
       const inviteLink = `https://t.me/${botUsername}?start=invite_${sessionEntry.session.id}`;
-      // Also upsert a person_note if a name was provided alongside the phone
       if (name) await upsertPersonNote(ctx.callerChatId, name, { phone });
       return {
         invited: true,
