@@ -442,6 +442,41 @@ export async function updateUserLatestSchedule(chatId: string, scheduleJson: str
   );
 }
 
+// --- Schedule-upload watches ---
+
+export interface ScheduleWatch {
+  id: string;
+  watcher_chat_id: string;
+  target_chat_id: string;
+  created_at: string;
+}
+
+/** Register a one-shot watch. Idempotent via UNIQUE(watcher,target). */
+export async function createScheduleWatch(
+  watcherChatId: string,
+  targetChatId: string,
+): Promise<void> {
+  await query(
+    `INSERT OR IGNORE INTO user_schedule_watches (id, watcher_chat_id, target_chat_id)
+     VALUES (?, ?, ?)`,
+    [crypto.randomUUID(), watcherChatId, targetChatId],
+  );
+}
+
+/** All pending watches waiting on a given user's next schedule upload. */
+export async function listWatchesForTarget(targetChatId: string): Promise<ScheduleWatch[]> {
+  const result = await query<ScheduleWatch>(
+    "SELECT * FROM user_schedule_watches WHERE target_chat_id = ?",
+    [targetChatId],
+  );
+  return result.results;
+}
+
+/** Delete by id — watches are one-shot; called right after firing. */
+export async function deleteScheduleWatch(id: string): Promise<void> {
+  await query("DELETE FROM user_schedule_watches WHERE id = ?", [id]);
+}
+
 /** Phone lookup that matches both E.164 ("+356...") and legacy bare-digit
  *  ("356...") storage. The tool now preserves the leading "+" when
  *  normalizing caller input, but historical rows may still have either
@@ -604,18 +639,27 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     getRecentMessages(chatId),
   ]);
 
-  // Enrich each linked person_note with the contact's latest self-uploaded
-  // schedule from ANY session. Without this, sessions close and you lose
-  // visibility into what your contacts have already uploaded — the snapshot
-  // would say "Kurt hasn't uploaded a schedule" even though his schedule is
-  // alive in his own session. compute_and_deliver_match already reads
-  // person_notes.schedule_json for on-behalf entries, so this also fixes
-  // the cross-session overlap case transparently.
+  // Enrich each linked person_note with the contact's live data:
+  //   1. Their latest self-uploaded schedule (users.latest_schedule_json)
+  //      so the caller sees it without needing a re-upload in-context.
+  //   2. Their freeform context (users.context — "lives in Gozo",
+  //      "commutes from Valletta", "not a night owl"). Folded into the
+  //      notes field in-memory only (never written back) so Claude can
+  //      reason about meet-up logistics: "Kurt works till 4, lives far
+  //      from town centre — 5pm meetup is tight on commute".
   const personNotes: PersonNote[] = await Promise.all(
     rawPersonNotes.map(async (n) => {
-      if (!n.linked_chat_id || n.schedule_json) return n;
-      const latest = await getLatestScheduleForUser(n.linked_chat_id);
-      return latest ? { ...n, schedule_json: latest } : n;
+      if (!n.linked_chat_id) return n;
+      const [latestSched, linkedUser] = await Promise.all([
+        n.schedule_json ? Promise.resolve(null) : getLatestScheduleForUser(n.linked_chat_id),
+        getUser(n.linked_chat_id),
+      ]);
+      const mergedSched = n.schedule_json ?? latestSched;
+      const linkedCtx = linkedUser?.context?.trim() ?? "";
+      const mergedNotes = linkedCtx
+        ? (n.notes ? `${n.notes}\n[their profile] ${linkedCtx}` : `[their profile] ${linkedCtx}`)
+        : n.notes;
+      return { ...n, schedule_json: mergedSched, notes: mergedNotes };
     }),
   );
 

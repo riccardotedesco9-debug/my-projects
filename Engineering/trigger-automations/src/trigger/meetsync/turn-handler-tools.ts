@@ -31,6 +31,9 @@ import {
   setPersonNoteHidden,
   getLatestScheduleForUser,
   updateUserLatestSchedule,
+  createScheduleWatch,
+  listWatchesForTarget,
+  deleteScheduleWatch,
   createReminder,
   listUserReminders,
   cancelReminder,
@@ -334,11 +337,32 @@ async function persistShifts(
     target: `user:${ctx.callerChatId}`,
     shift_count: result.shifts.length,
   });
+
+  // Fire any outstanding watchers — callers who asked the bot to let them
+  // know once this user uploaded. Best-effort: a failure to message one
+  // watcher doesn't block the save or other watchers.
+  const watchers = await listWatchesForTarget(ctx.callerChatId);
+  const firedWatchers: string[] = [];
+  const callerName = ctx.snapshot.user.name ?? "Your contact";
+  for (const w of watchers) {
+    try {
+      await sendTextMessage(
+        w.watcher_chat_id,
+        `📬 Heads up — ${callerName} just uploaded their schedule. Want me to find a time that works for you both?`,
+      );
+      await deleteScheduleWatch(w.id);
+      firedWatchers.push(w.watcher_chat_id);
+    } catch (err) {
+      console.warn(`[parse_schedule] watcher notify failed for ${w.watcher_chat_id}:`, err);
+    }
+  }
+
   return {
     saved: true,
     saved_to: `user:${ctx.callerChatId}`,
     shift_count: result.shifts.length,
     shifts: result.shifts,
+    watchers_notified: firedWatchers.length,
   };
 }
 
@@ -1189,6 +1213,38 @@ const relayMessageTool: ToolDefinition = {
   },
 };
 
+// --- Tool 13: watch_schedule_upload ---
+
+const watchScheduleUploadTool: ToolDefinition = {
+  name: "watch_schedule_upload",
+  description:
+    "Register a one-shot follow-through: the NEXT time the named contact uploads a schedule, the bot pings the caller automatically. Use this whenever you promise to 'let them know' or 'ping them once X uploads' — otherwise the promise is empty. The contact must already be in the caller's person_notes with linked_chat_id (i.e. a real bot user). Safe to call repeatedly for the same (caller, contact) pair — idempotent.",
+  input_schema: {
+    type: "object",
+    required: ["person_name"],
+    properties: {
+      person_name: {
+        type: "string",
+        description: "Name of the contact whose schedule-upload you want to be notified about.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const name = typeof input.person_name === "string" ? input.person_name.trim() : "";
+    if (!name) return { error: "person_name required." };
+    const note = await findPersonNote(ctx.callerChatId, name);
+    if (!note) return { error: "not_found", message: `No contact named '${name}'.` };
+    if (!note.linked_chat_id) {
+      return {
+        error: "not_joined",
+        message: `${name} isn't a bot user yet — can't watch for an upload that can't happen.`,
+      };
+    }
+    await createScheduleWatch(ctx.callerChatId, note.linked_chat_id);
+    return { ok: true, watching: note.name, watching_chat_id: note.linked_chat_id };
+  },
+};
+
 // --- Dispatcher ---
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1204,6 +1260,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   listRemindersTool,
   cancelReminderTool,
   relayMessageTool,
+  watchScheduleUploadTool,
   replyTool,
 ];
 

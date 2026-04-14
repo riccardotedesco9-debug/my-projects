@@ -137,9 +137,15 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     const isOff = s.start_time === "00:00" && s.end_time === "00:00";
     const isAllDayBusy = s.start_time === "00:00" && s.end_time === "23:59";
     let time: string;
-    if (isOff) time = "OFF";
-    else if (isAllDayBusy) time = (s.label ?? "busy all day").toUpperCase();
-    else time = `${s.start_time}–${s.end_time}`;
+    if (isOff) {
+      time = s.label ? `OFF (${s.label})` : "OFF";
+    } else if (isAllDayBusy) {
+      time = (s.label ?? "busy all day").toUpperCase();
+    } else {
+      // Partial busy window — include the label so Claude can tell the
+      // caller "Kurt's walking the dog Sunday morning", not just "busy".
+      time = s.label ? `${s.start_time}–${s.end_time} (${s.label})` : `${s.start_time}–${s.end_time}`;
+    }
     out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${time}`);
   }
   if (shifts.length > MAX) {
