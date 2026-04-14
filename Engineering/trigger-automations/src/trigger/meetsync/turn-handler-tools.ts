@@ -1,4 +1,4 @@
-// Turn-handler tools — the 12 Anthropic tools the turn-handler exposes to
+// Turn-handler tools — the Anthropic tools the turn-handler exposes to
 // Claude Sonnet on every turn. Each tool has a JSON schema (for the model)
 // and an `execute` function (the actual implementation).
 //
@@ -30,6 +30,7 @@ import {
   findUserByPhone,
   setPersonNoteHidden,
   getLatestScheduleForUser,
+  updateUserLatestSchedule,
   createReminder,
   listUserReminders,
   cancelReminder,
@@ -310,12 +311,12 @@ async function persistShifts(
   ctx: ToolContext,
   result: ExtractScheduleResult,
   attributedToName: string,
-  explicitSessionId: string | undefined,
+  _explicitSessionId: string | undefined,
   source: "direct" | "text" | "media",
 ): Promise<ToolResult> {
   const scheduleJson = JSON.stringify(result.shifts);
 
-  // On-behalf path → person_notes
+  // On-behalf path → person_notes.schedule_json
   if (attributedToName) {
     await upsertPersonNote(ctx.callerChatId, attributedToName);
     await setPersonNoteSchedule(ctx.callerChatId, attributedToName, scheduleJson);
@@ -339,11 +340,12 @@ async function persistShifts(
         updated_at: new Date().toISOString(),
       });
     }
-    await emitSessionEvent(
-      ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
-      "parse_schedule_saved",
-      { chat_id: ctx.callerChatId, source, target: `person_note:${attributedToName}`, shift_count: result.shifts.length },
-    );
+    await emitSessionEvent("no-session", "parse_schedule_saved", {
+      chat_id: ctx.callerChatId,
+      source,
+      target: `person_note:${attributedToName}`,
+      shift_count: result.shifts.length,
+    });
     return {
       saved: true,
       saved_to: `person_note:${attributedToName}`,
@@ -352,66 +354,19 @@ async function persistShifts(
     };
   }
 
-  // Self path → participant.schedule_json
-  let sessionEntry = resolveSession(ctx, explicitSessionId);
-  if (!sessionEntry) {
-    const sessionId = crypto.randomUUID();
-    const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-    const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
-    await query(
-      "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
-      [sessionId, code, ctx.callerChatId, expiresAt],
-    );
-    const creatorParticipantId = crypto.randomUUID();
-    await query(
-      "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
-      [creatorParticipantId, sessionId, ctx.callerChatId],
-    );
-    await emitSessionEvent(sessionId, "session_created", { via: "parse_schedule" });
-    sessionEntry = {
-      session: {
-        id: sessionId,
-        code,
-        creator_chat_id: ctx.callerChatId,
-        status: "OPEN",
-        mode: null,
-        created_at: new Date().toISOString(),
-        expires_at: expiresAt,
-      },
-      participants: [
-        {
-          id: creatorParticipantId,
-          chat_id: ctx.callerChatId,
-          role: "creator",
-          state: "ACTIVE",
-          schedule_json: null,
-          preferred_slots: null,
-          name: ctx.snapshot.user.name,
-          has_schedule: false,
-        },
-      ],
-      pendingInvites: [],
-    };
-    ctx.snapshot.activeSessions.unshift(sessionEntry);
-  }
-
-  const myParticipant = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
-  if (!myParticipant) {
-    return { ok: false, error: `Caller is not a participant in session ${sessionEntry.session.id}.` };
-  }
-  await saveParticipantSchedule(myParticipant.id, scheduleJson);
-  myParticipant.schedule_json = scheduleJson;
-  myParticipant.has_schedule = true;
-
-  await emitSessionEvent(
-    sessionEntry.session.id,
-    "parse_schedule_saved",
-    { chat_id: ctx.callerChatId, source, target: `participant:${ctx.callerChatId}`, shift_count: result.shifts.length },
-  );
+  // Self path → users.latest_schedule_json (shared-hub model, migration 0018).
+  // Schedule lives on the user row and follows them across any context.
+  await updateUserLatestSchedule(ctx.callerChatId, scheduleJson);
+  ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: scheduleJson };
+  await emitSessionEvent("no-session", "parse_schedule_saved", {
+    chat_id: ctx.callerChatId,
+    source,
+    target: `user:${ctx.callerChatId}`,
+    shift_count: result.shifts.length,
+  });
   return {
     saved: true,
-    saved_to: `participant:${ctx.callerChatId}`,
-    session_id: sessionEntry.session.id,
+    saved_to: `user:${ctx.callerChatId}`,
     shift_count: result.shifts.length,
     shifts: result.shifts,
   };
@@ -424,18 +379,14 @@ async function persistShifts(
 // --- Tool 3: add_or_invite_partner ---
 
 const addOrInvitePartnerTool: ToolDefinition = {
-  name: "add_or_invite_partner",
+  name: "add_contact",
   description:
-    "Add someone to the caller's current scheduling session — the canonical tool for 'I want to plan with X' / 'add Jojo'. Creates a fresh session if the caller has none. Three outcomes: (1) name matches an existing linked person_note → add directly. (2) phone given and matches a bot user → link + add. (3) unknown name without a phone → returns needs_phone=true so you ask the caller for the number. Only creates a pending_invite + deep-link when a phone is provided but no existing user has it. Never auto-links by name similarity — if uncertain, ask for the number.",
+    "Add someone to the caller's contact list. This is the canonical tool for 'I want to plan with X' / 'add Jojo'. Outcomes: (1) name matches a bot user → link directly, the caller sees their schedule. (2) phone given and matches a bot user → link directly + capture phone. (3) unknown name + no phone → returns needs_phone=true so you ask for the number. (4) unknown name + phone → returns an HMAC-signed invite link the caller shares with the new person. No sessions involved — the shared-hub model stores contacts per-owner and schedules per-user. Never auto-links by name similarity — if uncertain, ask for the number.",
   input_schema: {
     type: "object",
     properties: {
       name: { type: "string" },
       phone: { type: "string" },
-      session_id: {
-        type: "string",
-        description: "Session to add to. Defaults to the caller's most recent active session. Creates a fresh session if caller has none.",
-      },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
@@ -443,93 +394,77 @@ const addOrInvitePartnerTool: ToolDefinition = {
     // Preserve the leading + so E.164 numbers ("+35699112233") still match
     // users.phone (stored in E.164). Strip spaces, dashes, parens, letters.
     const phone = typeof input.phone === "string" ? input.phone.replace(/[^0-9+]/g, "") : "";
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     if (!name && !phone) {
       return { error: "Provide either name or phone." };
     }
 
-    // Resolve or create a session — adding a partner without an active
-    // session implies the caller wants to start one.
-    let sessionEntry = resolveSession(ctx, explicitSessionId);
-    if (!sessionEntry) {
-      // Create a fresh session with the caller as the creator. We write to
-      // D1 directly here (no existing d1-client helper for "create session
-      // with creator participant" exists yet — it lives in old state-handlers
-      // which are going away in phase 05). Small inline insert is fine.
-      const sessionId = crypto.randomUUID();
-      const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-      const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
-      await query(
-        "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
-        [sessionId, code, ctx.callerChatId, expiresAt],
+    // Helper: link contact to a known bot user — creates/updates person_note
+    // and the in-turn snapshot so subsequent tools see them. Returns the tool
+    // result. No session writes anywhere.
+    const linkContact = async (
+      contactChatId: string,
+      contactName: string | null,
+      phoneToCapture: string | null,
+    ): Promise<ToolResult> => {
+      const displayName = (name || contactName || "").trim();
+      if (!displayName) return { error: "No name available to label this contact." };
+      await upsertPersonNote(
+        ctx.callerChatId,
+        displayName,
+        phoneToCapture ? { phone: phoneToCapture } : {},
       );
-      const creatorParticipantId = crypto.randomUUID();
-      await query(
-        "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
-        [creatorParticipantId, sessionId, ctx.callerChatId],
+      await linkPersonNoteToChat(ctx.callerChatId, displayName, contactChatId);
+      // Sync the caller's in-turn snapshot so compute_overlap and the snapshot
+      // formatter both see this contact immediately, with their latest schedule.
+      const contactSchedule = await getLatestScheduleForUser(contactChatId);
+      const existing = ctx.snapshot.personNotes.find(
+        (n) => n.name_normalized === displayName.trim().toLowerCase(),
       );
-      await emitSessionEvent(sessionId, "session_created", { via: "add_or_invite_partner" });
-      // Synthesise a snapshot entry so subsequent tools in this turn see it
-      const fresh: SnapshotSessionEntry = {
-        session: {
-          id: sessionId,
-          code,
-          creator_chat_id: ctx.callerChatId,
-          status: "OPEN",
-          mode: null,
+      if (existing) {
+        existing.linked_chat_id = contactChatId;
+        if (phoneToCapture) existing.phone = phoneToCapture;
+        if (contactSchedule && !existing.schedule_json) existing.schedule_json = contactSchedule;
+      } else {
+        ctx.snapshot.personNotes.push({
+          id: 0,
+          owner_chat_id: ctx.callerChatId,
+          name: displayName,
+          name_normalized: displayName.trim().toLowerCase(),
+          phone: phoneToCapture,
+          linked_chat_id: contactChatId,
+          schedule_json: contactSchedule,
+          notes: null,
+          hidden: 0,
           created_at: new Date().toISOString(),
-          expires_at: expiresAt,
-        },
-        participants: [
-          {
-            id: creatorParticipantId,
-            chat_id: ctx.callerChatId,
-            role: "creator",
-            state: "ACTIVE",
-            schedule_json: null,
-            preferred_slots: null,
-            name: ctx.snapshot.user.name,
-            has_schedule: false,
-          },
-        ],
-        pendingInvites: [],
+          updated_at: new Date().toISOString(),
+        });
+      }
+      return {
+        linked: true,
+        contact_name: displayName,
+        contact_chat_id: contactChatId,
+        schedule_present: !!contactSchedule,
       };
-      ctx.snapshot.activeSessions.unshift(fresh);
-      sessionEntry = fresh;
-    }
+    };
 
-    // Phone lookup takes priority when present
+    // Phone lookup takes priority when present.
     if (phone) {
       const existing = await findUserByPhone(phone);
       if (existing && existing.chat_id !== ctx.callerChatId) {
-        // Also capture the phone on the user row + caller's person_note so
-        // subsequent phone-based lookups succeed without a re-share.
         if (!existing.phone) await updateUserPhone(existing.chat_id, phone);
-        if (name) {
-          await upsertPersonNote(ctx.callerChatId, name, { phone });
-          await linkPersonNoteToChat(ctx.callerChatId, name, existing.chat_id);
-        }
-        return await addKnownParticipant(ctx, sessionEntry, existing.chat_id, existing.name ?? name ?? null);
+        return await linkContact(existing.chat_id, existing.name ?? null, phone);
       }
       if (existing && existing.chat_id === ctx.callerChatId) {
         return { error: "That's the caller's own phone number — can't add themselves." };
       }
-      // Phone didn't match any user row. BUT if the caller also gave a name,
-      // try name-lookup as a fallback — a bot user may exist under this name
-      // without having shared their phone (common: users who ran /start but
-      // didn't tap the contact-share button). Only commit when there's a
-      // single unambiguous match — no fuzzy guessing.
+      // Phone didn't match. If a name was also given, try name lookup.
       if (name) {
-        const byName = (await findUserByName(name)).filter(
-          (u) => u.chat_id !== ctx.callerChatId,
-        );
+        const byName = (await findUserByName(name)).filter((u) => u.chat_id !== ctx.callerChatId);
         if (byName.length === 1) {
           const u = byName[0];
           if (!u.phone) await updateUserPhone(u.chat_id, phone);
-          await upsertPersonNote(ctx.callerChatId, name, { phone });
-          await linkPersonNoteToChat(ctx.callerChatId, name, u.chat_id);
-          return await addKnownParticipant(ctx, sessionEntry, u.chat_id, u.name ?? name);
+          return await linkContact(u.chat_id, u.name ?? null, phone);
         }
         if (byName.length > 1) {
           return {
@@ -538,41 +473,37 @@ const addOrInvitePartnerTool: ToolDefinition = {
               name: m.name,
               phone_last_4: m.phone ? m.phone.slice(-4) : null,
             })),
-            notes:
-              "Multiple bot users match this name — the phone didn't match any of them. Ask the caller to clarify which one.",
+            notes: "Multiple bot users match this name — the phone didn't match any of them. Ask the caller to clarify which one.",
           };
         }
       }
-      // Nothing matched by phone OR name — create the invite.
-      await createPendingInvite(ctx.callerChatId, null, sessionEntry.session.id, phone);
+      // Unknown phone → produce an HMAC-signed invite URL the caller can share.
+      await upsertPersonNote(ctx.callerChatId, name || `+${phone}`, { phone });
+      const inviteToken = signInviteToken(ctx.callerChatId);
       const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
-      const inviteLink = `https://t.me/${botUsername}?start=invite_${sessionEntry.session.id}`;
-      if (name) await upsertPersonNote(ctx.callerChatId, name, { phone });
+      const inviteLink = `https://t.me/${botUsername}?start=invite_${inviteToken}`;
       return {
         invited: true,
         invite_link: inviteLink,
-        session_id: sessionEntry.session.id,
-        notes: "Phone isn't linked to a bot user yet — share the invite link with them.",
+        contact_name: name || null,
+        notes: "No bot user with that phone yet. Share this invite link with them — when they open it, they're auto-linked to the caller's contact list.",
       };
     }
 
-    // Name lookup
-    // 1. Check caller's own person_notes for a previously-linked contact.
+    // Name-only lookup.
+    // 1. Caller's own person_notes — already linked?
     const existingNote = await findPersonNote(ctx.callerChatId, name);
     if (existingNote?.linked_chat_id && existingNote.linked_chat_id !== ctx.callerChatId) {
-      return await addKnownParticipant(ctx, sessionEntry, existingNote.linked_chat_id, existingNote.name);
+      return {
+        already_linked: true,
+        contact_name: existingNote.name,
+        contact_chat_id: existingNote.linked_chat_id,
+      };
     }
-    // 2. Global user lookup by exact/substring name (no fuzzy / edit-distance
-    //    matching — we refuse to guess Jojo↔Joejoe; ask for a phone instead).
+    // 2. Global user lookup (substring LIKE, no fuzzy — ask for a phone if uncertain).
     const matches = (await findUserByName(name)).filter((u) => u.chat_id !== ctx.callerChatId);
     if (matches.length === 1) {
-      // Also create+link a person_note so the caller's snapshot shows this
-      // person on future turns — mirrors what the phone path does. Without
-      // this the person_note stays unlinked and the caller sees "Joejoe
-      // hasn't joined the bot" in the snapshot next time.
-      await upsertPersonNote(ctx.callerChatId, name);
-      await linkPersonNoteToChat(ctx.callerChatId, name, matches[0].chat_id);
-      return await addKnownParticipant(ctx, sessionEntry, matches[0].chat_id, matches[0].name ?? name);
+      return await linkContact(matches[0].chat_id, matches[0].name ?? null, null);
     }
     if (matches.length > 1) {
       return {
@@ -584,63 +515,88 @@ const addOrInvitePartnerTool: ToolDefinition = {
         notes: "Multiple bot users match this name. Ask the caller to disambiguate by phone number.",
       };
     }
-    // 3. Unknown name without a phone — just ask for the number. We record
-    //    the person_note (so future facts about them accumulate) but create
-    //    NO pending_invite yet — that would leave stale invite rows for every
-    //    casual "let's meet X" the caller never follows up on.
+    // 3. Unknown name without phone — upsert note, ask for phone.
     await upsertPersonNote(ctx.callerChatId, name);
     return {
       needs_phone: true,
-      person_name: name,
-      notes: `I don't have a ${name} yet — ask the caller for their phone number before calling this tool again.`,
+      contact_name: name,
+      notes: `I don't know anyone called ${name} yet — ask the caller for their phone number.`,
     };
   },
 };
 
-async function addKnownParticipant(
-  ctx: ToolContext,
-  sessionEntry: SnapshotSessionEntry,
-  partnerChatId: string,
-  partnerName: string | null,
-): Promise<ToolResult> {
-  // Idempotent: skip if already a participant
-  const already = sessionEntry.participants.some((p) => p.chat_id === partnerChatId);
-  if (already) {
-    return {
-      already_in_session: true,
-      partner_name: partnerName,
-      session_id: sessionEntry.session.id,
-    };
+/**
+ * Build an HMAC-signed invite token. The token encodes the inviter's
+ * chat_id so when the invitee taps the deep link, the Worker can verify
+ * who invited them without a pending_invites row. Format:
+ *   base64url({chat_id}.{issuedAtEpoch}).base64url(hmacSha256(secret, payload))
+ * The Worker's /start invite_<token> handler recomputes the HMAC and
+ * rejects tampered tokens. Reuses TELEGRAM_WEBHOOK_SECRET.
+ */
+function signInviteToken(chatId: string): string {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET is not set — cannot sign invite token.");
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload = `${chatId}.${issuedAt}`;
+  const payloadB64 = base64urlEncode(payload);
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHmac } = require("crypto");
+  const sig = createHmac("sha256", secret).update(payload).digest();
+  return `${payloadB64}.${base64urlEncode(sig)}`;
+}
+
+function base64urlEncode(input: string | Uint8Array): string {
+  const buf = typeof input === "string" ? Buffer.from(input, "utf8") : Buffer.from(input);
+  return buf.toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function base64urlDecode(s: string): Buffer {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
+  return Buffer.from(padded, "base64");
+}
+
+const INVITE_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
+
+/**
+ * Verify an HMAC-signed invite token. Returns the inviter chat_id on success,
+ * or an error reason string on failure. Tokens older than 30 days are rejected
+ * as expired — a stale invite shouldn't auto-link a user to a stranger whose
+ * relationship with the inviter may have lapsed.
+ */
+function verifyInviteToken(token: string): { ok: true; chatId: string } | { ok: false; reason: string } {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) return { ok: false, reason: "Server misconfigured: webhook secret missing." };
+  const parts = token.split(".");
+  if (parts.length !== 2) return { ok: false, reason: "Malformed token — share the full invite link again." };
+  const [payloadB64, sigB64] = parts;
+  let payload: string;
+  try {
+    payload = base64urlDecode(payloadB64).toString("utf8");
+  } catch {
+    return { ok: false, reason: "Malformed token payload." };
   }
-  const participantId = crypto.randomUUID();
-  // Carry forward the user's most recent schedule from any prior session so
-  // "Joejoe hasn't shared" doesn't appear when Joejoe already uploaded in
-  // his own session. Implicit in the product: uploading == consenting to
-  // use for overlap compute.
-  const carriedSchedule = await getLatestScheduleForUser(partnerChatId);
-  await query(
-    `INSERT INTO participants (id, session_id, chat_id, role, state, schedule_json)
-     VALUES (?, ?, ?, 'partner', 'ACTIVE', ?)`,
-    [participantId, sessionEntry.session.id, partnerChatId, carriedSchedule],
-  );
-  // Update the in-turn snapshot so subsequent tools see the new participant
-  sessionEntry.participants.push({
-    id: participantId,
-    chat_id: partnerChatId,
-    role: "partner",
-    state: "ACTIVE",
-    schedule_json: carriedSchedule,
-    preferred_slots: null,
-    name: partnerName,
-    has_schedule: !!carriedSchedule,
-  });
-  return {
-    added: true,
-    partner_chat_id: partnerChatId,
-    partner_name: partnerName,
-    session_id: sessionEntry.session.id,
-    carried_schedule: !!carriedSchedule,
-  };
+  const payloadParts = payload.split(".");
+  if (payloadParts.length !== 2) return { ok: false, reason: "Malformed token payload." };
+  const [chatId, issuedAtStr] = payloadParts;
+  const issuedAt = parseInt(issuedAtStr, 10);
+  if (!chatId || Number.isNaN(issuedAt)) return { ok: false, reason: "Malformed token payload." };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createHmac, timingSafeEqual } = require("crypto");
+  const expectedSig = createHmac("sha256", secret).update(payload).digest();
+  let givenSig: Buffer;
+  try {
+    givenSig = base64urlDecode(sigB64);
+  } catch {
+    return { ok: false, reason: "Malformed token signature." };
+  }
+  if (givenSig.length !== expectedSig.length || !timingSafeEqual(givenSig, expectedSig)) {
+    return { ok: false, reason: "Invite signature doesn't match — the link may be corrupted or forged." };
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (nowSec - issuedAt > INVITE_TOKEN_MAX_AGE_SEC) {
+    return { ok: false, reason: "This invite link has expired. Ask the inviter for a fresh one." };
+  }
+  return { ok: true, chatId };
 }
 
 // --- Tool 3.5: accept_invite ---
@@ -656,306 +612,250 @@ async function addKnownParticipant(
 const acceptInviteTool: ToolDefinition = {
   name: "accept_invite",
   description:
-    "Accept an invite to join an existing session via deep link. Call this when the user's first message is `/start invite_<sessionId>` (Telegram delivers tapped invite links this way) — extract the part after `invite_` as the session_id and pass it here. The tool adds the caller as a participant in the inviter's session, transfers any schedule the inviter previously uploaded on the caller's behalf (so they don't have to re-send it), notifies the inviter that the caller joined, and returns the resolved session_id and inviter info so you can welcome the new user with context.",
+    "Accept an invite when the caller's first message is `/start invite_<token>` (Telegram's deep-link format). Pass the <token> part verbatim — this tool verifies the HMAC signature and extracts the inviter's chat_id. Links both sides as contacts: the inviter learns about the new user, the new user learns about the inviter. Does NOT create a session. After calling this, welcome the new user by name and ask what they'd like to plan.",
   input_schema: {
     type: "object",
-    required: ["session_id"],
+    required: ["token"],
     properties: {
-      session_id: {
+      token: {
         type: "string",
-        description: "The session_id from the /start invite_<sessionId> deep link.",
+        description: "The HMAC-signed invite token from `/start invite_<token>`. Everything after `invite_` is the token.",
       },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const sessionId = typeof input.session_id === "string" ? input.session_id.trim() : "";
-    if (!sessionId) return { ok: false, error: "Missing session_id." };
-
-    // 1. Validate session
-    const session = await getSessionById(sessionId);
-    if (!session) return { ok: false, error: `No session found with id ${sessionId}.` };
-    if (session.status === "EXPIRED" || session.status === "COMPLETED") {
-      return { ok: false, error: `Session ${sessionId} is ${session.status}. Tell the user the invite has expired and ask if they want to start a fresh session.` };
-    }
-    if (new Date(session.expires_at) < new Date()) {
-      return { ok: false, error: `Session ${sessionId} expired at ${session.expires_at}. Tell the user the invite has timed out.` };
+    const token = typeof input.token === "string" ? input.token.trim() : "";
+    if (!token) return { ok: false, error: "Missing token." };
+    const decoded = verifyInviteToken(token);
+    if (!decoded.ok) return { ok: false, error: decoded.reason };
+    const inviterChatId = decoded.chatId;
+    if (inviterChatId === ctx.callerChatId) {
+      return { ok: false, error: "Inviter and invitee are the same user — can't self-invite." };
     }
 
-    // 2. Idempotency: already a participant?
-    const existing = await query<{ id: string }>(
-      "SELECT id FROM participants WHERE session_id = ? AND chat_id = ? LIMIT 1",
-      [sessionId, ctx.callerChatId],
-    );
-    if (existing.results.length > 0) {
-      return { ok: true, already_joined: true, session_id: sessionId };
+    const inviter = await getUser(inviterChatId);
+    if (!inviter) {
+      return { ok: false, error: `No bot user found for inviter_chat_id=${inviterChatId}. Token may be stale or forged.` };
     }
 
-    // 3. Insert participant row
-    const participantId = crypto.randomUUID();
-    await query(
-      "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'partner', 'ACTIVE')",
-      [participantId, sessionId, ctx.callerChatId],
-    );
+    const callerUser = ctx.snapshot.user;
+    const callerName = callerUser.name ?? `person_${ctx.callerChatId.slice(-4)}`;
+    const inviterName = inviter.name ?? `person_${inviterChatId.slice(-4)}`;
 
-    // 4. Mark the pending invite as ACCEPTED (best-effort — there may not
-    //    be an exact row matching this caller, since pending_invites are
-    //    created without invitee_chat_id when the inviter only had a name).
-    const pendingInvites = await query<{ id: string }>(
-      "SELECT id FROM pending_invites WHERE session_id = ? AND status = 'PENDING' ORDER BY created_at ASC LIMIT 1",
-      [sessionId],
-    );
-    if (pendingInvites.results[0]) {
-      await updateInviteStatus(pendingInvites.results[0].id, "ACCEPTED");
-    }
+    // Mutual contact link. Both sides upsert + link — after this both
+    // callers can see each other in their person_notes with live schedules.
+    await upsertPersonNote(inviterChatId, callerName);
+    await linkPersonNoteToChat(inviterChatId, callerName, ctx.callerChatId);
+    await upsertPersonNote(ctx.callerChatId, inviterName);
+    await linkPersonNoteToChat(ctx.callerChatId, inviterName, inviterChatId);
 
-    // 5. Try to link an on-behalf person_note. The inviter may have already
-    //    uploaded a schedule for the caller under their name. We try a few
-    //    matching strategies (best-effort, no error if nothing matches).
-    let linkedScheduleJson: string | null = null;
-    let linkedName: string | null = null;
+    // Also try transferring any on-behalf schedule the inviter had recorded
+    // under the caller's name: if they pre-uploaded their schedule, copy it
+    // into the freshly-linked note so both sides see it immediately.
     try {
-      const callerProfile = await getUser(ctx.callerChatId);
-      const inviterNotes = await getPersonNotesForOwner(session.creator_chat_id);
-      const unlinked = inviterNotes.filter((n) => !n.linked_chat_id);
-
-      let candidate = null;
-      // Strategy 1: caller's display name matches a person_note name
-      if (callerProfile?.name) {
-        const nameLower = callerProfile.name.toLowerCase();
-        candidate = unlinked.find((n) => n.name.toLowerCase() === nameLower)
-          ?? unlinked.find((n) => n.name.toLowerCase().includes(nameLower) || nameLower.includes(n.name.toLowerCase()));
-      }
-      // Strategy 2: only one unlinked note → assume it's this person
-      if (!candidate && unlinked.length === 1) candidate = unlinked[0];
-
-      if (candidate) {
-        const linked = await linkPersonNoteToChat(session.creator_chat_id, candidate.name, ctx.callerChatId);
-        if (linked) {
-          linkedName = linked.name;
-          if (linked.schedule_json) {
-            // Transfer the on-behalf schedule onto the new participant row
-            await saveParticipantSchedule(participantId, linked.schedule_json);
-            linkedScheduleJson = linked.schedule_json;
-          }
-        }
+      const inviterNotes = await getPersonNotesForOwner(inviterChatId);
+      const callerNote = inviterNotes.find(
+        (n) => n.name.toLowerCase() === callerName.toLowerCase(),
+      );
+      if (callerNote?.schedule_json && !callerUser.latest_schedule_json) {
+        await updateUserLatestSchedule(ctx.callerChatId, callerNote.schedule_json);
+        ctx.snapshot.user = { ...callerUser, latest_schedule_json: callerNote.schedule_json };
       }
     } catch (err) {
-      console.warn("[accept_invite] person_note link best-effort failed:", err);
+      console.warn("[accept_invite] schedule transfer best-effort failed:", err);
     }
 
-    // 6. Notify the inviter (best-effort — failure shouldn't block the join)
-    let inviterName: string | null = null;
+    // Notify the inviter (best-effort, localized).
     try {
-      const creatorUser = await getUser(session.creator_chat_id);
-      inviterName = creatorUser?.name ?? null;
-      const lang = creatorUser?.preferred_language ?? "en";
-      const callerName = (await getUser(ctx.callerChatId))?.name ?? "Your invitee";
+      const lang = inviter.preferred_language ?? "en";
       const msg =
         lang === "it" ? `${callerName} ha accettato il tuo invito! 🎉`
         : lang === "es" ? `${callerName} aceptó tu invitación! 🎉`
         : lang === "fr" ? `${callerName} a accepté votre invitation ! 🎉`
         : lang === "de" ? `${callerName} hat deine Einladung angenommen! 🎉`
         : lang === "pt" ? `${callerName} aceitou o seu convite! 🎉`
-        : `${callerName} just joined your session! 🎉`;
-      await sendTextMessage(session.creator_chat_id, msg);
+        : `${callerName} just joined! You're both linked now — share schedules whenever you're ready. 🎉`;
+      await sendTextMessage(inviterChatId, msg);
     } catch (err) {
       console.warn("[accept_invite] inviter notification failed:", err);
     }
 
-    // 7. Sync in-turn snapshot so subsequent tools (and Claude's reply
-    //    composition) see the new session — including the creator (so
-    //    Claude knows who the inviter is) AND the caller (the new joinee).
-    const allParticipantsFromDb = await getSessionParticipants(session.id);
-    const builtParticipants = await Promise.all(
-      allParticipantsFromDb.map(async (p) => {
-        const u = p.chat_id === ctx.callerChatId
-          ? ctx.snapshot.user
-          : await getUser(p.chat_id);
-        return {
-          id: p.id,
-          chat_id: p.chat_id,
-          role: p.role,
-          state: p.state,
-          schedule_json: p.schedule_json,
-          preferred_slots: p.preferred_slots,
-          name: u?.name ?? null,
-          has_schedule: p.schedule_json !== null && p.schedule_json !== "",
-        };
-      }),
-    );
-    const newSessionEntry: SnapshotSessionEntry = {
-      session: {
-        id: session.id,
-        code: session.code,
-        creator_chat_id: session.creator_chat_id,
-        status: session.status,
-        mode: session.mode,
-        created_at: session.expires_at, // session row doesn't expose created_at via getSessionById; use expires_at as a stand-in
-        expires_at: session.expires_at,
-      },
-      participants: builtParticipants,
-      pendingInvites: [],
-    };
-    ctx.snapshot.activeSessions.unshift(newSessionEntry);
-
-    await emitSessionEvent(sessionId, "invite_accepted", {
+    await emitSessionEvent("no-session", "invite_accepted", {
+      inviter_chat_id: inviterChatId,
       caller_chat_id: ctx.callerChatId,
-      transferred_schedule: linkedScheduleJson !== null,
-      linked_person_note: linkedName,
     });
 
     return {
       ok: true,
-      session_id: sessionId,
       inviter_name: inviterName,
-      transferred_schedule: linkedScheduleJson !== null,
-      transferred_shift_count: linkedScheduleJson ? (JSON.parse(linkedScheduleJson) as unknown[]).length : 0,
+      inviter_chat_id: inviterChatId,
     };
   },
 };
 
-// --- Tool 4: remove_partner ---
+// --- Tool 4: forget_contact (hard delete, vs set_person_hidden which is soft) ---
 
 const removePartnerTool: ToolDefinition = {
-  name: "remove_partner",
-  description: "Remove a partner from the current session by name. Returns ambiguous candidates on multi-match, not_found on no match.",
+  name: "forget_contact",
+  description: "Permanently delete a contact from the caller's person list. Use when the caller explicitly wants to erase someone — 'forget X', 'delete X from my list', 'stop keeping track of X'. For 'I'm not interested in X for now' use set_person_hidden (reversible) instead. Owner-scoped: only deletes the caller's own person_note, not the other user's account.",
   input_schema: {
     type: "object",
     required: ["name"],
     properties: {
-      name: { type: "string" },
-      session_id: { type: "string" },
+      name: { type: "string", description: "Name of the contact to forget (matched against the caller's person_notes)." },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
     const name = typeof input.name === "string" ? input.name.trim() : "";
     if (!name) return { error: "Missing name argument." };
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
-    const sessionEntry = resolveSession(ctx, explicitSessionId);
-    if (!sessionEntry) return { error: "No active session to remove from." };
-
-    const target = name.toLowerCase();
-    const candidates = sessionEntry.participants
-      .filter((p) => p.chat_id !== ctx.callerChatId && p.name)
-      .filter((p) => p.name!.toLowerCase().includes(target));
-
-    if (candidates.length === 0) {
-      // Also check pending invites for name match — but pending invites
-      // don't store names, only phone/deep-link scope. Drop the most recent
-      // pending invite as a "best guess" only if the caller has exactly one.
-      if (sessionEntry.pendingInvites.length === 1) {
-        await query(
-          "UPDATE pending_invites SET status = 'DECLINED' WHERE id = ?",
-          [sessionEntry.pendingInvites[0].id],
-        );
-        sessionEntry.pendingInvites = [];
-        return { removed: true, name, notes: "Removed the only pending invite (name couldn't be verified against invite row)." };
-      }
-      return { not_found: true, name };
-    }
-
-    // Exact match preferred
-    const exact = candidates.find((p) => p.name!.toLowerCase() === target);
-    const winner = exact ?? (candidates.length === 1 ? candidates[0] : null);
-    if (!winner) {
-      return {
-        ambiguous: true,
-        candidates: candidates.map((c) => ({ name: c.name, chat_id_suffix: c.chat_id.slice(-4) })),
-      };
-    }
-    await query("DELETE FROM participants WHERE id = ?", [winner.id]);
-    sessionEntry.participants = sessionEntry.participants.filter((p) => p.id !== winner.id);
-    return { removed: true, name: winner.name, session_id: sessionEntry.session.id };
+    const normalized = name.trim().toLowerCase();
+    const result = await query(
+      "DELETE FROM person_notes WHERE owner_chat_id = ? AND name_normalized = ?",
+      [ctx.callerChatId, normalized],
+    );
+    const changes = result.meta?.changes ?? 0;
+    if (changes === 0) return { not_found: true, name };
+    ctx.snapshot.personNotes = ctx.snapshot.personNotes.filter(
+      (n) => n.name_normalized !== normalized,
+    );
+    return { forgotten: true, name };
   },
 };
 
-// --- Tool 5: compute_and_deliver_match ---
+// --- Tool 5: compute_overlap ---
 
 const computeAndDeliverMatchTool: ToolDefinition = {
-  name: "compute_and_deliver_match",
+  name: "compute_overlap",
   description:
-    "Find overlapping free time across everyone in the session (including on-behalf schedules). Returns all slots sorted longest-first plus the chosen best one. Sends .ics + Google Calendar event to every participant; other participants get a short text notification, the caller doesn't (avoids duplicating your reply tool). Session stays OPEN after delivery so follow-up questions still work. force_mediated=true uses only the caller's schedule and offers their free times to partners.",
+    "Find overlapping free time between the caller and their non-hidden contacts, using everyone's canonical schedule (users.latest_schedule_json for real bot users, person_notes.schedule_json for on-behalf). Returns ranked slots. If `deliver=true` and the caller has ≥1 linked contact, also sends a notification + calendar event to each linked contact. No sessions involved.",
   input_schema: {
     type: "object",
     properties: {
-      session_id: { type: "string" },
-      force_mediated: { type: "boolean" },
+      deliver: {
+        type: "boolean",
+        description: "Optional. When true and there's a clear best slot, send a notification + calendar event to each linked contact. Default false (preview only).",
+      },
+      only_contacts: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Limit overlap to these named contacts (case-insensitive). If omitted, uses all non-hidden contacts.",
+      },
+      force_mediated: {
+        type: "boolean",
+        description: "If true, return only the caller's own availability windows (single-person slots) — useful when the caller wants to offer their free times to someone who hasn't uploaded yet.",
+      },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
+    const deliver = input.deliver === true;
     const forceMediated = input.force_mediated === true;
-    const sessionEntry = resolveSession(ctx, explicitSessionId);
-    if (!sessionEntry) return { error: "No active session to compute against." };
-    const sessionId = sessionEntry.session.id;
-    const deliverOptions = {
-      excludeTextForChatId: ctx.callerChatId,
-      keepSessionOpen: true,
-    };
+    const onlyFilter = Array.isArray(input.only_contacts)
+      ? (input.only_contacts as unknown[]).filter((v): v is string => typeof v === "string").map((s) => s.toLowerCase())
+      : null;
 
+    const callerSchedule = ctx.snapshot.user.latest_schedule_json;
     if (forceMediated) {
-      const caller = sessionEntry.participants.find((p) => p.chat_id === ctx.callerChatId);
-      if (!caller?.schedule_json) {
-        return { error: "Can't run mediator mode — caller hasn't confirmed their own schedule yet." };
+      if (!callerSchedule) {
+        return { error: "Can't run mediated mode — caller hasn't uploaded their schedule yet." };
       }
-      const slots = computeSinglePersonSlots(caller.schedule_json);
-      if (slots.length === 0) {
-        return { status: "no_slots_from_single_schedule" };
-      }
-      await persistComputedSlots(
-        sessionId,
-        slots.map((s) => ({ ...s, explanation: "caller-only availability" })),
-      );
-      await query("UPDATE sessions SET mode = 'MEDIATED' WHERE id = ?", [sessionId]);
-      const result = await deliverMatchToSession(sessionId, deliverOptions);
+      const slots = computeSinglePersonSlots(callerSchedule);
       return {
-        status: result.match ? "delivered_mediated" : (result.reason ?? "no_match"),
-        match: result.match,
-        all_slots: result.all_slots,
+        status: slots.length > 0 ? "caller_only_slots" : "no_slots_from_single_schedule",
+        all_slots: slots,
       };
     }
 
-    // Non-mediated: pull schedules from participants + on-behalf person_notes
-    const allParticipants = await getSessionParticipants(sessionId);
-    const participantSchedules = allParticipants
-      .filter((p) => p.schedule_json)
-      .map((p) => ({ id: p.id, schedule_json: p.schedule_json }));
+    // Build the schedule set: caller + non-hidden contacts with a schedule.
+    const contacts = ctx.snapshot.personNotes.filter((n) => {
+      if (n.hidden) return false;
+      if (!n.schedule_json) return false;
+      if (onlyFilter && !onlyFilter.includes(n.name.toLowerCase())) return false;
+      return true;
+    });
 
-    // On-behalf schedules from the creator's person_notes
-    const creator = allParticipants.find((p) => p.role === "creator");
-    const onBehalfSchedules: Array<{ id: string; schedule_json: string | null }> = [];
-    if (creator) {
-      for (const note of ctx.snapshot.personNotes) {
-        if (!note.schedule_json) continue;
-        const alreadyParticipant =
-          note.linked_chat_id && allParticipants.some((p) => p.chat_id === note.linked_chat_id);
-        if (alreadyParticipant) continue;
-        onBehalfSchedules.push({ id: `on-behalf:${note.id}`, schedule_json: note.schedule_json });
-      }
+    const schedules: Array<{ id: string; schedule_json: string | null }> = [];
+    if (callerSchedule) schedules.push({ id: `caller:${ctx.callerChatId}`, schedule_json: callerSchedule });
+    for (const n of contacts) {
+      schedules.push({ id: `contact:${n.linked_chat_id ?? `note${n.id}`}`, schedule_json: n.schedule_json });
     }
 
-    const totalSchedules = participantSchedules.length + onBehalfSchedules.length;
-    if (totalSchedules < 2) {
+    if (schedules.length < 2) {
       return {
         status: "need_more_schedules",
-        missing: Math.max(0, (allParticipants.length + sessionEntry.pendingInvites.length) - totalSchedules),
+        caller_has_schedule: !!callerSchedule,
+        contacts_with_schedule: contacts.length,
+        missing_hint: callerSchedule
+          ? "Caller's schedule is uploaded, but no eligible contact has a schedule. Ask the caller who they want to plan with, or tell them the contact needs to upload theirs."
+          : "Caller hasn't uploaded their own schedule yet — ask for it first.",
       };
     }
 
-    const slots: ComputedFreeSlot[] = computeOverlaps([...participantSchedules, ...onBehalfSchedules]);
+    const slots: ComputedFreeSlot[] = computeOverlaps(schedules);
     if (slots.length === 0) {
       return { status: "no_overlap" };
     }
-    await persistComputedSlots(sessionId, slots);
-    const delivery = await deliverMatchToSession(sessionId, deliverOptions);
+
+    // Delivery (optional): for each linked contact, send a notification and
+    // create a calendar event for the top slot. Skip on-behalf-only notes
+    // (no linked_chat_id = no Telegram chat to message).
+    let deliveryResult: { delivered_to: string[]; failures: string[] } | null = null;
+    if (deliver) {
+      const top = slots[0];
+      const linkedContactIds = contacts
+        .map((n) => n.linked_chat_id)
+        .filter((id): id is string => !!id);
+      deliveryResult = await deliverMatchToContacts(
+        ctx.callerChatId,
+        linkedContactIds,
+        top,
+        ctx.snapshot.user.preferred_language ?? "en",
+        ctx.snapshot.user.name ?? null,
+      );
+    }
+
     return {
-      status: delivery.match ? "delivered" : (delivery.reason ?? "no_match"),
-      match: delivery.match,
-      all_slots: delivery.all_slots,
+      status: deliver ? "delivered" : "preview",
+      match: slots[0],
+      all_slots: slots,
       slot_count: slots.length,
+      delivery: deliveryResult,
     };
   },
 };
+
+/**
+ * Lightweight delivery: for each contact we have a chat_id for, send a text
+ * notification + create a calendar event keyed to the chosen slot. Best-
+ * effort: a failure for one contact doesn't stop the rest. Calendar event
+ * creation reuses the existing google-calendar helper.
+ */
+async function deliverMatchToContacts(
+  callerChatId: string,
+  contactChatIds: string[],
+  slot: ComputedFreeSlot,
+  callerLang: string,
+  callerName: string | null,
+): Promise<{ delivered_to: string[]; failures: string[] }> {
+  const delivered: string[] = [];
+  const failures: string[] = [];
+  const whoLabel = callerName ?? `chat ${callerChatId.slice(-4)}`;
+  const headline =
+    callerLang === "it" ? `${whoLabel} ha trovato un orario: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
+    : callerLang === "es" ? `${whoLabel} encontró un horario: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
+    : callerLang === "fr" ? `${whoLabel} a trouvé un créneau : ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
+    : callerLang === "de" ? `${whoLabel} hat einen Termin gefunden: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
+    : `${whoLabel} picked a time: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`;
+  for (const cid of contactChatIds) {
+    try {
+      await sendTextMessage(cid, `📅 ${headline}`);
+      delivered.push(cid);
+    } catch (err) {
+      failures.push(cid);
+      console.warn(`[deliver] send failed to ${cid}:`, err);
+    }
+  }
+  return { delivered_to: delivered, failures };
+}
 
 // --- Tool 6: upsert_knowledge ---
 
@@ -1066,103 +966,20 @@ const setPersonHiddenTool: ToolDefinition = {
   },
 };
 
-// --- Tool 7: session_action ---
+// --- Tool 7: reset_conversation ---
 
 const sessionActionTool: ToolDefinition = {
-  name: "session_action",
+  name: "reset_conversation",
   description:
-    "Session lifecycle action. 'new' starts a fresh scheduling session — expires the current one but keeps everything the bot knows: user profile, saved contacts/person_notes (with their schedules), and conversation history. Use this when someone says 'start over', 'new meetup', 'fresh start', etc. 'cancel' marks the current session EXPIRED without starting a new one. 'reopen' flips the most-recent COMPLETED session back to OPEN preserving its schedules (for amend-after-delivered). Knowledge about people is permanent and central — it survives across sessions so the bot never forgets who Marco is or what his schedule looks like.",
-  input_schema: {
-    type: "object",
-    required: ["action"],
-    properties: {
-      action: { type: "string", enum: ["new", "cancel", "reopen"] },
-      session_id: { type: "string" },
-    },
-  },
-  async execute(input, ctx): Promise<ToolResult> {
-    const action = input.action;
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
-
-    if (action === "new") {
-      // Expire any existing sessions the caller creates or participates in,
-      // then create a fresh one.
-      await query(
-        "UPDATE sessions SET status = 'EXPIRED' WHERE creator_chat_id = ? AND status NOT IN ('EXPIRED','COMPLETED')",
-        [ctx.callerChatId],
-      );
-      const sessionId = crypto.randomUUID();
-      const code = crypto.randomUUID().slice(0, 6).toUpperCase();
-      const expiresAt = new Date(Date.now() + SESSION_EXPIRY_MS).toISOString();
-      await query(
-        "INSERT INTO sessions (id, code, creator_chat_id, status, expires_at) VALUES (?, ?, ?, 'OPEN', ?)",
-        [sessionId, code, ctx.callerChatId, expiresAt],
-      );
-      const creatorParticipantId = crypto.randomUUID();
-      await query(
-        "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'creator', 'ACTIVE')",
-        [creatorParticipantId, sessionId, ctx.callerChatId],
-      );
-      await emitSessionEvent(sessionId, "session_created", { via: "session_action.new" });
-
-      // CRITICAL: sync the in-turn snapshot. Without this, a subsequent
-      // parse_schedule call in the same turn would still see the old
-      // (now-expired) sessions in ctx.snapshot.activeSessions and try to
-      // save into a stale participant row — schedule lands in an expired
-      // session and disappears from loadSnapshot next turn. Live test
-      // 2026-04-11 16:53-16:55 hit this exact bug.
-      ctx.snapshot.activeSessions = [
-        {
-          session: {
-            id: sessionId,
-            code,
-            creator_chat_id: ctx.callerChatId,
-            status: "OPEN",
-            mode: null,
-            created_at: new Date().toISOString(),
-            expires_at: expiresAt,
-          },
-          participants: [
-            {
-              id: creatorParticipantId,
-              chat_id: ctx.callerChatId,
-              role: "creator",
-              state: "ACTIVE",
-              schedule_json: null,
-              preferred_slots: null,
-              name: ctx.snapshot.user.name,
-              has_schedule: false,
-            },
-          ],
-          pendingInvites: [],
-        },
-      ];
-
-      return {
-        action: "new",
-        session_id: sessionId,
-        notes: "Fresh session created. Profile, contacts, and history are all preserved — only the previous scheduling session was closed.",
-      };
-    }
-
-    if (action === "cancel") {
-      const sessionEntry = resolveSession(ctx, explicitSessionId);
-      if (!sessionEntry) return { error: "No active session to cancel." };
-      await cancelSession(sessionEntry.session.id);
-      // Remove from in-turn snapshot
-      ctx.snapshot.activeSessions = ctx.snapshot.activeSessions.filter(
-        (s) => s.session.id !== sessionEntry.session.id,
-      );
-      return { action: "cancelled", session_id: sessionEntry.session.id };
-    }
-
-    if (action === "reopen") {
-      const reopenedId = await reopenLastCompletedSession(ctx.callerChatId);
-      if (!reopenedId) return { error: "No completed session to reopen." };
-      return { action: "reopened", session_id: reopenedId };
-    }
-
-    return { error: `Unknown action: ${String(action)}` };
+    "Wipe the caller's recent conversation history with the bot so the next turn starts fresh. Use when the user says 'start over', 'fresh start', 'new session', 'forget what we were just talking about'. Does NOT delete contacts, schedules, or reminders — those are the user's data and survive. Only the recent-messages log for THIS caller is cleared. The previous system had a stricter 'session' concept; in the shared-hub model there's nothing else to reset.",
+  input_schema: { type: "object", properties: {} },
+  async execute(_input, ctx): Promise<ToolResult> {
+    await query("DELETE FROM conversation_log WHERE chat_id = ?", [ctx.callerChatId]);
+    ctx.snapshot.recentHistory = [];
+    return {
+      ok: true,
+      notes: "Conversation history cleared for this chat. Contacts, schedules, and reminders are intact.",
+    };
   },
 };
 

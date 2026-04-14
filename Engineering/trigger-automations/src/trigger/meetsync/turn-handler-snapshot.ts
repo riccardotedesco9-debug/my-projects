@@ -40,19 +40,9 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
     lines.push("");
   }
 
-  // Active sessions
-  if (snapshot.activeSessions.length === 0) {
-    lines.push("Active sessions: none — you have nothing scheduled or in-progress right now.");
-  } else if (snapshot.activeSessions.length === 1) {
-    lines.push("Active session:");
-    lines.push(...formatSessionSection(snapshot.activeSessions[0], snapshot.user.chat_id, "  "));
-  } else {
-    lines.push(`Active sessions (${snapshot.activeSessions.length} — use session_id arg to disambiguate tool calls):`);
-    for (let i = 0; i < snapshot.activeSessions.length; i++) {
-      lines.push(`  Session ${i + 1}:`);
-      lines.push(...formatSessionSection(snapshot.activeSessions[i], snapshot.user.chat_id, "    "));
-    }
-  }
+  // Shared-hub model: no session section. Contacts + their schedules are
+  // already rendered by formatPersonNotesSection. The caller's own schedule
+  // is rendered in formatUserSection.
 
   // Recent history
   if (snapshot.recentHistory.length > 0) {
@@ -80,6 +70,12 @@ function formatUserSection(user: UserProfile, timezone: string): string[] {
   if (user.context && user.context.trim()) {
     const ctx = user.context.slice(0, 600).replace(/\n/g, " · ");
     lines.push(`  Accumulated facts: ${ctx}`);
+  }
+  if (user.latest_schedule_json) {
+    lines.push("  Their own schedule: ✓ UPLOADED");
+    lines.push(...renderShiftListCompact(user.latest_schedule_json, "    "));
+  } else {
+    lines.push("  Their own schedule: ✗ not uploaded yet");
   }
   return lines;
 }

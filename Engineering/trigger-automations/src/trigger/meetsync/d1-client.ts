@@ -309,6 +309,7 @@ export interface UserProfile {
   timezone: string;
   first_seen: string;
   last_seen: string;
+  latest_schedule_json: string | null;
 }
 
 /** Update user's timezone */
@@ -453,24 +454,46 @@ export async function findUserByName(name: string) {
 }
 
 /**
- * Most recent schedule a user uploaded for themselves in any prior session.
- * Used when adding a known user as a participant so their schedule follows
- * them across sessions — otherwise the new participant row has
- * schedule_json=NULL and the caller sees "X hasn't shared their schedule
- * yet" even though the user had uploaded before in their own session.
+ * The user's canonical current schedule. Shared-hub model: a schedule lives
+ * on users.latest_schedule_json — not inside any session or participant row.
+ * Any caller who has this user in their person_notes automatically sees
+ * this schedule via loadSnapshot enrichment.
  *
- * Consent model: uploading a schedule to MeetSync implies consent to have
- * it used in matches — that's the bot's entire purpose. Users who don't
- * want their schedule shared shouldn't upload it.
+ * Falls back to the most-recent participants.schedule_json so users who
+ * uploaded before migration 0018 still resolve. Can be removed once the
+ * participants table is dropped.
+ *
+ * Consent model: uploading a schedule to MeetSync implies consent to use it
+ * for matches — that's the bot's entire purpose.
  */
 export async function getLatestScheduleForUser(chatId: string): Promise<string | null> {
-  const result = await query<{ schedule_json: string | null }>(
+  const userRow = await query<{ latest_schedule_json: string | null }>(
+    "SELECT latest_schedule_json FROM users WHERE chat_id = ?",
+    [chatId],
+  );
+  const fromUser = userRow.results[0]?.latest_schedule_json;
+  if (fromUser) return fromUser;
+
+  // Legacy fallback — participant rows pre-0018.
+  const legacy = await query<{ schedule_json: string | null }>(
     `SELECT schedule_json FROM participants
      WHERE chat_id = ? AND schedule_json IS NOT NULL AND schedule_json != ''
      ORDER BY created_at DESC LIMIT 1`,
     [chatId],
   );
-  return result.results[0]?.schedule_json ?? null;
+  return legacy.results[0]?.schedule_json ?? null;
+}
+
+/**
+ * The single write point for a user's own schedule. Replaces the old
+ * "save to participant row" flow. Parse_schedule tool calls this when the
+ * caller is describing their own availability.
+ */
+export async function updateUserLatestSchedule(chatId: string, scheduleJson: string): Promise<void> {
+  await query(
+    "UPDATE users SET latest_schedule_json = ?, last_seen = datetime('now') WHERE chat_id = ?",
+    [scheduleJson, chatId],
+  );
 }
 
 /** Phone lookup that matches both E.164 ("+356...") and legacy bare-digit
@@ -670,29 +693,31 @@ export interface Snapshot {
  * in, most-recent first. `personNotes` is owner-scoped to this caller only.
  */
 export async function loadSnapshot(chatId: string): Promise<Snapshot> {
-  const [userRow, sessionRows, personNotes, recentHistory] = await Promise.all([
+  // Shared-hub model (migration 0018+): sessions are not part of runtime.
+  // Snapshot = user profile + their contacts (person_notes) + recent chat.
+  // Schedules live on users.latest_schedule_json; person_notes for linked
+  // contacts get enriched below so Claude sees every contact's live schedule
+  // regardless of which chat they uploaded from.
+  const [userRow, rawPersonNotes, recentHistory] = await Promise.all([
     getUser(chatId),
-    query<{
-      id: string;
-      code: string;
-      creator_chat_id: string;
-      status: string;
-      mode: string | null;
-      created_at: string;
-      expires_at: string;
-    }>(
-      `SELECT DISTINCT s.id, s.code, s.creator_chat_id, s.status, s.mode, s.created_at, s.expires_at
-         FROM sessions s
-         JOIN participants p ON p.session_id = s.id
-        WHERE p.chat_id = ?
-          AND s.status NOT IN ('EXPIRED', 'COMPLETED')
-          AND s.expires_at > datetime('now')
-        ORDER BY s.created_at DESC`,
-      [chatId],
-    ),
     getPersonNotesForOwner(chatId),
     getRecentMessages(chatId),
   ]);
+
+  // Enrich each linked person_note with the contact's latest self-uploaded
+  // schedule from ANY session. Without this, sessions close and you lose
+  // visibility into what your contacts have already uploaded — the snapshot
+  // would say "Kurt hasn't uploaded a schedule" even though his schedule is
+  // alive in his own session. compute_and_deliver_match already reads
+  // person_notes.schedule_json for on-behalf entries, so this also fixes
+  // the cross-session overlap case transparently.
+  const personNotes: PersonNote[] = await Promise.all(
+    rawPersonNotes.map(async (n) => {
+      if (!n.linked_chat_id || n.schedule_json) return n;
+      const latest = await getLatestScheduleForUser(n.linked_chat_id);
+      return latest ? { ...n, schedule_json: latest } : n;
+    }),
+  );
 
   // User row should always exist — turn handler calls registerUser before
   // loadSnapshot. If it doesn't, something is wrong; fall back to a minimal
@@ -707,53 +732,13 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     timezone: "Europe/Malta",
     first_seen: new Date().toISOString(),
     last_seen: new Date().toISOString(),
+    latest_schedule_json: null,
   };
 
-  // For each active session, fetch participants + pending invites in
-  // parallel. For 0-3 sessions this is 0-6 extra D1 calls.
-  const activeSessions: SnapshotSessionEntry[] = await Promise.all(
-    sessionRows.results.map(async (session) => {
-      const [participantsResult, invitesResult] = await Promise.all([
-        query<{
-          id: string;
-          chat_id: string;
-          role: string;
-          state: string;
-          schedule_json: string | null;
-          preferred_slots: string | null;
-          name: string | null;
-        }>(
-          `SELECT p.id, p.chat_id, p.role, p.state, p.schedule_json, p.preferred_slots, u.name
-             FROM participants p
-             LEFT JOIN users u ON u.chat_id = p.chat_id
-            WHERE p.session_id = ?
-            ORDER BY p.created_at ASC`,
-          [session.id],
-        ),
-        query<{
-          id: string;
-          invitee_chat_id: string | null;
-          invitee_phone: string | null;
-          status: string;
-        }>(
-          `SELECT id, invitee_chat_id, invitee_phone, status
-             FROM pending_invites
-            WHERE session_id = ? AND status = 'PENDING'
-            ORDER BY created_at ASC`,
-          [session.id],
-        ),
-      ]);
-
-      return {
-        session,
-        participants: participantsResult.results.map((p) => ({
-          ...p,
-          has_schedule: p.schedule_json !== null && p.schedule_json !== "",
-        })),
-        pendingInvites: invitesResult.results,
-      };
-    }),
-  );
+  // Sessions are no longer part of the runtime model (see migration 0018
+  // and the shared-hub plan). Always empty; field retained on the Snapshot
+  // type so downstream code that iterates it remains valid.
+  const activeSessions: SnapshotSessionEntry[] = [];
 
   return {
     user,
