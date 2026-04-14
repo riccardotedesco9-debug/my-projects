@@ -274,14 +274,25 @@ export async function updateUserTimezone(chatId: string, timezone: string) {
  * the product is built around: the bot tracks name+phone silently; the
  * moment that number joins, everyone who mentioned it sees the link.
  *
- * Returns the count of person_notes linked this way, for logging.
+ * Returns the owner_chat_ids that had a shadow person_note resolved so
+ * callers can notify those owners.
  */
 export async function linkShadowedPersonNotesByPhone(
   chatId: string,
   phone: string,
-): Promise<number> {
+): Promise<Array<{ owner_chat_id: string; name: string }>> {
   const variants = phone.startsWith("+") ? [phone, phone.slice(1)] : [phone, `+${phone}`];
-  const result = await query(
+  // Read the rows that WILL be linked BEFORE the update, so the caller can
+  // notify each owner. Otherwise we lose the "who was waiting" info.
+  const toLink = await query<{ owner_chat_id: string; name: string }>(
+    `SELECT owner_chat_id, name FROM person_notes
+      WHERE linked_chat_id IS NULL
+        AND phone IN (?, ?)
+        AND owner_chat_id != ?`,
+    [variants[0], variants[1], chatId],
+  );
+  if (toLink.results.length === 0) return [];
+  await query(
     `UPDATE person_notes
         SET linked_chat_id = ?, updated_at = datetime('now')
       WHERE linked_chat_id IS NULL
@@ -289,7 +300,7 @@ export async function linkShadowedPersonNotesByPhone(
         AND owner_chat_id != ?`,
     [chatId, variants[0], variants[1], chatId],
   );
-  return result.meta?.changes ?? 0;
+  return toLink.results;
 }
 
 /**
@@ -379,14 +390,21 @@ export async function updateUserName(chatId: string, name: string) {
 }
 
 /** Store user's phone number (from Telegram contact sharing) */
-export async function updateUserPhone(chatId: string, phone: string) {
+/**
+ * Update a user's phone AND resolve any shadow person_notes that were
+ * waiting on this number. Returns the list of owners whose shadow-tracked
+ * contact just got linked to this user, so the caller can notify them.
+ * Empty list means no shadows were pending.
+ */
+export async function updateUserPhone(
+  chatId: string,
+  phone: string,
+): Promise<Array<{ owner_chat_id: string; name: string }>> {
   await query(
     "UPDATE users SET phone = ?, last_seen = datetime('now') WHERE chat_id = ?",
     [phone, chatId]
   );
-  // Shadow-graph resolution: any caller who previously added this phone as
-  // a person_note now has that note linked to the real chat_id, transparently.
-  await linkShadowedPersonNotesByPhone(chatId, phone);
+  return linkShadowedPersonNotesByPhone(chatId, phone);
 }
 
 /** Append learned facts to user's context (newline-separated, capped at 2000 chars) */

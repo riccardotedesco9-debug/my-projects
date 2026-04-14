@@ -107,6 +107,42 @@ function resolveCallerTimezone(ctx: ToolContext): string {
   return ctx.snapshot.timezone || ctx.snapshot.user.timezone || "Europe/Malta";
 }
 
+/**
+ * Notify each owner whose shadow-tracked contact just got linked to a newly-
+ * known chat_id. Sends a Telegram message per owner in the owner's language,
+ * mentioning whether the contact already has a schedule on file. Best-effort.
+ */
+async function notifyShadowLinkResolutions(
+  resolved: Array<{ owner_chat_id: string; name: string }>,
+  linkedChatId: string,
+): Promise<void> {
+  if (resolved.length === 0) return;
+  const linkedUser = await getUser(linkedChatId);
+  const hasSchedule = !!linkedUser?.latest_schedule_json;
+  for (const row of resolved) {
+    try {
+      const owner = await getUser(row.owner_chat_id);
+      const lang = owner?.preferred_language ?? "en";
+      const schedLine = hasSchedule
+        ? (lang === "it" ? " Hanno già condiviso il loro orario, quindi posso trovare una sovrapposizione quando vuoi."
+          : lang === "es" ? " Ya han compartido su horario, así que puedo encontrar un solapamiento cuando quieras."
+          : lang === "fr" ? " Ils ont déjà partagé leur emploi du temps, je peux trouver un créneau commun quand tu veux."
+          : lang === "de" ? " Sie haben ihren Zeitplan schon geteilt — ich kann Überschneidungen jederzeit finden."
+          : " They've already shared their schedule, so I can find an overlap whenever you're ready.")
+        : "";
+      const msg =
+        lang === "it" ? `🔗 ${row.name} si è appena unito al bot e ora è collegato ai tuoi contatti.${schedLine}`
+        : lang === "es" ? `🔗 ${row.name} acaba de unirse al bot y ahora está vinculado a tus contactos.${schedLine}`
+        : lang === "fr" ? `🔗 ${row.name} vient de rejoindre le bot et est maintenant lié à tes contacts.${schedLine}`
+        : lang === "de" ? `🔗 ${row.name} ist dem Bot gerade beigetreten und jetzt mit deinen Kontakten verknüpft.${schedLine}`
+        : `🔗 ${row.name} just joined the bot and is now linked in your contacts.${schedLine}`;
+      await sendTextMessage(row.owner_chat_id, msg);
+    } catch (err) {
+      console.warn(`[shadow-link notify] failed for owner ${row.owner_chat_id}:`, err);
+    }
+  }
+}
+
 // --- Tool 1: parse_schedule (auto-saves on success) ---
 //
 // Extracts shifts and writes them straight to D1 in one call —
@@ -447,7 +483,10 @@ const addOrInvitePartnerTool: ToolDefinition = {
     if (phone) {
       const existing = await findUserByPhone(phone);
       if (existing && existing.chat_id !== ctx.callerChatId) {
-        if (!existing.phone) await updateUserPhone(existing.chat_id, phone);
+        if (!existing.phone) {
+          const resolved = await updateUserPhone(existing.chat_id, phone);
+          await notifyShadowLinkResolutions(resolved, existing.chat_id);
+        }
         return await linkContact(existing.chat_id, existing.name ?? null, phone);
       }
       if (existing && existing.chat_id === ctx.callerChatId) {
@@ -458,7 +497,10 @@ const addOrInvitePartnerTool: ToolDefinition = {
         const byName = (await findUserByName(name)).filter((u) => u.chat_id !== ctx.callerChatId);
         if (byName.length === 1) {
           const u = byName[0];
-          if (!u.phone) await updateUserPhone(u.chat_id, phone);
+          if (!u.phone) {
+            const resolved = await updateUserPhone(u.chat_id, phone);
+            await notifyShadowLinkResolutions(resolved, u.chat_id);
+          }
           return await linkContact(u.chat_id, u.name ?? null, phone);
         }
         if (byName.length > 1) {
@@ -943,9 +985,12 @@ const upsertKnowledgeTool: ToolDefinition = {
         actions.push(`timezone=${timezone}`);
       }
       if (phone) {
-        await updateUserPhone(ctx.callerChatId, phone);
+        const resolved = await updateUserPhone(ctx.callerChatId, phone);
         ctx.snapshot.user = { ...ctx.snapshot.user, phone };
         actions.push(`phone=${phone}`);
+        // Fire shadow-link notifications — anyone who had this caller
+        // shadow-tracked by phone now sees them linked in their contacts.
+        await notifyShadowLinkResolutions(resolved, ctx.callerChatId);
       }
       if (fact) {
         await appendUserContext(ctx.callerChatId, fact);
