@@ -70,6 +70,83 @@ export async function createCalendarEvent(
 }
 
 
+/**
+ * List the user's calendar events that fall within [startDateISO, endDateISO].
+ * Returns a shift-shaped busy-block list so it merges cleanly with the
+ * bot's schedule_json. Silently returns [] for users without a connected
+ * calendar, for token_expired, or on any API error — reading the calendar
+ * is an enhancement, not a requirement.
+ *
+ * Each event becomes one busy block with start/end times in the event's
+ * timezone (Google always returns dateTime with offset — we keep the
+ * HH:MM portion since downstream matching lives in the user's local tz).
+ */
+export async function listCalendarEventsInWindow(
+  chatId: string,
+  startDateISO: string, // YYYY-MM-DD
+  endDateISO: string, // YYYY-MM-DD (inclusive)
+  timezone: string = "Europe/Malta",
+): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> {
+  const token = await getGoogleToken(chatId);
+  if (!token) return [];
+
+  let accessToken = token.access_token;
+  if (new Date(token.expires_at) <= new Date()) {
+    const refreshed = await refreshAccessToken(token.refresh_token);
+    if (refreshed === "invalid_grant" || !refreshed) return [];
+    accessToken = refreshed.access_token;
+    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
+  }
+
+  const timeMin = `${startDateISO}T00:00:00`;
+  const timeMax = `${endDateISO}T23:59:59`;
+  const url =
+    `${CALENDAR_API}/calendars/primary/events?` +
+    `singleEvents=true&orderBy=startTime&` +
+    `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
+    `timeZone=${encodeURIComponent(timezone)}`;
+  let response: Response;
+  try {
+    response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  const data = (await response.json()) as {
+    items?: Array<{
+      summary?: string;
+      status?: string;
+      start?: { dateTime?: string; date?: string };
+      end?: { dateTime?: string; date?: string };
+    }>;
+  };
+  const out: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
+  for (const e of data.items ?? []) {
+    if (e.status === "cancelled") continue;
+    const startDT = e.start?.dateTime;
+    const endDT = e.end?.dateTime;
+    // Skip all-day events (only have `date`) — we don't have a clean way
+    // to represent "blocked this whole day at a specific timezone" without
+    // more plumbing, and most such events are travel/holiday rather than
+    // hard-busy for scheduling.
+    if (!startDT || !endDT) continue;
+    const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+    const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+    if (!sMatch || !eMatch) continue;
+    // Use the start date; if the event crosses midnight we still only
+    // block from start to end-of-day-start-date. Multi-day events are
+    // rare for social meetups and the cost of under-blocking them is
+    // smaller than the cost of over-blocking.
+    out.push({
+      date: sMatch[1],
+      start_time: `${sMatch[2]}:${sMatch[3]}`,
+      end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
+      label: `calendar: ${e.summary?.slice(0, 40) ?? "busy"}`,
+    });
+  }
+  return out;
+}
+
 async function refreshAccessToken(
   refreshToken: string
 ): Promise<{ access_token: string; expires_at: string } | "invalid_grant" | null> {

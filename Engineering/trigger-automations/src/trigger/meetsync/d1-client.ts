@@ -495,6 +495,37 @@ export async function updateUserLatestSchedule(chatId: string, scheduleJson: str
   );
 }
 
+/**
+ * Append a single busy block to a user's latest_schedule_json. Used by
+ * book_meetup so a booked event becomes part of the user's "memory schedule"
+ * — future overlap compute will see the slot as busy and won't suggest it
+ * again. Idempotent-ish: appends regardless, since duplicate busy blocks
+ * don't break the matcher (they just overlap).
+ *
+ * If the user has no schedule yet, creates one with just this block.
+ */
+export async function appendBusyBlockToUser(
+  chatId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+  label: string,
+): Promise<void> {
+  const user = await getUser(chatId);
+  if (!user) return;
+  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+  if (user.latest_schedule_json) {
+    try {
+      const parsed = JSON.parse(user.latest_schedule_json);
+      if (Array.isArray(parsed)) shifts = parsed;
+    } catch {
+      // Corrupted schedule — overwrite with just the new block below.
+    }
+  }
+  shifts.push({ date, start_time: startTime, end_time: endTime, label });
+  await updateUserLatestSchedule(chatId, JSON.stringify(shifts));
+}
+
 // --- Schedule-upload watches ---
 
 export interface ScheduleWatch {

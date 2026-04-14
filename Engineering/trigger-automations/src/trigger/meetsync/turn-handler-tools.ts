@@ -31,6 +31,7 @@ import {
   setPersonNoteHidden,
   getLatestScheduleForUser,
   updateUserLatestSchedule,
+  appendBusyBlockToUser,
   createScheduleWatch,
   listWatchesForTarget,
   deleteScheduleWatch,
@@ -41,7 +42,6 @@ import {
   type ReminderRecurrence,
   emitSessionEvent,
   getUser,
-  getPersonNotesForOwner,
   linkPersonNoteToChat,
   type Snapshot,
 } from "./d1-client.js";
@@ -57,7 +57,7 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
-import { createCalendarEvent } from "./google-calendar.js";
+import { createCalendarEvent, listCalendarEventsInWindow } from "./google-calendar.js";
 
 // --- Types ---
 
@@ -583,153 +583,12 @@ const addOrInvitePartnerTool: ToolDefinition = {
   },
 };
 
-// Invite-token issuance was removed along with the invite-link flow —
-// shadow tracking in add_contact resolves links automatically when a phone
-// joins the bot. verifyInviteToken is kept below so any pre-existing
-// deep-links still gracefully resolve via accept_invite if tapped.
+// Invite-token issuance and acceptance were both removed. Shadow tracking
+// via add_contact + linkShadowedPersonNotesByPhone handles onboarding of
+// mentioned contacts automatically. No pre-existing tokens can be valid
+// (D1 was wiped and no tool produces new ones).
 
-function base64urlDecode(s: string): Buffer {
-  const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
-  return Buffer.from(padded, "base64");
-}
-
-const INVITE_TOKEN_MAX_AGE_SEC = 60 * 60 * 24 * 30; // 30 days
-
-/**
- * Verify an HMAC-signed invite token. Returns the inviter chat_id on success,
- * or an error reason string on failure. Tokens older than 30 days are rejected
- * as expired — a stale invite shouldn't auto-link a user to a stranger whose
- * relationship with the inviter may have lapsed.
- */
-function verifyInviteToken(token: string): { ok: true; chatId: string } | { ok: false; reason: string } {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!secret) return { ok: false, reason: "Server misconfigured: webhook secret missing." };
-  const parts = token.split(".");
-  if (parts.length !== 2) return { ok: false, reason: "Malformed token — share the full invite link again." };
-  const [payloadB64, sigB64] = parts;
-  let payload: string;
-  try {
-    payload = base64urlDecode(payloadB64).toString("utf8");
-  } catch {
-    return { ok: false, reason: "Malformed token payload." };
-  }
-  const payloadParts = payload.split(".");
-  if (payloadParts.length !== 2) return { ok: false, reason: "Malformed token payload." };
-  const [chatId, issuedAtStr] = payloadParts;
-  const issuedAt = parseInt(issuedAtStr, 10);
-  if (!chatId || Number.isNaN(issuedAt)) return { ok: false, reason: "Malformed token payload." };
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createHmac, timingSafeEqual } = require("crypto");
-  const expectedSig = createHmac("sha256", secret).update(payload).digest();
-  let givenSig: Buffer;
-  try {
-    givenSig = base64urlDecode(sigB64);
-  } catch {
-    return { ok: false, reason: "Malformed token signature." };
-  }
-  if (givenSig.length !== expectedSig.length || !timingSafeEqual(givenSig, expectedSig)) {
-    return { ok: false, reason: "Invite signature doesn't match — the link may be corrupted or forged." };
-  }
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (nowSec - issuedAt > INVITE_TOKEN_MAX_AGE_SEC) {
-    return { ok: false, reason: "This invite link has expired. Ask the inviter for a fresh one." };
-  }
-  return { ok: true, chatId };
-}
-
-// --- Tool 3.5: accept_invite ---
-//
-// When a user taps a deep link like t.me/<bot>?start=invite_<sessionId>,
-// Telegram delivers it as a text message "/start invite_<sessionId>" to the
-// bot. Claude reads that in the user_message tag and calls this tool with
-// the session_id parsed out. The tool joins the caller to the existing
-// session, transfers any on-behalf schedule the inviter had uploaded for
-// them (best-effort name match), notifies the inviter, and updates the
-// in-turn snapshot so subsequent tools see the new state.
-
-const acceptInviteTool: ToolDefinition = {
-  name: "accept_invite",
-  description:
-    "Accept an invite when the caller's first message is `/start invite_<token>` (Telegram's deep-link format). Pass the <token> part verbatim — this tool verifies the HMAC signature and extracts the inviter's chat_id. Links both sides as contacts: the inviter learns about the new user, the new user learns about the inviter. Does NOT create a session. After calling this, welcome the new user by name and ask what they'd like to plan.",
-  input_schema: {
-    type: "object",
-    required: ["token"],
-    properties: {
-      token: {
-        type: "string",
-        description: "The HMAC-signed invite token from `/start invite_<token>`. Everything after `invite_` is the token.",
-      },
-    },
-  },
-  async execute(input, ctx): Promise<ToolResult> {
-    const token = typeof input.token === "string" ? input.token.trim() : "";
-    if (!token) return { ok: false, error: "Missing token." };
-    const decoded = verifyInviteToken(token);
-    if (!decoded.ok) return { ok: false, error: decoded.reason };
-    const inviterChatId = decoded.chatId;
-    if (inviterChatId === ctx.callerChatId) {
-      return { ok: false, error: "Inviter and invitee are the same user — can't self-invite." };
-    }
-
-    const inviter = await getUser(inviterChatId);
-    if (!inviter) {
-      return { ok: false, error: `No bot user found for inviter_chat_id=${inviterChatId}. Token may be stale or forged.` };
-    }
-
-    const callerUser = ctx.snapshot.user;
-    const callerName = callerUser.name ?? `person_${ctx.callerChatId.slice(-4)}`;
-    const inviterName = inviter.name ?? `person_${inviterChatId.slice(-4)}`;
-
-    // Mutual contact link. Both sides upsert + link — after this both
-    // callers can see each other in their person_notes with live schedules.
-    await upsertPersonNote(inviterChatId, callerName);
-    await linkPersonNoteToChat(inviterChatId, callerName, ctx.callerChatId);
-    await upsertPersonNote(ctx.callerChatId, inviterName);
-    await linkPersonNoteToChat(ctx.callerChatId, inviterName, inviterChatId);
-
-    // Also try transferring any on-behalf schedule the inviter had recorded
-    // under the caller's name: if they pre-uploaded their schedule, copy it
-    // into the freshly-linked note so both sides see it immediately.
-    try {
-      const inviterNotes = await getPersonNotesForOwner(inviterChatId);
-      const callerNote = inviterNotes.find(
-        (n) => n.name.toLowerCase() === callerName.toLowerCase(),
-      );
-      if (callerNote?.schedule_json && !callerUser.latest_schedule_json) {
-        await updateUserLatestSchedule(ctx.callerChatId, callerNote.schedule_json);
-        ctx.snapshot.user = { ...callerUser, latest_schedule_json: callerNote.schedule_json };
-      }
-    } catch (err) {
-      console.warn("[accept_invite] schedule transfer best-effort failed:", err);
-    }
-
-    // Notify the inviter (best-effort, localized).
-    try {
-      const lang = inviter.preferred_language ?? "en";
-      const msg =
-        lang === "it" ? `${callerName} ha accettato il tuo invito! 🎉`
-        : lang === "es" ? `${callerName} aceptó tu invitación! 🎉`
-        : lang === "fr" ? `${callerName} a accepté votre invitation ! 🎉`
-        : lang === "de" ? `${callerName} hat deine Einladung angenommen! 🎉`
-        : lang === "pt" ? `${callerName} aceitou o seu convite! 🎉`
-        : `${callerName} just joined! You're both linked now — share schedules whenever you're ready. 🎉`;
-      await sendTextMessage(inviterChatId, msg);
-    } catch (err) {
-      console.warn("[accept_invite] inviter notification failed:", err);
-    }
-
-    await emitSessionEvent("no-session", "invite_accepted", {
-      inviter_chat_id: inviterChatId,
-      caller_chat_id: ctx.callerChatId,
-    });
-
-    return {
-      ok: true,
-      inviter_name: inviterName,
-      inviter_chat_id: inviterChatId,
-    };
-  },
-};
+// --- REMOVED: verifyInviteToken, acceptInviteTool ---
 
 // --- Tool 4: forget_contact (hard delete, vs set_person_hidden which is soft) ---
 
@@ -815,6 +674,33 @@ const computeAndDeliverMatchTool: ToolDefinition = {
     if (callerSchedule) schedules.push({ id: `caller:${ctx.callerChatId}`, schedule_json: callerSchedule });
     for (const n of contacts) {
       schedules.push({ id: `contact:${n.linked_chat_id ?? `note${n.id}`}`, schedule_json: n.schedule_json });
+    }
+
+    // Augment with each participant's live Google Calendar events (if
+    // connected). The bot's stored schedule is shift-level ("I work
+    // 9–5"); calendar has real appointments ("dentist 3pm Thursday").
+    // Merging both gives a truthful picture without requiring users to
+    // re-type their meetings. Silent no-op for anyone not /connect'd.
+    const overlapTz = resolveCallerTimezone(ctx);
+    const windowStart = new Date().toISOString().slice(0, 10);
+    const windowEnd = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10);
+    const calendarSources: Array<{ chat_id: string; id_prefix: string }> = [
+      { chat_id: ctx.callerChatId, id_prefix: "caller-cal" },
+      ...contacts
+        .filter((n) => !!n.linked_chat_id)
+        .map((n) => ({ chat_id: n.linked_chat_id as string, id_prefix: `contact-cal:${n.linked_chat_id}` })),
+    ];
+    for (const src of calendarSources) {
+      try {
+        const events = await listCalendarEventsInWindow(src.chat_id, windowStart, windowEnd, overlapTz);
+        if (events.length > 0) {
+          schedules.push({ id: src.id_prefix, schedule_json: JSON.stringify(events) });
+        }
+      } catch (err) {
+        console.warn(`[compute_overlap] calendar fetch failed for ${src.chat_id}:`, err);
+      }
     }
 
     if (schedules.length < 2) {
@@ -1335,7 +1221,7 @@ const watchScheduleUploadTool: ToolDefinition = {
 const bookMeetupTool: ToolDefinition = {
   name: "book_meetup",
   description:
-    "Commit a meetup to Google Calendar for the caller and each named attendee. This is the CANONICAL way to 'lock in' a meeting — not a reminder, not a relay, a real calendar event on everyone's Google Calendar who has /connect'd. Use this whenever the caller + their contacts have agreed on a specific date + time (via compute_overlap preview, or a back-and-forth relay, or direct chat). Creates a separate event on each participant's primary calendar; anyone without Google Calendar connected is listed in skipped_not_connected so you can tell them to /connect. After booking, tell the caller 'it's on your calendar — you can coordinate further there' and stop chatting about it. The calendar event is the new source of truth.",
+    "Commit a meetup to Google Calendar for the caller and each named attendee. CANONICAL 'lock in' action — not a reminder, not a relay, a real calendar event on every /connect'd participant's primary calendar, plus a busy block appended to each person's in-bot schedule so future 'who's free' queries treat the slot as taken. Single-day event only: one date, one start time, one end time. If the caller explicitly asks for a recurring meetup ('every Monday 9am', 'weekly'), tell them this tool only books one instance and suggest they duplicate the event from Google Calendar's UI — we don't expose recurrence here. Anyone without Google Calendar connected is listed in skipped_not_connected — tell the caller to have them send /connect to the bot. After booking, reply with ONE line ('booked — it's on your calendar, you can coordinate further there') and stop. The calendar event is the source of truth from that point.",
   input_schema: {
     type: "object",
     required: ["date", "start_time", "end_time", "title"],
@@ -1383,15 +1269,33 @@ const bookMeetupTool: ToolDefinition = {
       { name: ctx.snapshot.user.name ?? "you", chat_id: ctx.callerChatId },
       ...attendeeTargets,
     ];
+    const busyLabel = `meetup: ${title}`;
     for (const t of allTargets) {
       try {
         const r = await createCalendarEvent(t.chat_id, date, startTime, endTime, title, tz);
-        if (r === true) booked.push(t.name);
-        else if (r === "token_expired") skippedNotConnected.push(t.name);
-        else skippedNotConnected.push(t.name);
+        if (r === true) {
+          booked.push(t.name);
+        } else if (r === "token_expired") {
+          skippedNotConnected.push(t.name);
+        } else {
+          skippedNotConnected.push(t.name);
+        }
       } catch (err) {
         failed.push(t.name);
-        console.warn(`[book_meetup] failed for ${t.chat_id}:`, err);
+        console.warn(`[book_meetup] calendar failed for ${t.chat_id}:`, err);
+      }
+      // Regardless of calendar-connect status, write the busy block into
+      // the user's schedule memory so future "who's free" queries treat
+      // the slot as taken. Calendar is the delivery surface; schedule_json
+      // is the bot's internal memory. Both need to agree.
+      try {
+        await appendBusyBlockToUser(t.chat_id, date, startTime, endTime, busyLabel);
+        if (t.chat_id === ctx.callerChatId) {
+          const updated = await getLatestScheduleForUser(ctx.callerChatId);
+          if (updated) ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: updated };
+        }
+      } catch (err) {
+        console.warn(`[book_meetup] memory-schedule append failed for ${t.chat_id}:`, err);
       }
     }
 
@@ -1425,7 +1329,6 @@ const bookMeetupTool: ToolDefinition = {
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   parseScheduleTool,
   addOrInvitePartnerTool,
-  acceptInviteTool,
   removePartnerTool,
   computeAndDeliverMatchTool,
   upsertKnowledgeTool,
