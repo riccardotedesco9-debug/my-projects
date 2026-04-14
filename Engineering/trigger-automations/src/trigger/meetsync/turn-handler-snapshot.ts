@@ -134,8 +134,16 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     const dayName = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
     const dayNum = d.getUTCDate();
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+    // Three canonical day-shapes (see turn-handler.ts encoding rules):
+    //   00:00–00:00 → OFF/free (matcher: fully free)
+    //   00:00–23:59 → busy all day; show the label (hectic / volunteer / etc.)
+    //   anything else → a partial busy window
     const isOff = s.start_time === "00:00" && s.end_time === "00:00";
-    const time = isOff ? "OFF" : `${s.start_time}–${s.end_time}`;
+    const isAllDayBusy = s.start_time === "00:00" && s.end_time === "23:59";
+    let time: string;
+    if (isOff) time = "OFF";
+    else if (isAllDayBusy) time = (s.label ?? "busy all day").toUpperCase();
+    else time = `${s.start_time}–${s.end_time}`;
     out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${time}`);
   }
   if (shifts.length > MAX) {
