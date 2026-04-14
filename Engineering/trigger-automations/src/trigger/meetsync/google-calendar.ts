@@ -10,12 +10,17 @@ interface CalendarEvent {
   start: { dateTime: string; timeZone: string };
   end: { dateTime: string; timeZone: string };
   description?: string;
+  attendees?: Array<{ email: string }>;
 }
 
 /**
- * Create a Google Calendar event for a user.
- * Returns true on success, false on unknown failure, "token_expired" when
- * the refresh token is revoked/expired (user needs to /connect again).
+ * Create a Google Calendar event on the given chat's primary calendar.
+ *
+ * When `attendeeEmails` is non-empty, Google auto-sends invites to those
+ * addresses — the single event shows up on each attendee's calendar with
+ * them listed as attendees, so later RSVP / edit / delete semantics work
+ * properly. Without attendees, falls back to a local-only event on the
+ * organizer's calendar (used for people without a captured email).
  */
 export async function createCalendarEvent(
   chatId: string,
@@ -24,13 +29,12 @@ export async function createCalendarEvent(
   endTime: string, // HH:MM
   summary: string = "Meetup",
   timezone: string = "Europe/Malta",
+  attendeeEmails: string[] = [],
 ): Promise<boolean | "token_expired"> {
   const token = await getGoogleToken(chatId);
-  if (!token) return false; // user hasn't connected Google Calendar
+  if (!token) return false;
 
   let accessToken = token.access_token;
-
-  // Refresh if expired
   if (new Date(token.expires_at) <= new Date()) {
     const refreshed = await refreshAccessToken(token.refresh_token);
     if (refreshed === "invalid_grant") return "token_expired";
@@ -41,23 +45,19 @@ export async function createCalendarEvent(
 
   const event: CalendarEvent = {
     summary,
-    start: {
-      dateTime: `${date}T${startTime}:00`,
-      timeZone: timezone,
-    },
-    end: {
-      dateTime: `${date}T${endTime}:00`,
-      timeZone: timezone,
-    },
+    start: { dateTime: `${date}T${startTime}:00`, timeZone: timezone },
+    end: { dateTime: `${date}T${endTime}:00`, timeZone: timezone },
     description: "Scheduled via MeetSync",
   };
+  if (attendeeEmails.length > 0) {
+    event.attendees = attendeeEmails.map((email) => ({ email }));
+  }
 
-  const response = await fetch(`${CALENDAR_API}/calendars/primary/events`, {
+  // sendUpdates=all → Google emails each attendee the invite.
+  const qs = attendeeEmails.length > 0 ? "?sendUpdates=all" : "";
+  const response = await fetch(`${CALENDAR_API}/calendars/primary/events${qs}`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${accessToken}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
     body: JSON.stringify(event),
   });
 
@@ -65,7 +65,6 @@ export async function createCalendarEvent(
     console.error(`Google Calendar API error (${response.status}):`, await response.text());
     return false;
   }
-
   return true;
 }
 

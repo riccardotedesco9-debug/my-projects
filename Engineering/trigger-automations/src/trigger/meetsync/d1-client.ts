@@ -262,6 +262,8 @@ export interface UserProfile {
   first_seen: string;
   last_seen: string;
   latest_schedule_json: string | null;
+  email: string | null;
+  last_stale_nudge_at: string | null;
 }
 
 /** Update user's timezone */
@@ -768,6 +770,8 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     first_seen: new Date().toISOString(),
     last_seen: new Date().toISOString(),
     latest_schedule_json: null,
+    email: null,
+    last_stale_nudge_at: null,
   };
 
   // Sessions are no longer part of the runtime model (see migration 0018

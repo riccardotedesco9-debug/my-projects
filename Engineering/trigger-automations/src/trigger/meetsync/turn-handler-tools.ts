@@ -1270,24 +1270,56 @@ const bookMeetupTool: ToolDefinition = {
       ...attendeeTargets,
     ];
     const busyLabel = `meetup: ${title}`;
-    for (const t of allTargets) {
+
+    // Gather emails for attendees who have them (captured on OAuth). These
+    // go as attendees on the single shared event created on the caller's
+    // calendar — Google auto-invites them, so they get the event on their
+    // own calendar with proper RSVP/edit/delete semantics.
+    const attendeeEmails: string[] = [];
+    const attendeesWithoutEmail: Array<{ name: string; chat_id: string }> = [];
+    for (const t of attendeeTargets) {
+      const u = await getUser(t.chat_id);
+      if (u?.email) attendeeEmails.push(u.email);
+      else attendeesWithoutEmail.push(t);
+    }
+
+    // Create ONE event on the caller's calendar with all email-attendees.
+    try {
+      const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, tz, attendeeEmails);
+      if (r === true) {
+        booked.push(ctx.snapshot.user.name ?? "you");
+        // Mark email-attendees as booked too — Google sent them the invite.
+        for (const t of attendeeTargets) {
+          const u = await getUser(t.chat_id);
+          if (u?.email) booked.push(t.name);
+        }
+      } else if (r === "token_expired") {
+        skippedNotConnected.push(ctx.snapshot.user.name ?? "you");
+      } else {
+        skippedNotConnected.push(ctx.snapshot.user.name ?? "you");
+      }
+    } catch (err) {
+      failed.push(ctx.snapshot.user.name ?? "you");
+      console.warn(`[book_meetup] shared event failed:`, err);
+    }
+
+    // For attendees WITHOUT email (not OAuth-connected), fall back to
+    // creating a parallel event on their own calendar if they're connected
+    // that way (unlikely — no email means no /connect), otherwise they
+    // just get a Telegram ping and a memory-schedule update.
+    for (const t of attendeesWithoutEmail) {
       try {
         const r = await createCalendarEvent(t.chat_id, date, startTime, endTime, title, tz);
-        if (r === true) {
-          booked.push(t.name);
-        } else if (r === "token_expired") {
-          skippedNotConnected.push(t.name);
-        } else {
-          skippedNotConnected.push(t.name);
-        }
+        if (r === true) booked.push(t.name);
+        else skippedNotConnected.push(t.name);
       } catch (err) {
         failed.push(t.name);
-        console.warn(`[book_meetup] calendar failed for ${t.chat_id}:`, err);
+        console.warn(`[book_meetup] fallback event failed for ${t.chat_id}:`, err);
       }
-      // Regardless of calendar-connect status, write the busy block into
-      // the user's schedule memory so future "who's free" queries treat
-      // the slot as taken. Calendar is the delivery surface; schedule_json
-      // is the bot's internal memory. Both need to agree.
+    }
+
+    // Write busy block into EVERYONE's schedule memory, connected or not.
+    for (const t of allTargets) {
       try {
         await appendBusyBlockToUser(t.chat_id, date, startTime, endTime, busyLabel);
         if (t.chat_id === ctx.callerChatId) {

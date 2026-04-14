@@ -19,7 +19,11 @@ import type { Env } from "./types.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-const SCOPE = "https://www.googleapis.com/auth/calendar.events";
+// calendar.events → read + write primary calendar events.
+// userinfo.email → fetch the user's email so book_meetup can add them
+// as an actual Google Calendar attendee (true shared event).
+const SCOPE = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
+const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 /** Build the redirect URI used for both the initial auth request and the
@@ -108,8 +112,22 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
 
   const expiresAt = new Date(Date.now() + data.expires_in * 1000).toISOString();
 
-  // Upsert directly into D1. We're in the Worker, so we don't need the
-  // Trigger.dev d1-client helper.
+  // Fetch the user's email via OpenID userinfo so book_meetup can add them
+  // as an actual attendee on shared calendar events (vs parallel events
+  // per person). Best-effort — failure here doesn't block the OAuth save.
+  let email: string | null = null;
+  try {
+    const userinfoResp = await fetch(USERINFO_URL, {
+      headers: { Authorization: `Bearer ${data.access_token}` },
+    });
+    if (userinfoResp.ok) {
+      const info = (await userinfoResp.json()) as { email?: string };
+      email = typeof info.email === "string" && info.email.includes("@") ? info.email : null;
+    }
+  } catch {
+    // silent — we'll fall back to the per-person event flow
+  }
+
   await env.DB.prepare(
     `INSERT INTO google_tokens (chat_id, access_token, refresh_token, expires_at)
      VALUES (?, ?, ?, ?)
@@ -118,6 +136,10 @@ export async function handleAuthCallback(request: Request, env: Env): Promise<Re
        refresh_token = excluded.refresh_token,
        expires_at = excluded.expires_at`
   ).bind(chatId, data.access_token, data.refresh_token, expiresAt).run();
+
+  if (email) {
+    await env.DB.prepare("UPDATE users SET email = ? WHERE chat_id = ?").bind(email, chatId).run();
+  }
 
   return htmlResponse(200, "✅ Google Calendar connected. You can close this tab and head back to Telegram — future meetups will be auto-added to your primary calendar.");
 }
