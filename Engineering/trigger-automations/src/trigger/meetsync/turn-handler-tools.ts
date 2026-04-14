@@ -1,4 +1,4 @@
-// Turn-handler tools — the 11 Anthropic tools the turn-handler exposes to
+// Turn-handler tools — the 12 Anthropic tools the turn-handler exposes to
 // Claude Sonnet on every turn. Each tool has a JSON schema (for the model)
 // and an `execute` function (the actual implementation).
 //
@@ -1345,6 +1345,63 @@ const cancelReminderTool: ToolDefinition = {
   },
 };
 
+// --- Tool 12: relay_message ---
+
+const RELAY_MAX_TEXT_LEN = 500;
+
+const relayMessageTool: ToolDefinition = {
+  name: "relay_message",
+  description:
+    "Send a message on the caller's behalf to someone they've already added (a person_note whose linked_chat_id is set). Use when the caller explicitly asks to pass something on: 'tell Kurt I want to meet Saturday', 'remind Joejoe to send his schedule', 'let Sofia know I'm running late'. You GHOSTWRITE the message in the bot's natural voice, naming the caller inside the body where it helps — e.g. 'Hey Kurt 👋 Riccardo asked me to nudge you — could you share your schedule this week?'. Do NOT quote the caller literally, do NOT use stiff attribution like 'Riccardo says: …'. Match your usual warm, direct style. CRITICAL confirmation gate: always draft the exact text back to the caller FIRST (via reply with yes/no buttons, or by asking 'send this to Kurt? [draft]') — only call this tool AFTER the caller explicitly confirms. Never call on an implied/ambiguous request. Never send without showing the draft.",
+  input_schema: {
+    type: "object",
+    required: ["to_person_name", "text"],
+    properties: {
+      to_person_name: {
+        type: "string",
+        description: "Name of the person to send to. Must resolve to a person_note with linked_chat_id set (they have to be a real bot user the caller has added).",
+      },
+      text: {
+        type: "string",
+        description: `The message body — your ghostwritten draft in the bot's voice, already confirmed by the caller. Sent verbatim. Max ${RELAY_MAX_TEXT_LEN} chars.`,
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const toName = typeof input.to_person_name === "string" ? input.to_person_name.trim() : "";
+    const text = typeof input.text === "string" ? input.text.trim().slice(0, RELAY_MAX_TEXT_LEN) : "";
+    if (!toName) return { error: "to_person_name required." };
+    if (!text) return { error: "text required." };
+
+    const note = await findPersonNote(ctx.callerChatId, toName);
+    if (!note) {
+      return {
+        error: "not_found",
+        message: `No contact named '${toName}' in the caller's list. Add them first (name + phone) before relaying.`,
+      };
+    }
+    if (!note.linked_chat_id) {
+      return {
+        error: "not_joined",
+        message: `${toName} hasn't joined the bot yet — can't message them until they do.`,
+      };
+    }
+    if (note.linked_chat_id === ctx.callerChatId) {
+      return { error: "self_target", message: "Can't send a message to yourself." };
+    }
+
+    // Sent verbatim — Claude is responsible for drafting in the bot's voice.
+    try {
+      await sendTextMessage(note.linked_chat_id, text);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { error: "send_failed", message: `Telegram rejected the send: ${msg}` };
+    }
+
+    return { ok: true, sent_to: note.name, to_chat_id: note.linked_chat_id, chars: text.length };
+  },
+};
+
 // --- Dispatcher ---
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1359,6 +1416,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   scheduleReminderTool,
   listRemindersTool,
   cancelReminderTool,
+  relayMessageTool,
   replyTool,
 ];
 
