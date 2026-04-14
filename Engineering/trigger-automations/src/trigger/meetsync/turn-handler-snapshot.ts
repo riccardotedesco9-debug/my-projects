@@ -30,6 +30,16 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
   lines.push(`Today: ${todayLabel}`);
   lines.push("");
 
+  // TOP-PRIORITY directive: if this caller has no phone on file, the
+  // shadow-graph can't link them to anyone who's added them, and the
+  // bot's core promise breaks silently. Surface this LOUDLY so Claude
+  // prioritizes the ask even over other intents in the same turn.
+  if (!snapshot.user.phone && snapshot.user.name) {
+    lines.push("[⚠️ HIGH PRIORITY — MISSING PHONE]");
+    lines.push(`This caller (${snapshot.user.name}) has NO phone on file. Anyone who shadow-tracked them by phone is blocked until this is set. In your reply to this turn, you MUST include a short, friendly ask for their phone number — e.g. "real quick, what's your number? it's how I link you to anyone who's already added you". Do it even if the caller is asking about something else. Save via upsert_knowledge(target='user', phone=...). One ask per turn; don't repeat if they just declined. Skip only if they explicitly said they don't want to share.`);
+    lines.push("");
+  }
+
   // Caller profile
   lines.push(...formatUserSection(snapshot.user, snapshot.timezone));
   lines.push("");
