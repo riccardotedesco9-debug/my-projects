@@ -376,7 +376,7 @@ async function persistShifts(
 const addOrInvitePartnerTool: ToolDefinition = {
   name: "add_contact",
   description:
-    "Add someone to the caller's contact list. This is the canonical tool for 'I want to plan with X' / 'add Jojo'. Outcomes: (1) name matches a bot user → link directly, the caller sees their schedule. (2) phone given and matches a bot user → link directly + capture phone. (3) unknown name + no phone → returns needs_phone=true so you ask for the number. (4) unknown name + phone → returns an HMAC-signed invite link the caller shares with the new person. No sessions involved — the shared-hub model stores contacts per-owner and schedules per-user. Never auto-links by name similarity — if uncertain, ask for the number.",
+    "Add someone to the caller's contact list. Canonical tool for 'I want to plan with X' / 'add Jojo' / 'here's Patrick, his number is 9968…'. Outcomes: (1) name matches a bot user → link directly, caller sees their schedule. (2) phone given and matches a bot user → link directly + capture phone on their user row. (3) unknown name + no phone → returns needs_phone=true so you ask for it. (4) unknown name + unknown phone → SILENTLY shadow-track (save person_note with name+phone, no link yet, NO invite URL). The moment that phone ever joins the bot, the link resolves automatically via linkShadowedPersonNotesByPhone. Don't offer invite links — we don't use them. The product tracks everyone by name+number; visibility resolves when a match appears. Never auto-links by name similarity — if uncertain, ask for the number.",
   input_schema: {
     type: "object",
     properties: {
@@ -472,16 +472,37 @@ const addOrInvitePartnerTool: ToolDefinition = {
           };
         }
       }
-      // Unknown phone → produce an HMAC-signed invite URL the caller can share.
-      await upsertPersonNote(ctx.callerChatId, name || `+${phone}`, { phone });
-      const inviteToken = signInviteToken(ctx.callerChatId);
-      const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
-      const inviteLink = `https://t.me/${botUsername}?start=invite_${inviteToken}`;
+      // Unknown phone → shadow-track the contact silently. The moment that
+      // phone ever joins the bot (via their own /start flow or a contact
+      // share), updateUserPhone → linkShadowedPersonNotesByPhone resolves
+      // the link without any further action here. No invite URL, no
+      // pending_invite row — just a recorded name+phone. This matches the
+      // product's shared-hub model: track everything, reveal on match.
+      const labelName = name || `+${phone}`;
+      await upsertPersonNote(ctx.callerChatId, labelName, { phone });
+      // Sync caller's in-turn snapshot so the next tool sees this contact.
+      const norm = labelName.trim().toLowerCase();
+      const existingShadow = ctx.snapshot.personNotes.find((n) => n.name_normalized === norm);
+      if (!existingShadow) {
+        ctx.snapshot.personNotes.push({
+          id: 0,
+          owner_chat_id: ctx.callerChatId,
+          name: labelName,
+          name_normalized: norm,
+          phone,
+          linked_chat_id: null,
+          schedule_json: null,
+          notes: null,
+          hidden: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        });
+      }
       return {
-        invited: true,
-        invite_link: inviteLink,
-        contact_name: name || null,
-        notes: "No bot user with that phone yet. Share this invite link with them — when they open it, they're auto-linked to the caller's contact list.",
+        shadow_tracked: true,
+        contact_name: labelName,
+        phone,
+        notes: "Saved silently. They're not on the bot yet — the moment this number joins, the link fires automatically. Don't offer an invite link.",
       };
     }
 
@@ -520,30 +541,10 @@ const addOrInvitePartnerTool: ToolDefinition = {
   },
 };
 
-/**
- * Build an HMAC-signed invite token. The token encodes the inviter's
- * chat_id so when the invitee taps the deep link, the Worker can verify
- * who invited them without a pending_invites row. Format:
- *   base64url({chat_id}.{issuedAtEpoch}).base64url(hmacSha256(secret, payload))
- * The Worker's /start invite_<token> handler recomputes the HMAC and
- * rejects tampered tokens. Reuses TELEGRAM_WEBHOOK_SECRET.
- */
-function signInviteToken(chatId: string): string {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET is not set — cannot sign invite token.");
-  const issuedAt = Math.floor(Date.now() / 1000);
-  const payload = `${chatId}.${issuedAt}`;
-  const payloadB64 = base64urlEncode(payload);
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createHmac } = require("crypto");
-  const sig = createHmac("sha256", secret).update(payload).digest();
-  return `${payloadB64}.${base64urlEncode(sig)}`;
-}
-
-function base64urlEncode(input: string | Uint8Array): string {
-  const buf = typeof input === "string" ? Buffer.from(input, "utf8") : Buffer.from(input);
-  return buf.toString("base64").replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
-}
+// Invite-token issuance was removed along with the invite-link flow —
+// shadow tracking in add_contact resolves links automatically when a phone
+// joins the bot. verifyInviteToken is kept below so any pre-existing
+// deep-links still gracefully resolve via accept_invite if tapped.
 
 function base64urlDecode(s: string): Buffer {
   const padded = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);

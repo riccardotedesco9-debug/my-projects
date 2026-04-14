@@ -267,6 +267,32 @@ export async function updateUserTimezone(chatId: string, timezone: string) {
 }
 
 /**
+ * When a phone becomes known for a user (they /start with contact share, or
+ * a caller adds them by phone, or they update their profile), any existing
+ * person_notes that were shadow-stored with this same phone — by any owner
+ * — get auto-linked to this chat_id. This is the "shadow knowledge graph"
+ * the product is built around: the bot tracks name+phone silently; the
+ * moment that number joins, everyone who mentioned it sees the link.
+ *
+ * Returns the count of person_notes linked this way, for logging.
+ */
+export async function linkShadowedPersonNotesByPhone(
+  chatId: string,
+  phone: string,
+): Promise<number> {
+  const variants = phone.startsWith("+") ? [phone, phone.slice(1)] : [phone, `+${phone}`];
+  const result = await query(
+    `UPDATE person_notes
+        SET linked_chat_id = ?, updated_at = datetime('now')
+      WHERE linked_chat_id IS NULL
+        AND phone IN (?, ?)
+        AND owner_chat_id != ?`,
+    [chatId, variants[0], variants[1], chatId],
+  );
+  return result.meta?.changes ?? 0;
+}
+
+/**
  * Best-effort IANA timezone from a Telegram language_code. Only covers
  * a handful of common cases; everything else falls back to Europe/Malta
  * (MeetSync's origin). Users can always override with an explicit tz.
@@ -358,6 +384,9 @@ export async function updateUserPhone(chatId: string, phone: string) {
     "UPDATE users SET phone = ?, last_seen = datetime('now') WHERE chat_id = ?",
     [phone, chatId]
   );
+  // Shadow-graph resolution: any caller who previously added this phone as
+  // a person_note now has that note linked to the real chat_id, transparently.
+  await linkShadowedPersonNotesByPhone(chatId, phone);
 }
 
 /** Append learned facts to user's context (newline-separated, capped at 2000 chars) */
