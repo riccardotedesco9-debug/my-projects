@@ -1,4 +1,4 @@
-// Turn-handler tools — the 8 Anthropic tools the turn-handler exposes to
+// Turn-handler tools — the 11 Anthropic tools the turn-handler exposes to
 // Claude Sonnet on every turn. Each tool has a JSON schema (for the model)
 // and an `execute` function (the actual implementation).
 //
@@ -28,6 +28,12 @@ import {
   findPersonNote,
   findUserByName,
   findUserByPhone,
+  setPersonNoteHidden,
+  createReminder,
+  listUserReminders,
+  cancelReminder,
+  localIsoToUtcEpoch,
+  type ReminderRecurrence,
   createPendingInvite,
   saveParticipantSchedule,
   cancelSession,
@@ -98,6 +104,16 @@ interface ToolDefinition {
 }
 
 // --- Helpers ---
+
+/**
+ * Caller's timezone, with a single fallback chain used by all time-sensitive
+ * tools (schedule_reminder, list_reminders, …). Snapshot-level tz is the
+ * authoritative value; user-level is a secondary source; Europe/Malta is the
+ * product default. Having one helper keeps behavior consistent across tools.
+ */
+function resolveCallerTimezone(ctx: ToolContext): string {
+  return ctx.snapshot.timezone || ctx.snapshot.user.timezone || "Europe/Malta";
+}
 
 /**
  * Resolve which active session a tool should act on. If the caller provided
@@ -317,6 +333,7 @@ async function persistShifts(
         linked_chat_id: null,
         schedule_json: scheduleJson,
         notes: null,
+        hidden: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
@@ -408,7 +425,7 @@ async function persistShifts(
 const addOrInvitePartnerTool: ToolDefinition = {
   name: "add_or_invite_partner",
   description:
-    "Add someone to the current session by name or phone. Known bot users are added directly; unknown people get a pending invite + deep-link URL the caller can share. Returns ambiguous candidates when multiple users share a name.",
+    "Add someone to the caller's current scheduling session — the canonical tool for 'I want to plan with X' / 'add Jojo'. Creates a fresh session if the caller has none. Three outcomes: (1) name matches an existing linked person_note → add directly. (2) phone given and matches a bot user → link + add. (3) unknown name without a phone → returns needs_phone=true so you ask the caller for the number. Only creates a pending_invite + deep-link when a phone is provided but no existing user has it. Never auto-links by name similarity — if uncertain, ask for the number.",
   input_schema: {
     type: "object",
     properties: {
@@ -422,7 +439,9 @@ const addOrInvitePartnerTool: ToolDefinition = {
   },
   async execute(input, ctx): Promise<ToolResult> {
     const name = typeof input.name === "string" ? input.name.trim() : "";
-    const phone = typeof input.phone === "string" ? input.phone.replace(/[^0-9]/g, "") : "";
+    // Preserve the leading + so E.164 numbers ("+35699112233") still match
+    // users.phone (stored in E.164). Strip spaces, dashes, parens, letters.
+    const phone = typeof input.phone === "string" ? input.phone.replace(/[^0-9+]/g, "") : "";
     const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     if (!name && !phone) {
@@ -503,12 +522,13 @@ const addOrInvitePartnerTool: ToolDefinition = {
     }
 
     // Name lookup
-    // 1. Check caller's own person_notes for a previously-linked Diego
+    // 1. Check caller's own person_notes for a previously-linked contact.
     const existingNote = await findPersonNote(ctx.callerChatId, name);
     if (existingNote?.linked_chat_id && existingNote.linked_chat_id !== ctx.callerChatId) {
       return await addKnownParticipant(ctx, sessionEntry, existingNote.linked_chat_id, existingNote.name);
     }
-    // 2. Global user lookup
+    // 2. Global user lookup by exact/substring name (no fuzzy / edit-distance
+    //    matching — we refuse to guess Jojo↔Joejoe; ask for a phone instead).
     const matches = (await findUserByName(name)).filter((u) => u.chat_id !== ctx.callerChatId);
     if (matches.length === 1) {
       return await addKnownParticipant(ctx, sessionEntry, matches[0].chat_id, matches[0].name ?? null);
@@ -523,17 +543,15 @@ const addOrInvitePartnerTool: ToolDefinition = {
         notes: "Multiple bot users match this name. Ask the caller to disambiguate by phone number.",
       };
     }
-    // 3. Unknown name — create person_note + pending invite + return deep link
+    // 3. Unknown name without a phone — just ask for the number. We record
+    //    the person_note (so future facts about them accumulate) but create
+    //    NO pending_invite yet — that would leave stale invite rows for every
+    //    casual "let's meet X" the caller never follows up on.
     await upsertPersonNote(ctx.callerChatId, name);
-    await createPendingInvite(ctx.callerChatId, null, sessionEntry.session.id);
-    const botUsername = process.env.TELEGRAM_BOT_USERNAME ?? "MeetSyncBot";
-    const inviteLink = `https://t.me/${botUsername}?start=invite_${sessionEntry.session.id}`;
     return {
-      invited: true,
-      invite_link: inviteLink,
-      session_id: sessionEntry.session.id,
-      partner_name: name,
-      notes: `${name} isn't in the bot yet — share the invite link with them.`,
+      needs_phone: true,
+      person_name: name,
+      notes: `I don't have a ${name} yet — ask the caller for their phone number before calling this tool again.`,
     };
   },
 };
@@ -896,7 +914,7 @@ const computeAndDeliverMatchTool: ToolDefinition = {
 const upsertKnowledgeTool: ToolDefinition = {
   name: "upsert_knowledge",
   description:
-    "Persist knowledge across conversations. target='user' updates the caller's own profile (name, language, timezone, freeform fact). target='person' updates a person_notes row for a named third party (creates it if absent).",
+    "Persist knowledge across turns. target='user' updates the CALLER's own profile (name, language, timezone, phone, a freeform fact). target='person' updates or creates a person_notes row for a named third party — use this ONLY to store facts/phone/notes about someone ALREADY known to the caller (e.g. 'Jojo's favorite café is X', 'Jojo's phone is +356...'). Do NOT use this tool to add someone to a meetup, invite them, or find a time — for 'add Jojo to plan with' / 'let's meet Jojo', use add_or_invite_partner instead.",
   input_schema: {
     type: "object",
     required: ["target"],
@@ -963,6 +981,40 @@ const upsertKnowledgeTool: ToolDefinition = {
       notes: fact || undefined,
     });
     return { saved: true, target: "person", person_name: personName };
+  },
+};
+
+// --- Tool 6b: set_person_hidden ---
+
+const setPersonHiddenTool: ToolDefinition = {
+  name: "set_person_hidden",
+  description:
+    "Hide or unhide a person from the caller's visible pool. Use when the user says things like 'not interested in Sofia anymore' / 'remove Sofia from my list' (hidden=true) or 'bring Sofia back' / 'I want Sofia again' (hidden=false). Hidden contacts are excluded from the snapshot's person list and from 'who's available' results. Data is preserved — nothing is deleted, and unhiding restores the person with their schedule/notes intact.",
+  input_schema: {
+    type: "object",
+    required: ["person_name", "hidden"],
+    properties: {
+      person_name: { type: "string", description: "The name the user referred to (matched against the caller's person_notes, normalized)." },
+      hidden: { type: "boolean", description: "true to hide, false to unhide." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const personName = typeof input.person_name === "string" ? input.person_name.trim() : "";
+    if (!personName) return { error: "person_name required." };
+    if (typeof input.hidden !== "boolean") return { error: "hidden must be a boolean." };
+    const ok = await setPersonNoteHidden(ctx.callerChatId, personName, input.hidden);
+    if (!ok) {
+      return {
+        error: "not_found",
+        message: `No contact named '${personName}' in your list. If you meant to add them, mention their name and I'll start tracking them.`,
+      };
+    }
+    return {
+      ok: true,
+      person_name: personName,
+      hidden: input.hidden,
+      action: input.hidden ? "hidden" : "unhidden",
+    };
   },
 };
 
@@ -1121,6 +1173,130 @@ const replyTool: ToolDefinition = {
   },
 };
 
+// --- Tool 8: schedule_reminder ---
+
+const MAX_ACTIVE_REMINDERS_PER_USER = 20;
+
+const scheduleReminderTool: ToolDefinition = {
+  name: "schedule_reminder",
+  description:
+    "Schedule a reminder that the bot will send back to the user as a Telegram message at a chosen time. Use when the user says things like 'remind me tomorrow at 6am to call mum', 'ping me Friday 3pm', 'every Monday at 9am tell me to stretch'. Always parse their natural-language time into a local ISO timestamp in THEIR timezone (shown in [STATE]). The 'when_local' argument is a wall-clock time in the user's local timezone — NOT UTC. For recurring, pass recurrence='daily'|'weekly'|'monthly'.",
+  input_schema: {
+    type: "object",
+    required: ["text", "when_local"],
+    properties: {
+      text: {
+        type: "string",
+        description: "What to remind the user about. Short, first-person-ish ('call mum', 'stretch', 'take meds'). Max 500 chars.",
+      },
+      when_local: {
+        type: "string",
+        description: "Wall-clock time in the user's timezone, ISO format 'YYYY-MM-DDTHH:MM' (e.g. '2026-04-15T06:00'). Must be in the future.",
+      },
+      recurrence: {
+        type: "string",
+        enum: ["daily", "weekly", "monthly"],
+        description: "Optional. Omit for one-shot. 'daily'/'weekly'/'monthly' fires repeatedly, advancing by that interval each fire.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const text = typeof input.text === "string" ? input.text.trim().slice(0, 500) : "";
+    if (!text) return { error: "text required." };
+    const whenLocal = typeof input.when_local === "string" ? input.when_local.trim() : "";
+    if (!whenLocal) return { error: "when_local required (ISO like '2026-04-15T06:00')." };
+    const recurrence =
+      input.recurrence === "daily" || input.recurrence === "weekly" || input.recurrence === "monthly"
+        ? (input.recurrence as ReminderRecurrence)
+        : null;
+
+    const tz = resolveCallerTimezone(ctx);
+    const fireAtEpoch = localIsoToUtcEpoch(whenLocal, tz);
+    if (fireAtEpoch === null) {
+      return { error: `Couldn't parse when_local='${whenLocal}'. Use 'YYYY-MM-DDTHH:MM'.` };
+    }
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    if (fireAtEpoch <= nowEpoch) {
+      return { error: "when_local is in the past — please pick a future time." };
+    }
+
+    // Cap active reminders per user so a mischievous turn can't spam.
+    const active = await listUserReminders(ctx.callerChatId, { limit: MAX_ACTIVE_REMINDERS_PER_USER + 1 });
+    if (active.length >= MAX_ACTIVE_REMINDERS_PER_USER) {
+      return {
+        error: "reminder_cap",
+        message: `You already have ${MAX_ACTIVE_REMINDERS_PER_USER} active reminders — cancel one first.`,
+      };
+    }
+
+    const id = await createReminder(ctx.callerChatId, text, fireAtEpoch, tz, recurrence);
+    return {
+      ok: true,
+      reminder_id: id,
+      text,
+      fires_at_local: whenLocal,
+      fires_at_epoch: fireAtEpoch,
+      timezone: tz,
+      recurrence,
+    };
+  },
+};
+
+// --- Tool 9: list_reminders ---
+
+const listRemindersTool: ToolDefinition = {
+  name: "list_reminders",
+  description:
+    "List the caller's active (PENDING) reminders, soonest-first. Use when the user asks things like 'what reminders do I have?' / 'show my reminders'. Returns id, text, fire_at_local, recurrence for each.",
+  input_schema: { type: "object", properties: {} },
+  async execute(_input, ctx): Promise<ToolResult> {
+    const rows = await listUserReminders(ctx.callerChatId);
+    const tz = resolveCallerTimezone(ctx);
+    const items = rows.map((r) => {
+      // Format fire_at as local wall-clock for display.
+      const localStr = new Intl.DateTimeFormat("en-GB", {
+        timeZone: r.timezone || tz,
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(new Date(r.fire_at * 1000));
+      return {
+        id: r.id,
+        text: r.text,
+        fires_at_local: localStr,
+        fires_at_epoch: r.fire_at,
+        recurrence: r.recurrence,
+      };
+    });
+    return { ok: true, count: items.length, reminders: items };
+  },
+};
+
+// --- Tool 10: cancel_reminder ---
+
+const cancelReminderTool: ToolDefinition = {
+  name: "cancel_reminder",
+  description:
+    "Cancel an active reminder by id. Use when the user says 'cancel that reminder' / 'don't remind me about X anymore'. Pass the reminder_id from list_reminders. Cancellation is owner-scoped — you can't cancel someone else's reminders.",
+  input_schema: {
+    type: "object",
+    required: ["reminder_id"],
+    properties: {
+      reminder_id: { type: "string", description: "UUID returned from list_reminders." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const id = typeof input.reminder_id === "string" ? input.reminder_id.trim() : "";
+    if (!id) return { error: "reminder_id required." };
+    const ok = await cancelReminder(ctx.callerChatId, id);
+    if (!ok) return { error: "not_found", message: "No active reminder with that id." };
+    return { ok: true, reminder_id: id, status: "CANCELLED" };
+  },
+};
+
 // --- Dispatcher ---
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1130,7 +1306,11 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   removePartnerTool,
   computeAndDeliverMatchTool,
   upsertKnowledgeTool,
+  setPersonHiddenTool,
   sessionActionTool,
+  scheduleReminderTool,
+  listRemindersTool,
+  cancelReminderTool,
   replyTool,
 ];
 

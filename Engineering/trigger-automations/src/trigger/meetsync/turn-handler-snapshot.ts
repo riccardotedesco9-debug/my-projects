@@ -193,10 +193,17 @@ export function todayInTimezone(timezone: string): string {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   }).formatToParts(now);
   const weekday = parts.find((p) => p.type === "weekday")?.value ?? "Monday";
   const y = parts.find((p) => p.type === "year")?.value ?? "2026";
   const m = parts.find((p) => p.type === "month")?.value ?? "01";
   const d = parts.find((p) => p.type === "day")?.value ?? "01";
-  return `${weekday}, ${y}-${m}-${d}`;
+  const hh = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const mm = parts.find((p) => p.type === "minute")?.value ?? "00";
+  // Include wall-clock time so Claude can resolve "in 2 minutes" / "tomorrow 6am"
+  // against real now, not just the date.
+  return `${weekday}, ${y}-${m}-${d} ${hh}:${mm}`;
 }

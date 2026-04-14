@@ -106,6 +106,7 @@ export interface PersonNote {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  hidden: number;
 }
 
 function normalizePersonName(name: string): string {
@@ -165,15 +166,38 @@ export async function findPersonNote(
 }
 
 /** All people known to a given owner. Used by the session snapshot so the
- *  AI sees who the user has talked to the bot about before. */
+ *  AI sees who the user has talked to the bot about before.
+ *
+ *  By default, hidden rows are excluded so the snapshot stays focused on
+ *  the caller's active pool. Pass `{ includeHidden: true }` when a
+ *  management path (e.g. "show me everyone including hidden") needs them. */
 export async function getPersonNotesForOwner(
   ownerChatId: string,
+  opts: { includeHidden?: boolean } = {},
 ): Promise<PersonNote[]> {
-  const result = await query<PersonNote>(
-    `SELECT * FROM person_notes WHERE owner_chat_id = ? ORDER BY updated_at DESC`,
-    [ownerChatId],
-  );
+  const sql = opts.includeHidden
+    ? `SELECT * FROM person_notes WHERE owner_chat_id = ? ORDER BY updated_at DESC`
+    : `SELECT * FROM person_notes WHERE owner_chat_id = ? AND hidden = 0 ORDER BY updated_at DESC`;
+  const result = await query<PersonNote>(sql, [ownerChatId]);
   return result.results;
+}
+
+/** Mark a contact hidden/unhidden in the caller's pool. Returns true iff a
+ *  row was actually updated — caller can use the false case to tell the
+ *  user "I don't have anyone called that". */
+export async function setPersonNoteHidden(
+  ownerChatId: string,
+  name: string,
+  hidden: boolean,
+): Promise<boolean> {
+  const normalized = normalizePersonName(name);
+  if (!normalized) return false;
+  const result = await query(
+    `UPDATE person_notes SET hidden = ?, updated_at = datetime('now')
+     WHERE owner_chat_id = ? AND name_normalized = ?`,
+    [hidden ? 1 : 0, ownerChatId, normalized],
+  );
+  return (result.meta?.changes ?? 0) > 0;
 }
 
 /** Store/overwrite a pre-parsed schedule on a person_note (schedule-on-behalf path).
@@ -428,11 +452,16 @@ export async function findUserByName(name: string) {
   return result.results;
 }
 
-/** Exact lookup by phone (for partner matching via shared contacts) */
+/** Phone lookup that matches both E.164 ("+356...") and legacy bare-digit
+ *  ("356...") storage. The tool now preserves the leading "+" when
+ *  normalizing caller input, but historical rows may still have either
+ *  shape, so we query both forms. */
 export async function findUserByPhone(phone: string): Promise<UserProfile | null> {
+  const withPlus = phone.startsWith("+") ? phone : `+${phone}`;
+  const noPlus = phone.replace(/^\+/, "");
   const result = await query<UserProfile>(
-    "SELECT * FROM users WHERE phone = ?",
-    [phone]
+    "SELECT * FROM users WHERE phone = ? OR phone = ? LIMIT 1",
+    [withPlus, noPlus],
   );
   return result.results[0] ?? null;
 }
@@ -775,4 +804,162 @@ export async function reopenLastCompletedSession(chatId: string): Promise<string
   );
   await emitSessionEvent(sessionId, "session_reopened");
   return sessionId;
+}
+
+// --- Reminders ---
+//
+// User-scheduled reminders that the bot fires as Telegram messages at a
+// chosen time. fire_at is a UTC epoch (integer seconds). One-shot by
+// default; recurrence='daily'|'weekly'|'monthly' advances fire_at on each
+// fire instead of marking FIRED.
+
+export interface Reminder {
+  id: string;
+  chat_id: string;
+  text: string;
+  fire_at: number;
+  status: string;
+  recurrence: string | null;
+  timezone: string;
+  created_at: string;
+  fired_at: string | null;
+}
+
+export type ReminderRecurrence = "daily" | "weekly" | "monthly";
+
+/**
+ * Convert a local wall-clock ISO string (no timezone suffix, e.g. "2026-04-15T06:00")
+ * into UTC Unix epoch seconds, given the user's IANA timezone. Handles DST
+ * correctly by asking Intl what that exact instant would display as in the
+ * target tz and subtracting the observed offset.
+ *
+ * Returns null if isoLocal fails to parse. Accepts formats with or without
+ * seconds ("2026-04-15T06:00" or "2026-04-15T06:00:00").
+ */
+export function localIsoToUtcEpoch(isoLocal: string, timezone: string): number | null {
+  // Strip any trailing Z/offset — the caller said "local" so we interpret it as such.
+  const cleaned = isoLocal.trim().replace(/[zZ]$|[+-]\d\d:?\d\d$/, "");
+  // Reject date-only input like "2026-04-15" — reminders always need HH:MM.
+  // Without this guard Date.parse silently accepts the date and defaults to
+  // midnight, which means "remind me on Friday" fires at 00:00 instead of
+  // whatever the user meant. Force the caller (Claude) to include a time.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(cleaned)) return null;
+  // Parse as if the string were UTC to get a reference instant.
+  const asUtcMs = Date.parse(cleaned + "Z");
+  if (Number.isNaN(asUtcMs)) return null;
+  // What does that instant *actually* show as in the target tz?
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(new Date(asUtcMs));
+  const get = (t: string) => parseInt(parts.find((p) => p.type === t)?.value ?? "0", 10);
+  const shownUtcMs = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    get("hour") % 24,
+    get("minute"),
+    get("second"),
+  );
+  // shownUtcMs - asUtcMs = the tz offset for that instant (positive east of UTC).
+  // Subtract that offset from the original "as-if-UTC" parse to get the real UTC instant.
+  const offset = shownUtcMs - asUtcMs;
+  return Math.floor((asUtcMs - offset) / 1000);
+}
+
+/** Create a new reminder row. Returns the id. */
+export async function createReminder(
+  chatId: string,
+  text: string,
+  fireAtEpoch: number,
+  timezone: string,
+  recurrence: ReminderRecurrence | null = null,
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await query(
+    `INSERT INTO reminders (id, chat_id, text, fire_at, status, recurrence, timezone)
+     VALUES (?, ?, ?, ?, 'PENDING', ?, ?)`,
+    [id, chatId, text, fireAtEpoch, recurrence, timezone],
+  );
+  return id;
+}
+
+/** Pending reminders owned by a user, soonest-first. Used for list/cancel UX. */
+export async function listUserReminders(
+  chatId: string,
+  { limit = 20 }: { limit?: number } = {},
+): Promise<Reminder[]> {
+  const result = await query<Reminder>(
+    `SELECT * FROM reminders
+     WHERE chat_id = ? AND status = 'PENDING'
+     ORDER BY fire_at ASC
+     LIMIT ?`,
+    [chatId, limit],
+  );
+  return result.results;
+}
+
+/** Mark a reminder as cancelled. Owner-scoped so users can only cancel their own. */
+export async function cancelReminder(chatId: string, reminderId: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE reminders SET status = 'CANCELLED'
+     WHERE id = ? AND chat_id = ? AND status = 'PENDING'`,
+    [reminderId, chatId],
+  );
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+/**
+ * All reminders that are due right now. The firer caps the batch so one
+ * run can't blow up if lots are backlogged. Sorted by fire_at so the
+ * earliest overdue reminder wins if we can only process some this minute.
+ */
+export async function getDueReminders(nowEpoch: number, limit = 50): Promise<Reminder[]> {
+  const result = await query<Reminder>(
+    `SELECT * FROM reminders
+     WHERE status = 'PENDING' AND fire_at <= ?
+     ORDER BY fire_at ASC
+     LIMIT ?`,
+    [nowEpoch, limit],
+  );
+  return result.results;
+}
+
+/** One-shot reminder hit its time — mark it done so the firer doesn't re-trigger. */
+export async function markReminderFired(id: string): Promise<void> {
+  await query(
+    `UPDATE reminders SET status = 'FIRED', fired_at = datetime('now') WHERE id = ?`,
+    [id],
+  );
+}
+
+/** Recurring reminder fired — advance fire_at to the next occurrence. */
+export async function advanceRecurringReminder(id: string, nextFireAtEpoch: number): Promise<void> {
+  await query(
+    `UPDATE reminders SET fire_at = ?, fired_at = datetime('now') WHERE id = ?`,
+    [nextFireAtEpoch, id],
+  );
+}
+
+/**
+ * Compute the next fire time for a recurring reminder by adding 1 unit of its interval.
+ *
+ * TODO: uses UTC arithmetic, so across a DST transition the wall-clock time
+ * drifts by an hour (e.g. a "daily 9am" reminder set in winter will fire
+ * at 10am once summer time hits, until the user nudges it). Acceptable for
+ * v1 — fix when we add the user-timezone field to the Date math here.
+ */
+export function computeNextRecurrence(currentEpoch: number, recurrence: ReminderRecurrence): number {
+  const d = new Date(currentEpoch * 1000);
+  if (recurrence === "daily") d.setUTCDate(d.getUTCDate() + 1);
+  else if (recurrence === "weekly") d.setUTCDate(d.getUTCDate() + 7);
+  else if (recurrence === "monthly") d.setUTCMonth(d.getUTCMonth() + 1);
+  return Math.floor(d.getTime() / 1000);
 }
