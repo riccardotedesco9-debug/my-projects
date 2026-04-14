@@ -107,6 +107,71 @@ function resolveCallerTimezone(ctx: ToolContext): string {
   return ctx.snapshot.timezone || ctx.snapshot.user.timezone || "Europe/Malta";
 }
 
+/** Minutes since midnight from "HH:MM". */
+function timeToMinutes(hm: string): number {
+  const m = hm.match(/^(\d{2}):(\d{2})$/);
+  if (!m) return 0;
+  return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+}
+
+/** Inverse of timeToMinutes. */
+function minutesToTime(total: number): string {
+  const h = Math.floor(total / 60).toString().padStart(2, "0");
+  const m = (total % 60).toString().padStart(2, "0");
+  return `${h}:${m}`;
+}
+
+/**
+ * All busy windows for a user on a specific date, pulled from both their
+ * stored schedule_json (shifts + hectic days) and their live Google
+ * Calendar (if connected). Returned as [start,end) minute-ranges within
+ * the day (0-1440). Used by book_meetup's conflict check.
+ */
+async function gatherBusyBlocksForDate(
+  chatId: string,
+  date: string,
+  timezone: string,
+): Promise<Array<{ start: number; end: number; label: string }>> {
+  const blocks: Array<{ start: number; end: number; label: string }> = [];
+  const sched = await getLatestScheduleForUser(chatId);
+  if (sched) {
+    try {
+      const parsed = JSON.parse(sched) as Array<{
+        date: string;
+        start_time: string;
+        end_time: string;
+        label?: string;
+      }>;
+      for (const s of parsed) {
+        if (s.date !== date) continue;
+        // 00:00–00:00 = OFF (fully free), no block.
+        if (s.start_time === "00:00" && s.end_time === "00:00") continue;
+        blocks.push({
+          start: timeToMinutes(s.start_time),
+          end: timeToMinutes(s.end_time),
+          label: s.label ?? "busy",
+        });
+      }
+    } catch {
+      // corrupt schedule — skip
+    }
+  }
+  try {
+    const events = await listCalendarEventsInWindow(chatId, date, date, timezone);
+    for (const e of events) {
+      if (e.date !== date) continue;
+      blocks.push({
+        start: timeToMinutes(e.start_time),
+        end: timeToMinutes(e.end_time),
+        label: e.label,
+      });
+    }
+  } catch {
+    // calendar read is best-effort
+  }
+  return blocks;
+}
+
 /**
  * Notify each owner whose shadow-tracked contact just got linked to a newly-
  * known chat_id. Sends a Telegram message per owner in the owner's language,
@@ -1235,6 +1300,10 @@ const bookMeetupTool: ToolDefinition = {
         items: { type: "string" },
         description: "Names of the caller's contacts (must be in their person_notes with linked_chat_id) to also book on their calendars. Omit to book only for the caller.",
       },
+      override_conflicts: {
+        type: "boolean",
+        description: "When false/omitted, the tool refuses to book if any participant is busy at the requested time, returning conflicts[]. When true, books anyway. Only set true if the caller has explicitly acknowledged the conflict and asked to proceed.",
+      },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
@@ -1259,6 +1328,37 @@ const bookMeetupTool: ToolDefinition = {
       const note = await findPersonNote(ctx.callerChatId, n);
       if (note?.linked_chat_id) attendeeTargets.push({ name: note.name, chat_id: note.linked_chat_id });
       else unknownAttendees.push(n);
+    }
+
+    // Conflict check BEFORE writing anything: for each participant, union
+    // their stored schedule + their live Google Calendar events, and see
+    // if the requested slot overlaps any busy block. If anyone's busy,
+    // bail out with conflicts so Claude can either suggest a different
+    // time or re-ask the user with the override flag.
+    const conflictTargets = [
+      { name: ctx.snapshot.user.name ?? "you", chat_id: ctx.callerChatId },
+      ...attendeeTargets,
+    ];
+    const conflicts: Array<{ name: string; reason: string }> = [];
+    const reqStart = timeToMinutes(startTime);
+    const reqEnd = timeToMinutes(endTime);
+    for (const t of conflictTargets) {
+      const busy = await gatherBusyBlocksForDate(t.chat_id, date, tz);
+      const hit = busy.find((b) => reqStart < b.end && reqEnd > b.start);
+      if (hit) {
+        conflicts.push({
+          name: t.name,
+          reason: `busy ${hit.label} (${minutesToTime(hit.start)}–${minutesToTime(hit.end)})`,
+        });
+      }
+    }
+    const override = input.override_conflicts === true;
+    if (conflicts.length > 0 && !override) {
+      return {
+        error: "conflict",
+        conflicts,
+        message: `At least one participant is busy at ${date} ${startTime}–${endTime}. Either pick a different time, or call book_meetup again with override_conflicts=true if the caller explicitly wants to book over the conflict.`,
+      };
     }
 
     // Book for caller + each attendee
