@@ -36,19 +36,11 @@ import {
   cancelReminder,
   localIsoToUtcEpoch,
   type ReminderRecurrence,
-  createPendingInvite,
-  saveParticipantSchedule,
-  cancelSession,
-  reopenLastCompletedSession,
   emitSessionEvent,
-  getSessionParticipants,
-  getSessionById,
   getUser,
   getPersonNotesForOwner,
   linkPersonNoteToChat,
-  updateInviteStatus,
   type Snapshot,
-  type SnapshotSessionEntry,
 } from "./d1-client.js";
 import {
   extractSchedule,
@@ -58,16 +50,10 @@ import {
 } from "./schedule-parser.js";
 import {
   computeOverlaps,
-  persistComputedSlots,
   computeSinglePersonSlots,
   type ComputedFreeSlot,
 } from "./match-compute.js";
-import { deliverMatchToSession } from "./deliver-results.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
-
-// --- Config ---
-
-const SESSION_EXPIRY_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // --- Types ---
 
@@ -115,22 +101,6 @@ interface ToolDefinition {
  */
 function resolveCallerTimezone(ctx: ToolContext): string {
   return ctx.snapshot.timezone || ctx.snapshot.user.timezone || "Europe/Malta";
-}
-
-/**
- * Resolve which active session a tool should act on. If the caller provided
- * an explicit session_id, validate it's in the snapshot. Otherwise default
- * to the most recent active session. Returns null if the caller has no
- * active sessions at all.
- */
-function resolveSession(ctx: ToolContext, explicitId?: string): SnapshotSessionEntry | null {
-  if (ctx.snapshot.activeSessions.length === 0) return null;
-  if (explicitId) {
-    const found = ctx.snapshot.activeSessions.find((s) => s.session.id === explicitId);
-    if (found) return found;
-    // Fall through — caller gave a stale id. Use the default.
-  }
-  return ctx.snapshot.activeSessions[0]; // most recent first
 }
 
 // --- Tool 1: parse_schedule (auto-saves on success) ---

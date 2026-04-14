@@ -13,7 +13,7 @@
 // built with getPersonNotesForOwner(caller) so the privacy boundary is
 // already SQL-enforced — this formatter just passes them through.
 
-import type { Snapshot, SnapshotSessionEntry, UserProfile, PersonNote } from "./d1-client.js";
+import type { Snapshot, UserProfile, PersonNote } from "./d1-client.js";
 
 /**
  * Format a Snapshot as the human-readable [STATE] block that goes at
@@ -148,41 +148,6 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
   return out;
 }
 
-function formatSessionSection(
-  entry: SnapshotSessionEntry,
-  callerChatId: string,
-  indent: string,
-): string[] {
-  const lines: string[] = [];
-  const s = entry.session;
-  const mode = s.mode ? ` (mode: ${s.mode})` : "";
-  lines.push(`${indent}session_id: ${s.id}`);
-  lines.push(`${indent}status: ${s.status}${mode}`);
-  lines.push(`${indent}started: ${s.created_at}, expires: ${s.expires_at}`);
-  lines.push(`${indent}participants (${entry.participants.length}):`);
-  for (const p of entry.participants) {
-    const who = p.chat_id === callerChatId
-      ? `${p.name ?? "you"} (YOU)`
-      : (p.name ?? `person_${p.chat_id.slice(-4)}`);
-    const sched = p.has_schedule ? "schedule: ✓ UPLOADED" : "schedule: ✗ not yet";
-    const prefs = p.preferred_slots ? `, picks: ${p.preferred_slots}` : "";
-    lines.push(`${indent}  - ${who} — role: ${p.role}, ${sched}${prefs}`);
-    if (p.schedule_json) {
-      lines.push(...renderShiftListCompact(p.schedule_json, `${indent}    `));
-    }
-  }
-  if (entry.pendingInvites.length > 0) {
-    lines.push(`${indent}pending invites (${entry.pendingInvites.length}):`);
-    for (const inv of entry.pendingInvites) {
-      const who = inv.invitee_chat_id
-        ? `invitee_${inv.invitee_chat_id.slice(-4)}`
-        : (inv.invitee_phone ? `phone ending ${inv.invitee_phone.slice(-4)}` : "awaiting tap");
-      lines.push(`${indent}  - ${who} — status: ${inv.status}`);
-    }
-  }
-
-  return lines;
-}
 
 /**
  * Compute "today" in the user's timezone as a human-readable label,

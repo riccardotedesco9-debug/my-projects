@@ -12,7 +12,6 @@
 // The legacy `matchCompute` Trigger.dev schemaTask was removed in phase 05.
 
 import { z } from "zod";
-import { query } from "./d1-client.js";
 
 interface TimeBlock {
   start: number; // minutes since midnight
@@ -109,32 +108,6 @@ export function computeOverlaps(
   });
 
   return freeSlots;
-}
-
-/**
- * Persist computed free slots to the free_slots table for a session.
- * The turn-handler's compute_and_deliver_match tool calls this immediately
- * before triggering deliver-results so the delivery logic finds indexed rows.
- */
-export async function persistComputedSlots(sessionId: string, slots: ComputedFreeSlot[]): Promise<void> {
-  await query("DELETE FROM free_slots WHERE session_id = ?", [sessionId]);
-  for (let i = 0; i < slots.length; i++) {
-    const slot = slots[i];
-    await query(
-      "INSERT INTO free_slots (id, session_id, slot_number, day, day_name, start_time, end_time, duration_minutes, explanation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      [
-        crypto.randomUUID(),
-        sessionId,
-        i + 1,
-        slot.day,
-        slot.day_name,
-        slot.start_time,
-        slot.end_time,
-        slot.duration_minutes,
-        slot.explanation,
-      ],
-    );
-  }
 }
 
 // --- Time utilities ---

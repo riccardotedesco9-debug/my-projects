@@ -44,49 +44,10 @@ export async function query<T = Record<string, unknown>>(
 }
 
 // --- Convenience helpers ---
-
-export async function getParticipantByChatId(chatId: string) {
-  const result = await query<{
-    id: string;
-    session_id: string;
-    chat_id: string;
-    role: string;
-    state: string;
-    schedule_json: string | null;
-    preferred_slots: string | null;
-    session_status: string;
-    session_code: string;
-  }>(
-    `SELECT p.*, s.status as session_status, s.code as session_code
-     FROM participants p
-     JOIN sessions s ON p.session_id = s.id
-     WHERE p.chat_id = ?
-       AND s.status NOT IN ('EXPIRED', 'COMPLETED')
-       AND s.expires_at > datetime('now')
-     ORDER BY p.created_at DESC LIMIT 1`,
-    [chatId]
-  );
-  return result.results[0] ?? null;
-}
-
-export async function getSessionParticipants(sessionId: string) {
-  const result = await query<{
-    id: string;
-    chat_id: string;
-    role: string;
-    state: string;
-    schedule_json: string | null;
-    preferred_slots: string | null;
-  }>(
-    "SELECT * FROM participants WHERE session_id = ?",
-    [sessionId]
-  );
-  return result.results;
-}
-
-export async function updateSessionStatus(sessionId: string, status: string) {
-  await query("UPDATE sessions SET status = ? WHERE id = ?", [status, sessionId]);
-}
+//
+// Session-layer helpers were removed when the shared-hub refactor landed.
+// See migration 0018 and the turn-handler for the new flow: schedules live
+// on users, contacts on person_notes, no sessions gating visibility.
 
 // --- Per-person knowledge notes ---
 //
@@ -254,21 +215,6 @@ export async function linkPersonNoteToChat(
 }
 
 /** Clear all data for a chat ID (reset) — expires sessions where user is a participant */
-export async function resetUserData(chatId: string) {
-  // Expire sessions where this user is creator
-  await query(
-    "UPDATE sessions SET status = 'EXPIRED' WHERE creator_chat_id = ? AND status NOT IN ('EXPIRED', 'COMPLETED')",
-    [chatId]
-  );
-  // Expire sessions where this user is a participant
-  await query(
-    `UPDATE sessions SET status = 'EXPIRED' WHERE id IN (
-      SELECT session_id FROM participants WHERE chat_id = ?
-    ) AND status NOT IN ('EXPIRED', 'COMPLETED')`,
-    [chatId]
-  );
-}
-
 // --- Google Calendar token helpers ---
 
 export async function getGoogleToken(chatId: string) {
@@ -510,52 +456,6 @@ export async function findUserByPhone(phone: string): Promise<UserProfile | null
   return result.results[0] ?? null;
 }
 
-// --- Pending invite helpers ---
-
-export async function createPendingInvite(
-  inviterChatId: string,
-  inviteeChatId: string | null,
-  sessionId: string,
-  inviteePhone?: string
-) {
-  const id = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
-  await query(
-    `INSERT INTO pending_invites (id, inviter_chat_id, invitee_chat_id, invitee_phone, session_id, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, inviterChatId, inviteeChatId, inviteePhone ?? null, sessionId, expiresAt]
-  );
-  return id;
-}
-
-/** Update invite status (ACCEPTED, EXPIRED, CANCELLED, OUTREACH_SENT) */
-export async function updateInviteStatus(id: string, status: string) {
-  await query(
-    "UPDATE pending_invites SET status = ? WHERE id = ?",
-    [status, id]
-  );
-}
-
-// --- Session helpers ---
-
-/** Fetch a session by ID */
-export async function getSessionById(sessionId: string) {
-  const result = await query<{
-    id: string;
-    code: string;
-    creator_chat_id: string;
-    status: string;
-    mode: string | null;
-    expires_at: string;
-    both_confirmed_token_id: string | null;
-    both_preferred_token_id: string | null;
-  }>(
-    "SELECT * FROM sessions WHERE id = ?",
-    [sessionId]
-  );
-  return result.results[0] ?? null;
-}
-
 /**
  * Look up a user's timezone (IANA string, e.g. "Europe/Rome"), falling
  * back to Europe/Malta when the user row is missing or the column is
@@ -749,68 +649,6 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
   };
 }
 
-/**
- * Save a parsed schedule to a participant row WITHOUT changing state.
- * The old flow transitioned AWAITING_SCHEDULE → AWAITING_CONFIRMATION
- * as a side effect of saving; the new flow has no state machine and
- * confirmation is just a conversation thread. Turn handler decides
- * whether to ask the user to confirm.
- */
-export async function saveParticipantSchedule(
-  participantId: string,
-  scheduleJson: string,
-): Promise<void> {
-  await query(
-    "UPDATE participants SET schedule_json = ?, updated_at = datetime('now') WHERE id = ?",
-    [scheduleJson, participantId],
-  );
-}
-
-/**
- * Cancel a session — marks it EXPIRED, notifies observability. The turn
- * handler's session_action tool calls this when the user says "cancel"
- * or "nvm". Does NOT send Telegram messages to other participants —
- * that's the turn handler's job, so it can use the agentic reply tool
- * with proper per-recipient language handling.
- */
-export async function cancelSession(sessionId: string): Promise<void> {
-  await query("UPDATE sessions SET status = 'EXPIRED' WHERE id = ?", [sessionId]);
-  await query(
-    "UPDATE pending_invites SET status = 'CANCELLED' WHERE session_id = ? AND status = 'PENDING'",
-    [sessionId],
-  );
-  await emitSessionEvent(sessionId, "session_cancelled");
-}
-
-/**
- * Reopen the most-recent COMPLETED session for a user so they can amend
- * after a match was already delivered. Flips status OPEN, does NOT touch
- * schedule_json (preserving the existing uploads), does NOT create new
- * waitpoint tokens. Returns the reopened session id, or null if the user
- * has no completed session to reopen.
- */
-export async function reopenLastCompletedSession(chatId: string): Promise<string | null> {
-  const result = await query<{ id: string }>(
-    `SELECT s.id FROM sessions s
-       JOIN participants p ON p.session_id = s.id
-      WHERE p.chat_id = ? AND s.status = 'COMPLETED'
-      ORDER BY s.created_at DESC
-      LIMIT 1`,
-    [chatId],
-  );
-  const sessionId = result.results[0]?.id;
-  if (!sessionId) return null;
-  // Reset to OPEN + extend expiry 30 days from now so the reopened session
-  // doesn't immediately time out. Leave schedule_json and preferred_slots
-  // intact — the user is amending, not restarting.
-  const newExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-  await query(
-    "UPDATE sessions SET status = 'OPEN', expires_at = ? WHERE id = ?",
-    [newExpiry, sessionId],
-  );
-  await emitSessionEvent(sessionId, "session_reopened");
-  return sessionId;
-}
 
 // --- Reminders ---
 //
