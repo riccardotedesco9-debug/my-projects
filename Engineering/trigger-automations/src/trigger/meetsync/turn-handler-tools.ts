@@ -29,6 +29,7 @@ import {
   findUserByName,
   findUserByPhone,
   setPersonNoteHidden,
+  getLatestScheduleForUser,
   createReminder,
   listUserReminders,
   cancelReminder,
@@ -565,7 +566,13 @@ const addOrInvitePartnerTool: ToolDefinition = {
     //    matching — we refuse to guess Jojo↔Joejoe; ask for a phone instead).
     const matches = (await findUserByName(name)).filter((u) => u.chat_id !== ctx.callerChatId);
     if (matches.length === 1) {
-      return await addKnownParticipant(ctx, sessionEntry, matches[0].chat_id, matches[0].name ?? null);
+      // Also create+link a person_note so the caller's snapshot shows this
+      // person on future turns — mirrors what the phone path does. Without
+      // this the person_note stays unlinked and the caller sees "Joejoe
+      // hasn't joined the bot" in the snapshot next time.
+      await upsertPersonNote(ctx.callerChatId, name);
+      await linkPersonNoteToChat(ctx.callerChatId, name, matches[0].chat_id);
+      return await addKnownParticipant(ctx, sessionEntry, matches[0].chat_id, matches[0].name ?? name);
     }
     if (matches.length > 1) {
       return {
@@ -606,9 +613,15 @@ async function addKnownParticipant(
     };
   }
   const participantId = crypto.randomUUID();
+  // Carry forward the user's most recent schedule from any prior session so
+  // "Joejoe hasn't shared" doesn't appear when Joejoe already uploaded in
+  // his own session. Implicit in the product: uploading == consenting to
+  // use for overlap compute.
+  const carriedSchedule = await getLatestScheduleForUser(partnerChatId);
   await query(
-    "INSERT INTO participants (id, session_id, chat_id, role, state) VALUES (?, ?, ?, 'partner', 'ACTIVE')",
-    [participantId, sessionEntry.session.id, partnerChatId],
+    `INSERT INTO participants (id, session_id, chat_id, role, state, schedule_json)
+     VALUES (?, ?, ?, 'partner', 'ACTIVE', ?)`,
+    [participantId, sessionEntry.session.id, partnerChatId, carriedSchedule],
   );
   // Update the in-turn snapshot so subsequent tools see the new participant
   sessionEntry.participants.push({
@@ -616,16 +629,17 @@ async function addKnownParticipant(
     chat_id: partnerChatId,
     role: "partner",
     state: "ACTIVE",
-    schedule_json: null,
+    schedule_json: carriedSchedule,
     preferred_slots: null,
     name: partnerName,
-    has_schedule: false,
+    has_schedule: !!carriedSchedule,
   });
   return {
     added: true,
     partner_chat_id: partnerChatId,
     partner_name: partnerName,
     session_id: sessionEntry.session.id,
+    carried_schedule: !!carriedSchedule,
   };
 }
 

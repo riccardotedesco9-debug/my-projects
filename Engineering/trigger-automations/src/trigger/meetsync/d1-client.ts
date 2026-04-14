@@ -452,6 +452,27 @@ export async function findUserByName(name: string) {
   return result.results;
 }
 
+/**
+ * Most recent schedule a user uploaded for themselves in any prior session.
+ * Used when adding a known user as a participant so their schedule follows
+ * them across sessions — otherwise the new participant row has
+ * schedule_json=NULL and the caller sees "X hasn't shared their schedule
+ * yet" even though the user had uploaded before in their own session.
+ *
+ * Consent model: uploading a schedule to MeetSync implies consent to have
+ * it used in matches — that's the bot's entire purpose. Users who don't
+ * want their schedule shared shouldn't upload it.
+ */
+export async function getLatestScheduleForUser(chatId: string): Promise<string | null> {
+  const result = await query<{ schedule_json: string | null }>(
+    `SELECT schedule_json FROM participants
+     WHERE chat_id = ? AND schedule_json IS NOT NULL AND schedule_json != ''
+     ORDER BY created_at DESC LIMIT 1`,
+    [chatId],
+  );
+  return result.results[0]?.schedule_json ?? null;
+}
+
 /** Phone lookup that matches both E.164 ("+356...") and legacy bare-digit
  *  ("356...") storage. The tool now preserves the leading "+" when
  *  normalizing caller input, but historical rows may still have either
