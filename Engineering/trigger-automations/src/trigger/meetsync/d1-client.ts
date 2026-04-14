@@ -217,6 +217,12 @@ export async function linkPersonNoteToChat(
 /** Clear all data for a chat ID (reset) — expires sessions where user is a participant */
 // --- Google Calendar token helpers ---
 
+/** Cheap existence check for Google Calendar connection. */
+export async function hasGoogleToken(chatId: string): Promise<boolean> {
+  const r = await query<{ c: number }>("SELECT COUNT(*) AS c FROM google_tokens WHERE chat_id = ?", [chatId]);
+  return (r.results[0]?.c ?? 0) > 0;
+}
+
 export async function getGoogleToken(chatId: string) {
   const result = await query<{
     access_token: string;
@@ -665,6 +671,7 @@ export interface Snapshot {
   personNotes: PersonNote[];
   recentHistory: Array<{ role: string; message: string; created_at: string }>;
   timezone: string;
+  callerCalendarConnected: boolean;
 }
 
 /**
@@ -680,10 +687,11 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
   // Schedules live on users.latest_schedule_json; person_notes for linked
   // contacts get enriched below so Claude sees every contact's live schedule
   // regardless of which chat they uploaded from.
-  const [userRow, rawPersonNotes, recentHistory] = await Promise.all([
+  const [userRow, rawPersonNotes, recentHistory, callerCalendarConnected] = await Promise.all([
     getUser(chatId),
     getPersonNotesForOwner(chatId),
     getRecentMessages(chatId),
+    hasGoogleToken(chatId),
   ]);
 
   // Enrich each linked person_note with the contact's live data:
@@ -742,6 +750,7 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     personNotes,
     recentHistory,
     timezone: user.timezone ?? "Europe/Malta",
+    callerCalendarConnected,
   };
 }
 

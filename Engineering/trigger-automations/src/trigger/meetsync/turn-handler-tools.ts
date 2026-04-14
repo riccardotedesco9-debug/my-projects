@@ -1330,6 +1330,96 @@ const watchScheduleUploadTool: ToolDefinition = {
   },
 };
 
+// --- Tool 14: book_meetup ---
+
+const bookMeetupTool: ToolDefinition = {
+  name: "book_meetup",
+  description:
+    "Commit a meetup to Google Calendar for the caller and each named attendee. This is the CANONICAL way to 'lock in' a meeting — not a reminder, not a relay, a real calendar event on everyone's Google Calendar who has /connect'd. Use this whenever the caller + their contacts have agreed on a specific date + time (via compute_overlap preview, or a back-and-forth relay, or direct chat). Creates a separate event on each participant's primary calendar; anyone without Google Calendar connected is listed in skipped_not_connected so you can tell them to /connect. After booking, tell the caller 'it's on your calendar — you can coordinate further there' and stop chatting about it. The calendar event is the new source of truth.",
+  input_schema: {
+    type: "object",
+    required: ["date", "start_time", "end_time", "title"],
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD, in the caller's timezone." },
+      start_time: { type: "string", description: "HH:MM (24h), local to the caller's timezone." },
+      end_time: { type: "string", description: "HH:MM (24h), local to the caller's timezone." },
+      title: { type: "string", description: "Short event title, e.g. 'Cat walk with Kurt', 'Dinner with Sofia'." },
+      attendee_names: {
+        type: "array",
+        items: { type: "string" },
+        description: "Names of the caller's contacts (must be in their person_notes with linked_chat_id) to also book on their calendars. Omit to book only for the caller.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const date = typeof input.date === "string" ? input.date.trim() : "";
+    const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
+    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const title = typeof input.title === "string" ? input.title.trim().slice(0, 120) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "date must be YYYY-MM-DD." };
+    if (!/^\d{2}:\d{2}$/.test(startTime)) return { error: "start_time must be HH:MM." };
+    if (!/^\d{2}:\d{2}$/.test(endTime)) return { error: "end_time must be HH:MM." };
+    if (!title) return { error: "title required." };
+
+    const tz = resolveCallerTimezone(ctx);
+    const attendeeNames = Array.isArray(input.attendee_names)
+      ? (input.attendee_names as unknown[]).filter((v): v is string => typeof v === "string")
+      : [];
+
+    // Resolve attendee chat_ids from person_notes
+    const attendeeTargets: Array<{ name: string; chat_id: string }> = [];
+    const unknownAttendees: string[] = [];
+    for (const n of attendeeNames) {
+      const note = await findPersonNote(ctx.callerChatId, n);
+      if (note?.linked_chat_id) attendeeTargets.push({ name: note.name, chat_id: note.linked_chat_id });
+      else unknownAttendees.push(n);
+    }
+
+    // Book for caller + each attendee
+    const booked: string[] = [];
+    const skippedNotConnected: string[] = [];
+    const failed: string[] = [];
+    const allTargets = [
+      { name: ctx.snapshot.user.name ?? "you", chat_id: ctx.callerChatId },
+      ...attendeeTargets,
+    ];
+    for (const t of allTargets) {
+      try {
+        const r = await createCalendarEvent(t.chat_id, date, startTime, endTime, title, tz);
+        if (r === true) booked.push(t.name);
+        else if (r === "token_expired") skippedNotConnected.push(t.name);
+        else skippedNotConnected.push(t.name);
+      } catch (err) {
+        failed.push(t.name);
+        console.warn(`[book_meetup] failed for ${t.chat_id}:`, err);
+      }
+    }
+
+    // Ping attendees (who got booked) with a short confirmation
+    const callerName = ctx.snapshot.user.name ?? "your contact";
+    for (const t of attendeeTargets) {
+      if (!booked.includes(t.name)) continue;
+      try {
+        await sendTextMessage(
+          t.chat_id,
+          `📅 ${callerName} just booked "${title}" for ${date} ${startTime}–${endTime} — it's on your Google Calendar.`,
+        );
+      } catch (err) {
+        console.warn(`[book_meetup] attendee notify failed for ${t.chat_id}:`, err);
+      }
+    }
+
+    return {
+      ok: true,
+      booked,
+      skipped_not_connected: skippedNotConnected,
+      failed,
+      unknown_attendees: unknownAttendees,
+      event: { date, start_time: startTime, end_time: endTime, title },
+    };
+  },
+};
+
 // --- Dispatcher ---
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1346,6 +1436,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   cancelReminderTool,
   relayMessageTool,
   watchScheduleUploadTool,
+  bookMeetupTool,
   replyTool,
 ];
 

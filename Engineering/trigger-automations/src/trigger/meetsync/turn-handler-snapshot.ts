@@ -40,6 +40,18 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
     lines.push("");
   }
 
+  // Calendar connection status — the product is calendar-first. When a
+  // meetup is agreed, book_meetup creates real Google Calendar events for
+  // everyone connected. Unconnected users can't get events booked on their
+  // calendar, so nudge them toward /connect when the topic turns to booking.
+  if (!snapshot.callerCalendarConnected && snapshot.user.name) {
+    lines.push(`Google Calendar: NOT connected for this caller. When the conversation becomes about booking a real meetup, point them at /connect so meetups actually land on their calendar. Don't nag if they're not booking anything yet.`);
+    lines.push("");
+  } else if (snapshot.callerCalendarConnected) {
+    lines.push("Google Calendar: ✓ connected — book_meetup will create real events here.");
+    lines.push("");
+  }
+
   // Caller profile
   lines.push(...formatUserSection(snapshot.user, snapshot.timezone));
   lines.push("");
