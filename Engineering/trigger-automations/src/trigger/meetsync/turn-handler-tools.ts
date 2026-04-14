@@ -57,6 +57,7 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
+import { createCalendarEvent } from "./google-calendar.js";
 
 // --- Types ---
 
@@ -792,7 +793,7 @@ const computeAndDeliverMatchTool: ToolDefinition = {
     // Delivery (optional): for each linked contact, send a notification and
     // create a calendar event for the top slot. Skip on-behalf-only notes
     // (no linked_chat_id = no Telegram chat to message).
-    let deliveryResult: { delivered_to: string[]; failures: string[] } | null = null;
+    let deliveryResult: Awaited<ReturnType<typeof deliverMatchToContacts>> | null = null;
     if (deliver) {
       const top = slots[0];
       const linkedContactIds = contacts
@@ -804,6 +805,7 @@ const computeAndDeliverMatchTool: ToolDefinition = {
         top,
         ctx.snapshot.user.preferred_language ?? "en",
         ctx.snapshot.user.name ?? null,
+        resolveCallerTimezone(ctx),
       );
     }
 
@@ -829,9 +831,17 @@ async function deliverMatchToContacts(
   slot: ComputedFreeSlot,
   callerLang: string,
   callerName: string | null,
-): Promise<{ delivered_to: string[]; failures: string[] }> {
+  timezone: string,
+): Promise<{
+  delivered_to: string[];
+  failures: string[];
+  calendar_events_created: string[];
+  calendar_failures: string[];
+}> {
   const delivered: string[] = [];
   const failures: string[] = [];
+  const calendarOk: string[] = [];
+  const calendarFail: string[] = [];
   const whoLabel = callerName ?? `chat ${callerChatId.slice(-4)}`;
   const headline =
     callerLang === "it" ? `${whoLabel} ha trovato un orario: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
@@ -839,16 +849,45 @@ async function deliverMatchToContacts(
     : callerLang === "fr" ? `${whoLabel} a trouvé un créneau : ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
     : callerLang === "de" ? `${whoLabel} hat einen Termin gefunden: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`
     : `${whoLabel} picked a time: ${slot.day_name} ${slot.day} ${slot.start_time}–${slot.end_time}`;
+
+  // Recipients = all contacts + the caller themselves, so everyone lands a
+  // calendar event for a chosen slot. Caller gets no Telegram ping (they're
+  // already in the conversation that produced this).
+  const summary = callerName ? `Meetup with ${callerName}` : "MeetSync meetup";
   for (const cid of contactChatIds) {
     try {
       await sendTextMessage(cid, `📅 ${headline}`);
       delivered.push(cid);
     } catch (err) {
       failures.push(cid);
-      console.warn(`[deliver] send failed to ${cid}:`, err);
+      console.warn(`[deliver] telegram send failed to ${cid}:`, err);
     }
   }
-  return { delivered_to: delivered, failures };
+
+  const everyoneForCalendar = [callerChatId, ...contactChatIds];
+  for (const cid of everyoneForCalendar) {
+    try {
+      const r = await createCalendarEvent(
+        cid,
+        slot.day,
+        slot.start_time,
+        slot.end_time,
+        summary,
+        timezone,
+      );
+      if (r === true) calendarOk.push(cid);
+      else calendarFail.push(cid);
+    } catch (err) {
+      calendarFail.push(cid);
+      console.warn(`[deliver] calendar create failed for ${cid}:`, err);
+    }
+  }
+  return {
+    delivered_to: delivered,
+    failures,
+    calendar_events_created: calendarOk,
+    calendar_failures: calendarFail,
+  };
 }
 
 // --- Tool 6: upsert_knowledge ---
@@ -1163,7 +1202,7 @@ const RELAY_MAX_TEXT_LEN = 500;
 const relayMessageTool: ToolDefinition = {
   name: "relay_message",
   description:
-    "Send a message on the caller's behalf to someone they've already added (a person_note whose linked_chat_id is set). Use when the caller explicitly asks to pass something on: 'tell Kurt I want to meet Saturday', 'remind Joejoe to send his schedule', 'let Sofia know I'm running late'. You GHOSTWRITE the message in the bot's natural voice, naming the caller inside the body where it helps — e.g. 'Hey Kurt 👋 Riccardo asked me to nudge you — could you share your schedule this week?'. Do NOT quote the caller literally, do NOT use stiff attribution like 'Riccardo says: …'. Match your usual warm, direct style. CRITICAL confirmation gate: always draft the exact text back to the caller FIRST (via reply with yes/no buttons, or by asking 'send this to Kurt? [draft]') — only call this tool AFTER the caller explicitly confirms. Never call on an implied/ambiguous request. Never send without showing the draft.",
+    "Send a message on the caller's behalf to someone they've already added (a person_note whose linked_chat_id is set). Use when the caller explicitly asks to pass something on: 'tell Kurt I want to meet Saturday', 'remind Joejoe to send his schedule', 'let Sofia know I'm running late'. You GHOSTWRITE the message in the bot's natural voice, naming the caller inside the body where it helps — e.g. 'Hey Kurt 👋 Riccardo asked me to nudge you — could you share your schedule this week?'. Do NOT quote the caller literally, do NOT use stiff attribution like 'Riccardo says: …'. Match your usual warm, direct style. CRITICAL confirmation gate: always draft the exact text back to the caller FIRST (via reply with yes/no buttons, or by asking 'send this to Kurt? [draft]') — only call this tool AFTER the caller explicitly confirms. Never call on an implied/ambiguous request. Never send without showing the draft. IMPORTANT: draft the message in the RECIPIENT's preferred_language, not the caller's — the recipient will read it; the caller is only approving it. Show the caller the draft in their own language for approval but send the recipient-language version. If you can't see the recipient's language in [STATE], default to the caller's.",
   input_schema: {
     type: "object",
     required: ["to_person_name", "text"],

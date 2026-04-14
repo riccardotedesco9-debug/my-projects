@@ -656,8 +656,13 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
       ]);
       const mergedSched = n.schedule_json ?? latestSched;
       const linkedCtx = linkedUser?.context?.trim() ?? "";
-      const mergedNotes = linkedCtx
-        ? (n.notes ? `${n.notes}\n[their profile] ${linkedCtx}` : `[their profile] ${linkedCtx}`)
+      const linkedLang = linkedUser?.preferred_language ?? null;
+      const profileParts: string[] = [];
+      if (linkedLang) profileParts.push(`lang=${linkedLang}`);
+      if (linkedCtx) profileParts.push(linkedCtx);
+      const profileLine = profileParts.length > 0 ? `[their profile] ${profileParts.join(" · ")}` : "";
+      const mergedNotes = profileLine
+        ? (n.notes ? `${n.notes}\n${profileLine}` : profileLine)
         : n.notes;
       return { ...n, schedule_json: mergedSched, notes: mergedNotes };
     }),
