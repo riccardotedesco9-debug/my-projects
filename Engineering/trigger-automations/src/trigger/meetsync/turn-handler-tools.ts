@@ -133,6 +133,33 @@ async function gatherBusyBlocksForDate(
   timezone: string,
 ): Promise<Array<{ start: number; end: number; label: string }>> {
   const blocks: Array<{ start: number; end: number; label: string }> = [];
+  const prevDate = shiftDateISO(date, -1);
+  const pushShiftBlock = (
+    s: { date: string; start_time: string; end_time: string; label?: string },
+  ): void => {
+    if (s.start_time === "00:00" && s.end_time === "00:00") return; // OFF
+    const start = timeToMinutes(s.start_time);
+    const end = timeToMinutes(s.end_time);
+    const label = s.label ?? "busy";
+    const isOvernight = end < start;
+    if (!isOvernight && s.date === date) {
+      blocks.push({ start, end, label });
+      return;
+    }
+    if (isOvernight) {
+      // Overnight shift (e.g. 22:00–06:00): fills target-date from
+      // `start` to midnight, AND spills into the next day from 00:00 to
+      // `end`. For our target `date`, include BOTH directions: any
+      // shift that starts on `date` (fills 22→24), OR any shift on
+      // prevDate that spills into `date` (fills 00→06).
+      if (s.date === date) {
+        blocks.push({ start, end: 24 * 60, label });
+      } else if (s.date === prevDate) {
+        blocks.push({ start: 0, end, label });
+      }
+    }
+  };
+
   const sched = await getLatestScheduleForUser(chatId);
   if (sched) {
     try {
@@ -142,34 +169,27 @@ async function gatherBusyBlocksForDate(
         end_time: string;
         label?: string;
       }>;
-      for (const s of parsed) {
-        if (s.date !== date) continue;
-        // 00:00–00:00 = OFF (fully free), no block.
-        if (s.start_time === "00:00" && s.end_time === "00:00") continue;
-        blocks.push({
-          start: timeToMinutes(s.start_time),
-          end: timeToMinutes(s.end_time),
-          label: s.label ?? "busy",
-        });
-      }
+      for (const s of parsed) pushShiftBlock(s);
     } catch {
       // corrupt schedule — skip
     }
   }
   try {
-    const events = await listCalendarEventsInWindow(chatId, date, date, timezone);
-    for (const e of events) {
-      if (e.date !== date) continue;
-      blocks.push({
-        start: timeToMinutes(e.start_time),
-        end: timeToMinutes(e.end_time),
-        label: e.label,
-      });
-    }
+    // Pull calendar events for yesterday+today so overnight calendar
+    // events that end on `date` also count as busy.
+    const events = await listCalendarEventsInWindow(chatId, prevDate, date, timezone);
+    for (const e of events) pushShiftBlock(e);
   } catch {
     // calendar read is best-effort
   }
   return blocks;
+}
+
+/** Return `date` shifted by `days` (positive or negative) as YYYY-MM-DD. */
+function shiftDateISO(date: string, days: number): string {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /**

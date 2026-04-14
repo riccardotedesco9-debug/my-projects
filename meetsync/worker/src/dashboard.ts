@@ -36,12 +36,18 @@ interface StuckRow {
 }
 
 export async function renderDashboard(env: Env): Promise<Response> {
-  // Pull the three datasets in parallel.
+  // Pull the three datasets in parallel. Wrapped in try/catch because the
+  // legacy session/session_events/participants tables were dropped in the
+  // shared-hub refactor (migration 0020). Errors here fall through to a
+  // safe empty state plus a banner — dashboard is admin-only, no point
+  // 500-ing on it. Proper rework is queued separately.
+  const safe = <T>(p: Promise<T[]>): Promise<T[]> => p.catch(() => [] as T[]);
   const [stuck, recentEvents, recentSessions] = await Promise.all([
-    findStuckSessions(env),
-    fetchRecentEvents(env, 50),
-    fetchRecentSessions(env, 20),
+    safe(findStuckSessions(env)),
+    safe(fetchRecentEvents(env, 50)),
+    safe(fetchRecentSessions(env, 20)),
   ]);
+  const legacyTablesGone = stuck.length === 0 && recentEvents.length === 0 && recentSessions.length === 0;
 
   const html = `<!DOCTYPE html>
 <html lang="en">
@@ -71,6 +77,7 @@ export async function renderDashboard(env: Env): Promise<Response> {
 <body>
   <h1>MeetSync — session events</h1>
   <div class="sub">Generated ${new Date().toISOString()} UTC · threshold ${STUCK_THRESHOLD_MIN}m</div>
+  ${legacyTablesGone ? `<div style="padding:10px 14px;margin:10px 0;background:#fff8e1;border:1px solid #f3d980;border-radius:4px;font-size:12px;color:#7a5c00">Legacy <code>sessions</code> / <code>session_events</code> / <code>participants</code> tables were dropped in the shared-hub refactor (migration 0020). This dashboard reads those tables, so it will look empty until the rework lands. The runtime product is healthy — check the Trigger.dev dashboard and D1's <code>users</code>, <code>person_notes</code>, <code>reminders</code> tables for the current model.</div>` : ""}
 
   <h2>Stuck sessions <span class="dim">(in-flight, no activity for ${STUCK_THRESHOLD_MIN}+ minutes)</span></h2>
   ${stuck.length === 0
