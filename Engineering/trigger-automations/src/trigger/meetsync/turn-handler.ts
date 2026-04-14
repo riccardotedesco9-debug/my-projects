@@ -41,6 +41,8 @@ import {
 } from "./telegram-client.js";
 import { mapMimeType, arrayBufferToBase64 } from "./schedule-parser.js";
 import { formatSnapshot, todayInTimezone } from "./turn-handler-snapshot.js";
+import { listCalendarEventsInWindow } from "./google-calendar.js";
+import type { Snapshot } from "./d1-client.js";
 import {
   TOOL_SCHEMAS,
   executeTool,
@@ -202,6 +204,73 @@ function buildUserTurnContent(
 }
 
 // --- Telegram helpers ---
+
+/**
+ * Pull live Google Calendar events for the caller + each linked contact,
+ * and merge them into that person's schedule_json in the snapshot (in
+ * memory only — never written back). So when Claude renders the snapshot,
+ * each person's schedule reflects BOTH their stored shifts AND real
+ * calendar appointments. Unconnected users are skipped silently.
+ *
+ * Window: today → today+21d. Big enough for "who's free next couple of
+ * weeks" without blowing up per-turn latency on power users.
+ *
+ * Parallelism: all fetches run in a single Promise.all so the wall-time
+ * is dominated by the slowest Google API call (~200-400ms), not their sum.
+ */
+async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<void> {
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const windowEnd = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const tz = snapshot.timezone;
+
+  type MergeTarget = { chat_id: string; write: (json: string) => void; existing: string | null };
+  const targets: MergeTarget[] = [];
+
+  if (snapshot.callerCalendarConnected) {
+    targets.push({
+      chat_id: snapshot.user.chat_id,
+      existing: snapshot.user.latest_schedule_json,
+      write: (json) => {
+        snapshot.user = { ...snapshot.user, latest_schedule_json: json };
+      },
+    });
+  }
+  for (const n of snapshot.personNotes) {
+    if (!n.linked_chat_id) continue;
+    targets.push({
+      chat_id: n.linked_chat_id,
+      existing: n.schedule_json,
+      write: (json) => {
+        n.schedule_json = json;
+      },
+    });
+  }
+
+  const results = await Promise.all(
+    targets.map(async (t) => {
+      try {
+        const events = await listCalendarEventsInWindow(t.chat_id, todayISO, windowEnd, tz);
+        return { target: t, events };
+      } catch {
+        return { target: t, events: [] as Awaited<ReturnType<typeof listCalendarEventsInWindow>> };
+      }
+    }),
+  );
+
+  for (const { target, events } of results) {
+    if (events.length === 0) continue;
+    let existing: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+    if (target.existing) {
+      try {
+        const parsed = JSON.parse(target.existing);
+        if (Array.isArray(parsed)) existing = parsed;
+      } catch {
+        // corrupt existing — overwrite with just events
+      }
+    }
+    target.write(JSON.stringify([...existing, ...events]));
+  }
+}
 
 async function sendChatAction(chatId: string, action: "typing"): Promise<void> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -459,6 +528,12 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     // 5. Load snapshot
     const snapshot = await loadSnapshot(chatId);
     const todayLabel = todayInTimezone(snapshot.timezone);
+
+    // 5.5 Merge live Google Calendar events into each participant's
+    // schedule view, so Claude can answer "what's Kurt up to Wednesday?"
+    // and see the dentist appointment that's on Kurt's calendar but not
+    // in his stored schedule. Best-effort, silent on failure.
+    await enrichSnapshotWithCalendarEvents(snapshot);
 
     await emitSessionEvent(
       snapshot.activeSessions[0]?.session.id ?? "no-session",
