@@ -126,7 +126,8 @@ export async function listCalendarEventsInWindow(
       items?: Array<{
         summary?: string;
         status?: string;
-        transparency?: string; // "transparent" = "free", "opaque" (default) = "busy"
+        transparency?: string;
+        location?: string;
         start?: { dateTime?: string; date?: string };
         end?: { dateTime?: string; date?: string };
         attendees?: Array<{ self?: boolean; responseStatus?: string }>;
@@ -145,7 +146,9 @@ export async function listCalendarEventsInWindow(
       const selfAttendee = e.attendees?.find((a) => a.self === true);
       if (selfAttendee?.responseStatus === "declined") continue;
 
-      const label = `calendar: ${e.summary?.slice(0, 40) ?? "busy"}`;
+      const summary = e.summary?.slice(0, 40) ?? "busy";
+      const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
+      const label = `calendar: ${summary}${locPart}`;
 
       // Timed event (standard meeting).
       const startDT = e.start?.dateTime;
