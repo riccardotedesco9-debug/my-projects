@@ -100,11 +100,13 @@ export async function listCalendarEventsInWindow(
   // Fan out across every calendar the user sees in their calendarList —
   // primary PLUS secondary calendars like "Personal", "Health", shared
   // family calendars, subscribed calendars. Many users put therapy /
-  // medical / workout slots on a separate calendar, and those were
-  // invisible when we queried only `primary`.
+  // medical / workout slots on a separate calendar.
   const calendarIds = await listUserCalendarIds(accessToken);
-  const timeMin = `${startDateISO}T00:00:00`;
-  const timeMax = `${endDateISO}T23:59:59`;
+  // Google rejects timeMin/timeMax without a timezone designator with
+  // 400 Bad Request. Use Z (UTC). The window is already whole-day so
+  // the timezone nuance doesn't actually move the boundary meaningfully.
+  const timeMin = `${startDateISO}T00:00:00Z`;
+  const timeMax = `${endDateISO}T23:59:59Z`;
   const out: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
 
   for (const calId of calendarIds) {
