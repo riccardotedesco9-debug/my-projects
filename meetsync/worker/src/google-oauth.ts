@@ -19,10 +19,14 @@ import type { Env } from "./types.js";
 
 const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
-// calendar.events → read + write primary calendar events.
+// calendar.events → read + write events on the user's calendars.
+// calendar.calendarlist.readonly → enumerate which calendars the user has
+//   (so we can sync events from secondary calendars like "Personal" /
+//   "Health" / shared family, not just primary — medical appointments,
+//   therapy, etc. typically live there).
 // userinfo.email → fetch the user's email so book_meetup can add them
-// as an actual Google Calendar attendee (true shared event).
-const SCOPE = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email";
+//   as an actual Google Calendar attendee (true shared event).
+const SCOPE = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/userinfo.email";
 const USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo";
 const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 

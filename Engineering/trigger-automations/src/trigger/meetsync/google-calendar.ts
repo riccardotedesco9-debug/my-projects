@@ -97,53 +97,117 @@ export async function listCalendarEventsInWindow(
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
   }
 
+  // Fan out across every calendar the user sees in their calendarList —
+  // primary PLUS secondary calendars like "Personal", "Health", shared
+  // family calendars, subscribed calendars. Many users put therapy /
+  // medical / workout slots on a separate calendar, and those were
+  // invisible when we queried only `primary`.
+  const calendarIds = await listUserCalendarIds(accessToken);
   const timeMin = `${startDateISO}T00:00:00`;
   const timeMax = `${endDateISO}T23:59:59`;
-  const url =
-    `${CALENDAR_API}/calendars/primary/events?` +
-    `singleEvents=true&orderBy=startTime&` +
-    `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
-    `timeZone=${encodeURIComponent(timezone)}`;
-  let response: Response;
-  try {
-    response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-  } catch {
-    return [];
-  }
-  if (!response.ok) return [];
-  const data = (await response.json()) as {
-    items?: Array<{
-      summary?: string;
-      status?: string;
-      start?: { dateTime?: string; date?: string };
-      end?: { dateTime?: string; date?: string };
-    }>;
-  };
   const out: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
-  for (const e of data.items ?? []) {
-    if (e.status === "cancelled") continue;
-    const startDT = e.start?.dateTime;
-    const endDT = e.end?.dateTime;
-    // Skip all-day events (only have `date`) — we don't have a clean way
-    // to represent "blocked this whole day at a specific timezone" without
-    // more plumbing, and most such events are travel/holiday rather than
-    // hard-busy for scheduling.
-    if (!startDT || !endDT) continue;
-    const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
-    const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
-    if (!sMatch || !eMatch) continue;
-    // Use the start date; if the event crosses midnight we still only
-    // block from start to end-of-day-start-date. Multi-day events are
-    // rare for social meetups and the cost of under-blocking them is
-    // smaller than the cost of over-blocking.
-    out.push({
-      date: sMatch[1],
-      start_time: `${sMatch[2]}:${sMatch[3]}`,
-      end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
-      label: `calendar: ${e.summary?.slice(0, 40) ?? "busy"}`,
-    });
+
+  for (const calId of calendarIds) {
+    const url =
+      `${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?` +
+      `singleEvents=true&orderBy=startTime&` +
+      `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
+      `timeZone=${encodeURIComponent(timezone)}`;
+    let response: Response;
+    try {
+      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    } catch {
+      continue;
+    }
+    if (!response.ok) continue;
+    const data = (await response.json()) as {
+      items?: Array<{
+        summary?: string;
+        status?: string;
+        transparency?: string; // "transparent" = "free", "opaque" (default) = "busy"
+        start?: { dateTime?: string; date?: string };
+        end?: { dateTime?: string; date?: string };
+        attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+      }>;
+    };
+    for (const e of data.items ?? []) {
+      if (e.status === "cancelled") continue;
+      // Respect Google's "show as free" transparency flag — matches what
+      // other clients do; don't block time the user explicitly marked free.
+      if (e.transparency === "transparent") continue;
+      // Skip events the user declined — the event exists on their calendar
+      // but they've said no, so it shouldn't count as busy.
+      const selfAttendee = e.attendees?.find((a) => a.self === true);
+      if (selfAttendee?.responseStatus === "declined") continue;
+
+      const label = `calendar: ${e.summary?.slice(0, 40) ?? "busy"}`;
+
+      // Timed event (standard meeting).
+      const startDT = e.start?.dateTime;
+      const endDT = e.end?.dateTime;
+      if (startDT && endDT) {
+        const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+        const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+        if (!sMatch || !eMatch) continue;
+        out.push({
+          date: sMatch[1],
+          start_time: `${sMatch[2]}:${sMatch[3]}`,
+          end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
+          label,
+        });
+        continue;
+      }
+
+      // All-day event (vacation, conference day, holiday). Google encodes
+      // start.date = first busy day, end.date = day AFTER last busy day
+      // (RFC5545 exclusive-end). Emit one 00:00–23:59 block per day in
+      // that range. Cap at 14 days to bound the output for long vacations.
+      const startDate = e.start?.date;
+      const endDate = e.end?.date;
+      if (startDate && endDate) {
+        const MAX_DAYS = 14;
+        for (let i = 0, cursor = startDate; cursor < endDate && i < MAX_DAYS; i++) {
+          out.push({
+            date: cursor,
+            start_time: "00:00",
+            end_time: "23:59",
+            label: `all-day ${label}`,
+          });
+          const d = new Date(cursor + "T12:00:00Z");
+          d.setUTCDate(d.getUTCDate() + 1);
+          cursor = d.toISOString().slice(0, 10);
+        }
+      }
+    }
   }
   return out;
+}
+
+/**
+ * Fetch the IDs of every calendar the user sees in their calendarList,
+ * with `selected: true` (i.e. visible in the user's own Calendar UI) and
+ * a readable access role. Falls back to just ["primary"] on any failure.
+ *
+ * We deliberately read every selected calendar — if the user has it
+ * visible in their own Calendar, they care about it. A "Work" calendar
+ * with meetings must block scheduling the same way a "Personal" one does.
+ */
+async function listUserCalendarIds(accessToken: string): Promise<string[]> {
+  try {
+    const r = await fetch(`${CALENDAR_API}/users/me/calendarList?minAccessRole=reader`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!r.ok) return ["primary"];
+    const data = (await r.json()) as {
+      items?: Array<{ id: string; selected?: boolean; primary?: boolean }>;
+    };
+    const ids = (data.items ?? [])
+      .filter((c) => c.primary === true || c.selected !== false)
+      .map((c) => c.id);
+    return ids.length > 0 ? ids : ["primary"];
+  } catch {
+    return ["primary"];
+  }
 }
 
 async function refreshAccessToken(
