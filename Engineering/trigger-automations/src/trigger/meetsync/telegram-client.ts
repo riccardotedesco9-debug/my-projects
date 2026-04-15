@@ -37,12 +37,6 @@ export interface InlineKeyboard {
  * every additional variant is one more callback_data string the router
  * needs to recognize.
  */
-export const yesNoKeyboard = (): InlineKeyboard => ({
-  inline_keyboard: [[
-    { text: "✓ Yes", callback_data: "confirm_schedule" },
-    { text: "✗ No", callback_data: "reject_schedule" },
-  ]],
-});
 
 /**
  * Send a plain text message to a Telegram chat.

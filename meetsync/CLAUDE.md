@@ -1,103 +1,94 @@
 # MeetSync — Telegram Scheduling Bot
 
-Telegram chatbot that acts as a shared personal assistant — helps two people find overlapping free time. Central hub model: the bot knows everyone who's messaged it, learns about them over time, and mediates scheduling conversations.
+Conversational Telegram bot that helps people find time to meet. **Shared-hub model**: every user is a node in one global graph, each user has a private contacts list, schedules live on the user, Google Calendar is the source of truth for actual bookings.
 
 ## Architecture
 
-- **Interface**: Telegram Bot API (shared bot, one token)
-- **Webhook Gateway**: Cloudflare Worker (`worker/`)
-- **Processing**: Trigger.dev v4 tasks (`Engineering/trigger-automations/src/trigger/meetsync/`)
+- **Interface**: Telegram Bot API (single bot, one token)
+- **Webhook gateway**: Cloudflare Worker (`worker/`)
+- **Processing**: Trigger.dev v4 task per turn (`Engineering/trigger-automations/src/trigger/meetsync/`)
 - **Database**: Cloudflare D1 (SQLite)
-- **AI**: Claude Haiku (intent classification + response generation), Claude Sonnet (schedule parsing/vision)
+- **AI**: Claude Sonnet for the agentic turn handler; Claude Sonnet for schedule parsing/vision
+- **Calendar**: Google OAuth per user (read primary calendar, write events with attendees)
 
 ## Project Layout
 
 ```
 meetsync/
-├── worker/          — Cloudflare Worker (webhook gateway + admin commands + rate limiting)
-├── migrations/      — D1 SQL migrations (0001-0010)
+├── worker/          — Cloudflare Worker: webhook gateway, /connect OAuth, dashboard
+├── migrations/      — D1 SQL migrations (0010 → 0021)
 ├── shared/          — Types shared between Worker and Trigger.dev
+├── tools/           — Synthetic webhook test scripts
 └── CLAUDE.md        — This file
+
+Engineering/trigger-automations/src/trigger/meetsync/
+├── turn-handler.ts          — Main entry: loadSnapshot → enrich → Claude → tools → reply
+├── turn-handler-tools.ts    — 15 tool definitions Claude can call
+├── turn-handler-snapshot.ts — Renders [STATE] block from Snapshot
+├── d1-client.ts             — D1 HTTP API client + all DB helpers
+├── google-calendar.ts       — OAuth refresh, event read/write/delete, calendar fan-out
+├── telegram-client.ts       — Telegram Bot API client
+├── schedule-parser.ts       — Claude-assisted schedule extraction
+├── match-compute.ts         — Pure overlap computation
+├── fire-reminders.ts        — Cron task (every minute)
+└── nudge-stale-schedules.ts — Cron task (daily 09:00 UTC)
 ```
 
-Trigger.dev tasks live in: `Engineering/trigger-automations/src/trigger/meetsync/`
+## Tools the agentic turn-handler exposes (15)
 
-## Available MCP Integrations (use these instead of building custom code)
-
-Before writing any HTTP call, log scraper, or ad-hoc script, check whether one of these covers it. The parent workspace already registers all of them.
-
-| MCP | When to use it on MeetSync |
+| Tool | Purpose |
 |---|---|
-| **Cloudflare** (`mcp__cloudflare__*`) | Query D1 directly for debugging (`SELECT * FROM sessions WHERE...`), inspect Worker logs, list secrets, check KV/R2 if we ever add them. Faster than `wrangler d1 execute` for one-off reads. |
-| **Trigger.dev** (`mcp__trigger__*`) | Deploy tasks (`mcp__trigger__deploy`), fire test runs (`mcp__trigger__trigger_task`), tail run logs (`mcp__trigger__get_run_details`), list recent runs. Use instead of `npx trigger.dev@latest dev` loops when investigating a specific run. |
-| **Google Calendar** (`mcp__claude_ai_Google_Calendar__*`) | Manually verify `/connect` worked — list events on Riccardo's calendar to confirm `deliver-results.ts` actually created the event after a match. This uses Claude's OWN Google OAuth (Anthropic-managed), NOT the bot's per-user OAuth, so it only proves events landed on Riccardo's account. |
-| **Gmail** (`mcp__claude_ai_Gmail__*`) | Check for Google OAuth security notifications after adding test users to the OAuth consent screen. Verify consent emails arrived. |
-| **Slack** (`mcp__claude_ai_Slack__*`) | Not used by the bot itself. Available if we ever want an admin alert channel instead of DMing `ADMIN_CHAT_ID` on Telegram. |
+| `parse_schedule` | Save the caller's own schedule, or an on-behalf one |
+| `add_contact` | Link a contact by name+phone (shadow-tracks unmatched phones) |
+| `forget_contact` | Hard-delete a person_note |
+| `set_person_hidden` | Soft-hide a contact from overlap |
+| `compute_overlap` | Find free time across caller + non-hidden contacts (reads live calendars) |
+| `book_meetup` | Create one Google Calendar event with attendees + busy-block memory |
+| `cancel_meetup` | Two-stage delete from caller's calendar (preview → confirm) |
+| `upsert_knowledge` | Update caller profile (target='user') or freeform fact about contact (target='person') |
+| `schedule_reminder` | One-shot or recurring (daily/weekly/monthly) ping |
+| `list_reminders` / `cancel_reminder` | Manage active reminders |
+| `relay_message` | Ghostwrite a message from caller to a contact (confirmation-gated) |
+| `watch_schedule_upload` | Auto-ping caller when a contact next uploads a schedule |
+| `reset_conversation` | Clear chat history; contacts and schedules survive |
+| `reply` | Terminal — send the user's reply (text + optional buttons) |
 
-## Recommended Skills (activate when relevant)
-
-- **`/debug`** — when a Trigger.dev run fails, a scenario test breaks, or D1 state looks wrong. Handles the "read logs → form hypothesis → reproduce → fix" loop.
-- **`/fix`** — for surgical bug fixes (e.g. a specific state handler is too prescriptive). Forces root-cause analysis before edits.
-- **`/test`** — regression-run the 5 synthetic scenarios in `tools/test-scenarios/` against a fresh deploy. Required after any router/state-handler change.
-- **`/scout`** — when opening the codebase for the first time in a session, to map which file owns which concern (message-router vs state-handlers vs session-orchestrator).
-- **`/plan`** — before adding any feature touching 2+ modules (e.g. the calendar OAuth flow that spanned Worker + Trigger.dev + D1 schema). Use `/plan --fast` for features under ~200 lines.
-- **`/code-review`** — after any change to rate-limiting, OAuth, admin commands, or D1 schema. These are the high-blast-radius areas.
-- **`/docs-seeker`** — when touching Telegram Bot API, Trigger.dev v4 SDK, Cloudflare Workers runtime APIs, or Google OAuth 2.0 semantics. Don't guess at parameter shapes — look them up.
-- **`/journal`** — after a hardening round. Captures what broke, why, and how it was fixed so round-N+1 doesn't repeat round-N's mistakes.
-- **`/watzup`** — end-of-session wrap-up. Summarize what changed, what's deployed, what's pending.
-
-Engineering-local skills also inherited in this subdirectory: `backend-development`, `databases`, `devops`, `web-testing`, `mcp-builder`, `payment-integration`, `better-auth`. Available if a future feature needs them.
-
-## Key Features
-
-- **Central hub model** — no session codes. Users say who they want to schedule with by name
-- **Per-user knowledge base** — `users` table stores chat_id, name, language, accumulated context (facts learned from conversations)
-- **Deep link invites** — bot generates `t.me/bot?start=invite_XYZ` links for users to share with partners
-- **Mediator mode** — bot can share creator's availability directly with partner who just picks a slot
-- **Conversational AI** — natural language in all states, answers questions then redirects
-- **Voice transcription** — audio messages transcribed via Cloudflare Workers AI (Whisper)
-- **Admin controls** — block/unblock users via Telegram (admin chat_id only)
-- **Rate limiting** — escalating cooldowns (5min → 30min → 2h → 24h) with admin notifications
-- **Google Calendar auto-add** — `/connect` command triggers Worker-side OAuth flow (see `worker/src/google-oauth.ts`); after a match, `deliver-results.ts` silently adds the event to each connected participant's primary calendar. Falls back gracefully to the `.ics` attachment for users who haven't connected.
-
-## Database Tables
+## Database tables (current)
 
 | Table | Purpose |
 |---|---|
-| `users` | Knowledge base — chat_id, phone (optional), username, name, language, context, timestamps |
-| `sessions` | Session lifecycle — creator, partner, status, mode, expiry |
-| `participants` | Per-person state within a session |
-| `partners` | Recurring pair tracking (auto-pair on return) |
-| `pending_invites` | Async pairing for unknown partners (deep link based) |
-| `free_slots` | Computed free time slots |
-| `google_tokens` | Per-user Google Calendar OAuth tokens |
-| `rate_limits` | Message throttling (sliding window) |
-| `rate_strikes` | Escalating cooldown tracking |
-| `blocked_users` | Admin blocklist |
+| `users` | Global directory + canonical schedule (`latest_schedule_json`) + email + timezone |
+| `person_notes` | Per-owner contact list with optional `linked_chat_id` and `hidden` flag |
+| `google_tokens` | Per-user OAuth tokens for Google Calendar |
+| `reminders` | Scheduled notifications (one-shot or recurring) |
+| `user_schedule_watches` | One-shot "ping me when X uploads" watches |
 | `conversation_log` | Recent message history per user |
+| `rate_limits` / `rate_strikes` / `blocked_users` | Anti-abuse |
+| `session_events` | Append-only telemetry (still written, vestigial otherwise) |
 
-## Environment Variables
+**Dropped in migration 0020:** `sessions`, `participants`, `pending_invites`, `free_slots`. The shared-hub refactor moved schedules onto `users` and contacts into `person_notes`; sessions had no remaining role.
+
+## Available MCP integrations
+
+| MCP | Use on MeetSync |
+|---|---|
+| **Cloudflare** | Query D1 for debugging (`SELECT * FROM users WHERE...`), list Worker secrets, tail Worker logs |
+| **Trigger.dev** | Deploy, fire test runs, read run logs and errors |
+| **Google Calendar** | Manually verify `/connect` worked using Claude's own OAuth |
+
+## Environment variables
 
 ### Worker (Cloudflare secrets)
-- `TELEGRAM_BOT_TOKEN` — Bot token from @BotFather
-- `TELEGRAM_WEBHOOK_SECRET` — Random string for webhook validation (also HMAC key for `/connect` signed state)
-- `ADMIN_CHAT_ID` — Admin Telegram chat ID (for block/unblock commands)
-- `ANTHROPIC_API_KEY` — For admin intent classification
-- `TRIGGERDEV_API_KEY` — Trigger.dev production API key
-- `TRIGGERDEV_API_URL` — Trigger.dev API base URL
-- `GOOGLE_CLIENT_ID` — Google OAuth 2.0 client ID (for `/connect` calendar flow)
-- `GOOGLE_CLIENT_SECRET` — Google OAuth 2.0 client secret
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ADMIN_CHAT_ID`
+- `ANTHROPIC_API_KEY` (for admin intent classification)
+- `TRIGGERDEV_API_KEY`, `TRIGGERDEV_API_URL` (forward turns to Trigger.dev)
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for `/connect` OAuth)
 
 ### Trigger.dev (dashboard env vars)
-- `TELEGRAM_BOT_TOKEN` — For sending replies
-- `TELEGRAM_BOT_USERNAME` — For deep link generation (e.g., MeetSyncBot)
-- `ANTHROPIC_API_KEY` — Claude API for intent/response/parsing
-- `CLOUDFLARE_ACCOUNT_ID` — For D1 HTTP API access
-- `CLOUDFLARE_API_TOKEN` — For D1 HTTP API access
-- `CLOUDFLARE_D1_DATABASE_ID` — D1 database ID
-- `MEETSYNC_USE_AI_RESPONSES` — Set to "false" to disable AI responses (kill switch)
-- `GOOGLE_CLIENT_ID` — Same value as Worker secret; needed here so `google-calendar.ts::refreshAccessToken()` can refresh expired tokens
-- `GOOGLE_CLIENT_SECRET` — Same value as Worker secret; same refresh-path reason
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`
+- `ANTHROPIC_API_KEY` (Claude turn handler + schedule parser)
+- `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_D1_DATABASE_ID`
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (for token refresh — fetch fails silently if missing)
 
 ## Commands
 
@@ -105,32 +96,43 @@ Engineering-local skills also inherited in this subdirectory: `backend-developme
 # Deploy Worker
 cd worker && npx wrangler deploy
 
-# Run D1 migration (Telegram schema)
-cd worker && npx wrangler d1 execute meetsync-db --remote --file=../migrations/0010-telegram-migration.sql
+# Run a D1 migration (latest is 0021)
+cd worker && npx wrangler d1 execute meetsync-db --remote --file=../migrations/0021-user-email-last-nudge.sql
 
-# Register Telegram webhook (one-time after deploy)
+# Register Telegram webhook (one-time)
 curl -X POST "https://api.telegram.org/bot{TOKEN}/setWebhook" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://meetsync-worker.{subdomain}.workers.dev/webhook","secret_token":"{SECRET}","allowed_updates":["message"]}'
 
-# Deploy Trigger.dev (MUST copy to space-free path first)
+# Deploy Trigger.dev (workaround for spaces in path)
 rm -rf /c/tmp/trigger-deploy && mkdir -p /c/tmp/trigger-deploy
 cp -r ../Engineering/trigger-automations/* /c/tmp/trigger-deploy/
 cp -r ../Engineering/trigger-automations/.* /c/tmp/trigger-deploy/ 2>/dev/null
 cp -r shared /c/tmp/trigger-deploy/shared
-cd /c/tmp/trigger-deploy && npx trigger.dev@latest deploy
+cd /c/tmp/trigger-deploy && npx trigger.dev@4.4.3 deploy
 
-# Reset D1 data (careful — wipes everything)
-cd worker && npx wrangler d1 execute meetsync-db --remote --command="DELETE FROM participants; DELETE FROM sessions; DELETE FROM partners; DELETE FROM free_slots; DELETE FROM rate_limits; DELETE FROM rate_strikes; DELETE FROM pending_invites; DELETE FROM users; DELETE FROM conversation_log; DELETE FROM blocked_users;"
+# Full reset (wipes all user state, schema stays)
+cd worker && npx wrangler d1 execute meetsync-db --remote --command="DELETE FROM conversation_log; DELETE FROM person_notes; DELETE FROM reminders; DELETE FROM user_schedule_watches; DELETE FROM rate_limits; DELETE FROM rate_strikes; DELETE FROM session_events; DELETE FROM google_tokens; DELETE FROM users;"
 ```
 
-## Deploy Note
+## Deploy notes
 
-Trigger.dev deploy fails if the path contains spaces ("My Projects"). Always copy to `/c/tmp/trigger-deploy/` first. This is a known Docker build limitation.
+- Trigger.dev deploy breaks on paths with spaces (`My Projects`). Always stage to `/c/tmp/trigger-deploy/` first.
+- Pin the Trigger CLI version (`@4.4.3`) — newer/older mismatches with `@trigger.dev/sdk` cause a hard refusal in CI mode.
+- After updating Google secrets, users must re-`/connect` (their refresh tokens stop working).
 
-## Telegram-specific Notes
+## Recommended skills
 
-- **No templates**: Unlike WhatsApp, Telegram has no template system or 24h messaging window. Bot can message any user who has `/start`ed it at any time.
-- **Deep links**: Partners who haven't used the bot receive an invite link (`t.me/bot?start=invite_XYZ`) from the inviter. Clicking it auto-pairs them.
-- **Contact sharing**: Users can share their phone number via Telegram's contact button. This is optional but enables partner lookup by phone.
-- **Webhook verification**: Telegram uses a `secret_token` header instead of HMAC-SHA256. Set via `setWebhook` call.
+- **`/debug`** — when a Trigger.dev run fails, D1 state looks wrong, or Claude misfires
+- **`/fix`** — surgical bug fixes; forces root-cause analysis
+- **`/plan`** — before any feature crossing 2+ modules; `/plan --fast` for small ones
+- **`/code-review`** — after touching OAuth, calendar code, or D1 schema
+- **`/docs-seeker`** — when working with Telegram, Trigger.dev SDK, Cloudflare, or Google APIs
+
+## Key invariants
+
+- **Schedules live on `users`, not on a session.** A user has one canonical schedule, overwritten on each upload.
+- **Visibility is per-caller.** Each user has their own `person_notes`. Snapshot enriches each linked contact with their live `latest_schedule_json` + Google Calendar events.
+- **Calendar is the source of truth post-booking.** `book_meetup` creates events with attendees; the bot's job is over after that.
+- **Privacy is one-way.** Caller sees their own events in full; sensitive events of others are abstracted by Claude when describing them across people.
+- **Shadow-graph onboarding.** `add_contact` saves name+phone silently. When that phone joins the bot, the link auto-resolves and notifies the owner.

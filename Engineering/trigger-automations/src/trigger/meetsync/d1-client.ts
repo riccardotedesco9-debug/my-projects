@@ -618,19 +618,6 @@ export async function findUserByPhone(phone: string): Promise<UserProfile | null
   return result.results[0] ?? null;
 }
 
-/**
- * Look up a user's timezone (IANA string, e.g. "Europe/Rome"), falling
- * back to Europe/Malta when the user row is missing or the column is
- * null. Used by schedule-parser (weekday-lookup "today" computation)
- * and deliver-results (.ics + Google Calendar timezone fields) so
- * non-Malta users don't get dates drifted by 1+ hours.
- */
-export async function getUserTimezone(chatId: string): Promise<string> {
-  const user = await getUser(chatId);
-  return user?.timezone ?? "Europe/Malta";
-}
-
-
 // --- Conversation log helpers ---
 
 /**
