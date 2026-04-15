@@ -90,9 +90,21 @@ export async function listCalendarEventsInWindow(
   if (!token) return [];
 
   let accessToken = token.access_token;
-  if (new Date(token.expires_at) <= new Date()) {
+  // Refresh proactively if within 60s of expiry — avoids races where the
+  // call starts valid but the response check sees an expired token.
+  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
+  if (expiresInMs <= 60_000) {
     const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant" || !refreshed) return [];
+    if (refreshed === "invalid_grant" || !refreshed) {
+      console.warn(
+        `[google-calendar] token refresh failed for chat=${chatId} (` +
+          (refreshed === "invalid_grant"
+            ? "invalid_grant — user revoked or grant expired; ask them to /connect again"
+            : "null — likely missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in Trigger.dev env vars") +
+          ")",
+      );
+      return [];
+    }
     accessToken = refreshed.access_token;
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
   }
