@@ -498,6 +498,47 @@ export async function updateUserLatestSchedule(chatId: string, scheduleJson: str
 }
 
 /**
+ * Remove any busy block matching (date, exact label) from a user's
+ * latest_schedule_json. Used by cancel_meetup so the in-memory schedule
+ * tracks the cancellation. Silently no-ops if no schedule or no match.
+ */
+export async function removeBusyBlockFromUser(
+  chatId: string,
+  date: string,
+  labelMatch: string,
+): Promise<number> {
+  const user = await getUser(chatId);
+  if (!user?.latest_schedule_json) return 0;
+  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+  try {
+    const parsed = JSON.parse(user.latest_schedule_json);
+    if (Array.isArray(parsed)) shifts = parsed;
+  } catch {
+    return 0;
+  }
+  const before = shifts.length;
+  shifts = shifts.filter((s) => !(s.date === date && (s.label ?? "") === labelMatch));
+  const removed = before - shifts.length;
+  if (removed > 0) {
+    await updateUserLatestSchedule(chatId, JSON.stringify(shifts));
+  }
+  return removed;
+}
+
+/** Reverse-lookup chat_ids by email — cancel_meetup uses this to clear
+ *  busy blocks on the bot side for each attendee whose email we've captured.
+ *  Returns chat_ids of users whose email matches any of the provided list. */
+export async function findChatIdsByEmails(emails: string[]): Promise<string[]> {
+  if (emails.length === 0) return [];
+  const placeholders = emails.map(() => "?").join(",");
+  const result = await query<{ chat_id: string }>(
+    `SELECT chat_id FROM users WHERE email IN (${placeholders})`,
+    emails,
+  );
+  return result.results.map((r) => r.chat_id);
+}
+
+/**
  * Append a single busy block to a user's latest_schedule_json. Used by
  * book_meetup so a booked event becomes part of the user's "memory schedule"
  * — future overlap compute will see the slot as busy and won't suggest it

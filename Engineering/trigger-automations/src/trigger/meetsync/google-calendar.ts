@@ -230,6 +230,108 @@ async function listUserCalendarIds(accessToken: string): Promise<string[]> {
   }
 }
 
+/**
+ * Find events on the caller's PRIMARY calendar for a given date, with an
+ * optional substring title filter. Returns id + display fields so a caller
+ * can pick from a list and a follow-up tool call can delete the right one.
+ * Primary-only by design: book_meetup only creates on primary, so cancel
+ * stays scoped there. Secondary-calendar events should be cancelled in
+ * the user's Calendar UI directly.
+ */
+export async function findCalendarEventsOnDate(
+  chatId: string,
+  date: string, // YYYY-MM-DD
+  titleHint: string,
+): Promise<Array<{ id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> {
+  const token = await getGoogleToken(chatId);
+  if (!token) return [];
+  let accessToken = token.access_token;
+  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
+  if (expiresInMs <= 60_000) {
+    const refreshed = await refreshAccessToken(token.refresh_token);
+    if (refreshed === "invalid_grant" || !refreshed) return [];
+    accessToken = refreshed.access_token;
+    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
+  }
+  const qs = new URLSearchParams({
+    singleEvents: "true",
+    orderBy: "startTime",
+    timeMin: `${date}T00:00:00Z`,
+    timeMax: `${date}T23:59:59Z`,
+  }).toString();
+  let response: Response;
+  try {
+    response = await fetch(`${CALENDAR_API}/calendars/primary/events?${qs}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  const data = (await response.json()) as {
+    items?: Array<{
+      id: string;
+      summary?: string;
+      status?: string;
+      start?: { dateTime?: string };
+      end?: { dateTime?: string };
+      attendees?: Array<{ email: string; self?: boolean; responseStatus?: string }>;
+    }>;
+  };
+  const hint = titleHint.trim().toLowerCase();
+  const out: Array<{ id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }> = [];
+  for (const e of data.items ?? []) {
+    if (e.status === "cancelled") continue;
+    const summary = e.summary ?? "(no title)";
+    if (hint && !summary.toLowerCase().includes(hint)) continue;
+    const sMatch = e.start?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
+    const eMatch = e.end?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
+    if (!sMatch || !eMatch) continue;
+    out.push({
+      id: e.id,
+      summary,
+      start_time: `${sMatch[1]}:${sMatch[2]}`,
+      end_time: `${eMatch[1]}:${eMatch[2]}`,
+      attendee_emails: (e.attendees ?? []).filter((a) => !a.self).map((a) => a.email),
+    });
+  }
+  return out;
+}
+
+/**
+ * Delete an event from the caller's PRIMARY calendar. sendUpdates=all so
+ * Google notifies any attendees of the cancellation. Returns true on
+ * success, "not_found" if the event doesn't exist (already deleted, or
+ * wrong id), false on other failures.
+ */
+export async function deleteCalendarEvent(
+  chatId: string,
+  eventId: string,
+): Promise<boolean | "not_found"> {
+  const token = await getGoogleToken(chatId);
+  if (!token) return false;
+  let accessToken = token.access_token;
+  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
+  if (expiresInMs <= 60_000) {
+    const refreshed = await refreshAccessToken(token.refresh_token);
+    if (refreshed === "invalid_grant" || !refreshed) return false;
+    accessToken = refreshed.access_token;
+    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
+  }
+  const url = `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+  } catch {
+    return false;
+  }
+  if (response.status === 404 || response.status === 410) return "not_found";
+  return response.ok || response.status === 204;
+}
+
 async function refreshAccessToken(
   refreshToken: string
 ): Promise<{ access_token: string; expires_at: string } | "invalid_grant" | null> {

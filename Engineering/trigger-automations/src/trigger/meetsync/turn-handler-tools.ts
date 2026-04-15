@@ -32,6 +32,8 @@ import {
   getLatestScheduleForUser,
   updateUserLatestSchedule,
   appendBusyBlockToUser,
+  removeBusyBlockFromUser,
+  findChatIdsByEmails,
   createScheduleWatch,
   listWatchesForTarget,
   deleteScheduleWatch,
@@ -57,7 +59,12 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
-import { createCalendarEvent, listCalendarEventsInWindow } from "./google-calendar.js";
+import {
+  createCalendarEvent,
+  listCalendarEventsInWindow,
+  findCalendarEventsOnDate,
+  deleteCalendarEvent,
+} from "./google-calendar.js";
 
 // --- Types ---
 
@@ -1476,6 +1483,103 @@ const bookMeetupTool: ToolDefinition = {
   },
 };
 
+// --- Tool 15: cancel_meetup ---
+
+const cancelMeetupTool: ToolDefinition = {
+  name: "cancel_meetup",
+  description:
+    "Cancel a previously-booked meetup on the caller's primary calendar. Two-stage flow: call once with date+optional title_hint to LIST candidates (returns events[]); then call again with event_id+confirmed=true to actually delete. The destructive call sends Google cancellation invites to attendees automatically AND clears the busy block from each attendee's bot-side schedule memory (when their email is known). Single-instance only — for recurring series, the caller should cancel from Google Calendar's UI to choose 'this event' vs 'this and following' vs 'all'. Past events: allowed (cleanup). Secondary calendars: not supported (book_meetup only creates on primary).",
+  input_schema: {
+    type: "object",
+    required: ["date"],
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD of the meetup to cancel, in caller's timezone." },
+      title_hint: { type: "string", description: "Optional case-insensitive substring to filter events by title (e.g. 'football' to skip the dentist appt that's also that day)." },
+      event_id: { type: "string", description: "Google Calendar event id, from a previous list call. Required when confirmed=true and there were multiple candidates." },
+      confirmed: { type: "boolean", description: "Set true ONLY after showing the caller exactly which event you're about to cancel and getting their explicit yes. Without this, the tool returns a preview/list and DOES NOT delete." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const date = typeof input.date === "string" ? input.date.trim() : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "date must be YYYY-MM-DD." };
+    const titleHint = typeof input.title_hint === "string" ? input.title_hint.trim() : "";
+    const eventId = typeof input.event_id === "string" ? input.event_id.trim() : "";
+    const confirmed = input.confirmed === true;
+
+    // Always list candidates first — even with event_id we re-fetch to be
+    // sure it's still on the calendar and to get its attendees for cleanup.
+    const candidates = await findCalendarEventsOnDate(ctx.callerChatId, date, titleHint);
+    if (candidates.length === 0) {
+      return { error: "not_found", message: `No events on ${date}${titleHint ? ` matching '${titleHint}'` : ""} on the caller's primary calendar.` };
+    }
+
+    // Preview-only call (or ambiguous + no pick).
+    if (!confirmed || (candidates.length > 1 && !eventId)) {
+      return {
+        preview: true,
+        date,
+        candidates: candidates.map((c) => ({
+          event_id: c.id,
+          summary: c.summary,
+          start_time: c.start_time,
+          end_time: c.end_time,
+          attendees: c.attendee_emails.length,
+        })),
+        notes:
+          candidates.length > 1
+            ? "Multiple events match — show the caller, ask which one to cancel, then call again with event_id + confirmed=true."
+            : "Show the caller this event and ask 'cancel it?' before calling again with confirmed=true.",
+      };
+    }
+
+    // Pick the target. If event_id given, validate it's in the list. If not
+    // given (only possible when there's exactly 1 candidate), use that.
+    const target = eventId
+      ? candidates.find((c) => c.id === eventId)
+      : candidates[0];
+    if (!target) {
+      return {
+        error: "stale_event_id",
+        message: `event_id ${eventId} no longer matches any event on ${date}. The event may have been deleted or changed; re-list candidates.`,
+      };
+    }
+
+    // Hard delete.
+    const result = await deleteCalendarEvent(ctx.callerChatId, target.id);
+    if (result === "not_found") {
+      return { error: "already_deleted", message: "Event was already deleted on Google's side. Nothing to do." };
+    }
+    if (result !== true) {
+      return { error: "delete_failed", message: "Google rejected the delete. Try again or remove from Calendar UI." };
+    }
+
+    // Clean up bot-side busy blocks. The label format from book_meetup is
+    // "meetup: {title}" — match that on the caller's row plus every
+    // attendee's row whose email we have on file.
+    const labelMatch = `meetup: ${target.summary}`;
+    let cleared = 0;
+    cleared += await removeBusyBlockFromUser(ctx.callerChatId, date, labelMatch);
+    if (target.attendee_emails.length > 0) {
+      const attendeeChatIds = await findChatIdsByEmails(target.attendee_emails);
+      for (const cid of attendeeChatIds) {
+        cleared += await removeBusyBlockFromUser(cid, date, labelMatch);
+      }
+    }
+    // Sync caller's in-turn snapshot.
+    if (cleared > 0) {
+      const updated = await getLatestScheduleForUser(ctx.callerChatId);
+      ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: updated };
+    }
+
+    return {
+      ok: true,
+      cancelled: { event_id: target.id, summary: target.summary, date, start_time: target.start_time, end_time: target.end_time },
+      attendees_notified: target.attendee_emails.length,
+      busy_blocks_cleared: cleared,
+    };
+  },
+};
+
 // --- Dispatcher ---
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
@@ -1492,6 +1596,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   relayMessageTool,
   watchScheduleUploadTool,
   bookMeetupTool,
+  cancelMeetupTool,
   replyTool,
 ];
 
