@@ -134,9 +134,12 @@ export async function listCalendarEventsInWindow(
     };
     for (const e of data.items ?? []) {
       if (e.status === "cancelled") continue;
-      // Respect Google's "show as free" transparency flag — matches what
-      // other clients do; don't block time the user explicitly marked free.
-      if (e.transparency === "transparent") continue;
+      // Previously filtered transparency==="transparent", but Gmail auto-
+      // extracted events (eventType: fromGmail — therapy bookings, flights,
+      // dinner reservations) default to transparent even though they're
+      // real commitments. Removing the filter: anything on the calendar
+      // is treated as busy. If the user wants something to not block
+      // scheduling, they can delete it.
       // Skip events the user declined — the event exists on their calendar
       // but they've said no, so it shouldn't count as busy.
       const selfAttendee = e.attendees?.find((a) => a.self === true);
