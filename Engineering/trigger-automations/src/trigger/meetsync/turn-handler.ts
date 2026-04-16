@@ -39,7 +39,7 @@ import {
   sendTextMessage,
   type InlineKeyboard,
 } from "./telegram-client.js";
-import { mapMimeType, arrayBufferToBase64 } from "./schedule-parser.js";
+import { classifyMime, mapMimeType, arrayBufferToBase64, bufferToText, spreadsheetToText } from "./schedule-parser.js";
 import { formatSnapshot, todayInTimezone } from "./turn-handler-snapshot.js";
 import { listCalendarEventsInWindow } from "./google-calendar.js";
 import type { Snapshot } from "./d1-client.js";
@@ -515,12 +515,27 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
       }
     }
 
-    // 4. Image / document → download once, cache as base64
+    // 4. Image / document → download and classify by mime type
     if ((payload.message_type === "image" || payload.message_type === "document") && payload.media_id) {
       try {
         const { buffer } = await downloadMedia(payload.media_id);
-        const mediaType = mapMimeType(payload.mime_type ?? "image/jpeg");
-        mediaCache = { base64: arrayBufferToBase64(buffer), mediaType };
+        const mime = payload.mime_type ?? "image/jpeg";
+        const category = classifyMime(mime);
+        switch (category) {
+          case "vision": {
+            const mediaType = mapMimeType(mime);
+            mediaCache = { base64: arrayBufferToBase64(buffer), mediaType };
+            break;
+          }
+          case "text":
+            currentText = (currentText ? currentText + "\n\n" : "") + bufferToText(buffer);
+            break;
+          case "spreadsheet":
+            currentText = (currentText ? currentText + "\n\n" : "") + spreadsheetToText(buffer);
+            break;
+          case "unsupported":
+            throw new Error(`UNSUPPORTED_DOCUMENT: ${mime}`);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.startsWith("UNSUPPORTED_")) {

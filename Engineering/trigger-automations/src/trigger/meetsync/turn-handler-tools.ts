@@ -49,8 +49,11 @@ import {
 } from "./d1-client.js";
 import {
   extractSchedule,
+  classifyMime,
   mapMimeType,
   arrayBufferToBase64,
+  bufferToText,
+  spreadsheetToText,
   type ExtractScheduleResult,
 } from "./schedule-parser.js";
 import {
@@ -327,11 +330,22 @@ const parseScheduleTool: ToolDefinition = {
       //    "I already sent it" reference — Claude reads the file_id from
       //    conversation history and passes it here.
       let resolvedMedia: { base64: string; mediaType: string } | undefined;
+      let resolvedText: string | undefined;
       if (explicitMediaId) {
         try {
           const { buffer, mimeType: detectedMime } = await downloadMedia(explicitMediaId);
-          const mediaType = mapMimeType(explicitMimeType ?? detectedMime ?? "image/jpeg");
-          resolvedMedia = { base64: arrayBufferToBase64(buffer), mediaType };
+          const mime = explicitMimeType ?? detectedMime ?? "image/jpeg";
+          const category = classifyMime(mime);
+          if (category === "vision") {
+            const mediaType = mapMimeType(mime);
+            resolvedMedia = { base64: arrayBufferToBase64(buffer), mediaType };
+          } else if (category === "text") {
+            resolvedText = bufferToText(buffer);
+          } else if (category === "spreadsheet") {
+            resolvedText = spreadsheetToText(buffer);
+          } else {
+            return { ok: false, error: `Unsupported file type: ${mime}. Ask the user to send as image, PDF, CSV, Excel, or plain text.` };
+          }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("audio/") || (explicitMimeType && explicitMimeType.startsWith("audio/"))) {
@@ -355,9 +369,10 @@ const parseScheduleTool: ToolDefinition = {
       }
 
       let result: ExtractScheduleResult;
-      if (textContent) {
+      const effectiveText = textContent || resolvedText;
+      if (effectiveText) {
         result = await extractSchedule({
-          text: textContent,
+          text: effectiveText,
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
           attributedToName: attributedToName || undefined,

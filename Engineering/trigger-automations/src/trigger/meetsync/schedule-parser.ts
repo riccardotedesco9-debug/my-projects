@@ -390,13 +390,26 @@ async function callClaude(
 
 // --- Utils ---
 
+// --- File type classification ---
+
+export type MimeCategory = "vision" | "text" | "spreadsheet" | "unsupported";
+
+export function classifyMime(mime: string): MimeCategory {
+  if (mime.startsWith("image/")) return "vision";
+  if (mime.startsWith("application/pdf")) return "vision";
+  if (
+    mime.includes("csv") ||
+    mime.includes("tab-separated") ||
+    mime === "text/plain" ||
+    mime === "text/html"
+  ) return "text";
+  if (mime.includes("spreadsheetml") || mime.includes("ms-excel")) return "spreadsheet";
+  return "unsupported";
+}
+
 /**
- * Map a Telegram-supplied mime type to what Claude vision accepts.
- * Throws a descriptive error for unsupported types (xlsx, csv, docx, audio,
- * video, etc) so the caller — or the turn-handler's parse_schedule tool —
- * can surface a clear "please screenshot or paste as text" response instead
- * of silently falling through to image/jpeg and producing an opaque Claude
- * vision error downstream.
+ * Map a mime type to a Claude-vision-compatible mime. Only call this for
+ * mimes that classifyMime returned "vision" for.
  */
 export function mapMimeType(mime: string): string {
   if (mime.startsWith("image/jpeg")) return "image/jpeg";
@@ -404,21 +417,23 @@ export function mapMimeType(mime: string): string {
   if (mime.startsWith("image/webp")) return "image/webp";
   if (mime.startsWith("image/gif")) return "image/gif";
   if (mime.startsWith("application/pdf")) return "application/pdf";
-  // Common unsupported document types get a specific error so the caller
-  // can relay a useful message to the user. Everything else gets a generic
-  // "unsupported" error.
-  if (
-    mime.includes("spreadsheetml") ||        // xlsx
-    mime.includes("ms-excel") ||             // xls
-    mime.includes("csv") ||
-    mime.includes("wordprocessingml") ||     // docx
-    mime.includes("msword")                  // doc
-  ) {
-    throw new Error(
-      `UNSUPPORTED_DOCUMENT: ${mime} — ask the user to send a screenshot of the schedule or type the hours as text.`,
-    );
-  }
   throw new Error(`UNSUPPORTED_MEDIA: ${mime} — only JPEG, PNG, WebP, GIF, and PDF are supported.`);
+}
+
+/** Decode a text-based file buffer (CSV, TSV, TXT, HTML) to a string. */
+export function bufferToText(buffer: ArrayBuffer): string {
+  return new TextDecoder("utf-8").decode(new Uint8Array(buffer));
+}
+
+/** Convert an Excel workbook buffer (XLSX/XLS) to CSV text. */
+export function spreadsheetToText(buffer: ArrayBuffer): string {
+  // Dynamic import avoids bundling xlsx when it's not needed (text/image paths).
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const XLSX = require("xlsx") as typeof import("xlsx");
+  const workbook = XLSX.read(new Uint8Array(buffer), { type: "array" });
+  return workbook.SheetNames
+    .map((name) => XLSX.utils.sheet_to_csv(workbook.Sheets[name]))
+    .join("\n\n");
 }
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): string {
