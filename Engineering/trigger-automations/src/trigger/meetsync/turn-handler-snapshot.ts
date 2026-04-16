@@ -57,7 +57,7 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
 
   // People the caller has told the bot about (owner-scoped)
   if (snapshot.personNotes.length > 0) {
-    lines.push(...formatPersonNotesSection(snapshot.personNotes));
+    lines.push(...formatPersonNotesSection(snapshot.personNotes, snapshot.timezone));
     lines.push("");
   }
 
@@ -93,7 +93,8 @@ function formatUserSection(user: UserProfile, timezone: string): string[] {
     lines.push(`  Accumulated facts: ${ctx}`);
   }
   if (user.latest_schedule_json) {
-    lines.push("  Their own schedule: ✓ UPLOADED");
+    const coverage = scheduleCoverageLabel(user.latest_schedule_json, timezone);
+    lines.push(`  Their own schedule: ✓ UPLOADED ${coverage}`);
     lines.push(...renderShiftListCompact(user.latest_schedule_json, "    "));
   } else {
     lines.push("  Their own schedule: ✗ not uploaded yet");
@@ -101,15 +102,19 @@ function formatUserSection(user: UserProfile, timezone: string): string[] {
   return lines;
 }
 
-function formatPersonNotesSection(notes: PersonNote[]): string[] {
+function formatPersonNotesSection(notes: PersonNote[], timezone: string): string[] {
   const lines: string[] = [];
   lines.push(`People the user has told you about (${notes.length}):`);
   for (const n of notes) {
     const parts: string[] = [n.name];
     parts.push(n.linked_chat_id ? "joined the bot" : "not joined yet");
     if (n.phone) parts.push(`phone ending ${n.phone.slice(-4)}`);
-    if (n.schedule_json) parts.push("schedule: ✓ UPLOADED on their behalf");
-    else parts.push("schedule: ✗ not uploaded");
+    if (n.schedule_json) {
+      const coverage = scheduleCoverageLabel(n.schedule_json, timezone);
+      parts.push(`schedule: ✓ UPLOADED ${coverage}`);
+    } else {
+      parts.push("schedule: ✗ not uploaded");
+    }
     if (n.notes) {
       const trimmed = n.notes.slice(0, 200).replace(/\n/g, " · ");
       parts.push(`notes: ${trimmed}`);
@@ -121,6 +126,34 @@ function formatPersonNotesSection(notes: PersonNote[]): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * Returns a compact label like "(covers through Sat 26 Apr)" or
+ * "(STALE — schedule ends Sat 19 Apr, today is Wed 16 Apr)".
+ * Helps Claude caveat stale data naturally without a rigid template.
+ */
+function scheduleCoverageLabel(scheduleJson: string, timezone: string): string {
+  try {
+    const shifts = JSON.parse(scheduleJson) as Array<{ date: string }>;
+    if (!Array.isArray(shifts) || shifts.length === 0) return "";
+    const dates = shifts.map((s) => s.date).filter(Boolean).sort();
+    const lastDate = dates[dates.length - 1];
+    if (!lastDate) return "";
+    const now = new Date();
+    const todayParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(now);
+    const todayIso = `${todayParts.find((p) => p.type === "year")!.value}-${todayParts.find((p) => p.type === "month")!.value}-${todayParts.find((p) => p.type === "day")!.value}`;
+    const d = new Date(lastDate + "T12:00:00Z");
+    const label = d.toLocaleDateString("en-US", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+    if (lastDate < todayIso) {
+      return `(⚠️ STALE — last entry is ${label}, which is in the past. Data may be outdated — ask the user to re-upload if you need current info.)`;
+    }
+    return `(covers through ${label})`;
+  } catch {
+    return "";
+  }
 }
 
 /**

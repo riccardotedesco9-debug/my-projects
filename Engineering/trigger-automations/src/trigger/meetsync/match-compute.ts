@@ -36,10 +36,12 @@ const storedShiftSchema = z.object({
 }).passthrough();
 const storedScheduleSchema = z.array(storedShiftSchema);
 
-// Reasonable free time window (8am-10pm)
-const DAY_START = 8 * 60; // 08:00
-const DAY_END = 22 * 60; // 22:00
-const MIN_BLOCK_MINUTES = 120; // 2 hours minimum
+// Free time window. Extended to 23:30 because the user base works
+// hospitality/bar shifts ending at midnight+ — a 10pm cutoff misses
+// realistic late meetups (dinner before a night shift, drinks after).
+const DAY_START = 8 * 60;    // 08:00
+const DAY_END = 23 * 60 + 30; // 23:30
+const MIN_BLOCK_MINUTES = 90;  // 90 min — enough for a quick drink or lunch
 
 // --- Pure N-way overlap computation (new agentic-handler entry point) ---
 
