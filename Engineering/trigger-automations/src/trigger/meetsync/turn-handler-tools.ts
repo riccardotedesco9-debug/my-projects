@@ -864,12 +864,41 @@ const computeAndDeliverMatchTool: ToolDefinition = {
       );
     }
 
+    // Build a compact per-person per-day schedule summary so Claude has
+    // exact shift times RIGHT NEXT to the overlap result — prevents time
+    // confabulation when reasoning about "when do I finish the day before?"
+    const schedulesSummary: Record<string, Record<string, string>> = {};
+    const callerName = ctx.snapshot.user.name ?? "Caller";
+    const addPersonSchedule = (name: string, json: string | null) => {
+      if (!json) return;
+      try {
+        const shifts = JSON.parse(json) as Array<{ date: string; start_time: string; end_time: string; label?: string }>;
+        const byDay: Record<string, string> = {};
+        for (const s of shifts) {
+          const label = s.label ? ` (${s.label})` : "";
+          if (s.start_time === "00:00" && s.end_time === "00:00") {
+            byDay[s.date] = "OFF";
+          } else {
+            const existing = byDay[s.date];
+            const entry = `${s.start_time}–${s.end_time}${label}`;
+            byDay[s.date] = existing ? `${existing}, ${entry}` : entry;
+          }
+        }
+        schedulesSummary[name] = byDay;
+      } catch { /* skip malformed */ }
+    };
+    addPersonSchedule(callerName, callerSchedule);
+    for (const n of contacts) {
+      addPersonSchedule(n.name, n.schedule_json);
+    }
+
     return {
       status: deliver ? "delivered" : "preview",
       match: slots[0],
       all_slots: slots,
       slot_count: slots.length,
       delivery: deliveryResult,
+      schedules_summary: schedulesSummary,
     };
   },
 };
