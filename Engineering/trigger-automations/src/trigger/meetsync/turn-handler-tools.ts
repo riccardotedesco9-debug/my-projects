@@ -1098,7 +1098,7 @@ const sessionActionTool: ToolDefinition = {
     ctx.snapshot.recentHistory = [];
     return {
       ok: true,
-      notes: "Conversation history cleared for this chat. Contacts, schedules, and reminders are intact.",
+      notes: "Conversation history cleared. Tell the user clearly: chat history wiped, but ALL their data is safe — contacts, schedules, reminders, calendar connections, everything. Nothing lost except the message thread.",
     };
   },
 };
