@@ -519,7 +519,7 @@ async function persistShifts(
 const addOrInvitePartnerTool: ToolDefinition = {
   name: "add_contact",
   description:
-    "Add someone to the caller's contact list. Canonical tool for 'I want to plan with X' / 'add Jojo' / 'here's Patrick, his number is 9968…'. Outcomes: (1) name matches a bot user → link directly, caller sees their schedule. (2) phone given and matches a bot user → link directly + capture phone on their user row. (3) unknown name + no phone → returns needs_phone=true so you ask for it. (4) unknown name + unknown phone → SILENTLY shadow-track (save person_note with name+phone, no link yet, NO invite URL). The moment that phone ever joins the bot, the link resolves automatically via linkShadowedPersonNotesByPhone. Don't offer invite links — we don't use them. The product tracks everyone by name+number; visibility resolves when a match appears. Never auto-links by name similarity — if uncertain, ask for the number.",
+    "Add someone to the caller's contact list. Canonical tool for 'I want to plan with X' / 'add Jojo' / 'here's Patrick, his number is 9968…'. Phone is OPTIONAL — most contacts don't use Telegram and that's fine. Outcomes: (1) name matches a bot user → link directly, caller sees their schedule. (2) phone given and matches a bot user → link directly + capture phone on their user row. (3) unknown name + no phone → create contact anyway (contact_created=true). You can save their schedule immediately. (4) unknown name + unknown phone → SILENTLY shadow-track (save person_note with name+phone, no link yet). The moment that phone ever joins the bot, the link resolves automatically. Don't offer invite links. Never gatekeep on phone — just create the contact and move on to saving their schedule.",
   input_schema: {
     type: "object",
     properties: {
@@ -680,12 +680,31 @@ const addOrInvitePartnerTool: ToolDefinition = {
         notes: "Multiple bot users match this name. Ask the caller to disambiguate by phone number.",
       };
     }
-    // 3. Unknown name without phone — upsert note, ask for phone.
+    // 3. Unknown name without phone — create the contact anyway. Phone is
+    //    optional (only needed for Telegram auto-linking). Most contacts
+    //    don't use Telegram — they still get schedules stored + appear in
+    //    availability checks.
     await upsertPersonNote(ctx.callerChatId, name);
+    const norm = name.trim().toLowerCase();
+    if (!ctx.snapshot.personNotes.find((n) => n.name_normalized === norm)) {
+      ctx.snapshot.personNotes.push({
+        id: 0,
+        owner_chat_id: ctx.callerChatId,
+        name,
+        name_normalized: norm,
+        phone: null,
+        linked_chat_id: null,
+        schedule_json: null,
+        notes: null,
+        hidden: 0,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    }
     return {
-      needs_phone: true,
+      contact_created: true,
       contact_name: name,
-      notes: `I don't know anyone called ${name} yet — ask the caller for their phone number.`,
+      notes: `Created ${name} as a contact. No phone on file — that's fine, phone is only needed if they join Telegram later. You can now save their schedule via parse_schedule with attributed_to_name="${name}".`,
     };
   },
 };
