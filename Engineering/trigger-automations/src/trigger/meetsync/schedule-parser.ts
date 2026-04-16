@@ -399,6 +399,7 @@ export function classifyMime(mime: string): MimeCategory {
   if (mime.startsWith("application/pdf")) return "vision";
   if (
     mime.includes("csv") ||
+    mime.includes("comma-separated") ||
     mime.includes("tab-separated") ||
     mime === "text/plain" ||
     mime === "text/html"
