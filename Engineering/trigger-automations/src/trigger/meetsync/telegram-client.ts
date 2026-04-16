@@ -183,38 +183,58 @@ export async function downloadMedia(
 ): Promise<{ buffer: ArrayBuffer; mimeType: string }> {
   const { token } = getConfig();
 
-  // Step 1: Get file path from Telegram
-  const fileResponse = await fetch(
-    `${TELEGRAM_API_BASE}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`
-  );
-
-  if (!fileResponse.ok) {
-    throw new Error(`Telegram getFile failed: ${fileResponse.status}`);
+  // Step 1: Get file path from Telegram (one retry on transient failure)
+  let filePath = "";
+  let fileSize: number | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const fileResponse = await fetch(
+      `${TELEGRAM_API_BASE}/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`
+    );
+    if (!fileResponse.ok) {
+      if (attempt === 0 && fileResponse.status >= 500) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw new Error(`Telegram getFile failed: ${fileResponse.status}`);
+    }
+    const fileData = (await fileResponse.json()) as {
+      ok: boolean;
+      result?: { file_path?: string; file_size?: number };
+    };
+    if (!fileData.ok || !fileData.result?.file_path) {
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw new Error("Telegram getFile returned no file_path");
+    }
+    filePath = fileData.result.file_path;
+    fileSize = fileData.result.file_size;
+    break;
   }
 
-  const fileData = (await fileResponse.json()) as {
-    ok: boolean;
-    result?: { file_path?: string; file_size?: number };
-  };
-
-  if (!fileData.ok || !fileData.result?.file_path) {
-    throw new Error("Telegram getFile returned no file_path");
-  }
-
-  const filePath = fileData.result.file_path;
-
-  // Reject files over 10MB to prevent OOM
-  if (fileData.result.file_size && fileData.result.file_size > 10 * 1024 * 1024) {
+  if (fileSize && fileSize > 10 * 1024 * 1024) {
     throw new Error("File too large (max 10MB)");
   }
 
-  // Step 2: Download the actual file
-  const downloadResponse = await fetch(
-    `${TELEGRAM_API_BASE}/file/bot${token}/${filePath}`
-  );
+  // Step 2: Download the actual file (one retry on transient failure)
+  let downloadResponse: Response | undefined;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    downloadResponse = await fetch(
+      `${TELEGRAM_API_BASE}/file/bot${token}/${filePath!}`
+    );
+    if (!downloadResponse.ok) {
+      if (attempt === 0 && downloadResponse.status >= 500) {
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+      throw new Error(`Telegram file download failed: ${downloadResponse.status}`);
+    }
+    break;
+  }
 
-  if (!downloadResponse.ok) {
-    throw new Error(`Telegram file download failed: ${downloadResponse.status}`);
+  if (!downloadResponse || !downloadResponse.ok) {
+    throw new Error("Telegram file download failed after retries");
   }
 
   // Infer mime type from file extension
