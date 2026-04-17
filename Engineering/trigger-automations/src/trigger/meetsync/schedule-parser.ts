@@ -297,7 +297,7 @@ async function parseMediaWithClaude(apiKey: string, base64Data: string, mediaTyp
   return await callClaude(
     apiKey,
     [mediaBlock, { type: "text", text: getExtractionPrompt(userName, timezone) }],
-    { model: "claude-opus-4-6", maxTokens: 12000, thinkingBudget: 4000 },
+    { model: "claude-opus-4-7", maxTokens: 12000, thinkingBudget: 4000 },
   );
 }
 
