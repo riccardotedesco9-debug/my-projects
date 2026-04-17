@@ -54,7 +54,11 @@ import {
 // --- Config ---
 
 const MODEL_ID = process.env.MEETSYNC_MODEL ?? "claude-sonnet-4-6";
-const MAX_ITERATIONS = 6;
+// Raised from 6 to 15. Bulk CSV uploads (7 contacts × add_contact +
+// 7 × parse_schedule + 1 reply = 15 calls) were hitting the limit and
+// silently cutting off mid-processing. Each iteration is one Claude API
+// call (~$0.01) — negligible for a personal bot.
+const MAX_ITERATIONS = 15;
 const MAX_TOKENS = 2048;
 const BURST_GRACE_MS = 1200;
 
