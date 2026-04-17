@@ -32,13 +32,35 @@ Inherited automatically (no local skills needed):
 - **sequential-thinking** — plan multi-step scraping strategies
 - **ai-multimodal** — analyze scraped images/screenshots
 
+## Starting a scrape job (especially unknown use cases)
+
+Before running, make 3 quick decisions — confirm with Riccardo in one line, then execute:
+
+1. **Shape** — which kind of job is this?
+   - *list-of-items* (listings, offers, results)
+   - *single-entity* deep-dive (one product/place/company)
+   - *cross-source synthesis* (reviews, sentiment, consensus)
+   - *discovery-first* (find URLs via search, then scrape)
+   - *change-detection* (diff a page over time)
+2. **Firecrawl method** — `scrape` for single pages, `extract` with schema for tabular/structured data (better than scrape+parse), `search` when URLs unknown, `map` for URL inventory on big sites, browser sessions for multi-step flows. If unsure of current capabilities, use the `docs-seeker` skill to pull latest Firecrawl docs — don't guess.
+3. **Output** — Google Sheet (comparison/tabular/ranked), markdown report (synthesis/verdict), or JSON dump (downstream use).
+
+If a method fails, follow `docs/escalation-ladder.md` rung-by-rung — don't jump straight to Browserbase.
+
 ## Workflow
 
-1. **Map first** for large sites — get URL inventory before crawling
-2. **Use depth limits** — avoid crawling more than needed
-3. **Structure output** — organize by section, category, or date
-4. **Save results** to project folders within this workspace
-5. **Export** to Google Sheets/Drive when data needs sharing
+1. **Check `workflows/` first** — reusable recipes for jobs you've run before (property search, deal hunt, review aggregation). Ask Riccardo for inputs before running.
+2. **Map first** for large sites — get URL inventory before crawling
+3. **Use depth limits** — avoid crawling more than needed
+4. **Default output pattern**: scrape → schema extract → Google Sheet (via `google-drive` MCP)
+
+## Available Recipes (`workflows/`)
+
+- **property-search** — multi-portal listings → ranked Sheet shortlist
+- **deal-hunter** — multi-retailer price comparison with trust signals
+- **review-aggregator** — cross-source review synthesis with balanced verdict
+
+Add new recipes only when a job repeats. One-off jobs go straight into their own project folder.
 
 ## Structure Rules
 
