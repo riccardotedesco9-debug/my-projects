@@ -21,13 +21,21 @@ seo-optimization, ads-management, campaign-management, email-marketing, brand-gu
 
 ## Marketing Agents
 
-Specialized agents in `.claude/agents/`:
+Specialized agents in `.claude/agents/` (31 total):
+
+**Marketing-specific:**
 - **Content**: content-creator, copywriter, content-reviewer
 - **Campaigns**: campaign-manager, campaign-debugger, email-wizard
 - **SEO & Growth**: seo-specialist, attraction-specialist, funnel-architect
 - **Social**: social-media-manager, community-manager
 - **Analytics**: analytics-analyst, lead-qualifier
 - **Sales**: sale-enabler, upsell-maximizer, continuity-specialist
+
+**General-purpose (shared with Engineering):**
+- **Planning & coordination**: planner, project-manager, researcher, docs-manager
+- **Engineering**: fullstack-developer, database-admin, ui-ux-designer
+- **Quality**: code-reviewer, tester, debugger
+- **Utilities**: scout, scout-external, git-manager, mcp-manager, journal-writer
 
 ## Recommended Skills (auto-invoke when relevant)
 

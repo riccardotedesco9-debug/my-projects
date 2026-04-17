@@ -86,6 +86,11 @@ These tools are available across ALL projects. Use them autonomously when the ta
 ### Infrastructure
 - **Cloudflare** (`mcp__cloudflare__*`) — Query D1 databases, manage Workers, KV, R2, and 2500+ Cloudflare API endpoints. Use for ad-hoc D1 queries, Worker log inspection, and infrastructure management. MeetSync's database and webhook gateway run on Cloudflare.
 
+### Developer Tooling
+- **Context7** (`mcp__context7__*`) — Up-to-date library/framework documentation lookup (Upstash). Use for API docs, latest library features, version-specific references. Complements the `docs-seeker` skill.
+- **Chrome DevTools** (`mcp__chrome-devtools__*`) — Browser automation, DOM inspection, network/performance profiling. Use for live UI debugging, Core Web Vitals checks, scripted browser flows.
+- **Sequential Thinking** (`mcp__sequential-thinking__*`) — Structured step-by-step reasoning with revision. Use for complex multi-step analysis where the `sequential-thinking` skill is active.
+
 ## Tools-First Policy
 
 **Resolution order:** MCP integrations → existing `tools/` scripts → existing `workflows/` SOPs → new code (last resort).
@@ -119,3 +124,4 @@ Only fall back to new code when: MCP tool lacks a required capability, no existi
 - Only shared config (CLAUDE.md, .gitignore) and cross-cutting project folders live at root level — no loose files.
 - Each project has its own `CLAUDE.md` — always read it when entering a subdirectory.
 - Plans go in `{project}/plans/`, docs in `{project}/docs/`.
+- **Workspace rules location**: `{project}/.claude/rules/` is the canonical directory for per-project workflow SOPs (matches Engineering pattern). Marketing's `.claude/workflows/` is grandfathered in but new projects should use `rules/`.
