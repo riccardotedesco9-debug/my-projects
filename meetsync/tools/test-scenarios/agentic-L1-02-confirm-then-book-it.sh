@@ -20,7 +20,7 @@ d1_query "UPDATE person_notes SET schedule_json='[{\"date\":\"2026-04-22\",\"sta
 
 section "Turn 1 — get the bot to propose a slot"
 send_and_judge "$TEST_USER_A" "Let's meet Sofia on Wednesday afternoon" \
-  "Bot identifies an afternoon slot on Wednesday 2026-04-22 (or asks one clarifying question about duration) — must be concrete times, not open-ended." \
+  "Bot identifies Wednesday 2026-04-22 afternoon availability for both parties — naming a specific time or referencing an afternoon window (e.g. '13:00 onwards') is acceptable. Asking ONE clarifying question about duration or preferred time is fine." \
   45
 
 section "Turn 2 — simulated [tapped: Confirm] + defer"

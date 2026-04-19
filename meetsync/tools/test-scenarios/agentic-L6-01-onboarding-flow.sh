@@ -46,8 +46,8 @@ if [[ "$SOFIA_HAS" != "has-schedule" ]]; then fail "Sofia's schedule missing"; f
 tick "Sofia's schedule captured"
 
 section "Turn 4 — ask for overlap"
-send_and_judge "$TEST_USER_A" "when are Sofia and I both free next weekend?" \
-  "Bot describes overlap windows for the weekend based on both schedules. Alex is off weekends (no busy shifts), Sofia busy in the day, so evenings should be free on Saturday/Sunday. Bot should reference concrete times in those windows."
+send_and_judge "$TEST_USER_A" "find me a time to grab dinner with Sofia this weekend" \
+  "Bot suggests a concrete weekend time when Sofia is free (after her Saturday or Sunday shift ends). The bot should reference the end of Sofia's shift or an evening slot. Listing availability per-day without picking a suggestion is also acceptable as long as Sofia's Saturday shift ending 18:00 (or similar) is correctly identified."
 
 echo
 echo "${_GREEN}L6.1 passed${_RESET} — onboarding → schedule → contact → overlap works end-to-end"

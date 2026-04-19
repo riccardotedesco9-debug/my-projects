@@ -11,10 +11,11 @@ seed_contact "$TEST_USER_A" "Marco"
 d1_query "UPDATE person_notes SET schedule_json='[{\"date\":\"2026-04-27\",\"start_time\":\"14:00\",\"end_time\":\"20:00\",\"label\":\"work\"}]' WHERE owner_chat_id='$TEST_USER_A' AND name_normalized='marco'" >/dev/null
 
 section "Ask when we're both free"
-# Caller free 13:00+ (after work), Marco free 00:00-14:00 (before work).
-# Overlap: 13:00-14:00 on Apr 27.
+# Caller free 13:00-23:59, Marco free 00:00-14:00 and 20:00-23:59.
+# Valid overlaps: 13:00-14:00 (short) OR 20:00+ (longer evening).
+# Both are correct; bot usually picks the longer evening.
 send_and_judge "$TEST_USER_A" "When am I free with Marco on 2026-04-27?" \
-  "Bot identifies a concrete overlap window between 13:00 and 14:00 (or equivalent time range inside that hour) on the given date. The window must not include 09:00-13:00 (caller busy) or 14:00-20:00 (Marco busy)." \
+  "Bot identifies a valid overlap window on 2026-04-27. Either the 13:00-14:00 window (tight) or the 20:00 onwards window (evening) is correct. The bot must NOT claim they're both free during 09:00-13:00 (caller at work) or during 14:00-20:00 (Marco at work)." \
   45
 
 echo

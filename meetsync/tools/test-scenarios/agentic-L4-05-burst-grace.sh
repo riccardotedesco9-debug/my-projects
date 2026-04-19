@@ -24,7 +24,7 @@ if [[ -z "$REPLY" ]]; then
   fail "no bot reply for any of the 3 burst messages"
 fi
 tick "bot replied: ${REPLY:0:100}"
-assert_reply_matches_judge "$REPLY" "Bot's reply addresses the most recent message (a joke request) rather than the earlier 'hey' or 'wait'. Or at minimum, the bot responded SOMETHING coherent — burst-grace should have collapsed duplicates, not crashed."
+assert_reply_matches_judge "$REPLY" "Bot's reply addresses the LAST of the 3 burst messages — the joke request. A reply with a joke is a pass (proving burst-grace picked the latest, not the earlier greeting). The bot's job is to be conversational; telling a joke when asked is not 'off-topic'. A silent or crash response is a fail."
 
 echo
 echo "${_GREEN}L4.5 passed${_RESET} — burst messages survive"
