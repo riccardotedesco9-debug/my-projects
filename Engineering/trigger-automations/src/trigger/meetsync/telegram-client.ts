@@ -77,11 +77,27 @@ export async function sendTextMessage(
   };
   if (keyboard) body.reply_markup = keyboard;
 
-  const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
+  let response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+
+  // Fallback: Markdown parse errors (unbalanced * / _ / [) return 400 with
+  // "can't parse entities". Without this the whole message gets dropped and
+  // the user sees silence. Retry plain-text so the message at least arrives.
+  if (response.status === 400) {
+    const errPreview = await response.clone().text();
+    if (/can't parse entities|can not parse entities|unsupported start tag/i.test(errPreview)) {
+      console.warn("[telegram] Markdown parse error, retrying as plain text");
+      delete body.parse_mode;
+      response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    }
+  }
 
   if (!response.ok) {
     const err = await response.text();

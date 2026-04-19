@@ -43,11 +43,19 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
   // meetup is agreed, book_meetup creates real Google Calendar events for
   // everyone connected. Unconnected users can't get events booked on their
   // calendar, so nudge them toward /connect when the topic turns to booking.
-  if (!snapshot.callerCalendarConnected && snapshot.user.name) {
+  if (snapshot.callerCalendarTokenInvalid) {
+    lines.push(`Google Calendar: ✗ token expired (OAuth grant invalid). Events and free/busy data for this caller are NOT available until they run /connect again. Tell the user honestly if they ask about their calendar.`);
+    lines.push("");
+  } else if (!snapshot.callerCalendarConnected && snapshot.user.name) {
     lines.push(`Google Calendar: NOT connected for this caller. When the conversation becomes about booking a real meetup, point them at /connect so meetups actually land on their calendar. Don't nag if they're not booking anything yet.`);
     lines.push("");
   } else if (snapshot.callerCalendarConnected) {
     lines.push("Google Calendar: ✓ connected — book_meetup will create real events here.");
+    lines.push("");
+  }
+
+  if (snapshot.calendarDegraded) {
+    lines.push("Google Calendar: ⚠ read partially failed this turn — some events may be missing from [STATE]. If the user asks about a specific appointment you can't see, say so honestly rather than asserting they're free.");
     lines.push("");
   }
 

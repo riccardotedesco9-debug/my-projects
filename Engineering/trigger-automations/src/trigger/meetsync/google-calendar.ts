@@ -1,7 +1,7 @@
 // Google Calendar API client — creates events using stored OAuth tokens
 // Requires user to complete OAuth flow via Worker /auth/google endpoint first
 
-import { getGoogleToken, saveGoogleToken } from "./d1-client.js";
+import { getGoogleToken, saveGoogleToken, markGoogleTokenInvalid } from "./d1-client.js";
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
@@ -37,7 +37,10 @@ export async function createCalendarEvent(
   let accessToken = token.access_token;
   if (new Date(token.expires_at) <= new Date()) {
     const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant") return "token_expired";
+    if (refreshed === "invalid_grant") {
+      await markGoogleTokenInvalid(chatId, true).catch(() => {});
+      return "token_expired";
+    }
     if (!refreshed) return false;
     accessToken = refreshed.access_token;
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
@@ -103,6 +106,9 @@ export async function listCalendarEventsInWindow(
             : "null — likely missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in Trigger.dev env vars") +
           ")",
       );
+      if (refreshed === "invalid_grant") {
+        await markGoogleTokenInvalid(chatId, true).catch(() => {});
+      }
       return [];
     }
     accessToken = refreshed.access_token;
@@ -119,98 +125,120 @@ export async function listCalendarEventsInWindow(
   // the timezone nuance doesn't actually move the boundary meaningfully.
   const timeMin = `${startDateISO}T00:00:00Z`;
   const timeMax = `${endDateISO}T23:59:59Z`;
-  const out: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
-
-  for (const calId of calendarIds) {
-    const url =
-      `${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?` +
-      `singleEvents=true&orderBy=startTime&` +
-      `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
-      `timeZone=${encodeURIComponent(timezone)}`;
-    let response: Response;
-    try {
-      response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
-    } catch {
-      continue;
-    }
-    if (!response.ok) continue;
-    const data = (await response.json()) as {
-      items?: Array<{
-        summary?: string;
-        status?: string;
-        transparency?: string;
-        location?: string;
-        start?: { dateTime?: string; date?: string };
-        end?: { dateTime?: string; date?: string };
-        attendees?: Array<{ self?: boolean; responseStatus?: string }>;
-      }>;
-    };
-    for (const e of data.items ?? []) {
-      if (e.status === "cancelled") continue;
-      // Previously filtered transparency==="transparent", but Gmail auto-
-      // extracted events (eventType: fromGmail — therapy bookings, flights,
-      // dinner reservations) default to transparent even though they're
-      // real commitments. Removing the filter: anything on the calendar
-      // is treated as busy. If the user wants something to not block
-      // scheduling, they can delete it.
-      // Skip events the user declined — the event exists on their calendar
-      // but they've said no, so it shouldn't count as busy.
-      const selfAttendee = e.attendees?.find((a) => a.self === true);
-      if (selfAttendee?.responseStatus === "declined") continue;
-
-      const summary = e.summary?.slice(0, 40) ?? "busy";
-      const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
-      const label = `calendar: ${summary}${locPart}`;
-
-      // Timed event (standard meeting).
-      const startDT = e.start?.dateTime;
-      const endDT = e.end?.dateTime;
-      if (startDT && endDT) {
-        const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
-        const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
-        if (!sMatch || !eMatch) continue;
-        out.push({
-          date: sMatch[1],
-          start_time: `${sMatch[2]}:${sMatch[3]}`,
-          end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
-          label,
-        });
-        continue;
+  // Parallelise across calendars with a per-call timeout so one slow
+  // secondary calendar can't stall the whole enrichment. TODO: pagination
+  // — events.list defaults to maxResults=250 and we don't follow
+  // nextPageToken. Power users with >250 events in a 21-day window will
+  // silently lose events past the first page.
+  const PER_CALL_TIMEOUT_MS = 5000;
+  const perCalendarResults = await Promise.all(
+    calendarIds.map(async (calId): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> => {
+      const url =
+        `${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?` +
+        `singleEvents=true&orderBy=startTime&` +
+        `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
+        `timeZone=${encodeURIComponent(timezone)}`;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
+      } catch (err) {
+        console.warn(`[google-calendar] fetch failed for cal=${calId}:`, err instanceof Error ? err.message : err);
+        return [];
+      } finally {
+        clearTimeout(timer);
       }
+      if (!response.ok) {
+        console.warn(`[google-calendar] ${response.status} for cal=${calId}`);
+        return [];
+      }
+      const data = (await response.json()) as {
+        items?: Array<{
+          summary?: string;
+          status?: string;
+          transparency?: string;
+          location?: string;
+          start?: { dateTime?: string; date?: string };
+          end?: { dateTime?: string; date?: string };
+          attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+        }>;
+      };
+      const calOut: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
+      for (const e of data.items ?? []) {
+        if (e.status === "cancelled") continue;
+        // Previously filtered transparency==="transparent", but Gmail auto-
+        // extracted events (eventType: fromGmail — therapy bookings, flights,
+        // dinner reservations) default to transparent even though they're
+        // real commitments. Removing the filter: anything on the calendar
+        // is treated as busy. If the user wants something to not block
+        // scheduling, they can delete it.
+        // Skip events the user declined — the event exists on their calendar
+        // but they've said no, so it shouldn't count as busy.
+        const selfAttendee = e.attendees?.find((a) => a.self === true);
+        if (selfAttendee?.responseStatus === "declined") continue;
 
-      // All-day event (vacation, conference day, holiday). Google encodes
-      // start.date = first busy day, end.date = day AFTER last busy day
-      // (RFC5545 exclusive-end). Emit one 00:00–23:59 block per day in
-      // that range. Cap at 14 days to bound the output for long vacations.
-      const startDate = e.start?.date;
-      const endDate = e.end?.date;
-      if (startDate && endDate) {
-        const MAX_DAYS = 14;
-        for (let i = 0, cursor = startDate; cursor < endDate && i < MAX_DAYS; i++) {
-          out.push({
-            date: cursor,
-            start_time: "00:00",
-            end_time: "23:59",
-            label: `all-day ${label}`,
+        const summary = e.summary?.slice(0, 40) ?? "busy";
+        const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
+        const label = `calendar: ${summary}${locPart}`;
+
+        // Timed event (standard meeting).
+        const startDT = e.start?.dateTime;
+        const endDT = e.end?.dateTime;
+        if (startDT && endDT) {
+          const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+          const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
+          if (!sMatch || !eMatch) continue;
+          calOut.push({
+            date: sMatch[1],
+            start_time: `${sMatch[2]}:${sMatch[3]}`,
+            end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
+            label,
           });
-          const d = new Date(cursor + "T12:00:00Z");
-          d.setUTCDate(d.getUTCDate() + 1);
-          cursor = d.toISOString().slice(0, 10);
+          continue;
+        }
+
+        // All-day event (vacation, conference day, holiday). Google encodes
+        // start.date = first busy day, end.date = day AFTER last busy day
+        // (RFC5545 exclusive-end). Emit one 00:00–23:59 block per day in
+        // that range. Cap at 14 days to bound the output for long vacations.
+        const startDate = e.start?.date;
+        const endDate = e.end?.date;
+        if (startDate && endDate) {
+          const MAX_DAYS = 14;
+          for (let i = 0, cursor = startDate; cursor < endDate && i < MAX_DAYS; i++) {
+            calOut.push({
+              date: cursor,
+              start_time: "00:00",
+              end_time: "23:59",
+              label: `all-day ${label}`,
+            });
+            const d = new Date(cursor + "T12:00:00Z");
+            d.setUTCDate(d.getUTCDate() + 1);
+            cursor = d.toISOString().slice(0, 10);
+          }
         }
       }
-    }
-  }
-  return out;
+      return calOut;
+    }),
+  );
+  return perCalendarResults.flat();
 }
 
 /**
- * Fetch the IDs of every calendar the user sees in their calendarList,
- * with `selected: true` (i.e. visible in the user's own Calendar UI) and
- * a readable access role. Falls back to just ["primary"] on any failure.
+ * Fetch the IDs of every calendar the user owns, writes to, or has visible
+ * in their own Calendar UI. Falls back to just ["primary"] on any failure.
  *
- * We deliberately read every selected calendar — if the user has it
- * visible in their own Calendar, they care about it. A "Work" calendar
- * with meetings must block scheduling the same way a "Personal" one does.
+ * Filter rationale: we want anything the user has real stakes in.
+ *   - primary=true always (their main calendar)
+ *   - accessRole ∈ {owner, writer} always (they can delete/edit — real stake,
+ *     even if they've unchecked it in the UI)
+ *   - selected !== false as a lenient fallback (keeps shared calendars the
+ *     user has visible but doesn't own, like a family calendar)
+ *
+ * The old filter (`selected !== false` only) was dropping "From Gmail" auto-
+ * imported calendars where Gmail-extracted events (therapy, flights,
+ * reservations) sometimes land with `selected: false`.
  */
 async function listUserCalendarIds(accessToken: string): Promise<string[]> {
   try {
@@ -219,10 +247,15 @@ async function listUserCalendarIds(accessToken: string): Promise<string[]> {
     });
     if (!r.ok) return ["primary"];
     const data = (await r.json()) as {
-      items?: Array<{ id: string; selected?: boolean; primary?: boolean }>;
+      items?: Array<{ id: string; selected?: boolean; primary?: boolean; accessRole?: string }>;
     };
     const ids = (data.items ?? [])
-      .filter((c) => c.primary === true || c.selected !== false)
+      .filter((c) =>
+        c.primary === true ||
+        c.accessRole === "owner" ||
+        c.accessRole === "writer" ||
+        c.selected !== false,
+      )
       .map((c) => c.id);
     return ids.length > 0 ? ids : ["primary"];
   } catch {
@@ -231,82 +264,98 @@ async function listUserCalendarIds(accessToken: string): Promise<string[]> {
 }
 
 /**
- * Find events on the caller's PRIMARY calendar for a given date, with an
- * optional substring title filter. Returns id + display fields so a caller
- * can pick from a list and a follow-up tool call can delete the right one.
- * Primary-only by design: book_meetup only creates on primary, so cancel
- * stays scoped there. Secondary-calendar events should be cancelled in
- * the user's Calendar UI directly.
+ * Find events for a given date across ALL of the caller's readable calendars
+ * (owner/writer + anything selected in their UI), with an optional substring
+ * title filter. Returns id + calendar_id + display fields so the caller can
+ * pick from a list and a follow-up tool call can delete the right one — the
+ * calendar_id must flow back to deleteCalendarEvent or the delete will 404.
+ *
+ * Previously primary-only, which silently failed on events booked in
+ * secondary calendars (work, personal, shared-family). Matches the expanded
+ * read scope in listCalendarEventsInWindow.
  */
 export async function findCalendarEventsOnDate(
   chatId: string,
   date: string, // YYYY-MM-DD
   titleHint: string,
-): Promise<Array<{ id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> {
+): Promise<Array<{ id: string; calendar_id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> {
   const token = await getGoogleToken(chatId);
   if (!token) return [];
   let accessToken = token.access_token;
   const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
   if (expiresInMs <= 60_000) {
     const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant" || !refreshed) return [];
+    if (refreshed === "invalid_grant") {
+      await markGoogleTokenInvalid(chatId, true).catch(() => {});
+      return [];
+    }
+    if (!refreshed) return [];
     accessToken = refreshed.access_token;
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
   }
+  const calendarIds = await listUserCalendarIds(accessToken);
   const qs = new URLSearchParams({
     singleEvents: "true",
     orderBy: "startTime",
     timeMin: `${date}T00:00:00Z`,
     timeMax: `${date}T23:59:59Z`,
   }).toString();
-  let response: Response;
-  try {
-    response = await fetch(`${CALENDAR_API}/calendars/primary/events?${qs}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-  } catch {
-    return [];
-  }
-  if (!response.ok) return [];
-  const data = (await response.json()) as {
-    items?: Array<{
-      id: string;
-      summary?: string;
-      status?: string;
-      start?: { dateTime?: string };
-      end?: { dateTime?: string };
-      attendees?: Array<{ email: string; self?: boolean; responseStatus?: string }>;
-    }>;
-  };
   const hint = titleHint.trim().toLowerCase();
-  const out: Array<{ id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }> = [];
-  for (const e of data.items ?? []) {
-    if (e.status === "cancelled") continue;
-    const summary = e.summary ?? "(no title)";
-    if (hint && !summary.toLowerCase().includes(hint)) continue;
-    const sMatch = e.start?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
-    const eMatch = e.end?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
-    if (!sMatch || !eMatch) continue;
-    out.push({
-      id: e.id,
-      summary,
-      start_time: `${sMatch[1]}:${sMatch[2]}`,
-      end_time: `${eMatch[1]}:${eMatch[2]}`,
-      attendee_emails: (e.attendees ?? []).filter((a) => !a.self).map((a) => a.email),
-    });
-  }
-  return out;
+  const perCalendar = await Promise.all(
+    calendarIds.map(async (calId): Promise<Array<{ id: string; calendar_id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> => {
+      let response: Response;
+      try {
+        response = await fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?${qs}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+      } catch {
+        return [];
+      }
+      if (!response.ok) return [];
+      const data = (await response.json()) as {
+        items?: Array<{
+          id: string;
+          summary?: string;
+          status?: string;
+          start?: { dateTime?: string };
+          end?: { dateTime?: string };
+          attendees?: Array<{ email: string; self?: boolean; responseStatus?: string }>;
+        }>;
+      };
+      const calOut: Array<{ id: string; calendar_id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }> = [];
+      for (const e of data.items ?? []) {
+        if (e.status === "cancelled") continue;
+        const summary = e.summary ?? "(no title)";
+        if (hint && !summary.toLowerCase().includes(hint)) continue;
+        const sMatch = e.start?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
+        const eMatch = e.end?.dateTime?.match(/^\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2})/);
+        if (!sMatch || !eMatch) continue;
+        calOut.push({
+          id: e.id,
+          calendar_id: calId,
+          summary,
+          start_time: `${sMatch[1]}:${sMatch[2]}`,
+          end_time: `${eMatch[1]}:${eMatch[2]}`,
+          attendee_emails: (e.attendees ?? []).filter((a) => !a.self).map((a) => a.email),
+        });
+      }
+      return calOut;
+    }),
+  );
+  return perCalendar.flat();
 }
 
 /**
- * Delete an event from the caller's PRIMARY calendar. sendUpdates=all so
+ * Delete an event from the given calendar (defaults to primary for back-
+ * compat). Pass the calendar_id that came back from findCalendarEventsOnDate
+ * so secondary-calendar events are handled correctly. sendUpdates=all so
  * Google notifies any attendees of the cancellation. Returns true on
- * success, "not_found" if the event doesn't exist (already deleted, or
- * wrong id), false on other failures.
+ * success, "not_found" if the event doesn't exist, false on other failures.
  */
 export async function deleteCalendarEvent(
   chatId: string,
   eventId: string,
+  calendarId: string = "primary",
 ): Promise<boolean | "not_found"> {
   const token = await getGoogleToken(chatId);
   if (!token) return false;
@@ -314,11 +363,15 @@ export async function deleteCalendarEvent(
   const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
   if (expiresInMs <= 60_000) {
     const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant" || !refreshed) return false;
+    if (refreshed === "invalid_grant") {
+      await markGoogleTokenInvalid(chatId, true).catch(() => {});
+      return false;
+    }
+    if (!refreshed) return false;
     accessToken = refreshed.access_token;
     await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
   }
-  const url = `${CALENDAR_API}/calendars/primary/events/${encodeURIComponent(eventId)}?sendUpdates=all`;
+  const url = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`;
   let response: Response;
   try {
     response = await fetch(url, {

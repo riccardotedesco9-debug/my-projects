@@ -2,14 +2,19 @@
 // Telegram messages from the MeetSync bot. Runs every 5 minutes. Handles both
 // one-shot (mark FIRED) and recurring (advance fire_at) reminders.
 //
-// Failure policy: if a single reminder fails to send, log and continue with
-// the rest. Do NOT throw — a single bad Telegram response shouldn't block
-// the whole batch. The reminder stays PENDING so the next run retries it;
-// after too many retries the user can cancel manually.
+// Atomic-lease pattern: each reminder is flipped PENDING → FIRING via a
+// conditional UPDATE before we send. Only the worker whose UPDATE actually
+// changed the row (leaseReminder returns true) proceeds to send — this
+// prevents two cron ticks racing on an overdue reminder and sending it
+// twice. On send success we flip to FIRED (or back to PENDING with advanced
+// fire_at for recurring). On send failure we leave the row in FIRING; the
+// nightly cleanup cron reaps rows stuck in FIRING for >10 min back to
+// PENDING for retry. A missed reminder is better than a duplicate DM.
 
 import { schedules } from "@trigger.dev/sdk";
 import {
   getDueReminders,
+  leaseReminder,
   markReminderFired,
   advanceRecurringReminder,
   computeNextRecurrence,
@@ -31,7 +36,25 @@ export const fireReminders = schedules.task({
 
     let fired = 0;
     let failed = 0;
+    let skipped = 0;
     for (const r of due) {
+      // Atomically claim the lease — if another worker beat us, skip.
+      let won = false;
+      try {
+        won = await leaseReminder(r.id, nowEpoch);
+      } catch (err) {
+        failed++;
+        console.error(
+          `fire-reminders: lease failed for ${r.id}:`,
+          err instanceof Error ? err.message : err,
+        );
+        continue;
+      }
+      if (!won) {
+        skipped++;
+        continue;
+      }
+
       try {
         const body = formatReminderMessage(r);
         await sendTextMessage(r.chat_id, body);
@@ -45,14 +68,15 @@ export const fireReminders = schedules.task({
       } catch (err) {
         failed++;
         console.error(
-          `fire-reminders: send failed for ${r.id} (chat ${r.chat_id}):`,
+          `fire-reminders: send/mark failed for ${r.id} (chat ${r.chat_id}):`,
           err instanceof Error ? err.message : err,
         );
-        // Intentionally do not mark FIRED — let the next minute retry.
+        // Leave in FIRING; cleanup cron will reap it back to PENDING after
+        // 10 min so it retries next tick. Better than duplicate sends.
       }
     }
 
-    return { fired, failed, examined: due.length };
+    return { fired, failed, skipped, examined: due.length };
   },
 });
 

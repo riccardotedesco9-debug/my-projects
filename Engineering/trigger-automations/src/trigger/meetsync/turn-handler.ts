@@ -114,6 +114,8 @@ Mental model. The bot is NOT the meetup hub — **Google Calendar is**. Your job
 
 Users. Everyone has ONE schedule on file, overwritten on each upload. Each user has their own private contacts list. When the caller names someone new, call add_contact — phone is OPTIONAL. Most contacts don't use Telegram; just create them by name and save their schedule. If a phone IS given, the bot shadow-tracks so the link fires automatically when that number joins. Do NOT offer invite URLs. Never gatekeep on phone — create the contact and move on.
 
+When the caller defers ("just guess", "you pick", "whatever works", "surprise me", "I dunno just book it"), that's explicit permission to commit to a sensible default — don't re-ask. Pick the next non-conflicting slot of at least 90 min within any window they hinted at; narrate the pick in one line ("booking Mon 4–6pm — tweak in Calendar if you like"), call book_meetup, stop. If the caller has already tapped Confirm or said "yes book it", book — don't re-confirm.
+
 When an availability description arrives (dated shifts OR a recurring rhythm like "free after noon, Tuesdays volunteer"), call parse_schedule with dated shifts expanded for the next 14 days. upsert_knowledge is for side-facts ("lives in Gozo"), never the schedule. Note: compute_overlap also reads each /connect'd person's live Google Calendar and adds those events as busy blocks, so calendar-blocked times are automatically respected without the user restating them.
 
 Schedule encoding (schedule_json entries are BUSY windows; everything else is free):
@@ -128,7 +130,7 @@ Anti-examples:
 
 In replies, never say "flexible" for uncertain days (reads as available). Say hectic/uncertain/depends. "Off"/"free" stays for confirmed free.
 
-When the caller + contact(s) agree on a specific date+time, call book_meetup. Single-day only; if they ask for recurring, tell them to duplicate from Google Calendar's UI. After success, ONE reply line ("booked — it's on your calendar") and stop. If anyone wasn't connected, tell the caller to have them send /connect.
+When you have a concrete date+time — whether from mutual agreement, a single user instruction, or your own pick after a "just book it" defer — call book_meetup. Single-day only; for recurring tell them to duplicate from Google Calendar's UI. Booking on the caller's OWN calendar never requires the contact's consent or connection — if a contact isn't /connect'd, still book on the caller's side and ping the contact over Telegram. After success, ONE reply line ("booked — it's on your calendar") and stop.
 
 Cancellations: when the caller wants to cancel a previously-booked meetup, use cancel_meetup. Two-stage: first call (no confirmed flag) returns candidate events for that date — show them to the caller, ask "cancel this one?", and only on their explicit yes call again with event_id + confirmed=true. The destructive call notifies all attendees automatically. Never set confirmed=true on an implied request.
 
@@ -150,6 +152,8 @@ Use "14:00+" for free-from, "OFF", "12–14 / 17+". Names left-padded to align. 
 Reason over contacts' stored facts for logistics: "Kurt works till 4, lives across the island — 4:30 is tight, 5:30+ is realistic." Cite only what's in [STATE]. Shift labels matter too: "00:00–12:00 (dog walk)" → "Kurt's walking his dog Sunday morning", not just "busy".
 
 Privacy on calendars — strict rule: the CALLER owns their own data. When the CALLER asks about THEIR OWN calendar, ALWAYS show the full event title, location, all detail — never abstract their own things to "appointment" or "busy". They already know what's there; abstracting is patronising and breaks trust. The privacy rule applies ONE WAY: when describing SOMEONE ELSE's events to the caller (or speaking about the caller's events to a third party), then abstract personal/sensitive entries — therapy, medical, counseling, AA, custody, anything you'd intuit isn't theirs to share. Obviously-shareable events (work shifts, football, dinner with named friends) stay as-is even cross-person. You can SEE every contact's full event titles in [STATE] for your own reasoning ("Ricardo will be drained after therapy, suggest something chill") — just don't repeat the sensitive title aloud to a different person.
+
+The caller's own calendar is the caller's business. Never hesitate to write to it, never ask permission to put something there. Missing /connect on a counterpart is not a blocker — book for the caller, the counterpart gets a Telegram ping instead of a calendar invite.
 
 Travel time: calendar events now include locations when set ("@ Mater Dei Hospital", "@ Sliema"). When picking a meetup time around a contact's event, factor realistic travel time based on Malta-ish distances and what you know from their profile notes ("commutes from Gozo" = 30–45min). Say it explicitly: "Kurt's therapy wraps up 4pm in Mater Dei — give him 30min to reach Valletta, so meet 4:45 onwards." Don't invent locations the user didn't give you.
 
@@ -262,14 +266,26 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
     targets.map(async (t) => {
       try {
         const events = await listCalendarEventsInWindow(t.chat_id, todayISO, windowEnd, tz);
-        return { target: t, events };
-      } catch {
-        return { target: t, events: [] as Awaited<ReturnType<typeof listCalendarEventsInWindow>> };
+        return { target: t, events, failed: false };
+      } catch (err) {
+        console.error(
+          `[snapshot] GCal fetch failed for chat=${t.chat_id}:`,
+          err instanceof Error ? err.message : err,
+        );
+        return {
+          target: t,
+          events: [] as Awaited<ReturnType<typeof listCalendarEventsInWindow>>,
+          failed: true,
+        };
       }
     }),
   );
 
-  for (const { target, events } of results) {
+  let anyFailed = false;
+  let totalEvents = 0;
+  for (const { target, events, failed } of results) {
+    if (failed) anyFailed = true;
+    totalEvents += events.length;
     if (events.length === 0) continue;
     let existing: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
     if (target.existing) {
@@ -282,6 +298,10 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
     }
     target.write(JSON.stringify([...existing, ...events]));
   }
+  if (anyFailed) snapshot.calendarDegraded = true;
+  console.log(
+    `[snapshot] chat=${snapshot.user.chat_id} targets=${targets.length} events=${totalEvents} degraded=${anyFailed}`,
+  );
 }
 
 async function sendChatAction(chatId: string, action: "typing"): Promise<void> {
@@ -339,7 +359,17 @@ async function sendPendingReply(chatId: string, reply: PendingReply): Promise<vo
       isLast && reply.buttons && reply.buttons.length > 0
         ? buildInlineKeyboard(reply.buttons)
         : undefined;
-    await sendTextMessage(chatId, reply.messages[i], keyboard);
+    try {
+      await sendTextMessage(chatId, reply.messages[i], keyboard);
+    } catch (err) {
+      // Per-message isolation: one failure (Markdown issue, Telegram
+      // rate limit, transient network) shouldn't silently drop the
+      // remaining messages in a multi-part reply.
+      console.error(
+        `[turn-handler] sendPendingReply msg ${i}/${reply.messages.length} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 
@@ -478,11 +508,18 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     }
     if (myLogId > 0) {
       await new Promise((resolve) => setTimeout(resolve, BURST_GRACE_MS));
-      const newer = await query<{ max_id: number | null }>(
-        "SELECT MAX(id) as max_id FROM conversation_log WHERE chat_id = ? AND role = 'user'",
-        [chatId],
-      );
-      const latestNow = newer.results[0]?.max_id ?? 0;
+      // Fail-open: if this check query 429s or errors, proceed with the
+      // turn. A duplicate reply is recoverable; a silent crash is not.
+      let latestNow = myLogId;
+      try {
+        const newer = await query<{ max_id: number | null }>(
+          "SELECT MAX(id) as max_id FROM conversation_log WHERE chat_id = ? AND role = 'user'",
+          [chatId],
+        );
+        latestNow = newer.results[0]?.max_id ?? myLogId;
+      } catch (err) {
+        console.warn("[turn-handler] burst-grace query failed, proceeding:", err instanceof Error ? err.message : err);
+      }
       if (latestNow > myLogId) {
         return { action: "bailed_for_newer_message" };
       }

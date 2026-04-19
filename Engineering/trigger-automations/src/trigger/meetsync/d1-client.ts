@@ -16,31 +16,78 @@ function getConfig() {
   return { accountId, apiToken, databaseId };
 }
 
-/** Execute a D1 SQL query via HTTP API */
+// Transient HTTP statuses worth retrying. 429 covers both D1's rate-limit
+// code 971 and its storage-timeout code 7429 — both transient. 5xx covers
+// service-side blips. Everything else (400/401/403/404/422) is a caller bug
+// a retry won't fix, so we fail fast on those.
+const RETRIABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 3;
+const RETRY_BACKOFFS_MS = [250, 500, 1000];
+
+function jitter(ms: number): number {
+  return ms + Math.floor((Math.random() - 0.5) * 100);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Execute a D1 SQL query via HTTP API, with retry on transient errors.
+ *
+ * Retries: network errors, 429 (both code 971 rate-limit and code 7429
+ * storage-timeout), 5xx. Fails fast on 4xx auth/validation errors.
+ */
 export async function query<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = []
 ): Promise<D1QueryResult<T>> {
   const { accountId, apiToken, databaseId } = getConfig();
-
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/d1/database/${databaseId}/query`;
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify({ sql, params }),
-  });
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiToken}`,
+        },
+        body: JSON.stringify({ sql, params }),
+      });
+    } catch (err) {
+      // Network-layer failure (DNS, connection reset, fetch abort).
+      // Always transient — retry until budget exhausted.
+      lastErr = err;
+      if (attempt < MAX_RETRIES) {
+        const delay = jitter(RETRY_BACKOFFS_MS[attempt]);
+        console.warn(`[d1] network error on attempt ${attempt + 1}, retrying in ${delay}ms:`, err instanceof Error ? err.message : err);
+        await sleep(delay);
+        continue;
+      }
+      throw err;
+    }
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`D1 query failed (${response.status}): ${err}`);
+    if (response.ok) {
+      const data = (await response.json()) as { result: D1QueryResult<T>[] };
+      return data.result[0];
+    }
+
+    const errBody = await response.text();
+    const shouldRetry = RETRIABLE_STATUSES.has(response.status) && attempt < MAX_RETRIES;
+    if (!shouldRetry) {
+      throw new Error(`D1 query failed (${response.status}): ${errBody}`);
+    }
+    const delay = jitter(RETRY_BACKOFFS_MS[attempt]);
+    console.warn(`[d1] ${response.status} on attempt ${attempt + 1}, retrying in ${delay}ms: ${errBody.slice(0, 200)}`);
+    lastErr = new Error(`D1 query failed (${response.status}): ${errBody}`);
+    await sleep(delay);
   }
-
-  const data = (await response.json()) as { result: D1QueryResult<T>[] };
-  return data.result[0];
+  // Unreachable — the loop either returns on ok or throws inside.
+  // Keep a safety throw so TS control-flow is happy.
+  throw lastErr ?? new Error("D1 query failed after retries");
 }
 
 // --- Convenience helpers ---
@@ -223,6 +270,23 @@ export async function hasGoogleToken(chatId: string): Promise<boolean> {
   return (r.results[0]?.c ?? 0) > 0;
 }
 
+/** Has the user's OAuth grant been revoked/expired (invalid_grant on refresh)? */
+export async function isGoogleTokenInvalid(chatId: string): Promise<boolean> {
+  const r = await query<{ invalid: number }>(
+    "SELECT google_token_invalid AS invalid FROM users WHERE chat_id = ?",
+    [chatId],
+  );
+  return (r.results[0]?.invalid ?? 0) === 1;
+}
+
+/** Flip the per-user flag when refreshAccessToken returns invalid_grant. */
+export async function markGoogleTokenInvalid(chatId: string, invalid: boolean): Promise<void> {
+  await query(
+    "UPDATE users SET google_token_invalid = ? WHERE chat_id = ?",
+    [invalid ? 1 : 0, chatId],
+  );
+}
+
 export async function getGoogleToken(chatId: string) {
   const result = await query<{
     access_token: string;
@@ -247,6 +311,9 @@ export async function saveGoogleToken(
      ON CONFLICT(chat_id) DO UPDATE SET access_token = ?, refresh_token = ?, expires_at = ?`,
     [chatId, accessToken, refreshToken, expiresAt, accessToken, refreshToken, expiresAt]
   );
+  // A successful save implies the token is usable — clear any stale
+  // "invalid grant" flag so [STATE] reflects reality next turn.
+  await markGoogleTokenInvalid(chatId, false).catch(() => {});
 }
 
 // --- User knowledge base helpers ---
@@ -637,13 +704,9 @@ export async function logMessage(
     "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, ?, ?)",
     [chatId, role, trimmed]
   );
-  // Keep only last 50 messages per user (best-effort cleanup)
-  query(
-    `DELETE FROM conversation_log WHERE chat_id = ? AND id NOT IN (
-      SELECT id FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 50
-    )`,
-    [chatId, chatId]
-  ).catch(() => {});
+  // Cleanup to last 50 per chat moved to nightly cleanup-conversation-log
+  // task — the correlated-subquery DELETE on the hot path was a primary
+  // D1 storage-timeout (7429) trigger under load.
   return result.meta.last_row_id;
 }
 
@@ -733,6 +796,13 @@ export interface Snapshot {
   recentHistory: Array<{ role: string; message: string; created_at: string }>;
   timezone: string;
   callerCalendarConnected: boolean;
+  // Set by enrichSnapshotWithCalendarEvents if any target's Google Calendar
+  // read failed. Surfaced in [STATE] so Claude caveats its answers instead
+  // of confidently asserting availability on stale data.
+  calendarDegraded?: boolean;
+  // Set if the caller's OAuth token returned invalid_grant on refresh.
+  // Surfaced in [STATE] so Claude nudges the user to re-/connect.
+  callerCalendarTokenInvalid?: boolean;
 }
 
 /**
@@ -748,11 +818,12 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
   // Schedules live on users.latest_schedule_json; person_notes for linked
   // contacts get enriched below so Claude sees every contact's live schedule
   // regardless of which chat they uploaded from.
-  const [userRow, rawPersonNotes, recentHistory, callerCalendarConnected] = await Promise.all([
+  const [userRow, rawPersonNotes, recentHistory, callerCalendarConnected, callerCalendarTokenInvalid] = await Promise.all([
     getUser(chatId),
     getPersonNotesForOwner(chatId),
     getRecentMessages(chatId),
     hasGoogleToken(chatId),
+    isGoogleTokenInvalid(chatId),
   ]);
 
   // Enrich each linked person_note with the contact's live data:
@@ -763,26 +834,39 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
   //      notes field in-memory only (never written back) so Claude can
   //      reason about meet-up logistics: "Kurt works till 4, lives far
   //      from town centre — 5pm meetup is tight on commute".
-  const personNotes: PersonNote[] = await Promise.all(
-    rawPersonNotes.map(async (n) => {
-      if (!n.linked_chat_id) return n;
-      const [latestSched, linkedUser] = await Promise.all([
-        n.schedule_json ? Promise.resolve(null) : getLatestScheduleForUser(n.linked_chat_id),
-        getUser(n.linked_chat_id),
-      ]);
-      const mergedSched = n.schedule_json ?? latestSched;
-      const linkedCtx = linkedUser?.context?.trim() ?? "";
-      const linkedLang = linkedUser?.preferred_language ?? null;
-      const profileParts: string[] = [];
-      if (linkedLang) profileParts.push(`lang=${linkedLang}`);
-      if (linkedCtx) profileParts.push(linkedCtx);
-      const profileLine = profileParts.length > 0 ? `[their profile] ${profileParts.join(" · ")}` : "";
-      const mergedNotes = profileLine
-        ? (n.notes ? `${n.notes}\n${profileLine}` : profileLine)
-        : n.notes;
-      return { ...n, schedule_json: mergedSched, notes: mergedNotes };
-    }),
+  //
+  // Batched: one SELECT … WHERE chat_id IN (...) for all linked contacts
+  // instead of N serial getUser/getLatestScheduleForUser pairs. Was a
+  // thundering-herd D1 hot spot on power users with 10+ contacts.
+  const linkedChatIds = Array.from(
+    new Set(rawPersonNotes.map((n) => n.linked_chat_id).filter((v): v is string => !!v)),
   );
+  const linkedUserMap = new Map<string, UserProfile>();
+  if (linkedChatIds.length > 0) {
+    const placeholders = linkedChatIds.map(() => "?").join(", ");
+    const linkedRows = await query<UserProfile>(
+      `SELECT * FROM users WHERE chat_id IN (${placeholders})`,
+      linkedChatIds,
+    );
+    for (const row of linkedRows.results) {
+      linkedUserMap.set(row.chat_id, row);
+    }
+  }
+  const personNotes: PersonNote[] = rawPersonNotes.map((n) => {
+    if (!n.linked_chat_id) return n;
+    const linkedUser = linkedUserMap.get(n.linked_chat_id);
+    const mergedSched = n.schedule_json ?? linkedUser?.latest_schedule_json ?? null;
+    const linkedCtx = linkedUser?.context?.trim() ?? "";
+    const linkedLang = linkedUser?.preferred_language ?? null;
+    const profileParts: string[] = [];
+    if (linkedLang) profileParts.push(`lang=${linkedLang}`);
+    if (linkedCtx) profileParts.push(linkedCtx);
+    const profileLine = profileParts.length > 0 ? `[their profile] ${profileParts.join(" · ")}` : "";
+    const mergedNotes = profileLine
+      ? (n.notes ? `${n.notes}\n${profileLine}` : profileLine)
+      : n.notes;
+    return { ...n, schedule_json: mergedSched, notes: mergedNotes };
+  });
 
   // User row should always exist — turn handler calls registerUser before
   // loadSnapshot. If it doesn't, something is wrong; fall back to a minimal
@@ -814,6 +898,7 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     recentHistory,
     timezone: user.timezone ?? "Europe/Malta",
     callerCalendarConnected,
+    callerCalendarTokenInvalid,
   };
 }
 
@@ -944,18 +1029,33 @@ export async function getDueReminders(nowEpoch: number, limit = 50): Promise<Rem
   return result.results;
 }
 
-/** One-shot reminder hit its time — mark it done so the firer doesn't re-trigger. */
+/**
+ * Atomically claim a reminder for firing. Flips PENDING → FIRING with the
+ * current epoch stamped into leased_at. Returns true if this worker won
+ * the race (can proceed to send), false if someone else already picked it
+ * up. Stuck FIRING rows (>10 min) are reaped nightly by cleanup cron.
+ */
+export async function leaseReminder(id: string, nowEpoch: number): Promise<boolean> {
+  const result = await query(
+    `UPDATE reminders SET status = 'FIRING', leased_at = ?
+     WHERE id = ? AND status = 'PENDING'`,
+    [nowEpoch, id],
+  );
+  return (result.meta?.changes ?? 0) > 0;
+}
+
+/** One-shot reminder fired successfully — mark it FIRED and clear the lease. */
 export async function markReminderFired(id: string): Promise<void> {
   await query(
-    `UPDATE reminders SET status = 'FIRED', fired_at = datetime('now') WHERE id = ?`,
+    `UPDATE reminders SET status = 'FIRED', fired_at = datetime('now'), leased_at = NULL WHERE id = ?`,
     [id],
   );
 }
 
-/** Recurring reminder fired — advance fire_at to the next occurrence. */
+/** Recurring reminder fired successfully — advance fire_at + reset to PENDING. */
 export async function advanceRecurringReminder(id: string, nextFireAtEpoch: number): Promise<void> {
   await query(
-    `UPDATE reminders SET fire_at = ?, fired_at = datetime('now') WHERE id = ?`,
+    `UPDATE reminders SET status = 'PENDING', fire_at = ?, fired_at = datetime('now'), leased_at = NULL WHERE id = ?`,
     [nextFireAtEpoch, id],
   );
 }

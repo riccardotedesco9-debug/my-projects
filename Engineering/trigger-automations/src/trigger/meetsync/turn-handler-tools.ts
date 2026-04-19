@@ -249,7 +249,7 @@ async function notifyShadowLinkResolutions(
 const parseScheduleTool: ToolDefinition = {
   name: "parse_schedule",
   description:
-    "Extract and save shifts from a schedule. Four input modes (in priority order): (1) shifts — pass a structured shifts array directly when you've already read the schedule yourself from an attached image/PDF/voice transcript and just need to save it (skips the parser entirely, fastest and most reliable path); (2) text_content for typed input the user gave you; (3) media_id to fetch a Telegram file by id — use this when the user references a file they shared in a previous turn (you'll see entries like '[document uploaded · file_id=ABC]' or '[photo uploaded · file_id=XYZ]' in recent history; pass that exact file_id); (4) omit all to use the current turn's attached media. attributed_to_name flags an on-behalf upload for someone other than the user. CRITICAL: if the schedule data contains the CALLER's own shifts (same name as the caller in [STATE]), save those WITHOUT attributed_to_name — that writes to the caller's own user record. Only use attributed_to_name for OTHER people's shifts. A CSV with 7 people including the caller = 1 call without attributed_to_name (caller) + 6 calls with attributed_to_name (everyone else). Auto-saves to D1. IMPORTANT: Never call this on voice/audio messages — they are already transcribed to text. Read the transcription and use the 'shifts' parameter or 'text_content' instead.",
+    "Extract and save shifts from a schedule. Input modes (priority order): (1) shifts — structured array you extracted yourself (fastest, most reliable); (2) text_content — typed input; (3) media_id — Telegram file_id referenced from a previous turn's '[photo uploaded · file_id=...]' entry; (4) omit all — uses the current turn's attached media. attributed_to_name routes the shifts to a named contact; omit it to save to the caller. For multi-person CSVs: one call per person, attributed_to_name for everyone except the caller. Don't call this on voice messages — they arrive pre-transcribed as text; use 'shifts' or 'text_content'.",
   input_schema: {
     type: "object",
     properties: {
@@ -1376,7 +1376,7 @@ const watchScheduleUploadTool: ToolDefinition = {
 const bookMeetupTool: ToolDefinition = {
   name: "book_meetup",
   description:
-    "Commit a meetup to Google Calendar for the caller and each named attendee. CANONICAL 'lock in' action — not a reminder, not a relay, a real calendar event on every /connect'd participant's primary calendar, plus a busy block appended to each person's in-bot schedule so future 'who's free' queries treat the slot as taken. Single-day event only: one date, one start time, one end time. If the caller explicitly asks for a recurring meetup ('every Monday 9am', 'weekly'), tell them this tool only books one instance and suggest they duplicate the event from Google Calendar's UI — we don't expose recurrence here. Anyone without Google Calendar connected is listed in skipped_not_connected — tell the caller to have them send /connect to the bot. After booking, reply with ONE line ('booked — it's on your calendar, you can coordinate further there') and stop. The calendar event is the source of truth from that point.",
+    "Commit a meetup to Google Calendar for the caller and each named attendee. CANONICAL 'lock in' action — a real calendar event on every /connect'd participant's primary calendar, plus a busy block appended to each person's in-bot schedule so future 'who's free' queries treat the slot as taken. Single-day event only: one date, one start time, one end time. For recurring, tell the caller to duplicate from Google Calendar's UI — no recurrence here. Anyone without Google Calendar connected is listed in skipped_not_connected; the caller's OWN event is still created unconditionally (booking on the caller's calendar never requires the contact's consent or connection). After booking, reply with ONE line ('booked — it's on your calendar') and stop. When the caller defers ('just pick', 'just book it', 'you choose'), you are authorised to choose concrete values (date, start_time, end_time, title) yourself and book immediately — do not re-ask for specifics after a defer.",
   input_schema: {
     type: "object",
     required: ["date", "start_time", "end_time", "title"],
@@ -1455,6 +1455,11 @@ const bookMeetupTool: ToolDefinition = {
     const booked: string[] = [];
     const skippedNotConnected: string[] = [];
     const failed: string[] = [];
+    // Partial failures that don't block the "booked" confirmation but DO
+    // need to surface to the user — so Claude can mention them honestly
+    // instead of the bot saying "booked!" when half the side-effects
+    // silently failed (bus block write, attendee notify, etc.).
+    const partialFailures: string[] = [];
     const allTargets = [
       { name: ctx.snapshot.user.name ?? "you", chat_id: ctx.callerChatId },
       ...attendeeTargets,
@@ -1504,6 +1509,7 @@ const bookMeetupTool: ToolDefinition = {
         else skippedNotConnected.push(t.name);
       } catch (err) {
         failed.push(t.name);
+        partialFailures.push(`couldn't create calendar event for ${t.name}`);
         console.warn(`[book_meetup] fallback event failed for ${t.chat_id}:`, err);
       }
     }
@@ -1517,6 +1523,7 @@ const bookMeetupTool: ToolDefinition = {
           if (updated) ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: updated };
         }
       } catch (err) {
+        partialFailures.push(`couldn't update bot-side busy memory for ${t.name} (future conflict-checks may miss this slot)`);
         console.warn(`[book_meetup] memory-schedule append failed for ${t.chat_id}:`, err);
       }
     }
@@ -1531,6 +1538,7 @@ const bookMeetupTool: ToolDefinition = {
           `📅 ${callerName} just booked "${title}" for ${date} ${startTime}–${endTime} — it's on your Google Calendar.`,
         );
       } catch (err) {
+        partialFailures.push(`couldn't notify ${t.name} on Telegram — may want to nudge them directly`);
         console.warn(`[book_meetup] attendee notify failed for ${t.chat_id}:`, err);
       }
     }
@@ -1541,6 +1549,7 @@ const bookMeetupTool: ToolDefinition = {
       skipped_not_connected: skippedNotConnected,
       failed,
       unknown_attendees: unknownAttendees,
+      partial_failures: partialFailures,
       event: { date, start_time: startTime, end_time: endTime, title },
     };
   },
@@ -1573,7 +1582,7 @@ const cancelMeetupTool: ToolDefinition = {
     // sure it's still on the calendar and to get its attendees for cleanup.
     const candidates = await findCalendarEventsOnDate(ctx.callerChatId, date, titleHint);
     if (candidates.length === 0) {
-      return { error: "not_found", message: `No events on ${date}${titleHint ? ` matching '${titleHint}'` : ""} on the caller's primary calendar.` };
+      return { error: "not_found", message: `No events on ${date}${titleHint ? ` matching '${titleHint}'` : ""} across the caller's calendars.` };
     }
 
     // Preview-only call (or ambiguous + no pick).
@@ -1607,8 +1616,9 @@ const cancelMeetupTool: ToolDefinition = {
       };
     }
 
-    // Hard delete.
-    const result = await deleteCalendarEvent(ctx.callerChatId, target.id);
+    // Hard delete — pass the calendar_id so secondary-calendar events
+    // delete correctly (findCalendarEventsOnDate now spans all calendars).
+    const result = await deleteCalendarEvent(ctx.callerChatId, target.id, target.calendar_id);
     if (result === "not_found") {
       return { error: "already_deleted", message: "Event was already deleted on Google's side. Nothing to do." };
     }
