@@ -50,6 +50,12 @@ if (( ${#SCENARIOS[@]} == 0 )); then
   exit 0
 fi
 
+# Reset the judge-skip counter before the run. _judge.sh increments it on
+# every missing-ANTHROPIC_API_KEY skip. We check at the end — if any judge
+# skipped, the suite result is unreliable regardless of pass count.
+JUDGE_SKIP_COUNTER="${MEETSYNC_TEST_JUDGE_SKIP_COUNTER:-/c/tmp/meetsync-judge-skips.count}"
+echo 0 > "$JUDGE_SKIP_COUNTER"
+
 PASSED=0
 FAILED=0
 FAILED_NAMES=()
@@ -66,6 +72,9 @@ for s in "${SCENARIOS[@]}"; do
   fi
 done
 
+SKIPPED_JUDGES=0
+[[ -f "$JUDGE_SKIP_COUNTER" ]] && SKIPPED_JUDGES=$(cat "$JUDGE_SKIP_COUNTER" 2>/dev/null || echo 0)
+
 echo
 echo "${_BOLD}summary:${_RESET} ${_GREEN}$PASSED passed${_RESET} / ${_RED}$FAILED failed${_RESET} (${#SCENARIOS[@]} total)"
 
@@ -75,4 +84,16 @@ if (( FAILED > 0 )); then
     echo "  - $n"
   done
   exit 1
+fi
+
+# Pass count is green but judges skipped — many scenarios have only judge
+# assertions. Without the key, those scenarios report green while testing
+# nothing substantive. Flag that loudly; exit 2 so run-all.sh in CI doesn't
+# read this as clean.
+if (( SKIPPED_JUDGES > 0 )); then
+  echo
+  echo "${_RED}UNRELIABLE:${_RESET} $SKIPPED_JUDGES judge assertion(s) were skipped — ANTHROPIC_API_KEY missing."
+  echo "${_DIM}Pass count reflects only the D1-outcome assertions; judge semantic checks did NOT run."
+  echo "${_DIM}Add ANTHROPIC_API_KEY to meetsync/.env.test (or .env) and rerun for a real result.${_RESET}"
+  exit 2
 fi

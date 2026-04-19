@@ -283,10 +283,6 @@ const parseScheduleTool: ToolDefinition = {
         type: "string",
         description: "Name of the third party this schedule is for, if it's not the user's own schedule.",
       },
-      session_id: {
-        type: "string",
-        description: "Session to save the user's own schedule to. Defaults to the most recent active session, creates a fresh one if none exists.",
-      },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
@@ -295,7 +291,6 @@ const parseScheduleTool: ToolDefinition = {
     const explicitMediaId = typeof input.media_id === "string" ? input.media_id.trim() : "";
     const explicitMimeType = typeof input.mime_type === "string" ? input.mime_type : undefined;
     const attributedToName = typeof input.attributed_to_name === "string" ? input.attributed_to_name.trim() : "";
-    const explicitSessionId = typeof input.session_id === "string" ? input.session_id : undefined;
 
     try {
       // 0. Direct-shifts path: Claude already extracted shifts from a file
@@ -321,7 +316,7 @@ const parseScheduleTool: ToolDefinition = {
           validated.push({ date, start_time: start, end_time: end, ...(label ? { label } : {}) });
         }
         const fakeResult: ExtractScheduleResult = { shifts: validated };
-        return await persistShifts(ctx, fakeResult, attributedToName, explicitSessionId, "direct");
+        return await persistShifts(ctx, fakeResult, attributedToName, "direct");
       }
 
       // 1. Resolve media: explicit media_id (download from Telegram) wins,
@@ -403,7 +398,7 @@ const parseScheduleTool: ToolDefinition = {
         };
       }
 
-      return await persistShifts(ctx, result, attributedToName, explicitSessionId, textContent ? "text" : "media");
+      return await persistShifts(ctx, result, attributedToName, textContent ? "text" : "media");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Surface the underlying error to the dashboard so we can see WHY
@@ -428,7 +423,6 @@ async function persistShifts(
   ctx: ToolContext,
   result: ExtractScheduleResult,
   attributedToName: string,
-  _explicitSessionId: string | undefined,
   source: "direct" | "text" | "media",
 ): Promise<ToolResult> {
   const scheduleJson = JSON.stringify(result.shifts);
@@ -509,10 +503,6 @@ async function persistShifts(
     watchers_notified: firedWatchers.length,
   };
 }
-
-// (Tool 2 save_schedule was removed — parse_schedule now auto-saves on
-// extraction so cross-turn shift persistence isn't a problem any more.)
-
 
 // --- Tool 3: add_or_invite_partner ---
 
@@ -708,13 +698,6 @@ const addOrInvitePartnerTool: ToolDefinition = {
     };
   },
 };
-
-// Invite-token issuance and acceptance were both removed. Shadow tracking
-// via add_contact + linkShadowedPersonNotesByPhone handles onboarding of
-// mentioned contacts automatically. No pre-existing tokens can be valid
-// (D1 was wiped and no tool produces new ones).
-
-// --- REMOVED: verifyInviteToken, acceptInviteTool ---
 
 // --- Tool 4: forget_contact (hard delete, vs set_person_hidden which is soft) ---
 

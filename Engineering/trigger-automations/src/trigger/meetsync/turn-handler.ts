@@ -465,10 +465,6 @@ export const turnHandler = schemaTask({
   run: async (payload) => runTurn(payload),
 });
 
-/**
- * Exported so the legacy `meetsync-message-router` shim in phase 05 can
- * forward to the same function without going through a nested task call.
- */
 export async function runTurn(payload: TurnPayload): Promise<Record<string, unknown>> {
   const { chat_id: chatId } = payload;
   // Heartbeat handle — started after burst consolidation passes, cleared

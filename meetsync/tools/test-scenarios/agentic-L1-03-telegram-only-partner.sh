@@ -15,7 +15,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 reset_test_users
 seed_user "$TEST_USER_A" "Alex" "en"
 seed_schedule "$TEST_USER_A" '[{"date":"2026-04-24","start_time":"00:00","end_time":"00:00","label":"off"}]'
-# Deliberately NO linked_chat_id: pure Telegram-only contact.
+# The caller (Alex) IS /connect'd — seed a google_tokens row so book_meetup
+# has somewhere to write. The scenario tests the PARTNER being Telegram-only;
+# otherwise the bot's legitimate "you haven't connected" response for the
+# caller overlaps with the gatekeep behaviour we're actually checking.
+d1_query "INSERT OR REPLACE INTO google_tokens (chat_id, access_token, refresh_token, expires_at) VALUES ('$TEST_USER_A', 'test_access', 'test_refresh', datetime('now','+1 hour'))" >/dev/null
+# Deliberately NO linked_chat_id on Marco: pure Telegram-only contact.
 seed_contact "$TEST_USER_A" "Marco"
 d1_query "UPDATE person_notes SET schedule_json='[{\"date\":\"2026-04-24\",\"start_time\":\"00:00\",\"end_time\":\"12:00\",\"label\":\"work\"}]' WHERE owner_chat_id='$TEST_USER_A' AND name_normalized='marco'" >/dev/null
 

@@ -8,8 +8,6 @@
 //   - `persistComputedSlots(sessionId, slots)` — writes computed slots to
 //     the free_slots table so deliver-results can index them.
 //   - `computeSinglePersonSlots` — single-person "free time" for mediator mode.
-//
-// The legacy `matchCompute` Trigger.dev schemaTask was removed in phase 05.
 
 import { z } from "zod";
 

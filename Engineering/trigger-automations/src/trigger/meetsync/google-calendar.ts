@@ -31,20 +31,9 @@ export async function createCalendarEvent(
   timezone: string = "Europe/Malta",
   attendeeEmails: string[] = [],
 ): Promise<boolean | "token_expired"> {
-  const token = await getGoogleToken(chatId);
-  if (!token) return false;
-
-  let accessToken = token.access_token;
-  if (new Date(token.expires_at) <= new Date()) {
-    const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant") {
-      await markGoogleTokenInvalid(chatId, true).catch(() => {});
-      return "token_expired";
-    }
-    if (!refreshed) return false;
-    accessToken = refreshed.access_token;
-    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
-  }
+  const auth = await getFreshAccessToken(chatId);
+  if (!auth.ok) return auth.reason === "token_expired" ? "token_expired" : false;
+  const accessToken = auth.accessToken;
 
   const event: CalendarEvent = {
     summary,
@@ -89,31 +78,9 @@ export async function listCalendarEventsInWindow(
   endDateISO: string, // YYYY-MM-DD (inclusive)
   timezone: string = "Europe/Malta",
 ): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> {
-  const token = await getGoogleToken(chatId);
-  if (!token) return [];
-
-  let accessToken = token.access_token;
-  // Refresh proactively if within 60s of expiry — avoids races where the
-  // call starts valid but the response check sees an expired token.
-  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
-  if (expiresInMs <= 60_000) {
-    const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant" || !refreshed) {
-      console.warn(
-        `[google-calendar] token refresh failed for chat=${chatId} (` +
-          (refreshed === "invalid_grant"
-            ? "invalid_grant — user revoked or grant expired; ask them to /connect again"
-            : "null — likely missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in Trigger.dev env vars") +
-          ")",
-      );
-      if (refreshed === "invalid_grant") {
-        await markGoogleTokenInvalid(chatId, true).catch(() => {});
-      }
-      return [];
-    }
-    accessToken = refreshed.access_token;
-    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
-  }
+  const auth = await getFreshAccessToken(chatId);
+  if (!auth.ok) return [];
+  const accessToken = auth.accessToken;
 
   // Fan out across every calendar the user sees in their calendarList —
   // primary PLUS secondary calendars like "Personal", "Health", shared
@@ -288,20 +255,9 @@ export async function findCalendarEventsOnDate(
   date: string, // YYYY-MM-DD
   titleHint: string,
 ): Promise<Array<{ id: string; calendar_id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> {
-  const token = await getGoogleToken(chatId);
-  if (!token) return [];
-  let accessToken = token.access_token;
-  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
-  if (expiresInMs <= 60_000) {
-    const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant") {
-      await markGoogleTokenInvalid(chatId, true).catch(() => {});
-      return [];
-    }
-    if (!refreshed) return [];
-    accessToken = refreshed.access_token;
-    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
-  }
+  const auth = await getFreshAccessToken(chatId);
+  if (!auth.ok) return [];
+  const accessToken = auth.accessToken;
   const calendarIds = await listUserCalendarIds(accessToken);
   const qs = new URLSearchParams({
     singleEvents: "true",
@@ -366,20 +322,9 @@ export async function deleteCalendarEvent(
   eventId: string,
   calendarId: string = "primary",
 ): Promise<boolean | "not_found"> {
-  const token = await getGoogleToken(chatId);
-  if (!token) return false;
-  let accessToken = token.access_token;
-  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
-  if (expiresInMs <= 60_000) {
-    const refreshed = await refreshAccessToken(token.refresh_token);
-    if (refreshed === "invalid_grant") {
-      await markGoogleTokenInvalid(chatId, true).catch(() => {});
-      return false;
-    }
-    if (!refreshed) return false;
-    accessToken = refreshed.access_token;
-    await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
-  }
+  const auth = await getFreshAccessToken(chatId);
+  if (!auth.ok) return false;
+  const accessToken = auth.accessToken;
   const url = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`;
   let response: Response;
   try {
@@ -392,6 +337,44 @@ export async function deleteCalendarEvent(
   }
   if (response.status === 404 || response.status === 410) return "not_found";
   return response.ok || response.status === 204;
+}
+
+/**
+ * Single entry point for "give me a usable access token for this chat".
+ * Handles getGoogleToken → proactive-expiry check (60s buffer) → refresh →
+ * markGoogleTokenInvalid on hard failure → saveGoogleToken on success.
+ * Replaces four near-identical inline blocks that had drifted on the
+ * expiry threshold (one was reactive, three proactive).
+ */
+type FreshTokenResult =
+  | { ok: true; accessToken: string }
+  | { ok: false; reason: "not_connected" | "token_expired" | "refresh_failed" };
+
+async function getFreshAccessToken(chatId: string): Promise<FreshTokenResult> {
+  const token = await getGoogleToken(chatId);
+  if (!token) return { ok: false, reason: "not_connected" };
+
+  const expiresInMs = new Date(token.expires_at).getTime() - Date.now();
+  if (expiresInMs > 60_000) {
+    return { ok: true, accessToken: token.access_token };
+  }
+
+  const refreshed = await refreshAccessToken(token.refresh_token);
+  if (refreshed === "invalid_grant") {
+    console.warn(
+      `[google-calendar] token refresh failed for chat=${chatId} (invalid_grant — user revoked or grant expired; ask them to /connect again)`,
+    );
+    await markGoogleTokenInvalid(chatId, true).catch(() => {});
+    return { ok: false, reason: "token_expired" };
+  }
+  if (!refreshed) {
+    console.warn(
+      `[google-calendar] token refresh returned null for chat=${chatId} — likely missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET`,
+    );
+    return { ok: false, reason: "refresh_failed" };
+  }
+  await saveGoogleToken(chatId, refreshed.access_token, token.refresh_token, refreshed.expires_at);
+  return { ok: true, accessToken: refreshed.access_token };
 }
 
 async function refreshAccessToken(

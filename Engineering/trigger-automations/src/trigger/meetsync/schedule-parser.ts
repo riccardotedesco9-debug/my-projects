@@ -7,10 +7,6 @@
 //     implementation.
 //   - `mapMimeType`, `arrayBufferToBase64` — utilities the turn-handler
 //     uses when preparing media for the parser.
-//
-// The legacy `scheduleParser` Trigger.dev schemaTask was removed in phase
-// 05 of the agentic rewrite — its only callers (old state/intent handlers)
-// were deleted in the same commit.
 
 import { z } from "zod";
 

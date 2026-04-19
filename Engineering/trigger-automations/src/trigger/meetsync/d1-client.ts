@@ -92,8 +92,7 @@ export async function query<T = Record<string, unknown>>(
 
 // --- Convenience helpers ---
 //
-// Session-layer helpers were removed when the shared-hub refactor landed.
-// See migration 0018 and the turn-handler for the new flow: schedules live
+// Shared-hub model (migration 0018+): schedules live
 // on users, contacts on person_notes, no sessions gating visibility.
 
 // --- Per-person knowledge notes ---
@@ -526,14 +525,9 @@ export async function findUserByName(name: string) {
 }
 
 /**
- * The user's canonical current schedule. Shared-hub model: a schedule lives
- * on users.latest_schedule_json — not inside any session or participant row.
+ * The user's canonical current schedule (users.latest_schedule_json).
  * Any caller who has this user in their person_notes automatically sees
  * this schedule via loadSnapshot enrichment.
- *
- * Falls back to the most-recent participants.schedule_json so users who
- * uploaded before migration 0018 still resolve. Can be removed once the
- * participants table is dropped.
  *
  * Consent model: uploading a schedule to MeetSync implies consent to use it
  * for matches — that's the bot's entire purpose.
@@ -543,17 +537,7 @@ export async function getLatestScheduleForUser(chatId: string): Promise<string |
     "SELECT latest_schedule_json FROM users WHERE chat_id = ?",
     [chatId],
   );
-  const fromUser = userRow.results[0]?.latest_schedule_json;
-  if (fromUser) return fromUser;
-
-  // Legacy fallback — participant rows pre-0018.
-  const legacy = await query<{ schedule_json: string | null }>(
-    `SELECT schedule_json FROM participants
-     WHERE chat_id = ? AND schedule_json IS NOT NULL AND schedule_json != ''
-     ORDER BY created_at DESC LIMIT 1`,
-    [chatId],
-  );
-  return legacy.results[0]?.schedule_json ?? null;
+  return userRow.results[0]?.latest_schedule_json ?? null;
 }
 
 /**

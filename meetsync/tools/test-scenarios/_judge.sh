@@ -45,10 +45,15 @@ assert_reply_matches_judge() {
   export PYTHONIOENCODING=utf-8
   export PYTHONUTF8=1
   if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-    # Non-fatal: skip judge assertions but keep scenario running so any
-    # D1-based assertions still execute. Scenario exit remains 0 as long as
-    # no hard assertion fails. Tells the operator what to do to enable.
+    # Non-fatal: skip this specific assertion but record the fact. run-all.sh
+    # reads the counter at the end and flags the suite result as unreliable
+    # if any judge skipped — otherwise 14/27 scenarios with only-judge
+    # assertions would silently pass without actually testing anything.
     echo "  ${_YELLOW}skip${_RESET} judge: $expected — ANTHROPIC_API_KEY not in env (add it to meetsync/.env.test to enable Haiku-as-judge)"
+    local COUNTER_FILE="${MEETSYNC_TEST_JUDGE_SKIP_COUNTER:-/c/tmp/meetsync-judge-skips.count}"
+    local prev=0
+    [[ -f "$COUNTER_FILE" ]] && prev=$(cat "$COUNTER_FILE" 2>/dev/null || echo 0)
+    echo $((prev + 1)) > "$COUNTER_FILE"
     return 0
   fi
 
