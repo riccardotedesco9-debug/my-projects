@@ -53,7 +53,7 @@ import {
 
 // --- Config ---
 
-const MODEL_ID = process.env.MEETSYNC_MODEL ?? "claude-sonnet-4-7";
+const MODEL_ID = process.env.MEETSYNC_MODEL ?? "claude-sonnet-4-6";
 // Raised from 6 to 15. Bulk CSV uploads (7 contacts × add_contact +
 // 7 × parse_schedule + 1 reply = 15 calls) were hitting the limit and
 // silently cutting off mid-processing. Each iteration is one Claude API

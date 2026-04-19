@@ -1,5 +1,5 @@
 // fire-reminders — cron task that picks up due reminders and sends them as
-// Telegram messages from the MeetSync bot. Runs every minute. Handles both
+// Telegram messages from the MeetSync bot. Runs every 5 minutes. Handles both
 // one-shot (mark FIRED) and recurring (advance fire_at) reminders.
 //
 // Failure policy: if a single reminder fails to send, log and continue with
@@ -23,7 +23,7 @@ const MAX_PER_RUN = 50;
 
 export const fireReminders = schedules.task({
   id: "meetsync-fire-reminders",
-  cron: "* * * * *", // every minute
+  cron: "*/5 * * * *", // every 5 minutes — D1 REST API rate-limits tighter runs
   run: async () => {
     const nowEpoch = Math.floor(Date.now() / 1000);
     const due: Reminder[] = await getDueReminders(nowEpoch, MAX_PER_RUN);
