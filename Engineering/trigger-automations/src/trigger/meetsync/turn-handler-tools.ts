@@ -363,6 +363,21 @@ const parseScheduleTool: ToolDefinition = {
         resolvedMedia = ctx.cachedMedia;
       }
 
+      // Person-specific context feeds company-specific parse hints (e.g.
+      // "brown cells = office, white = remote" for the caller, or fixed-
+      // location notes like "Diego bartends at Hugo's so every shift is
+      // on-site"). For self-uploads pull from users.context; for
+      // attributed_to uploads pull from the target contact's person_notes.
+      let personContext: string | null = null;
+      if (attributedToName) {
+        const note = ctx.snapshot.personNotes.find(
+          (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
+        );
+        personContext = note?.notes ?? null;
+      } else {
+        personContext = ctx.snapshot.user.context ?? null;
+      }
+
       let result: ExtractScheduleResult;
       const effectiveText = textContent || resolvedText;
       if (effectiveText) {
@@ -371,6 +386,7 @@ const parseScheduleTool: ToolDefinition = {
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
           attributedToName: attributedToName || undefined,
+          personContext,
         });
       } else if (resolvedMedia) {
         result = await extractSchedule({
@@ -378,6 +394,7 @@ const parseScheduleTool: ToolDefinition = {
           userName: ctx.snapshot.user.name ?? undefined,
           timezone: ctx.snapshot.timezone,
           attributedToName: attributedToName || undefined,
+          personContext,
         });
       } else {
         return {
