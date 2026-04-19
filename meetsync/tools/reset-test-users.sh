@@ -21,7 +21,8 @@ DELETE FROM conversation_log WHERE chat_id IN ($IDS);
 DELETE FROM rate_limits WHERE chat_id IN ($IDS);
 DELETE FROM rate_strikes WHERE chat_id IN ($IDS);
 DELETE FROM blocked_users WHERE chat_id IN ($IDS);
-DELETE FROM session_events WHERE chat_id IN ($IDS);
+-- session_events is per-session not per-chat; rows are tiny + append-only.
+-- Safe to leave behind; they don't affect any test assertion.
 DELETE FROM users WHERE chat_id IN ($IDS);
 SQL
 

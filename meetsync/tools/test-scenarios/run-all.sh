@@ -25,10 +25,12 @@ _RESET=$'\033[0m'
 FILTERS=("$@")
 
 matches_filter() {
+  # Use locals so this function never shadows outer loop variables.
   local name="$1"
+  local filter
   if (( ${#FILTERS[@]} == 0 )); then return 0; fi
-  for f in "${FILTERS[@]}"; do
-    if [[ "$name" == *"agentic-$f-"* || "$name" == "agentic-$f.sh" ]]; then
+  for filter in "${FILTERS[@]}"; do
+    if [[ "$name" == *"agentic-$filter-"* || "$name" == "agentic-$filter.sh" ]]; then
       return 0
     fi
   done
@@ -36,10 +38,10 @@ matches_filter() {
 }
 
 SCENARIOS=()
-for f in agentic-*.sh; do
-  [[ -e "$f" ]] || continue
-  if matches_filter "$f"; then
-    SCENARIOS+=("$f")
+for file in agentic-*.sh; do
+  [[ -e "$file" ]] || continue
+  if matches_filter "$file"; then
+    SCENARIOS+=("$file")
   fi
 done
 
