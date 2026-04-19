@@ -126,46 +126,53 @@ export async function listCalendarEventsInWindow(
   const timeMin = `${startDateISO}T00:00:00Z`;
   const timeMax = `${endDateISO}T23:59:59Z`;
   // Parallelise across calendars with a per-call timeout so one slow
-  // secondary calendar can't stall the whole enrichment. TODO: pagination
-  // — events.list defaults to maxResults=250 and we don't follow
-  // nextPageToken. Power users with >250 events in a 21-day window will
-  // silently lose events past the first page.
+  // secondary calendar can't stall the whole enrichment. Each calendar
+  // follows Google's nextPageToken up to MAX_PAGES so power users with
+  // >250 events in a 21d window don't silently lose events past page 1.
   const PER_CALL_TIMEOUT_MS = 5000;
+  const MAX_PAGES = 5; // 5 * 250 = 1250 events per calendar. Cap to bound latency.
+  type EventItem = {
+    summary?: string;
+    status?: string;
+    transparency?: string;
+    location?: string;
+    start?: { dateTime?: string; date?: string };
+    end?: { dateTime?: string; date?: string };
+    attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+  };
   const perCalendarResults = await Promise.all(
     calendarIds.map(async (calId): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> => {
-      const url =
+      const baseUrl =
         `${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?` +
-        `singleEvents=true&orderBy=startTime&` +
+        `singleEvents=true&orderBy=startTime&maxResults=250&` +
         `timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}&` +
         `timeZone=${encodeURIComponent(timezone)}`;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
-      let response: Response;
-      try {
-        response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
-      } catch (err) {
-        console.warn(`[google-calendar] fetch failed for cal=${calId}:`, err instanceof Error ? err.message : err);
-        return [];
-      } finally {
-        clearTimeout(timer);
+      const allItems: EventItem[] = [];
+      let pageToken: string | undefined;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const url = pageToken ? `${baseUrl}&pageToken=${encodeURIComponent(pageToken)}` : baseUrl;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), PER_CALL_TIMEOUT_MS);
+        let response: Response;
+        try {
+          response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` }, signal: controller.signal });
+        } catch (err) {
+          console.warn(`[google-calendar] fetch failed for cal=${calId} page=${page}:`, err instanceof Error ? err.message : err);
+          break;
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!response.ok) {
+          console.warn(`[google-calendar] ${response.status} for cal=${calId} page=${page}`);
+          break;
+        }
+        const data = (await response.json()) as { items?: EventItem[]; nextPageToken?: string };
+        allItems.push(...(data.items ?? []));
+        if (!data.nextPageToken) break;
+        pageToken = data.nextPageToken;
       }
-      if (!response.ok) {
-        console.warn(`[google-calendar] ${response.status} for cal=${calId}`);
-        return [];
-      }
-      const data = (await response.json()) as {
-        items?: Array<{
-          summary?: string;
-          status?: string;
-          transparency?: string;
-          location?: string;
-          start?: { dateTime?: string; date?: string };
-          end?: { dateTime?: string; date?: string };
-          attendees?: Array<{ self?: boolean; responseStatus?: string }>;
-        }>;
-      };
       const calOut: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
-      for (const e of data.items ?? []) {
+      for (const e of allItems) {
         if (e.status === "cancelled") continue;
         // Previously filtered transparency==="transparent", but Gmail auto-
         // extracted events (eventType: fromGmail — therapy bookings, flights,

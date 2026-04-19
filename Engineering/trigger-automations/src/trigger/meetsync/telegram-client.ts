@@ -29,6 +29,33 @@ function getConfig() {
   return { token };
 }
 
+// --- Bot-wide send throttle (Telegram caps at ~30 msg/sec per bot) ---
+//
+// Sliding-window over the last 25 send timestamps. If we'd exceed 25 sends
+// in under 1s, sleep until the oldest entry ages out. Stays below the 30/s
+// cap with headroom so fan-outs from book_meetup + fire-reminders + organic
+// traffic can't combine into a rate-limit 429.
+const THROTTLE_WINDOW_SIZE = 25;
+const THROTTLE_WINDOW_MS = 1000;
+const sendTimestamps: number[] = [];
+
+async function throttleTelegramSends(): Promise<void> {
+  const now = Date.now();
+  // Drop entries older than the window.
+  while (sendTimestamps.length > 0 && now - sendTimestamps[0] > THROTTLE_WINDOW_MS) {
+    sendTimestamps.shift();
+  }
+  if (sendTimestamps.length >= THROTTLE_WINDOW_SIZE) {
+    const oldest = sendTimestamps[0];
+    const waitMs = THROTTLE_WINDOW_MS - (now - oldest);
+    if (waitMs > 0) {
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+    sendTimestamps.shift();
+  }
+  sendTimestamps.push(Date.now());
+}
+
 /**
  * Telegram inline keyboard — a 2D array of button rows. Each button's
  * `callback_data` is what the Worker will receive in the subsequent
@@ -75,6 +102,7 @@ export async function sendTextMessage(
   }
 
   const { token } = getConfig();
+  await throttleTelegramSends();
 
   const body: Record<string, unknown> = {
     chat_id: chatId,
@@ -134,6 +162,7 @@ export async function sendDocumentMessage(
   }
 
   const { token } = getConfig();
+  await throttleTelegramSends();
 
   // Telegram accepts file upload in a single multipart request
   const formData = new FormData();

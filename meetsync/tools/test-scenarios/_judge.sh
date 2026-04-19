@@ -23,15 +23,27 @@ assert_reply_matches_judge() {
     fail "judge: bot reply is empty — nothing to evaluate"
   fi
   if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
-    # send-telegram-update.sh also sources .env.test, but if a scenario's
-    # first action is the judge (no prior webhook) the key wouldn't be
-    # loaded yet. Try again here.
-    local ENV_FILE="$MEETSYNC_DIR/.env.test"
-    if [[ -f "$ENV_FILE" ]]; then
-      # shellcheck disable=SC1090
-      source "$ENV_FILE"
-    fi
+    # send-telegram-update.sh also sources .env.test. Try .env.test first
+    # (the test-specific file), then fall back to .env (where the key
+    # actually lives if the user pastes it from Trigger.dev secrets).
+    local CANDIDATE
+    for CANDIDATE in "$MEETSYNC_DIR/.env.test" "$MEETSYNC_DIR/.env"; do
+      if [[ -f "$CANDIDATE" ]]; then
+        # shellcheck disable=SC1090
+        source "$CANDIDATE"
+      fi
+      if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then break; fi
+    done
   fi
+  # Export so the child python process inherits it. Sourced vars without
+  # `export` stay shell-local and child processes see nothing.
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    export ANTHROPIC_API_KEY
+  fi
+  # Force UTF-8 so Python on Windows doesn't crash when the bot reply or
+  # the judge verdict contains en-dashes / emoji / other non-cp1252 chars.
+  export PYTHONIOENCODING=utf-8
+  export PYTHONUTF8=1
   if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
     # Non-fatal: skip judge assertions but keep scenario running so any
     # D1-based assertions still execute. Scenario exit remains 0 as long as
