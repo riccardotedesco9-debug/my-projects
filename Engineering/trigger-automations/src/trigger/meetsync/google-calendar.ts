@@ -205,7 +205,9 @@ export async function listCalendarEventsInWindow(
         const startDate = e.start?.date;
         const endDate = e.end?.date;
         if (startDate && endDate) {
-          const MAX_DAYS = 14;
+          // Match the 21-day snapshot window (with slack) so multi-week
+          // vacations don't appear free on days 15-21.
+          const MAX_DAYS = 28;
           for (let i = 0, cursor = startDate; cursor < endDate && i < MAX_DAYS; i++) {
             calOut.push({
               date: cursor,

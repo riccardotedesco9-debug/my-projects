@@ -143,6 +143,10 @@ export async function upsertPersonNote(
   // and we fall through to UPDATE. Doing it in this order means a fresh
   // mention always creates a row with exactly the data from the current turn,
   // while repeat mentions preserve any previously-accumulated fields.
+  // substr(..., -2000) caps accumulated notes at ~2KB by keeping the most
+  // recent tail; without it every conversational aside ("Marco's wife's
+  // cousin told me he once mentioned...") grew the row unboundedly and
+  // eventually bloated both the snapshot and token budget.
   await query(
     `INSERT INTO person_notes (owner_chat_id, name, name_normalized, phone, notes, updated_at)
      VALUES (?, ?, ?, ?, ?, datetime('now'))
@@ -152,7 +156,7 @@ export async function upsertPersonNote(
        notes = CASE
          WHEN excluded.notes IS NULL THEN person_notes.notes
          WHEN person_notes.notes IS NULL THEN excluded.notes
-         ELSE person_notes.notes || char(10) || excluded.notes
+         ELSE substr(person_notes.notes || char(10) || excluded.notes, -2000)
        END,
        updated_at = datetime('now')`,
     [ownerChatId, name.trim(), normalized, phone, noteFragment],

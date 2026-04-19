@@ -7,11 +7,17 @@ const TELEGRAM_API_BASE = "https://api.telegram.org";
 // Reserved chat_ids for synthetic webhook tests (see meetsync/tools/send-telegram-update.sh).
 // Outbound sends to these ids are intercepted and logged so Claude can test the full
 // pipeline without a real Telegram account and without noisy "chat not found" Bot API errors.
-// 10 reserved test ids — enough to run multi-persona concurrent stress tests.
-const TEST_CHAT_IDS = new Set([
-  "999999001", "999999002", "999999003", "999999004", "999999005",
-  "999999006", "999999007", "999999008", "999999009", "999999010",
-]);
+//
+// Override via MEETSYNC_TEST_CHAT_IDS env var (comma-separated list). Falls
+// back to the reserved 10-id range. Env override lets us rotate the test
+// range without redeploys if real prod traffic ever collides with it.
+const TEST_CHAT_IDS = new Set(
+  (process.env.MEETSYNC_TEST_CHAT_IDS ??
+    "999999001,999999002,999999003,999999004,999999005,999999006,999999007,999999008,999999009,999999010")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0),
+);
 
 function isTestChat(chatId: string): boolean {
   return TEST_CHAT_IDS.has(String(chatId));
