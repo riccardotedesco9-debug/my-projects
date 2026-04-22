@@ -4,8 +4,9 @@
 
 import { getAccessToken } from "./google-auth.js";
 import { LIMITS, SOURCE_ENABLED } from "./config.js";
-import type { Source } from "./types.js";
-import { RUN_LOG_TAB } from "./sheet-client.js";
+import { scrapersForTrack } from "./scrapers/index.js";
+import type { Source, Track } from "./types.js";
+import { RUN_LOG_TAB, RUN_LOG_GLOBAL_TAB } from "./sheet-client.js";
 
 const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -14,11 +15,15 @@ export interface SourceHealth {
   zeroStreakDays: number;
 }
 
-export async function detectSilentSources(): Promise<SourceHealth[]> {
+export async function detectSilentSources(track: Track = "malta"): Promise<SourceHealth[]> {
   const sheetId = process.env.JobHunt_Sheet_ID;
   if (!sheetId) return [];
   const token = await getAccessToken();
-  const range = encodeURIComponent(`${RUN_LOG_TAB}!A2:H`);
+  // Read the run-log tab for THIS track — Malta's health check was wrongly
+  // reading global's zero-count entries and flagging them as silent.
+  const runLogTab = track === "malta" ? RUN_LOG_TAB : RUN_LOG_GLOBAL_TAB;
+  const trackSources = new Set(Object.keys(scrapersForTrack(track)));
+  const range = encodeURIComponent(`${runLogTab}!A2:H`);
   const resp = await fetch(`${SHEETS_BASE}/${sheetId}/values/${range}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -47,9 +52,11 @@ export async function detectSilentSources(): Promise<SourceHealth[]> {
 
   const unhealthy: SourceHealth[] = [];
   for (const [src, streak] of streaks) {
-    // Only flag sources that are CURRENTLY enabled. Disabled ones (jobsplus,
-    // indeed-mt, careerjet, etc.) show 0 every day by design — they're not
-    // broken, they're off. Flagging them spams the digest.
+    // Only flag sources that (a) belong to THIS track and (b) are enabled.
+    // Flat SOURCE_ENABLED doesn't distinguish tracks, so linkedin-ie etc
+    // would otherwise look "silent" in the Malta digest even though they're
+    // the global digest's concern.
+    if (!trackSources.has(src)) continue;
     if (!SOURCE_ENABLED[src]) continue;
     if (streak >= LIMITS.sourceDryStreakDays) {
       unhealthy.push({ source: src, zeroStreakDays: streak });

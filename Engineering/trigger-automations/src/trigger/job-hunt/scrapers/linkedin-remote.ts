@@ -4,7 +4,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:linkedin.com/jobs/view analyst remote";
+const QUERY = "site:linkedin.com/jobs/view remote";
 const TITLE_SUFFIXES = ["LinkedIn"];
 
 export async function scrapeLinkedInRemote(): Promise<Partial<Job>[]> {

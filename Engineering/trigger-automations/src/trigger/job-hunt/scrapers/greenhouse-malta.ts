@@ -4,7 +4,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:greenhouse.io analyst malta";
+const QUERY = "site:greenhouse.io malta";
 const TITLE_SUFFIXES = ["Greenhouse", "Job Application"];
 
 export async function scrapeGreenhouseMalta(): Promise<Partial<Job>[]> {

@@ -12,7 +12,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:linkedin.com/jobs/view analyst malta part time";
+const QUERY = "site:linkedin.com/jobs/view malta part-time";
 const TITLE_SUFFIXES = ["LinkedIn", "LinkedIn Malta"];
 
 export async function scrapeLinkedIn(): Promise<Partial<Job>[]> {

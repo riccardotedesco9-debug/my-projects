@@ -6,7 +6,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:maltajobsboard.com analyst";
+const QUERY = "site:maltajobsboard.com";
 const TITLE_SUFFIXES = ["Malta Jobs Board"];
 
 export async function scrapeMaltajobsboard(): Promise<Partial<Job>[]> {

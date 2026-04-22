@@ -8,7 +8,7 @@ export async function scrapeJoobleIe(): Promise<Partial<Job>[]> {
   const resp = await fetch(`https://jooble.org/api/${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keywords: "analyst", location: "Ireland", page: "1" }),
+    body: JSON.stringify({ keywords: "", location: "Ireland", page: "1" }),
   });
   if (!resp.ok) throw new Error(`Jooble IE failed (${resp.status})`);
   const data = (await resp.json()) as { jobs?: Array<Record<string, unknown>> };

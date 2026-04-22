@@ -34,7 +34,9 @@ export async function scrapeJooble(): Promise<Partial<Job>[]> {
   const resp = await fetch(JOOBLE_URL(apiKey), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keywords: "analyst", location: "Malta", page: "1" }),
+    // Broader keyword set so Jooble doesn't only surface literal "Analyst"
+    // titles. Jooble's keyword matcher tokenises on OR by default.
+    body: JSON.stringify({ keywords: "", location: "Malta", page: "1" }),
   });
   if (!resp.ok) {
     throw new Error(`Jooble API failed (${resp.status}): ${await resp.text()}`);

@@ -261,7 +261,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     // 7. Email
     phase = "email";
     stats.finishedAt = new Date().toISOString();
-    const healthWarnings = dryRun ? [] : await safeDetectSilentSources();
+    const healthWarnings = dryRun ? [] : await safeDetectSilentSources(track);
     const shouldSend = !dryRun && recipient && (digestJobs.length > 0 || isSunday(stats.startedAt));
     if (shouldSend) {
       const html = composeDailyDigest({
@@ -395,9 +395,9 @@ function isSunday(iso: string): boolean {
   return fmt.format(new Date(iso)) === "Sun";
 }
 
-async function safeDetectSilentSources() {
+async function safeDetectSilentSources(track: Track) {
   try {
-    return await detectSilentSources();
+    return await detectSilentSources(track);
   } catch (err) {
     console.warn("[source-monitor] detect failed:", err instanceof Error ? err.message : err);
     return [];

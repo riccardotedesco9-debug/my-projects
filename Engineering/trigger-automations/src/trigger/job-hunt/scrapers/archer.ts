@@ -6,7 +6,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:archer.mt analyst";
+const QUERY = "site:archer.mt";
 const TITLE_SUFFIXES = ["Archer IT Recruitment", "Archer IT Recruitment Specialist Malta", "Archer"];
 
 export async function scrapeArcher(): Promise<Partial<Job>[]> {

@@ -4,7 +4,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:ie.indeed.com analyst";
+const QUERY = "site:ie.indeed.com";
 const TITLE_SUFFIXES = ["Indeed", "Indeed.com", "Indeed Ireland"];
 
 export async function scrapeIndeedIe(): Promise<Partial<Job>[]> {

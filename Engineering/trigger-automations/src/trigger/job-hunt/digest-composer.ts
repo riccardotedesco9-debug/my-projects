@@ -260,7 +260,12 @@ function renderJob(job: Job, rank: number): string {
 
   const details: string[] = [];
   if (job.contact) details.push(`<b>Contact:</b> ${escapeHtml(job.contact)}`);
-  if (job.estSalary) details.push(`<b>Salary:</b> ${escapeHtml(job.estSalary)}`);
+  // Always surface salary state — user specifically asked for this.
+  details.push(
+    job.estSalary
+      ? `<b>Salary:</b> ${escapeHtml(job.estSalary)}`
+      : `<b>Salary:</b> <span style="color:#838c98">not disclosed</span>`,
+  );
   if (job.postedAt) details.push(`<b>Posted:</b> ${formatShortDate(job.postedAt)}`);
   const detailsRow = details.length > 0 ? `<div class="details">${details.join(" &nbsp;·&nbsp; ")}</div>` : "";
 

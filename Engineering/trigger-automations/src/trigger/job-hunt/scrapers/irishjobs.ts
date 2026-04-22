@@ -2,7 +2,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:irishjobs.ie analyst";
+const QUERY = "site:irishjobs.ie";
 const TITLE_SUFFIXES = ["IrishJobs", "IrishJobs.ie"];
 
 export async function scrapeIrishJobs(): Promise<Partial<Job>[]> {

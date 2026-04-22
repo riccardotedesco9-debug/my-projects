@@ -8,7 +8,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:konnekt.com analyst malta";
+const QUERY = "site:konnekt.com malta";
 const TITLE_SUFFIXES = ["Konnekt", "Konnekt Jobs", "Konnekt | Malta's best recruitment agency"];
 
 export async function scrapeKonnekt(): Promise<Partial<Job>[]> {

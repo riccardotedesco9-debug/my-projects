@@ -3,7 +3,7 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:mfsa.mt/career analyst";
+const QUERY = "site:mfsa.mt/career";
 const TITLE_SUFFIXES = ["MFSA", "Malta Financial Services Authority"];
 
 export async function scrapeMfsa(): Promise<Partial<Job>[]> {
