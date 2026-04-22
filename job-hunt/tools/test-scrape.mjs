@@ -12,12 +12,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+// Direct search URLs per source. Only active sources are listed — removed
+// entries for jobsplus/indeed-mt/careerjet which are confirmed unreachable.
 const SEARCH_URLS = {
   linkedin: "https://www.linkedin.com/jobs/search/?keywords=analyst&location=Malta&f_JT=P&sortBy=DD",
-  jobsplus: "https://vacancies.jobsplus.gov.mt/Vacancies/Index?searchTerm=analyst",
-  "indeed-mt": "https://mt.indeed.com/jobs?q=analyst&jt=parttime&l=Malta&sort=date",
   keepmeposted: "https://www.keepmeposted.com.mt/jobs?s=analyst",
-  careerjet: "https://www.careerjet.com.mt/jobs?s=analyst&l=Malta&p=1",
   konnekt: "https://www.konnekt.com/search?keyword=analyst&jobType=PartTime",
   castille: "https://www.castilleresources.com/jobs?keywords=analyst",
 };
@@ -73,10 +72,7 @@ async function main() {
 function looksLikeJobUrl(source, u) {
   switch (source) {
     case "linkedin": return /\/jobs\/view\/\d+/.test(u);
-    case "jobsplus": return /\/Vacancies\/Details\/\d+/i.test(u);
-    case "indeed-mt": return /\/viewjob\?jk=|\/rc\/clk\?jk=/.test(u);
     case "keepmeposted": return /\/jobs\/(\d+|view\/)/.test(u);
-    case "careerjet": return /\/jobad\//.test(u);
     case "konnekt": return /konnekt\.com\/jobs\//.test(u);
     case "castille": return /castille.*\/jobs\/[^/]+$/.test(u);
     default: return false;

@@ -118,6 +118,10 @@ async function assessBatch(
 }
 
 function buildSystemPrompt(profile: string, depth: "triage" | "deep"): string {
+  // Cheap defence: scrub the closing tag so a typo'd profile cell can't
+  // prematurely close our `<candidate_profile>` block and leak instructions
+  // into the LLM's interpretation context.
+  const safeProfile = profile.replace(/<\/?candidate_profile>/gi, "");
   const depthNote = depth === "deep"
     ? `You are doing a deep second-pass assessment. The jobs below were pre-screened. Sharpen fit reasoning and catch subtle red flags (required languages, hidden full-time, rotation shifts).
 
@@ -146,7 +150,7 @@ DATA-THIN HANDLING: if a job has no company + no description, cap fitScore at 45
 ${depthNote}
 
 <candidate_profile>
-${profile}
+${safeProfile}
 </candidate_profile>
 
 <output_format>

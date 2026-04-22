@@ -18,7 +18,6 @@ import { SOURCE_ENABLED, LIMITS } from "./config.js";
 import { normalize } from "./pipeline/normalize.js";
 import { passesMaltaGate } from "./pipeline/malta-gate.js";
 import { runFilter } from "./pipeline/filter.js";
-import { scoreJob } from "./pipeline/score.js";
 import { rankBatchHaiku, rerankSonnet } from "./pipeline/llm-rank.js";
 import { getReputationBatch } from "./pipeline/company-reputation.js";
 import { buildSheetIndex, dedup } from "./pipeline/dedup.js";
@@ -69,7 +68,9 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
   const stats: RunStats = {
     startedAt: new Date().toISOString(),
     finishedAt: "",
-    perSource: emptyPerSource(),
+    // Only track the sources actually used by this track — prevents the other
+    // track's sources showing as "silent" in this digest's health-check alert.
+    perSource: emptyPerSource(track),
     totalRaw: 0,
     afterMaltaGate: 0,
     afterFilter: 0,
@@ -108,9 +109,9 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
           staleDroppedMeta++;
           continue;
         }
-        // Apply legacy weighted score as a fallback; LLM rank will overwrite below.
-        const scored = scoreJob(job);
-        processed.push(scored);
+        // score is set by the LLM-rank stage below. Jobs that fail ranking
+        // get score=0 and are filtered out, so no default needed here.
+        processed.push(job);
       } catch (err) {
         console.warn(`pipeline skip ${raw.source}:${raw.sourceId}:`, err instanceof Error ? err.message : err);
       }
@@ -209,6 +210,15 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         console.warn("[llm-rank] empty profile — skipping LLM pass, falling back to keyword scores");
       }
     }
+
+    // 4c. Drop auto-rejects — the profile instructs the LLM to return
+    //     fitScore=0 when a job violates a hard constraint (full-time only,
+    //     under salary floor, language mismatch, specialised credential, etc).
+    //     These jobs shouldn't appear in the digest OR clutter the sheet.
+    const beforeReject = newJobs.length;
+    newJobs = newJobs.filter((j) => j.score > 0);
+    const autoRejected = beforeReject - newJobs.length;
+    if (autoRejected > 0) console.log(`[llm-rank] auto-rejected ${autoRejected} jobs (fitScore=0)`);
 
     // 5. Sort + cap (final order is by LLM fitScore)
     newJobs.sort((a, b) => b.score - a.score);
@@ -327,27 +337,16 @@ function allSourcesErrored(stats: RunStats): boolean {
   return vals.length > 0 && vals.every((v) => v.error !== null);
 }
 
-function emptyPerSource(): RunStats["perSource"] {
-  return {
-    linkedin: { fetched: 0, passed: 0, error: null },
-    jobsplus: { fetched: 0, passed: 0, error: null },
-    "indeed-mt": { fetched: 0, passed: 0, error: null },
-    keepmeposted: { fetched: 0, passed: 0, error: null },
-    careerjet: { fetched: 0, passed: 0, error: null },
-    konnekt: { fetched: 0, passed: 0, error: null },
-    castille: { fetched: 0, passed: 0, error: null },
-    maltajobsboard: { fetched: 0, passed: 0, error: null },
-    archer: { fetched: 0, passed: 0, error: null },
-    jooble: { fetched: 0, passed: 0, error: null },
-    mfsa: { fetched: 0, passed: 0, error: null },
-    "greenhouse-malta": { fetched: 0, passed: 0, error: null },
-    "linkedin-ie": { fetched: 0, passed: 0, error: null },
-    irishjobs: { fetched: 0, passed: 0, error: null },
-    "indeed-ie": { fetched: 0, passed: 0, error: null },
-    remoteok: { fetched: 0, passed: 0, error: null },
-    "jooble-ie": { fetched: 0, passed: 0, error: null },
-    "linkedin-remote": { fetched: 0, passed: 0, error: null },
-  };
+function emptyPerSource(track: Track): RunStats["perSource"] {
+  // Only init slots for sources used by THIS track. Avoids writing "0" entries
+  // for the other track's sources, which would otherwise look like silent
+  // (broken) scrapers in the source-health alert.
+  const registry = scrapersForTrack(track);
+  const out = {} as RunStats["perSource"];
+  for (const source of Object.keys(registry) as Source[]) {
+    out[source] = { fetched: 0, passed: 0, error: null };
+  }
+  return out;
 }
 
 /**

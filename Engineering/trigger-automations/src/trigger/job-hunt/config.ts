@@ -7,29 +7,49 @@ import type { Source } from "./types.js";
 // Keywords — drive both filter gate and score weights
 // ────────────────────────────────────────────────────────────────────
 
-/** Core analytical role keywords (title match → immediate pass). */
+/** Core analytical/ops/data/compliance keywords — the pre-filter passes a job
+ * if ANY of these appear in title OR description. Kept intentionally wide so
+ * Claude gets to reason about edge cases (e.g. "Logistics Manager" —
+ * `logistics` hits, Claude reads the description and decides if it's the kind
+ * of analytical-ops role Riccardo wants). A hit here is "worth considering",
+ * not "definitely a fit". */
 export const CORE_KEYWORDS = [
-  "data analyst",
-  "business analyst",
-  "analytics",
-  "analyst",
-  "data scientist",
-  "bi analyst",
-  "business intelligence",
-  "reporting analyst",
-  "insights analyst",
-  "operations analyst",
-  "financial analyst",
-  "marketing analyst",
-  "research analyst",
-  "product analyst",
-  "customer insights",
-  "fraud analyst",
-  "risk analyst",
-  "compliance analyst",
-  "kyc analyst",
-  "aml analyst",
-  "crm analyst",
+  // Generic analyst / analysis
+  "analyst", "analytics", "analysis", "analytical",
+  // Data / BI
+  "data", "bi ", "business intelligence", "dashboard",
+  "data scientist", "data engineer", "data specialist", "data officer", "data steward", "data governance",
+  "bi developer", "bi engineer", "bi specialist",
+  // Reporting / insights / research
+  "reporting", "insights", "insight", "research", "researcher",
+  // Domains that are intrinsically analytical
+  "compliance", "aml", "kyc", "cft", "fraud", "risk", "regulatory",
+  "investigator", "investigations", "audit", "auditor", "internal audit",
+  "safer gambling", "responsible gaming", "player protection",
+  // Ops-analytical
+  "operations", "business operations", "operational",
+  "process improvement", "process engineer", "process analyst",
+  "workflow", "automation", "rpa", "robotic process automation",
+  "coordinator", // often analytical-ops
+  // Financial / planning
+  "financial planning", "fp&a", "treasury", "controller", "reconciliation",
+  "forecaster", "forecast", "pricing",
+  "accountant", "accounting",
+  // Strategy
+  "strategy", "strategist", "strategic", "planning",
+  // Supply chain / logistics
+  "logistics", "supply chain", "procurement", "demand planner", "supply planner",
+  "inventory", "warehouse management",
+  // Product / Marketing / Customer analytical
+  "product", "marketing analyst", "customer insights", "crm analyst", "growth analyst",
+  // Stat / quant
+  "statistician", "statistics", "quantitative", "quant",
+  // Underwriting / actuarial
+  "underwriter", "underwriting", "actuary", "actuarial",
+  // Generic "consultant" — often analytical work
+  "consultant", "consulting",
+  // Security-analytical
+  "security analyst", "information security",
 ] as const;
 
 /** Analytical tools — boost in description match. */
@@ -75,55 +95,61 @@ export const DOMAIN_KEYWORDS = [
   "e-commerce",
 ] as const;
 
-/** Hard exclude — anything matching these is rejected regardless of other hits. */
-export const EXCLUDE_KEYWORDS = [
-  "senior",
-  "sr.",
-  "lead ",
-  "head of",
-  "director",
-  "principal",
-  "manager",
-  "vp ",
-  "chief",
-  "internship",
-  "intern ",
-  " intern",
-  "trainee",
-  "apprentice",
-  "sales executive",
-  "bdr",
-  "sdr",
-  "account executive",
-  "teacher",
-  "nurse",
-  "chef",
-  "waiter",
-  "cleaner",
-  "construction",
-] as const;
+/** Title-only exclude patterns — drop the job BEFORE Claude sees it ONLY when
+ * the TITLE clearly indicates a non-analytical track. Matched as word-boundary
+ * regex against the title only (not description), so "Sales Analyst" isn't
+ * killed by "sales" appearing in a body somewhere.
+ *
+ * Seniority words (senior/lead/principal/head/manager/director/vp/chief) are
+ * DELIBERATELY NOT here — a "Logistics Manager" or "Senior Analyst" role may
+ * be exactly what Riccardo wants once Claude reads the full description.
+ * Claude handles those nuanced calls, not this filter. */
+export const EXCLUDE_TITLE_PATTERNS: readonly RegExp[] = [
+  // Hospitality / food
+  /\b(waiter|waitress|bartender|host|hostess|barista|barback)\b/i,
+  /\b(chef|cook|sous\s?chef|commis|kitchen\s+(assistant|porter|hand|staff))\b/i,
+  // Cleaning / housekeeping
+  /\b(cleaner|housekeeper|housekeeping|maid|janitor|custodian)\b/i,
+  // Transport / drivers
+  /\b(driver|chauffeur|truck(er)?|forklift\s+operator|courier|rider|delivery\s+(driver|rider))\b/i,
+  // Healthcare (physical)
+  /\b(nurse|paramedic|surgeon|dentist|pharmacist|midwife|dental\s+assistant|nursing\s+assistant|care\s+worker)\b/i,
+  // Education (physical classroom)
+  /\b(teacher|tutor|lecturer|educator|childcare\s+worker)\b/i,
+  // Trades
+  /\b(bricklayer|carpenter|plumber|electrician|mason|welder|roofer|painter|tiler|scaffolder|labourer|construction\s+worker)\b/i,
+  /\bmechanic\b/i,
+  // Beauty / wellness
+  /\b(hairdresser|barber|beautician|esthetician|massage\s+therapist|nail\s+technician)\b/i,
+  // Outdoor / manual
+  /\b(gardener|landscaper|groundskeeper|horticulturist|farmhand)\b/i,
+  // Security / doors
+  /\b(security\s+(guard|officer|staff)|bouncer|doorman)\b/i,
+  // Retail / cashier
+  /\b(cashier|shop\s+assistant|retail\s+assistant|store\s+associate|sales\s+assistant)\b/i,
+  // Pure reception / front-desk
+  /\breceptionist\b|\bfront\s+desk\s+agent\b/i,
+  // Childcare
+  /\b(nanny|babysitter|childminder|au\s+pair)\b/i,
+  // Fitness / entertainment
+  /\b(personal\s+trainer|fitness\s+(instructor|coach))\b/i,
+  /\b(dj\b|musician|performer|entertainer|singer|dancer|model)\b/i,
+  // Sales / BD (except ops-analytical sales roles) — narrow exact role markers
+  /\b(bdr|sdr)\b/i,
+  /\b(business\s+development\s+rep(resentative)?|account\s+executive|sales\s+executive|sales\s+rep(resentative)?|inside\s+sales)\b/i,
+  // Intern / trainee / apprentice roles
+  /\b(intern|internship|trainee|apprentice)\b/i,
+  // Real estate / insurance agent
+  /\b(real\s+estate\s+agent|estate\s+agent|realtor|property\s+(agent|consultant|manager))\b/i,
+  /\b(insurance\s+agent|insurance\s+broker)\b/i,
+  // Pilot / aviation crew (Riccardo was a pilot but is not looking for this)
+  /\b(cabin\s+crew|flight\s+attendant|stewardess|steward|pilot\s+officer)\b/i,
+  // Translation / copywriting / journalism (different track)
+  /\b(translator|interpreter|copywriter|content\s+writer|journalist|editor)\b/i,
+  // Photography / design
+  /\b(photographer|videographer|graphic\s+designer|ui\s+designer|illustrator)\b/i,
+];
 
-/** Part-time signals in title/description. */
-export const PART_TIME_KEYWORDS = [
-  "part-time",
-  "part time",
-  "parttime",
-  "part-timer",
-  "flexible hours",
-  "flexible schedule",
-  "reduced hours",
-  "20 hours",
-  "25 hours",
-  "30 hours",
-] as const;
-
-/** Full-time signals (to mark partTime=no). */
-export const FULL_TIME_KEYWORDS = [
-  "full-time",
-  "full time",
-  "40 hours",
-  "fulltime",
-] as const;
 
 // ────────────────────────────────────────────────────────────────────
 // Malta geography
@@ -163,47 +189,21 @@ export const DRIVE_30MIN = new Set([
 ]);
 
 // ────────────────────────────────────────────────────────────────────
-// Scoring weights
-// ────────────────────────────────────────────────────────────────────
-
-export const SCORE_WEIGHTS = {
-  titleCore: 30,           // title has CORE keyword
-  descCore: 20,            // desc has CORE keyword
-  tool: 8,                 // per tool keyword in desc (cap 3)
-  // Industry neutrality: user explicitly wants no sector preference. The old
-  // iGaming bonus is removed so the fallback keyword scorer (used only when
-  // LLM ranking fails) doesn't skew toward iGaming roles.
-  domainIGaming: 10,
-  domainOther: 10,
-  workModeHybrid: 15,
-  workModeRemote: 10,
-  workModeOnsite: 0,
-  partTimeConfirmed: 20,   // partTime === "yes"
-  partTimeUnknown: 0,      // neutral
-  drive30min: 10,
-  inMalta: 5,
-  recentPost: 5,           // postedAt within 7 days
-  employerDirect: 5,       // source priority bonus
-} as const;
-
-// ────────────────────────────────────────────────────────────────────
 // Source priority — higher wins when same job appears in multiple sources
 // ────────────────────────────────────────────────────────────────────
 
 export const SOURCE_PRIORITY: Record<Source, number> = {
-  castille: 100,        // specialist iGaming recruiter, direct relationships
-  konnekt: 90,          // major Malta recruiter
-  maltajobsboard: 85,   // Malta-specific board, compliance/fintech analysts
-  keepmeposted: 80,     // Malta-specific
-  archer: 75,           // IT specialist recruiter, hybrid/Malta-focused
-  jobsplus: 70,         // gov portal — authoritative
-  mfsa: 95,             // Malta Financial Services Authority — direct employer, gov
+  // Malta
+  mfsa: 95,               // Malta Financial Services Authority — direct employer, gov
+  castille: 100,          // specialist iGaming recruiter, direct relationships
+  konnekt: 90,            // major Malta recruiter
+  maltajobsboard: 85,     // Malta-specific board, compliance/fintech analysts
   "greenhouse-malta": 80, // Greenhouse ATS hosts Betsson, BVNK, Revolut etc Malta roles
+  keepmeposted: 80,
+  archer: 75,
   linkedin: 60,
-  jooble: 50,           // aggregator of ATS platforms
-  "indeed-mt": 40,
-  careerjet: 30,        // aggregator of aggregators
-  // Global track
+  jooble: 50,             // aggregator of ATS platforms
+  // Global
   irishjobs: 85,
   "linkedin-ie": 70,
   "indeed-ie": 65,
@@ -220,19 +220,17 @@ export const SOURCE_PRIORITY: Record<Source, number> = {
 // index to bypass JS SPAs, CAPTCHAs, and LinkedIn's anti-scraping. One search
 // call per source per run.
 export const SOURCE_ENABLED: Record<Source, boolean> = {
+  // Malta
   linkedin: true,
   konnekt: true,
   keepmeposted: true,
-  maltajobsboard: true,  // Malta-specific board, AML/KYC/compliance analyst rich
-  archer: true,          // IT recruiter, BI/data analyst hybrid roles
-  castille: true,        // via sitemap.xml on castilleresources.com → castillians.com — free, 1000+ job URLs
-  jooble: true,          // API aggregator — ATS platforms (Manatal, Swooped) not in our other sources
-  mfsa: true,            // MFSA gov regulator — direct employer
-  "greenhouse-malta": true, // Greenhouse ATS — Betsson, BVNK, iGaming employers
-  jobsplus: false,       // JS SPA — Google indexes only docs/PDFs/chatbot UI, sitemap has no vacancies
-  "indeed-mt": false,    // mt.indeed.com DNS doesn't exist; www.indeed.com has noindex
-  careerjet: false,      // Google has only category list pages; robots.txt disallows /search/rss.html
-  // Global track
+  maltajobsboard: true,
+  archer: true,
+  castille: true,
+  jooble: true,
+  mfsa: true,
+  "greenhouse-malta": true,
+  // Global
   "linkedin-ie": true,
   irishjobs: true,
   "indeed-ie": true,

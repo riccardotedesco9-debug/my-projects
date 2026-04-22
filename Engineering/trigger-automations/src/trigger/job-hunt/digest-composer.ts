@@ -18,47 +18,53 @@ const STYLE = `
   .hero .meta { font-size: 13px; opacity: 0.88; }
   .hero .headline { font-size: 13.5px; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.22); opacity: 0.96; }
   .hero .headline b { font-weight: 600; }
-  .summary { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; color: #5a6470; margin-bottom: 14px; padding: 11px 18px; background: white; border: 1px solid #dae0e6; border-radius: 10px; }
-  .summary b { color: #1f2328; font-weight: 700; }
+  /* Gmail strips display:flex — use inline-block + explicit separators so
+     numbers and labels don't run together ("347 scraped189 passed…"). */
+  .summary { font-size: 13px; color: #5a6470; margin-bottom: 14px; padding: 12px 18px; background: white; border: 1px solid #dae0e6; border-radius: 10px; line-height: 1.9; }
+  .summary span { display: inline-block; margin-right: 18px; }
+  .summary b { color: #1f2328; font-weight: 700; margin-right: 4px; }
   .legend { background: white; border: 1px solid #dae0e6; border-radius: 10px; padding: 10px 18px; font-size: 12px; color: #5a6470; margin-bottom: 16px; line-height: 2; }
   .legend b { color: #1f2328; margin-right: 6px; }
   .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 5px 0 10px; vertical-align: middle; }
   .tier { margin: 26px 0 12px; font-size: 13px; font-weight: 700; color: #2d333b; letter-spacing: 0.5px; text-transform: uppercase; padding-bottom: 8px; border-bottom: 2px solid #d0d7de; }
   .tier .count { font-weight: 500; color: #838c98; letter-spacing: 0; text-transform: none; font-size: 12px; margin-left: 10px; }
-  .job { background: white; border: 1px solid #dae0e6; border-radius: 10px; padding: 16px 20px 14px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
-  .job-header { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 2px; }
-  .rank { font-size: 13px; color: #838c98; font-weight: 700; min-width: 28px; flex-shrink: 0; padding-top: 3px; }
-  .score-pill { display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 14px; color: white; min-width: 30px; text-align: center; flex-shrink: 0; white-space: nowrap; line-height: 1.3; }
+  /* Card uses relative positioning + absolute score-pill (top-right) so long
+     titles wrap cleanly beneath the pill without ever touching it. Right
+     padding on the card reserves the pill's column. */
+  .job { position: relative; background: white; border: 1px solid #dae0e6; border-radius: 10px; padding: 16px 72px 14px 20px; margin-bottom: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .score-pill { position: absolute; top: 16px; right: 18px; font-size: 12px; font-weight: 700; padding: 4px 11px; border-radius: 14px; color: white; min-width: 30px; text-align: center; white-space: nowrap; line-height: 1.3; }
   .score-strong { background: #1a7f37; }
   .score-stretch { background: #bf8700; }
   .score-adjacent { background: #57606a; }
   .score-longshot { background: #9ca3af; }
-  .job h2 { font-size: 17px; margin: 0; flex: 1 1 auto; min-width: 0; font-weight: 600; letter-spacing: -0.15px; word-break: break-word; line-height: 1.35; }
+  .job-header { margin-bottom: 2px; }
+  .rank { font-size: 13px; color: #838c98; font-weight: 700; margin-right: 10px; display: inline-block; }
+  .job h2 { font-size: 17px; margin: 0; font-weight: 600; letter-spacing: -0.15px; word-break: break-word; line-height: 1.35; display: inline; }
   .job h2 a { color: #0a58ca; text-decoration: none; }
   .job h2 a:hover { text-decoration: underline; }
-  .company-row { color: #424a53; font-size: 13.5px; margin: 5px 0 0 42px; }
+  .company-row { color: #424a53; font-size: 13.5px; margin: 5px 0 0 38px; }
   .company-row b { color: #1f2328; font-weight: 600; }
-  .reputation { color: #424a53; font-size: 12.5px; margin: 4px 0 0 42px; }
+  .reputation { color: #424a53; font-size: 12.5px; margin: 4px 0 0 38px; }
   .rep-strong { color: #116329; font-weight: 600; }
   .rep-mid { color: #9a6700; font-weight: 600; }
   .rep-weak { color: #a40e26; font-weight: 600; }
-  .why { font-size: 13px; color: #1f7334; margin: 10px 0 10px 42px; font-weight: 500; padding: 7px 10px; background: #f0faf3; border-left: 3px solid #1a7f37; border-radius: 4px; line-height: 1.55; }
-  .chips { margin: 10px 0 0 42px; }
+  .why { font-size: 13px; color: #1f7334; margin: 10px 0 10px 38px; font-weight: 500; padding: 7px 10px; background: #f0faf3; border-left: 3px solid #1a7f37; border-radius: 4px; line-height: 1.55; }
+  .chips { margin: 10px 0 0 38px; }
   .chip { display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 12px; background: #eaeef2; color: #424a53; margin: 0 5px 5px 0; font-weight: 500; line-height: 1.55; }
   .chip.remote { background: #cce7ff; color: #0a3d78; }
   .chip.hybrid { background: #efe1ff; color: #4a247e; }
   .chip.parttime { background: #caf0d5; color: #0d5a2a; }
   .chip.fulltime { background: #ffe2c7; color: #7a4d00; }
-  .redflag { font-size: 12.5px; color: #7a0517; background: #ffe8e6; border-left: 3px solid #a40e26; padding: 8px 12px; margin: 10px 0 0 42px; border-radius: 4px; line-height: 1.55; }
+  .redflag { font-size: 12.5px; color: #7a0517; background: #ffe8e6; border-left: 3px solid #a40e26; padding: 8px 12px; margin: 10px 0 0 38px; border-radius: 4px; line-height: 1.55; }
   .redflag b { color: #7a0517; font-weight: 700; }
-  .desc { font-size: 13px; color: #424a53; margin: 10px 0 0 42px; line-height: 1.55; }
-  .details { font-size: 12.5px; color: #5a6470; margin: 10px 0 0 42px; }
+  .desc { font-size: 13px; color: #424a53; margin: 10px 0 0 38px; line-height: 1.55; }
+  .details { font-size: 12.5px; color: #5a6470; margin: 10px 0 0 38px; }
   .details b { color: #1f2328; font-weight: 600; }
-  .apply-row { margin: 14px 0 0 42px; }
+  .apply-row { margin: 14px 0 0 38px; }
   .apply-btn { display: inline-block; background: #1a7f37; color: white !important; text-decoration: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
   .apply-btn:hover { background: #116329; }
   .source-tag { display: inline-block; font-size: 11.5px; color: #838c98; margin-left: 14px; }
-  .thin-banner { font-size: 11.5px; color: #7a4d00; background: #fff5d6; padding: 5px 11px; border-radius: 4px; margin: 8px 0 0 42px; display: inline-block; line-height: 1.55; }
+  .thin-banner { font-size: 11.5px; color: #7a4d00; background: #fff5d6; padding: 5px 11px; border-radius: 4px; margin: 8px 0 0 38px; display: inline-block; line-height: 1.55; }
   .footer { color: #838c98; font-size: 11.5px; margin-top: 26px; padding: 12px 16px; background: white; border: 1px solid #dae0e6; border-radius: 10px; line-height: 1.6; }
   .alert { background: #fff5d6; border: 1px solid #d4a72c; padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; font-size: 13px; color: #5c3800; line-height: 1.6; }
   .alert b { color: #3d2400; }
@@ -76,9 +82,34 @@ export interface DigestInput {
 export function composeSubject(input: DigestInput): string {
   const d = new Date(input.stats.startedAt).toISOString().slice(0, 10);
   if (input.jobs.length === 0) return `job-hunt — no new matches (${d})`;
-  const top = input.jobs[0];
-  const topTitle = top?.title ? ` · top: ${top.title.slice(0, 40)}` : "";
-  return `job-hunt — ${input.jobs.length} match${input.jobs.length === 1 ? "" : "es"}${topTitle} (${d})`;
+  // Subject kept neutral — the hero body already shows top categories.
+  // Avoids locking the user's attention on one specific role before they open.
+  const cats = topCategories(input.jobs, 3);
+  const catSuffix = cats.length > 0 ? ` · ${cats.slice(0, 3).map((c) => c.replace(/\s\(\d+\)$/, "")).join(" / ")}` : "";
+  return `job-hunt — ${input.jobs.length} new match${input.jobs.length === 1 ? "" : "es"}${catSuffix} (${d})`;
+}
+
+/** Aggregate tag counts across all jobs. Used to show "top categories" in the
+ * digest header so the user sees the shape of the day before any one role. */
+function topCategories(jobs: Job[], n = 4): string[] {
+  const counts = new Map<string, number>();
+  for (const j of jobs) {
+    for (const t of j.tags ?? []) {
+      const k = t.trim();
+      if (!k || k.length > 30) continue;
+      // Dedupe within a single job so a role doesn't double-count its own tag.
+      const key = k.toLowerCase();
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+  // Drop generic "confidence" or pure work-mode tags from top categories —
+  // they're expected everywhere and not useful as topics.
+  const GENERIC = /^(high|medium|low|strong|stretch|adjacent|long[-\s]?shot|score|confidence|malta|hybrid|remote|onsite|part[-\s]?time|full[-\s]?time|unclear)$/i;
+  return [...counts.entries()]
+    .filter(([k]) => !GENERIC.test(k))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([k, c]) => `${k} (${c})`);
 }
 
 type Tier = "strong" | "stretch" | "adjacent" | "longshot";
@@ -97,17 +128,18 @@ const TIER_META: Record<Tier, { label: string; colorClass: string }> = {
 
 export function composeDailyDigest(input: DigestInput): string {
   const { jobs, stats, cappedAt, unhealthySources } = input;
-  const topMatch = jobs[0];
-  const topLine = topMatch
-    ? (topMatch.company
-        ? `Top: <b>${escapeHtml(topMatch.title)}</b> at ${escapeHtml(topMatch.company)} · score ${topMatch.score}`
-        : `Top: <b>${escapeHtml(topMatch.title)}</b> · score ${topMatch.score}`)
+
+  // Hero shows "shape of the day" — top tag categories — instead of zooming
+  // in on a single role. Helps the reader orient before scanning.
+  const cats = topCategories(jobs, 5);
+  const catLine = cats.length > 0
+    ? `Today's mix: ${cats.map((c) => `<b>${escapeHtml(c)}</b>`).join(" · ")}`
     : "";
 
   const hero = `<div class="hero">
     <h1>${jobs.length} new role${jobs.length === 1 ? "" : "s"} today</h1>
     <div class="meta">${formatDate(stats.startedAt)} · ranked by CV-aware fit score</div>
-    ${topLine ? `<div class="headline">${topLine}</div>` : ""}
+    ${catLine ? `<div class="headline">${catLine}</div>` : ""}
   </div>`;
 
   const allSources = Object.entries(stats.perSource);

@@ -1,13 +1,11 @@
 // scrapers/index.ts — per-track scraper registries.
-// Malta registry → fed into `job-hunt-daily-scan` (07:00 Europe/Malta).
-// Global registry → fed into `job-hunt-global-scan` (07:05 Europe/Malta).
-// Shared: all scrapers below use the same `searchJobs` helper + pipeline.
+// Malta registry fuels `job-hunt-daily-scan` (07:00 Europe/Malta).
+// Global registry fuels `job-hunt-global-scan` (07:05 Europe/Malta).
+// All active scrapers route through the Firecrawl `/v1/search` helper or a
+// direct sitemap/API fetch — see individual files for source-specific logic.
 
 import { scrapeLinkedIn } from "./linkedin.js";
-import { scrapeJobsplus } from "./jobsplus.js";
-import { scrapeIndeedMt } from "./indeed-mt.js";
 import { scrapeKeepmeposted } from "./keepmeposted.js";
-import { scrapeCareerjet } from "./careerjet.js";
 import { scrapeKonnekt } from "./konnekt.js";
 import { scrapeCastille } from "./castille.js";
 import { scrapeMaltajobsboard } from "./maltajobsboard.js";
@@ -27,10 +25,7 @@ export type ScraperFn = () => Promise<Partial<Job>[]>;
 
 export const MALTA_SCRAPERS: Partial<Record<Source, ScraperFn>> = {
   linkedin: scrapeLinkedIn,
-  jobsplus: scrapeJobsplus,
-  "indeed-mt": scrapeIndeedMt,
   keepmeposted: scrapeKeepmeposted,
-  careerjet: scrapeCareerjet,
   konnekt: scrapeKonnekt,
   castille: scrapeCastille,
   maltajobsboard: scrapeMaltajobsboard,
@@ -52,6 +47,3 @@ export const GLOBAL_SCRAPERS: Partial<Record<Source, ScraperFn>> = {
 export function scrapersForTrack(track: Track): Partial<Record<Source, ScraperFn>> {
   return track === "malta" ? MALTA_SCRAPERS : GLOBAL_SCRAPERS;
 }
-
-// Backward-compat export for any remaining imports
-export const SCRAPERS = MALTA_SCRAPERS;

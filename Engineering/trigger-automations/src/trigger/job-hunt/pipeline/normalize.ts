@@ -1,7 +1,8 @@
 // normalize.ts — promote a Partial<Job> from a scraper into a full Job record.
 // Handles: title/company normalization, fingerprint, locality resolution,
-// work mode detection, part-time detection, desc truncation. Score + confidence
-// are left zero/low here and filled in by score.ts.
+// work mode detection, part-time detection, desc truncation.
+// Score + fit + tags + redFlags are populated downstream by pipeline/llm-rank.ts
+// (Haiku triage → Sonnet rerank against the user's profile sheet).
 
 import { createHash } from "node:crypto";
 import { MALTA_LOCALITIES, LIMITS } from "../config.js";

@@ -3,10 +3,7 @@
 
 export type Source =
   | "linkedin"
-  | "jobsplus"
-  | "indeed-mt"
   | "keepmeposted"
-  | "careerjet"
   | "konnekt"
   | "castille"
   | "maltajobsboard"
@@ -124,7 +121,9 @@ export const SHEET_HEADERS: readonly (keyof SheetRow)[] = [
 export interface RunStats {
   startedAt: string;
   finishedAt: string;
-  perSource: Record<Source, { fetched: number; passed: number; error: string | null }>;
+  /** Only populated for sources used by the current track (Malta or global) —
+   * not all 19 in the Source union. Use safe access. */
+  perSource: Partial<Record<Source, { fetched: number; passed: number; error: string | null }>>;
   totalRaw: number;
   afterMaltaGate: number;
   afterFilter: number;
