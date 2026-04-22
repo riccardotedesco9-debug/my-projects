@@ -8,7 +8,8 @@
     "deploy": "npx trigger.dev@latest deploy"
   },
   "dependencies": {
-    "@trigger.dev/sdk": "4.4.3",
+    "@mendable/firecrawl-js": "^1.29.0",
+    "@trigger.dev/sdk": "4.4.4",
     "xlsx": "^0.18.5",
     "zod": "^3.24.0"
   },
