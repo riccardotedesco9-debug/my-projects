@@ -17,7 +17,8 @@ export const PROFILE_TAB = "profile";
 export const COMPANY_RATINGS_TAB = "company_ratings";
 
 /** Column order for the company_ratings tab. Do not reorder without also
- * updating the init-sheet helper. */
+ * updating the init-sheet helper. Appending is safe (old rows just have
+ * empty trailing cells); inserting in the middle breaks cache reads. */
 const RATING_COLS = [
   "company_normalized",
   "company_raw",
@@ -30,6 +31,12 @@ const RATING_COLS = [
   "summary",
   "red_flags",
   "fetched_at",
+  // Fallback source — first hit from Trustpilot/Google/Comparably. Appended
+  // after fetched_at to preserve backward compat with older cached rows.
+  "other_source",
+  "other_rating",
+  "other_reviews",
+  "other_url",
 ] as const;
 
 /** Read the user's CV+preferences profile from `profile!A1`. Falls back to empty
@@ -48,11 +55,18 @@ export async function readProfile(): Promise<string> {
 
 /** Read the cached company reputation entries from the `company_ratings` tab.
  * Returns a Map keyed by `company_normalized` (first column). Missing tab →
- * empty map (caller will populate via live fetches). */
+ * empty map (caller will populate via live fetches).
+ *
+ * NOTE: `upsertRatings` below is append-only, so the same company key can
+ * appear in multiple rows after weeks of TTL expiries. We dedupe here by
+ * keeping the row with the newest `fetchedAt` — otherwise sheet row order
+ * (arbitrary) would decide which stale record wins. */
 export async function readRatingCache(): Promise<Map<string, Reputation>> {
   const out = new Map<string, Reputation>();
   try {
-    const range = encodeURIComponent(`${COMPANY_RATINGS_TAB}!A2:K`);
+    // A2:O = 15 cols (through the new other_url fallback column). Old rows
+    // that only have 11 cols just get empty trailing cells — safely ignored.
+    const range = encodeURIComponent(`${COMPANY_RATINGS_TAB}!A2:O`);
     const resp = await sheetsFetch(`/values/${range}`);
     const data = (await resp.json()) as { values?: string[][] };
     for (const row of data.values ?? []) {
@@ -84,7 +98,19 @@ export async function readRatingCache(): Promise<Map<string, Reputation>> {
       }
       if (padded[8]) rep.summary = padded[8];
       if (padded[9]) rep.redFlags = padded[9].split("|").map((s) => s.trim()).filter(Boolean);
-      out.set(key, rep);
+      const otherRating = Number(padded[12]);
+      if (padded[11] && padded[12] && Number.isFinite(otherRating) && otherRating >= 1.0 && otherRating <= 5) {
+        rep.other = {
+          source: padded[11],
+          rating: otherRating,
+          reviews: Number.isFinite(Number(padded[13])) ? Number(padded[13]) : 0,
+          url: padded[14] || undefined,
+        };
+      }
+      const prev = out.get(key);
+      if (!prev || Date.parse(rep.fetchedAt) > Date.parse(prev.fetchedAt)) {
+        out.set(key, rep);
+      }
     }
   } catch (err) {
     console.warn("[rating-cache] read failed:", err instanceof Error ? err.message : err);
@@ -115,9 +141,13 @@ export async function upsertRatings(
       rep.summary ?? "",
       (rep.redFlags ?? []).join("|"),
       rep.fetchedAt,
+      rep.other?.source ?? "",
+      rep.other ? String(rep.other.rating) : "",
+      rep.other ? String(rep.other.reviews) : "",
+      rep.other?.url ?? "",
     ]);
   }
-  const range = encodeURIComponent(`${COMPANY_RATINGS_TAB}!A:K`);
+  const range = encodeURIComponent(`${COMPANY_RATINGS_TAB}!A:O`);
   await sheetsFetch(
     `/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`,
     { method: "POST", body: JSON.stringify({ values: rows }) },

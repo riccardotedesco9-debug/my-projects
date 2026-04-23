@@ -59,6 +59,10 @@ export interface Job {
   tags?: string[];           // short domain/work-type tags for chips
   fitScoreRaw?: number;      // Haiku triage score (before Sonnet rerank, if applied)
   reputation?: Reputation;   // company review data (cached or live-fetched)
+  /** True when the orchestrator attempted a reputation lookup for this job's
+   * company (regardless of outcome). Lets the digest distinguish "no reviews
+   * found" from "we didn't look" — only jobs in the Sonnet top-K get lookups. */
+  reputationLookedUp?: boolean;
 }
 
 /** Public review signals for an employer — fetched once per company per 30 days
@@ -67,6 +71,10 @@ export interface Reputation {
   company: string;                                                      // normalized key
   glassdoor?: { rating: number; reviews: number; url?: string };
   indeed?: { rating: number; reviews: number; url?: string };
+  /** First-hit fallback source (Trustpilot / Google / Comparably) tried only
+   * when both Glassdoor and Indeed miss. Catches Malta SMBs that aren't on
+   * the big review sites. */
+  other?: { source: string; rating: number; reviews: number; url?: string };
   summary?: string;                                                     // short human-readable line, e.g. "Glassdoor 4.1★ (2.3k)"
   redFlags?: string[];                                                  // e.g. ["Glassdoor rating below 3.0"]
   fetchedAt: string;                                                    // ISO-8601
@@ -125,7 +133,11 @@ export interface RunStats {
    * not all 19 in the Source union. Use safe access. */
   perSource: Partial<Record<Source, { fetched: number; passed: number; error: string | null }>>;
   totalRaw: number;
-  afterMaltaGate: number;
+  /** totalRaw − jobs dropped by track-appropriate geo gate (passesMaltaGate /
+   * passesGlobalGate). Before the gate runs, listings default to the scraper's
+   * assumed region, so Malta track's gate rarely drops anything; the global
+   * gate is doing real work (rejecting US-only remote, pure-onsite Ireland). */
+  afterGeoGate: number;
   afterFilter: number;
   /** passedFilter − metadata-freshness drops (Layer A). */
   afterMetaFreshness: number;
@@ -137,4 +149,9 @@ export interface RunStats {
   afterUrlVerify: number;
   newJobs: number;
   digestSent: boolean;
+  /** Firecrawl /v1/search + /v1/scrape calls made this run. Helps spot cost
+   * regressions (scraper spam, uncached reputation storms). Budget ceiling
+   * enforced in scrapers/firecrawl-search.ts. */
+  firecrawlCalls?: number;
+  firecrawlBudget?: number;
 }

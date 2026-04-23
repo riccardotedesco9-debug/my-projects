@@ -4,11 +4,13 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:linkedin.com/jobs/view remote";
+// Remote + part-time qualifier — filter drops silent-schedule, so bias Google
+// toward PT-mentioning remote roles upfront.
+const QUERY = "site:linkedin.com/jobs/view remote part-time";
 const TITLE_SUFFIXES = ["LinkedIn"];
 
 export async function scrapeLinkedInRemote(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
   for (const hit of results) {

@@ -15,6 +15,7 @@
 
 import { scrapersForTrack } from "./scrapers/index.js";
 import { SOURCE_ENABLED, LIMITS } from "./config.js";
+import { getFirecrawlUsage, resetFirecrawlBudget } from "./scrapers/firecrawl-search.js";
 import { normalize } from "./pipeline/normalize.js";
 import { passesMaltaGate } from "./pipeline/malta-gate.js";
 import { runFilter } from "./pipeline/filter.js";
@@ -40,6 +41,7 @@ import { sendEmail } from "./gmail-client.js";
 import {
   composeDailyDigest,
   composeFailureAlert,
+  composeHeartbeat,
   composeSubject,
 } from "./digest-composer.js";
 import { detectSilentSources } from "./source-monitor.js";
@@ -72,7 +74,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     // track's sources showing as "silent" in this digest's health-check alert.
     perSource: emptyPerSource(track),
     totalRaw: 0,
-    afterMaltaGate: 0,
+    afterGeoGate: 0,
     afterFilter: 0,
     afterMetaFreshness: 0,
     afterDedup: 0,
@@ -81,6 +83,11 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     newJobs: 0,
     digestSent: false,
   };
+
+  // Reset the shared Firecrawl call counter so each run starts from zero.
+  // The module-level counter persists across Trigger.dev task invocations
+  // within the same container; resetting here gives us per-run accounting.
+  resetFirecrawlBudget();
 
   let phase = "init";
   try {
@@ -102,10 +109,15 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         const job = normalize(raw);
         if (track === "malta" && !passesMaltaGate(job)) continue;
         if (track === "global" && !passesGlobalGate(job)) continue;
-        stats.afterMaltaGate++;
-        const filter = runFilter(job);
+        stats.afterGeoGate++;
+        const filter = runFilter(job, track);
         if (!filter.pass) continue;
         stats.afterFilter++;
+        // Track per-source pass rate — used in sheet run_log + email footer
+        // to spot sources that fetch lots but rarely pass the pipeline.
+        if (stats.perSource[job.source]) {
+          stats.perSource[job.source]!.passed++;
+        }
         // Layer A freshness (cheap, metadata-only)
         const meta = isFreshFromMetadata(job);
         if (!meta.fresh) {
@@ -126,8 +138,19 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     phase = "dedup";
     let newJobs: Job[] = processed;
     let merges: Array<{ rowIndex: number; merged: SheetRow }> = [];
+    // Diagnostic only — never drives cap behaviour, because `[]` is also returned
+    // when the sheet tab was renamed/cleared/auth-empty. See JOBHUNT_UNCAP_ONCE
+    // below for the explicit uncap path.
+    let sheetWasEmpty = false;
     if (!dryRun) {
       const existingRows = await readAllJobRows(jobsTab);
+      sheetWasEmpty = existingRows.length === 0;
+      if (sheetWasEmpty) {
+        console.warn(
+          `[dedup] readAllJobRows(${jobsTab}) returned 0 rows — proceeding with empty index.` +
+          ` This is normal on a fresh sheet but also happens if the tab was cleared/renamed.`,
+        );
+      }
       const index = buildSheetIndex(existingRows);
       const out = dedup(processed, index);
       newJobs = out.newJobs;
@@ -152,7 +175,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     if (newJobs.length > 0) {
       const profile = await readProfile();
       if (profile.length > 0) {
-        const haiku = await rankBatchHaiku(profile, newJobs, 15);
+        const haiku = await rankBatchHaiku(profile, newJobs);
         for (const j of newJobs) {
           const a = haiku.get(j.sourceId);
           if (a) {
@@ -161,6 +184,10 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
             j.fit = a.fit;
             j.redFlags = a.redFlags;
             j.tags = a.tags;
+            // Haiku now extracts salary from snippet when mentioned. Only set
+            // when Haiku returns a non-null value — don't overwrite scraper-
+            // provided salary (e.g. remoteok API) with null.
+            if (a.estSalary && !j.estSalary) j.estSalary = a.estSalary;
           }
         }
         console.log(`[llm-rank] Haiku scored ${haiku.size}/${newJobs.length} jobs`);
@@ -169,7 +196,13 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         // ratings in fit/redFlags. Cache-first; only unknown/stale companies
         // hit Firecrawl. Degrades gracefully if credits exhausted.
         newJobs.sort((a, b) => b.score - a.score);
+        // Reputation scope is DECOUPLED from Sonnet: Sonnet is expensive LLM
+        // work so it stays at top-30, but reputation is cheap (1-5 Firecrawl
+        // calls, 30-day cached) so we widen to top-100 for far better review
+        // coverage across the digest. Bounded even on empty-sheet uncapped
+        // runs so first-run credit spikes stay sane.
         const topForSonnet = newJobs.slice(0, Math.min(30, newJobs.length));
+        const topForReputation = newJobs.slice(0, Math.min(100, newJobs.length));
         try {
           const ratingCache = await readRatingCache();
           const newRatings = new Map<string, Reputation>();
@@ -177,30 +210,36 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
           // (company || companyRaw) so `upsertRatings` finds the human-readable
           // name for column B. Previously keyed solely off companyRaw → misses.
           const rawNames = new Map<string, string>();
-          for (const j of topForSonnet) {
+          for (const j of topForReputation) {
             const key = normCompany(j.company || j.companyRaw);
             if (!key) continue;
             if (j.companyRaw) rawNames.set(key, j.companyRaw);
             else if (j.company) rawNames.set(key, j.company);
           }
           const reputations = await getReputationBatch(
-            topForSonnet.map((j) => j.company || j.companyRaw).filter(Boolean),
+            topForReputation.map((j) => j.company || j.companyRaw).filter(Boolean),
             ratingCache,
             newRatings,
             5,
           );
-          for (const j of topForSonnet) {
+          for (const j of topForReputation) {
             const key = normCompany(j.company || j.companyRaw);
+            if (!key) continue;  // empty company — lookup was skipped upstream
+            // Mark attempted regardless of outcome — digest uses this to show
+            // "No public reviews yet" vs silence for unchecked jobs.
+            j.reputationLookedUp = true;
             const rep = reputations.get(key);
             if (rep) j.reputation = rep;
           }
           if (!dryRun && newRatings.size > 0) await upsertRatings(newRatings, rawNames);
-          console.log(`[reputation] attached ${reputations.size}/${topForSonnet.length} · cached ${ratingCache.size} · fetched ${newRatings.size}`);
+          console.log(`[reputation] attached ${reputations.size}/${topForReputation.length} · cached ${ratingCache.size} · fetched ${newRatings.size}`);
         } catch (err) {
           console.warn("[reputation] batch failed, continuing without ratings:", err instanceof Error ? err.message : err);
         }
 
-        // Sonnet rerank — deeper pass with reputation context in the prompt.
+        // Sonnet rerank — top-30 only (expensive). Jobs in topForSonnet already
+        // have j.reputation populated from the wider lookup above, so Sonnet
+        // can still cite ratings/red flags in its fit assessments.
         const sonnet = await rerankSonnet(profile, topForSonnet, 10);
         for (const j of topForSonnet) {
           const a = sonnet.get(j.sourceId);
@@ -227,9 +266,16 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     stats.afterAutoReject = newJobs.length;
     if (autoRejected > 0) console.log(`[llm-rank] auto-rejected ${autoRejected} jobs (fitScore=0)`);
 
-    // 5. Sort + cap (final order is by LLM fitScore)
+    // 5. Sort + cap (final order is by LLM fitScore).
+    // Uncapped digest is a one-shot, explicit override (first-ever run backfill,
+    // or after an intentional wipe). Auto-uncapping on empty-sheet-read was
+    // unsafe because `[]` is also returned on tab-rename / corruption, which
+    // would silently blast the user with a 300-row email.
     newJobs.sort((a, b) => b.score - a.score);
-    let candidateDigest = newJobs.slice(0, digestCap);
+    const uncapOnce = process.env.JOBHUNT_UNCAP_ONCE === "true";
+    const effectiveCap = uncapOnce ? Number.POSITIVE_INFINITY : digestCap;
+    if (uncapOnce) console.warn(`[digest-cap] JOBHUNT_UNCAP_ONCE=true — uncapping (normal cap would have been ${digestCap}). Unset this env var after the run.`);
+    let candidateDigest = newJobs.slice(0, effectiveCap);
 
     // Layer B freshness — network-verify URLs of digest-bound jobs. Drops
     // 404/410/redirects-to-listing/closed-marker pages. Parallelised with
@@ -269,18 +315,29 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     // 7. Email
     phase = "email";
     stats.finishedAt = new Date().toISOString();
+    const usage = getFirecrawlUsage();
+    stats.firecrawlCalls = usage.calls;
+    stats.firecrawlBudget = usage.budget;
     const healthWarnings = dryRun ? [] : await safeDetectSilentSources(track);
-    const shouldSend = !dryRun && recipient && (digestJobs.length > 0 || isSunday(stats.startedAt));
+    const sunday = isSunday(stats.startedAt);
+    const shouldSend = !dryRun && recipient && (digestJobs.length > 0 || sunday);
     if (shouldSend) {
-      const html = composeDailyDigest({
-        jobs: digestJobs,
-        stats,
-        cappedAt,
-        unhealthySources: healthWarnings,
-      });
+      // Sunday + zero matches → distinct heartbeat email so the user can
+      // tell "bot ran, nothing to report" apart from "bot is broken".
+      // Weekday zero-match still uses the regular digest (body already shows
+      // the funnel — user can see which stage dropped everything).
+      const isHeartbeat = sunday && digestJobs.length === 0;
+      const html = isHeartbeat
+        ? composeHeartbeat(stats)
+        : composeDailyDigest({
+            jobs: digestJobs,
+            stats,
+            cappedAt,
+            unhealthySources: healthWarnings,
+          });
       await sendEmail({
         to: recipient!,
-        subject: subjectPrefix + composeSubject({ jobs: digestJobs, stats, cappedAt }),
+        subject: subjectPrefix + composeSubject({ jobs: digestJobs, stats, cappedAt, heartbeat: isHeartbeat }),
         html,
       });
       stats.digestSent = true;
@@ -427,8 +484,11 @@ async function writeDryRunPreview(
     await writeFile(statsPath, JSON.stringify(stats, null, 2), "utf8");
     console.log(`[dry-run] digest preview → ${htmlPath}`);
     console.log(`[dry-run] stats → ${statsPath}`);
+    const fc = typeof stats.firecrawlCalls === "number"
+      ? ` · firecrawl=${stats.firecrawlCalls}/${stats.firecrawlBudget ?? "?"}`
+      : "";
     console.log(
-      `[dry-run] funnel: ${stats.totalRaw} → ${stats.afterFilter} → ${stats.afterMetaFreshness} → ${stats.afterDedup} → ${stats.afterAutoReject} → ${stats.afterUrlVerify} (delivered ${stats.newJobs})`,
+      `[dry-run] funnel: ${stats.totalRaw} → ${stats.afterGeoGate} → ${stats.afterFilter} → ${stats.afterMetaFreshness} → ${stats.afterDedup} → ${stats.afterAutoReject} → ${stats.afterUrlVerify} (delivered ${stats.newJobs})${fc}`,
     );
   } catch (err) {
     console.warn("[dry-run] failed to write preview:", err instanceof Error ? err.message : err);

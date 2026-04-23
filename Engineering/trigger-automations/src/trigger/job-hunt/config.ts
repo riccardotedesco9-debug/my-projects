@@ -244,7 +244,9 @@ export const SOURCE_ENABLED: Record<Source, boolean> = {
 // ────────────────────────────────────────────────────────────────────
 
 export const LIMITS = {
-  digestCap: 20,             // max jobs in one email; overflow rolls next day
+  digestCap: 100,            // max jobs in one email; overflow rolls next day.
+                             // Orchestrator bypasses this when sheet is empty
+                             // (first run after wipe) so user sees everything.
   fuzzyDedupWindow: 30,      // days of sheet history to fuzzy-match against
   fuzzyThreshold: 0.92,      // Levenshtein ratio ≥ this → treat as duplicate
   sourceDryStreakDays: 5,    // alert if a source returns 0 for N consecutive days

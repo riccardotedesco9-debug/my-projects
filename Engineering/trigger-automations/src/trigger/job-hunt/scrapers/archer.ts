@@ -6,11 +6,15 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:archer.mt";
+// `inurl:job` forces Google to return individual /job/{slug} detail pages.
+// Adding `part-time` to the query narrowed results to 0 — archer has few
+// PT-tagged listings in their titles. Keep query broad, let the expanded
+// detectPartTime regex + filter handle the PT-only rule downstream.
+const QUERY = "site:archer.mt inurl:job";
 const TITLE_SUFFIXES = ["Archer IT Recruitment", "Archer IT Recruitment Specialist Malta", "Archer"];
 
 export async function scrapeArcher(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
 

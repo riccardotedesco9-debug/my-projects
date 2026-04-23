@@ -1,13 +1,8 @@
 // digest-composer.ts — HTML email digest templates.
-// Designed to render cleanly in Gmail both light AND dark mode. Uses
-// mid-contrast colors with enough saturation to survive Gmail's auto-invert.
+// Explicitly opts out of Gmail's dark-mode auto-invert via
+// `meta name="color-scheme" content="light"`. Light-only is intentional — the
+// palette was tuned for it; auto-invert was muddying tier colors.
 
-import {
-  CORE_KEYWORDS,
-  TOOL_KEYWORDS,
-  DOMAIN_KEYWORDS,
-  DRIVE_30MIN,
-} from "./config.js";
 import type { Job, RunStats, Reputation } from "./types.js";
 import type { SourceHealth } from "./source-monitor.js";
 
@@ -20,9 +15,13 @@ const STYLE = `
   .hero .headline b { font-weight: 600; }
   /* Gmail strips display:flex — use inline-block + explicit separators so
      numbers and labels don't run together ("347 scraped189 passed…"). */
-  .summary { font-size: 13px; color: #5a6470; margin-bottom: 14px; padding: 12px 18px; background: white; border: 1px solid #dae0e6; border-radius: 10px; line-height: 1.9; }
-  .summary span { display: inline-block; margin-right: 18px; }
+  .summary { font-size: 13px; color: #5a6470; margin-bottom: 14px; padding: 14px 18px; background: white; border: 1px solid #dae0e6; border-radius: 10px; line-height: 1.9; }
+  .summary .funnel-title { font-size: 11px; font-weight: 700; color: #838c98; letter-spacing: 0.6px; text-transform: uppercase; margin-bottom: 6px; }
+  .summary span.stage { display: inline-block; margin-right: 14px; }
   .summary b { color: #1f2328; font-weight: 700; margin-right: 4px; }
+  .summary .drop { color: #838c98; font-style: normal; font-size: 11.5px; margin-left: 3px; }
+  .summary .arrow { color: #b8bfc7; margin: 0 2px 0 -6px; }
+  .summary .meta-line { font-size: 11.5px; color: #838c98; margin-top: 8px; padding-top: 8px; border-top: 1px solid #eef1f4; }
   .legend { background: white; border: 1px solid #dae0e6; border-radius: 10px; padding: 10px 18px; font-size: 12px; color: #5a6470; margin-bottom: 16px; line-height: 2; }
   .legend b { color: #1f2328; margin-right: 6px; }
   .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin: 0 5px 0 10px; vertical-align: middle; }
@@ -44,10 +43,14 @@ const STYLE = `
   .job h2 a:hover { text-decoration: underline; }
   .company-row { color: #424a53; font-size: 13.5px; margin: 5px 0 0 38px; }
   .company-row b { color: #1f2328; font-weight: 600; }
-  .reputation { color: #424a53; font-size: 12.5px; margin: 4px 0 0 38px; }
+  .reputation { margin: 6px 0 0 38px; }
+  .rep-stars { color: #424a53; font-size: 12.5px; line-height: 1.6; }
   .rep-strong { color: #116329; font-weight: 600; }
   .rep-mid { color: #9a6700; font-weight: 600; }
   .rep-weak { color: #a40e26; font-weight: 600; }
+  .rep-good { display: inline-block; color: #116329; font-size: 12px; font-weight: 500; background: #f0faf3; padding: 4px 10px; border-radius: 4px; margin-top: 5px; line-height: 1.5; }
+  .rep-bad { display: inline-block; color: #7a0517; font-size: 12px; font-weight: 500; background: #ffe8e6; padding: 4px 10px; border-radius: 4px; margin-top: 5px; line-height: 1.5; }
+  .rep-missing { color: #838c98; font-size: 12px; font-style: italic; line-height: 1.5; }
   .why { font-size: 13px; color: #1f7334; margin: 10px 0 10px 38px; font-weight: 500; padding: 7px 10px; background: #f0faf3; border-left: 3px solid #1a7f37; border-radius: 4px; line-height: 1.55; }
   .chips { margin: 10px 0 0 38px; }
   .chip { display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 12px; background: #eaeef2; color: #424a53; margin: 0 5px 5px 0; font-weight: 500; line-height: 1.55; }
@@ -79,9 +82,10 @@ export interface DigestInput {
   unhealthySources?: SourceHealth[];
 }
 
-export function composeSubject(input: DigestInput): string {
+export function composeSubject(input: DigestInput & { heartbeat?: boolean }): string {
   const d = new Date(input.stats.startedAt).toISOString().slice(0, 10);
-  if (input.jobs.length === 0) return `job-hunt — no new matches (${d})`;
+  if (input.heartbeat) return `job-hunt heartbeat — pipeline healthy (${d})`;
+  if (input.jobs.length === 0) return `job-hunt — no new matches today (${d})`;
   // Subject kept neutral — the hero body already shows top categories.
   // Avoids locking the user's attention on one specific role before they open.
   const cats = topCategories(input.jobs, 3);
@@ -154,20 +158,37 @@ export function composeDailyDigest(input: DigestInput): string {
       } Today's digest is thinner than usual.</div>`
     : "";
 
-  // Full funnel — each stage shows what's LEFT, and tooltip (title attr) shows
-  // the drop at that stage. Helps diagnose "why so few today?"
-  const dedupDrop = Math.max(0, stats.afterMetaFreshness - stats.afterDedup);
+  // Full funnel — every stage shows what's LEFT, plus the drop count and
+  // reason inline (visible on mobile, not hidden in hover tooltip). Labels
+  // are human-readable not pipeline-jargon: "role match" not "passed filters",
+  // "good fit" not "after LLM rank", etc. Geo-gate is only shown when it
+  // actually dropped something (Malta track: it rarely does; global track:
+  // rejects US-only remote + onsite-Ireland — visible signal).
+  const geoDrop = Math.max(0, stats.totalRaw - stats.afterGeoGate);
+  const filterDrop = Math.max(0, stats.afterGeoGate - stats.afterFilter);
   const metaDrop = Math.max(0, stats.afterFilter - stats.afterMetaFreshness);
+  const dedupDrop = Math.max(0, stats.afterMetaFreshness - stats.afterDedup);
   const rejectDrop = Math.max(0, stats.afterDedup - stats.afterAutoReject);
   const urlDrop = Math.max(0, stats.afterAutoReject - stats.afterUrlVerify);
+  const arrow = `<span class="arrow">→</span>`;
+  const dropTag = (n: number, reason: string) =>
+    n > 0 ? `<span class="drop">(−${n} ${reason})</span>` : `<span class="drop">(−0)</span>`;
+  const geoStage = geoDrop > 0
+    ? `<span class="stage"><b>${stats.afterGeoGate}</b> right region ${dropTag(geoDrop, "wrong location")}</span>${arrow}`
+    : "";
+  const fcLine = typeof stats.firecrawlCalls === "number"
+    ? ` · Firecrawl: <b>${stats.firecrawlCalls}</b>${stats.firecrawlBudget ? `/${stats.firecrawlBudget}` : ""} calls`
+    : "";
   const summary = `<div class="summary">
-    <span><b>${stats.totalRaw}</b> scraped</span>
-    <span title="${stats.totalRaw - stats.afterFilter} dropped by gate + filter"><b>${stats.afterFilter}</b> passed filters</span>
-    <span title="${metaDrop} dropped by metadata-freshness"><b>${stats.afterMetaFreshness}</b> fresh</span>
-    <span title="${dedupDrop} already in sheet / intra-run dupes"><b>${stats.afterDedup}</b> new</span>
-    <span title="${rejectDrop} auto-rejected by LLM (hard constraints)"><b>${stats.afterAutoReject}</b> after LLM rank</span>
-    <span title="${urlDrop} URL verified as closed/404"><b>${stats.newJobs}</b> delivered</span>
-    <span><b>${activeSourceCount}</b>/${enabledSourceCount} sources active</span>
+    <div class="funnel-title">Today's funnel</div>
+    <span class="stage"><b>${stats.totalRaw}</b> found</span>${arrow}
+    ${geoStage}
+    <span class="stage"><b>${stats.afterFilter}</b> role-relevant ${dropTag(filterDrop, "non-analytical titles")}</span>${arrow}
+    <span class="stage"><b>${stats.afterMetaFreshness}</b> recent ${dropTag(metaDrop, "older than 60 days")}</span>${arrow}
+    <span class="stage"><b>${stats.afterDedup}</b> not seen before ${dropTag(dedupDrop, "already in sheet")}</span>${arrow}
+    <span class="stage"><b>${stats.afterAutoReject}</b> good fit ${dropTag(rejectDrop, "LLM flagged mismatch")}</span>${arrow}
+    <span class="stage"><b>${stats.newJobs}</b> matched ${dropTag(urlDrop, "listing closed")}</span>
+    <div class="meta-line">Shown in this email: <b>${jobs.length}</b>${cappedAt > 0 ? ` · rolled to tomorrow: <b>${cappedAt}</b>` : ""} · <b>${activeSourceCount}</b>/${enabledSourceCount} sources active${erroredSources.length > 0 ? ` · errors: ${erroredSources.slice(0, 3).join(", ")}` : ""}${fcLine}</div>
   </div>`;
 
   const legend = `<div class="legend">
@@ -187,12 +208,30 @@ export function composeDailyDigest(input: DigestInput): string {
   return wrap(hero + degradedBanner + summary + legend + alerts + body + renderFooter(stats));
 }
 
-export function composeHeartbeat(stats: RunStats, weekStats: { runs: number; totalNew: number }): string {
-  const hero = `<div class="hero">
-    <h1>Weekly heartbeat — job-hunt is alive</h1>
-    <div class="meta">Last 7 days: ${weekStats.runs} runs · ${weekStats.totalNew} new roles surfaced</div>
+/**
+ * Sunday heartbeat — sent when the Sunday run produced zero matches. Distinct
+ * framing so the user recognises "all clear, nothing for you today" instead of
+ * confusing it with a broken pipeline. Shows this week's activity stats to
+ * prove the system is alive end-to-end.
+ */
+export function composeHeartbeat(
+  stats: RunStats,
+  weekStats?: { runs: number; totalNew: number },
+): string {
+  const activeSources = Object.entries(stats.perSource).filter(([, v]) => v.fetched > 0).length;
+  const totalSources = Object.keys(stats.perSource).length;
+  const weekLine = weekStats
+    ? `Last 7 days: <b>${weekStats.runs}</b> runs · <b>${weekStats.totalNew}</b> new roles surfaced`
+    : `Scrapers healthy — <b>${activeSources}/${totalSources}</b> sources active today`;
+  const hero = `<div class="hero" style="background: linear-gradient(135deg, #116329 0%, #1a7f37 100%);">
+    <h1>💚 Pipeline healthy — nothing to report</h1>
+    <div class="meta">${formatDate(stats.startedAt)} · scheduled check-in</div>
+    <div class="headline">${weekLine}</div>
   </div>`;
-  const body = `<div class="job"><p style="margin:0">Still crawling. Next digest tomorrow 07:00 Europe/Malta.</p></div>`;
+  const body = `<div class="job">
+    <p style="margin:0 0 6px"><b>What this means:</b> the bot ran on schedule, all sources responded, and nothing new passed the filters today. No action needed.</p>
+    <p style="margin:0;color:#5a6470;font-size:12.5px">Next digest: tomorrow at 07:00 Europe/Malta. Watch-outs and rejections are still logged to the sheet for review.</p>
+  </div>`;
   return wrap(hero + body + renderFooter(stats));
 }
 
@@ -242,7 +281,10 @@ function renderTiered(jobs: Job[]): string {
 function renderJob(job: Job, rank: number): string {
   const tier = tierOf(job.score);
   const scoreCls = TIER_META[tier].colorClass;
-  const whyLine = job.fit ?? deterministicWhy(job);
+  // Haiku always populates `fit`; the old deterministic keyword-based fallback
+  // was dead code and has been removed. If `fit` is empty we show nothing
+  // rather than a robotic "Matches: title: ..." line.
+  const whyLine = job.fit ?? "";
   const chips = renderChips(job);
 
   const companyLoc = job.company
@@ -261,7 +303,7 @@ function renderJob(job: Job, rank: number): string {
     ? `<a href="${escapeAttr(safeUrl)}">${escapeHtml(job.title || "(no title)")}</a>`
     : escapeHtml(job.title || "(no title)");
 
-  const reputationLine = renderReputation(job.reputation);
+  const reputationLine = renderReputation(job);
 
   const desc = job.descriptionMd && job.descriptionMd.trim().length > 20
     ? `<div class="desc">${escapeHtml(cleanDesc(job.descriptionMd))}</div>`
@@ -269,12 +311,12 @@ function renderJob(job: Job, rank: number): string {
 
   const details: string[] = [];
   if (job.contact) details.push(`<b>Contact:</b> ${escapeHtml(job.contact)}`);
-  // Always surface salary state — user specifically asked for this.
-  details.push(
-    job.estSalary
-      ? `<b>Salary:</b> ${escapeHtml(job.estSalary)}`
-      : `<b>Salary:</b> <span style="color:#838c98">not disclosed</span>`,
-  );
+  // Only show salary when we actually extracted a value. Previously we always
+  // showed "not disclosed" when estSalary was null — but estSalary is null for
+  // all Google-snippet-sourced jobs (no scraper populates it) even when the
+  // full listing clearly states salary. Silent = "we don't know" rather than
+  // falsely asserting it's missing.
+  if (job.estSalary) details.push(`<b>Salary:</b> ${escapeHtml(job.estSalary)}`);
   if (job.postedAt) details.push(`<b>Posted:</b> ${formatShortDate(job.postedAt)}`);
   const detailsRow = details.length > 0 ? `<div class="details">${details.join(" &nbsp;·&nbsp; ")}</div>` : "";
 
@@ -304,44 +346,54 @@ function renderJob(job: Job, rank: number): string {
   </div>`;
 }
 
-function renderReputation(rep?: Reputation): string {
-  if (!rep || (!rep.glassdoor && !rep.indeed)) return "";
+function renderReputation(job: Job): string {
+  const rep = job.reputation;
+  const hasAnyRating = rep && (rep.glassdoor || rep.indeed || rep.other);
+
+  // Company was looked up (job in Sonnet top-K) but no public ratings found —
+  // surface explicitly so user knows this is a small/private employer, not a
+  // data gap on our side.
+  if (!hasAnyRating && job.reputationLookedUp) {
+    return `<div class="reputation"><div class="rep-missing">No public reviews found — likely a small or private employer</div></div>`;
+  }
+  // Not looked up (outside Sonnet top-K) — stay silent
+  if (!rep || !hasAnyRating) return "";
+
+  // Stars line — one entry per source that hit. Links where available.
+  const renderStar = (label: string, rating: number, reviews: number, url?: string): string => {
+    const cls = rating < 3 ? "rep-weak" : rating < 4 ? "rep-mid" : "rep-strong";
+    const inner = `${label} ${rating.toFixed(1)}★`;
+    const wrapped = url
+      ? `<a href="${escapeAttr(url)}" style="color:inherit;text-decoration:none">${inner}</a>`
+      : inner;
+    return `<span class="${cls}">${wrapped}</span> (${formatK(reviews)} reviews)`;
+  };
+  const starParts: string[] = [];
+  if (rep.glassdoor) starParts.push(renderStar("Glassdoor", rep.glassdoor.rating, rep.glassdoor.reviews, rep.glassdoor.url));
+  if (rep.indeed) starParts.push(renderStar("Indeed", rep.indeed.rating, rep.indeed.reviews, rep.indeed.url));
+  if (rep.other) starParts.push(renderStar(rep.other.source, rep.other.rating, rep.other.reviews, rep.other.url));
+
+  // Good signal: at least one rating ≥4.2, or avg across sources ≥4.0
+  const ratings = [rep.glassdoor?.rating, rep.indeed?.rating, rep.other?.rating].filter(
+    (r): r is number => typeof r === "number",
+  );
+  const avg = ratings.length > 0 ? ratings.reduce((a, b) => a + b, 0) / ratings.length : 0;
+  const maxR = ratings.length > 0 ? Math.max(...ratings) : 0;
+  const goods: string[] = [];
+  if (maxR >= 4.2 || (ratings.length > 1 && avg >= 4.0)) {
+    goods.push(ratings.length > 1 ? "Well-rated (consistent across sources)" : "Well-rated employer");
+  }
+
+  // Red flags from reputation fetch — kept separate from LLM-derived redFlags
+  // (which appear in the `.redflag` block below the card).
+  const bads = rep.redFlags ?? [];
+
   const parts: string[] = [];
-  if (rep.glassdoor) {
-    const cls = rep.glassdoor.rating < 3 ? "rep-weak" : rep.glassdoor.rating < 4 ? "rep-mid" : "rep-strong";
-    parts.push(`<span class="${cls}">Glassdoor ${rep.glassdoor.rating.toFixed(1)}★</span> (${formatK(rep.glassdoor.reviews)} reviews)`);
-  }
-  if (rep.indeed) {
-    const cls = rep.indeed.rating < 3 ? "rep-weak" : rep.indeed.rating < 4 ? "rep-mid" : "rep-strong";
-    parts.push(`<span class="${cls}">Indeed ${rep.indeed.rating.toFixed(1)}★</span> (${formatK(rep.indeed.reviews)} reviews)`);
-  }
-  return `<div class="reputation">${parts.join(" &nbsp;·&nbsp; ")}</div>`;
-}
+  if (starParts.length > 0) parts.push(`<div class="rep-stars">${starParts.join(" &nbsp;·&nbsp; ")}</div>`);
+  if (goods.length > 0) parts.push(`<div class="rep-good">✓ ${goods.map(escapeHtml).join(" · ")}</div>`);
+  if (bads.length > 0) parts.push(`<div class="rep-bad">⚠ ${bads.map(escapeHtml).join(" · ")}</div>`);
 
-function deterministicWhy(job: Job): string {
-  const reasons = matchReasons(job);
-  return reasons.length > 0 ? `Matches: ${reasons.join(" · ")}` : "";
-}
-
-function matchReasons(job: Job): string[] {
-  const reasons: string[] = [];
-  const titleLower = job.title.toLowerCase();
-  const descLower = job.descriptionMd.toLowerCase();
-  const hitCore = CORE_KEYWORDS.find((k) => titleLower.includes(k));
-  if (hitCore) reasons.push(`title: "${hitCore}"`);
-  const tools = TOOL_KEYWORDS.filter((t) => descLower.includes(t)).slice(0, 3);
-  if (tools.length > 0) reasons.push(`tools: ${tools.join(", ")}`);
-  if (/\b(i[-\s]?gaming|gambling|casino|sportsbook|betting)\b/.test(descLower)) {
-    reasons.push("iGaming");
-  } else {
-    const dom = DOMAIN_KEYWORDS.find((d) => descLower.includes(d));
-    if (dom) reasons.push(`domain: ${dom}`);
-  }
-  if (job.partTime === "yes") reasons.push("part-time confirmed");
-  if (job.workMode === "hybrid") reasons.push("hybrid");
-  else if (job.workMode === "remote") reasons.push("remote");
-  if (job.locality && DRIVE_30MIN.has(job.locality.toLowerCase())) reasons.push("drive ≤30min");
-  return reasons;
+  return parts.length > 0 ? `<div class="reputation">${parts.join("")}</div>` : "";
 }
 
 function renderChips(job: Job): string {
@@ -404,7 +456,18 @@ function cleanDesc(md: string): string {
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return cleaned.length > 280 ? cleaned.slice(0, 277) + "…" : cleaned;
+  // Bump limit 280 → 500 so most Google snippets (typically 200-400 chars)
+  // show in full. When truncation is still needed, cut at a SENTENCE boundary
+  // near the limit so the description doesn't end mid-word or mid-thought.
+  const MAX = 500;
+  if (cleaned.length <= MAX) return cleaned;
+  // Search 50 chars before and after the soft limit for a sentence ender.
+  const window = cleaned.slice(0, MAX + 50);
+  const sentenceEnd = window.search(/[.!?](?:\s|$)(?=[A-Z]|\s*$)/);
+  const cutAt = sentenceEnd >= MAX - 50 && sentenceEnd <= MAX + 50
+    ? sentenceEnd + 1  // include the period
+    : MAX;             // no good boundary found — fall back to hard cut
+  return cleaned.slice(0, cutAt).trim() + "…";
 }
 
 function formatK(n: number): string {

@@ -12,11 +12,14 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:linkedin.com/jobs/view malta part-time";
+// Malta subdomain + `part-time` qualifier — user explicitly wants PT only
+// on the Malta track, and "silent-on-schedule = assume FT = reject". Google
+// biasing toward part-time-mentioning pages is exactly what we want here.
+const QUERY = "site:mt.linkedin.com/jobs/view part-time";
 const TITLE_SUFFIXES = ["LinkedIn", "LinkedIn Malta"];
 
 export async function scrapeLinkedIn(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
 

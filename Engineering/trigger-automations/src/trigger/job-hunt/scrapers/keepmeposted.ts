@@ -7,11 +7,11 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:keepmeposted.com.mt";
+const QUERY = "site:keepmeposted.com.mt part-time";
 const TITLE_SUFFIXES = ["Keepmeposted", "Keep Me Posted"];
 
 export async function scrapeKeepmeposted(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
 

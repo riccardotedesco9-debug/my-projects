@@ -8,11 +8,13 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:konnekt.com malta";
+// /jobs path forces Google to return individual listing pages. `part-time`
+// qualifier biases toward PT-mentioning listings — filter drops silent schedule.
+const QUERY = "site:konnekt.com/jobs part-time";
 const TITLE_SUFFIXES = ["Konnekt", "Konnekt Jobs", "Konnekt | Malta's best recruitment agency"];
 
 export async function scrapeKonnekt(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
 

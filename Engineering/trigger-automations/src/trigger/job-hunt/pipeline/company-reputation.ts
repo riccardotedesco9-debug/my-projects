@@ -11,9 +11,11 @@
 // back to training-knowledge reputation reasoning.
 
 import { normCompany } from "./normalize.js";
+import { tryReserveFirecrawl } from "../scrapers/firecrawl-search.js";
 import type { Reputation } from "../types.js";
 
 const FIRECRAWL_SEARCH = "https://api.firecrawl.dev/v1/search";
+const FIRECRAWL_SCRAPE = "https://api.firecrawl.dev/v1/scrape";
 const TTL_DAYS = 30;
 
 interface SearchHit {
@@ -42,30 +44,58 @@ export async function fetchReputation(company: string): Promise<Reputation | nul
   };
   const redFlags: string[] = [];
 
-  // Glassdoor via Google rich result
+  // Glassdoor — accept any TLD (.com, .co.uk, .com.au, .co.nz, etc.).
+  // Snippet often omits the rating (only "1K Reviews" text) so we scrape the
+  // landing page as fallback to extract the actual overall rating.
   try {
-    const gd = await searchAndParse(apiKey, `"${company}" glassdoor reviews rating`, /glassdoor\.com/i);
+    const gd = await searchAndScrape(apiKey, `"${company}" glassdoor reviews`, /glassdoor\./i);
     if (gd) out.glassdoor = gd;
   } catch (err) {
     console.warn(`[reputation] glassdoor fetch failed for ${company}:`, err instanceof Error ? err.message : err);
   }
 
-  // Indeed as fallback / supplement
+  // Indeed — Indeed consolidates companies by parent brand ("Aristocrat
+  // Interactive" → cmp/Aristocrat). Unquoted query lets Google match the
+  // parent page; URL filter narrows to /cmp/ pages. Quoted `"${company}"` was
+  // missing most hits because the exact phrase isn't on Indeed's page titles.
   try {
-    const id = await searchAndParse(apiKey, `site:indeed.com/cmp "${company}" reviews`, /indeed\.com/i);
+    const id = await searchAndScrape(apiKey, `${company} site:indeed.com/cmp`, /indeed\.com\/cmp\//i);
     if (id) out.indeed = id;
   } catch (err) {
     console.warn(`[reputation] indeed fetch failed for ${company}:`, err instanceof Error ? err.message : err);
   }
 
+  // Fallback chain — only fire when both primary sources missed. Catches
+  // Malta SMBs and smaller employers. First hit wins.
+  // NOTE: Google Maps was removed — Google search never returns maps.google.com
+  // URLs in /v1/search results, so the filter matched nothing.
+  if (!out.glassdoor && !out.indeed) {
+    const fallbacks: Array<{ name: string; query: string; urlFilter: RegExp }> = [
+      { name: "Trustpilot", query: `site:trustpilot.com/review "${company}"`, urlFilter: /trustpilot\.com/i },
+      { name: "Comparably", query: `site:comparably.com "${company}"`, urlFilter: /comparably\.com/i },
+    ];
+    for (const fb of fallbacks) {
+      try {
+        const hit = await searchAndScrape(apiKey, fb.query, fb.urlFilter);
+        if (hit) {
+          out.other = { source: fb.name, rating: hit.rating, reviews: hit.reviews, url: hit.url };
+          break;
+        }
+      } catch (err) {
+        console.warn(`[reputation] ${fb.name} fetch failed for ${company}:`, err instanceof Error ? err.message : err);
+      }
+    }
+  }
+
   // Red-flag low ratings
   if (out.glassdoor && out.glassdoor.rating < 3.0) redFlags.push(`Glassdoor ${out.glassdoor.rating.toFixed(1)}★ — below 3.0`);
   if (out.indeed && out.indeed.rating < 3.0) redFlags.push(`Indeed ${out.indeed.rating.toFixed(1)}★ — below 3.0`);
+  if (out.other && out.other.rating < 3.0) redFlags.push(`${out.other.source} ${out.other.rating.toFixed(1)}★ — below 3.0`);
   if (redFlags.length > 0) out.redFlags = redFlags;
   out.summary = buildSummary(out);
 
   // If we got nothing useful, return null so caller doesn't cache an empty row
-  if (!out.glassdoor && !out.indeed) return null;
+  if (!out.glassdoor && !out.indeed && !out.other) return null;
   return out;
 }
 
@@ -95,7 +125,10 @@ export async function getReputation(
   return cached ?? null;
 }
 
-/** Concurrent reputation lookup for N companies with cap=5. */
+/** Concurrent reputation lookup for N companies with cap=5. Dedupes by
+ * normalized key BEFORE fan-out so two workers don't race on the same company
+ * (e.g. "BVNK Ltd" and "bvnk" both normalize to "bvnk" and would otherwise
+ * each fire a live fetch). */
 export async function getReputationBatch(
   companies: string[],
   cache: Map<string, Reputation>,
@@ -103,7 +136,18 @@ export async function getReputationBatch(
   concurrency = 5,
 ): Promise<Map<string, Reputation>> {
   const results = new Map<string, Reputation>();
-  const unique = [...new Set(companies.map((c) => c.trim()).filter(Boolean))];
+  // Normalize-and-dedupe: keep the first raw form we saw for each key so the
+  // display name on newly-fetched rows is the human-readable one, not the
+  // lower-cased key.
+  const keyed = new Map<string, string>();
+  for (const raw of companies) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const key = reputationKey(trimmed);
+    if (!key) continue;
+    if (!keyed.has(key)) keyed.set(key, trimmed);
+  }
+  const unique = [...keyed.values()];
   let cursor = 0;
   async function worker() {
     while (cursor < unique.length) {
@@ -121,30 +165,77 @@ export async function getReputationBatch(
 // Internals
 // ────────────────────────────────────────────────────────────────────
 
-async function searchAndParse(
+/**
+ * Two-step reputation fetch: SEARCH to find the canonical URL, then try to
+ * parse the rating from (a) the Google snippet, or (b) the scraped page
+ * content if the snippet is silent on the rating. Glassdoor in particular
+ * often shows "1K Reviews" text in the snippet but the actual numeric rating
+ * only lives on the page itself.
+ */
+async function searchAndScrape(
   apiKey: string,
   query: string,
   urlFilter: RegExp,
 ): Promise<{ rating: number; reviews: number; url?: string } | undefined> {
+  if (!tryReserveFirecrawl(`rep-search:${query.slice(0, 40)}`)) return undefined;
   const resp = await fetch(FIRECRAWL_SEARCH, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query, limit: 5 }),
+    body: JSON.stringify({ query, limit: 6 }),
   });
   if (!resp.ok) {
     const body = await resp.text();
-    // Credit exhaustion / 402 → swallow, orchestrator continues
     if (body.includes("Insufficient credits") || resp.status === 402) return undefined;
     throw new Error(`search ${resp.status}: ${body.slice(0, 160)}`);
   }
   const body = (await resp.json()) as { success?: boolean; data?: SearchHit[] };
   const hits = (body.data ?? []).filter((h) => urlFilter.test(h.url ?? ""));
+  if (hits.length === 0) return undefined;
+
+  // First pass — parse from search snippet. Cheap (no extra credit), works
+  // when Google's rich result exposes the rating inline.
   for (const hit of hits) {
     const blob = `${hit.title ?? ""} ${hit.description ?? ""}`;
     const parsed = parseRating(blob);
     if (parsed) return { ...parsed, url: hit.url };
   }
+
+  // Second pass — scrape the canonical page for sources where the snippet
+  // rarely carries the rating (Glassdoor, Indeed cmp pages). Only scrape the
+  // FIRST matching URL to control credit spend; if that misses, move on.
+  const canonicalUrl = hits[0].url;
+  if (!canonicalUrl) return undefined;
+  const scraped = await scrapeMarkdown(apiKey, canonicalUrl);
+  if (!scraped) return undefined;
+  // Parse the full markdown — first rating match in delimited form (e.g.
+  // "3.5★", "3.3 out of 5") is reliably the overall rating on Glassdoor /
+  // Indeed / Trustpilot employer pages. Sub-ratings (Culture, Comp) appear
+  // later in the DOM and only as the 2nd/3rd matches.
+  const parsed = parseRating(scraped);
+  if (parsed) return { ...parsed, url: canonicalUrl };
   return undefined;
+}
+
+async function scrapeMarkdown(apiKey: string, url: string): Promise<string | undefined> {
+  if (!tryReserveFirecrawl(`rep-scrape:${url.slice(0, 40)}`)) return undefined;
+  try {
+    const resp = await fetch(FIRECRAWL_SCRAPE, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ url, formats: ["markdown"], onlyMainContent: true }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      if (body.includes("Insufficient credits") || resp.status === 402) return undefined;
+      console.warn(`[reputation] scrape ${resp.status} for ${url}: ${body.slice(0, 120)}`);
+      return undefined;
+    }
+    const body = (await resp.json()) as { data?: { markdown?: string }; markdown?: string };
+    return body.data?.markdown ?? body.markdown ?? undefined;
+  } catch (err) {
+    console.warn(`[reputation] scrape threw for ${url}:`, err instanceof Error ? err.message : err);
+    return undefined;
+  }
 }
 
 /**
@@ -177,6 +268,7 @@ function buildSummary(rep: Reputation): string {
   const parts: string[] = [];
   if (rep.glassdoor) parts.push(`Glassdoor ${rep.glassdoor.rating.toFixed(1)}★ (${formatK(rep.glassdoor.reviews)})`);
   if (rep.indeed) parts.push(`Indeed ${rep.indeed.rating.toFixed(1)}★ (${formatK(rep.indeed.reviews)})`);
+  if (rep.other) parts.push(`${rep.other.source} ${rep.other.rating.toFixed(1)}★ (${formatK(rep.other.reviews)})`);
   return parts.join(" · ");
 }
 

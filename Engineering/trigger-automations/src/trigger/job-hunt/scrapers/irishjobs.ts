@@ -2,11 +2,11 @@
 import { searchJobs, searchHitToJob } from "./firecrawl-search.js";
 import type { Job } from "../types.js";
 
-const QUERY = "site:irishjobs.ie";
+const QUERY = "site:irishjobs.ie part-time";
 const TITLE_SUFFIXES = ["IrishJobs", "IrishJobs.ie"];
 
 export async function scrapeIrishJobs(): Promise<Partial<Job>[]> {
-  const results = await searchJobs(QUERY, 20);
+  const results = await searchJobs(QUERY);
   const jobs: Partial<Job>[] = [];
   const seen = new Set<string>();
   for (const hit of results) {
@@ -17,7 +17,10 @@ export async function scrapeIrishJobs(): Promise<Partial<Job>[]> {
     const sourceId = m[1];
     if (seen.has(sourceId)) continue;
     seen.add(sourceId);
-    jobs.push(searchHitToJob("irishjobs", hit, sourceId, TITLE_SUFFIXES));
+    // Default to "Ireland" so global-gate's isIreland check passes even when
+    // Google snippet doesn't carry an explicit location string. Without this,
+    // ~100% of irishjobs hits got dropped by the gate (isIreland=false on "").
+    jobs.push(searchHitToJob("irishjobs", hit, sourceId, TITLE_SUFFIXES, "Ireland"));
   }
   return jobs;
 }
