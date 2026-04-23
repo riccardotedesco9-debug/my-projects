@@ -21,7 +21,11 @@ import { getReputationBatch } from "../../src/trigger/job-hunt/pipeline/company-
 import { dedup, buildSheetIndex } from "../../src/trigger/job-hunt/pipeline/dedup.js";
 import { passesMaltaGate } from "../../src/trigger/job-hunt/pipeline/malta-gate.js";
 import { isFreshFromMetadata } from "../../src/trigger/job-hunt/pipeline/freshness.js";
-import { composeSubject, composeHeartbeat } from "../../src/trigger/job-hunt/digest-composer.js";
+import {
+  composeSubject,
+  composeHeartbeat,
+  __testables__ as digestTestables,
+} from "../../src/trigger/job-hunt/digest-composer.js";
 import type { Job, Reputation, SheetRow, RunStats } from "../../src/trigger/job-hunt/types.js";
 
 // ────────────────────────────────────────────────────────────────────
@@ -340,6 +344,43 @@ test("composeHeartbeat: body conveys 'healthy, nothing to report' not 'failure'"
 // ────────────────────────────────────────────────────────────────────
 // 10. Subject sanity: non-zero match
 // ────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────
+// 11. cleanDesc — Google snippet trailing-ellipsis handling
+// ────────────────────────────────────────────────────────────────────
+
+test("cleanDesc: strips Google's trailing '...' and trims to last sentence", () => {
+  const { cleanDesc } = digestTestables;
+  const googleSnippet =
+    "We are seeking a diligent professional for an AML role. The successful candidate will work with...";
+  const out = cleanDesc(googleSnippet);
+  assert.doesNotMatch(out, /\.\.\.\s*$/, "must not end with Google's three-dot ellipsis");
+  assert.doesNotMatch(out, /…\s*$/, "must not end with unicode ellipsis when we trimmed upstream one");
+  assert.match(out, /AML role\.$/, "trim back to the last sentence");
+});
+
+test("cleanDesc: over-long text cuts at sentence boundary, not mid-word", () => {
+  const { cleanDesc } = digestTestables;
+  const long =
+    "Lorem ipsum dolor sit amet. ".repeat(25) + // ~700 chars
+    "Consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+  const out = cleanDesc(long);
+  assert.ok(out.length <= 600, `truncation should bound output (got ${out.length})`);
+  assert.match(out, /[.!?]$|…$/, "output ends at a punctuation boundary or explicit ellipsis");
+});
+
+test("cleanDesc: description shorter than MAX with clean end is preserved verbatim", () => {
+  const { cleanDesc } = digestTestables;
+  const short = "This is a complete sentence. And another one.";
+  assert.equal(cleanDesc(short), short);
+});
+
+test("cleanDesc: stub-only upstream snippet collapses to empty when all we have is '...'", () => {
+  const { cleanDesc } = digestTestables;
+  assert.equal(cleanDesc("..."), "");
+  assert.equal(cleanDesc("…"), "");
+  assert.equal(cleanDesc("   …   "), "");
+});
 
 test("composeSubject: non-zero match shows count + top categories", () => {
   const stats = makeStats();

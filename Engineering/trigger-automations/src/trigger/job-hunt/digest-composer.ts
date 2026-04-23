@@ -82,6 +82,11 @@ export interface DigestInput {
   unhealthySources?: SourceHealth[];
 }
 
+/** Exported for test coverage — not part of the public digest API. */
+export const __testables__ = {
+  cleanDesc: (md: string): string => cleanDesc(md),
+};
+
 export function composeSubject(input: DigestInput & { heartbeat?: boolean }): string {
   const d = new Date(input.stats.startedAt).toISOString().slice(0, 10);
   if (input.heartbeat) return `job-hunt heartbeat — pipeline healthy (${d})`;
@@ -449,25 +454,55 @@ function renderFooter(stats: RunStats): string {
 }
 
 function cleanDesc(md: string): string {
-  const cleaned = md
+  let cleaned = md
     .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/[#*_`]/g, "")
     .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  // Bump limit 280 → 500 so most Google snippets (typically 200-400 chars)
-  // show in full. When truncation is still needed, cut at a SENTENCE boundary
-  // near the limit so the description doesn't end mid-word or mid-thought.
+
+  // Strip upstream ellipsis. Google search snippets end in "..." / "…" a lot,
+  // which looked like we cut the text mid-word. We'd rather trim back to the
+  // last complete sentence (or drop to nothing) than preserve a ragged stub.
+  cleaned = cleaned.replace(/\s*(?:\.{2,}|…)+\s*$/u, "").trim();
+  if (!cleaned) return "";
+
   const MAX = 500;
-  if (cleaned.length <= MAX) return cleaned;
-  // Search 50 chars before and after the soft limit for a sentence ender.
-  const window = cleaned.slice(0, MAX + 50);
-  const sentenceEnd = window.search(/[.!?](?:\s|$)(?=[A-Z]|\s*$)/);
-  const cutAt = sentenceEnd >= MAX - 50 && sentenceEnd <= MAX + 50
-    ? sentenceEnd + 1  // include the period
-    : MAX;             // no good boundary found — fall back to hard cut
-  return cleaned.slice(0, cutAt).trim() + "…";
+  const over = cleaned.length > MAX;
+
+  // Short and already ends with sentence punctuation? Ship as-is.
+  if (!over && /[.!?]["')\]]*$/.test(cleaned)) return cleaned;
+
+  // Find the LAST sentence boundary within the scan window (the whole text if
+  // short, or MAX+50 if over-long). Matches `.`/`!`/`?` before whitespace
+  // or end-of-string — prose-aware, not matching "3.5" or "e.g.".
+  const window = over ? cleaned.slice(0, MAX + 50) : cleaned;
+  const sentenceRe = /[.!?](?=\s|$)/g;
+  let lastSentenceEnd = -1;
+  let m: RegExpExecArray | null;
+  while ((m = sentenceRe.exec(window)) !== null) {
+    lastSentenceEnd = m.index + 1;
+  }
+
+  // Prefer the last sentence boundary if it keeps enough content (≥50% of
+  // what we were going to show). Avoids cutting a long intro back to just one
+  // short sentence when there was more useful text after.
+  const minKeep = over ? MAX * 0.5 : window.length * 0.5;
+  if (lastSentenceEnd > 0 && lastSentenceEnd >= minKeep) {
+    return window.slice(0, lastSentenceEnd).trim();
+  }
+
+  // Over-MAX fallback: cut at last whitespace before MAX and flag with "…".
+  if (over) {
+    const lastSpace = cleaned.lastIndexOf(" ", MAX);
+    const cutAt = lastSpace > MAX - 80 ? lastSpace : MAX;
+    return cleaned.slice(0, cutAt).trim() + "…";
+  }
+
+  // Short text with no clean sentence end — return as-is (no ellipsis; the
+  // upstream stub has already been stripped above).
+  return cleaned;
 }
 
 function formatK(n: number): string {
