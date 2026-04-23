@@ -17,14 +17,5 @@ export const jobHuntDailyScan = schedules.task({
   // Object syntax accepts IANA timezone — Trigger.dev v4 handles DST for us.
   cron: { pattern: "0 7 * * *", timezone: "Europe/Malta" },
   maxDuration: 900, // 15 minutes — covers 9 Malta sources + LLM ranking + sheet + email
-  run: async () => {
-    const stats = await runJobHunt();
-    return {
-      totalRaw: stats.totalRaw,
-      afterFilter: stats.afterFilter,
-      newJobs: stats.newJobs,
-      digestSent: stats.digestSent,
-      perSource: stats.perSource,
-    };
-  },
+  run: async () => runJobHunt(),
 });

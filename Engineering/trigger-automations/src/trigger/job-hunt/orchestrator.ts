@@ -74,7 +74,10 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     totalRaw: 0,
     afterMaltaGate: 0,
     afterFilter: 0,
+    afterMetaFreshness: 0,
     afterDedup: 0,
+    afterAutoReject: 0,
+    afterUrlVerify: 0,
     newJobs: 0,
     digestSent: false,
   };
@@ -116,6 +119,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         console.warn(`pipeline skip ${raw.source}:${raw.sourceId}:`, err instanceof Error ? err.message : err);
       }
     }
+    stats.afterMetaFreshness = processed.length;
     if (staleDroppedMeta > 0) console.log(`[freshness/meta] dropped ${staleDroppedMeta} stale postings`);
 
     // 3. Dedup vs sheet + intra-run
@@ -142,8 +146,10 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     }
 
     // 4b. LLM ranking — CV-aware fit assessment (Haiku triage → Sonnet rerank top-K).
+    // Runs in dry-run too (no side effects beyond paid API calls) so we can
+    // validate ranking + funnel end-to-end without writing to sheet or emailing.
     phase = "llm-rank";
-    if (!dryRun && newJobs.length > 0) {
+    if (newJobs.length > 0) {
       const profile = await readProfile();
       if (profile.length > 0) {
         const haiku = await rankBatchHaiku(profile, newJobs, 15);
@@ -188,7 +194,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
             const rep = reputations.get(key);
             if (rep) j.reputation = rep;
           }
-          if (newRatings.size > 0) await upsertRatings(newRatings, rawNames);
+          if (!dryRun && newRatings.size > 0) await upsertRatings(newRatings, rawNames);
           console.log(`[reputation] attached ${reputations.size}/${topForSonnet.length} · cached ${ratingCache.size} · fetched ${newRatings.size}`);
         } catch (err) {
           console.warn("[reputation] batch failed, continuing without ratings:", err instanceof Error ? err.message : err);
@@ -218,6 +224,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     const beforeReject = newJobs.length;
     newJobs = newJobs.filter((j) => j.score > 0);
     const autoRejected = beforeReject - newJobs.length;
+    stats.afterAutoReject = newJobs.length;
     if (autoRejected > 0) console.log(`[llm-rank] auto-rejected ${autoRejected} jobs (fitScore=0)`);
 
     // 5. Sort + cap (final order is by LLM fitScore)
@@ -248,6 +255,7 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
 
     const cappedAt = Math.max(0, newJobs.length - candidateDigest.length);
     const digestJobs = candidateDigest;
+    stats.afterUrlVerify = newJobs.length;
     stats.newJobs = newJobs.length;
 
     // 6. Write to sheet
@@ -276,6 +284,10 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         html,
       });
       stats.digestSent = true;
+    } else if (dryRun) {
+      // Dry-run preview: compose digest + dump HTML locally so the funnel
+      // summary can be visually validated without actually sending.
+      await writeDryRunPreview(track, digestJobs, stats, cappedAt);
     }
 
     // Always log the run
@@ -387,6 +399,37 @@ function passesGlobalGate(job: Job): boolean {
   if (usOnlyPatterns.some((r) => r.test(blob))) return false;
 
   return true;
+}
+
+/**
+ * Dry-run digest preview — writes composed HTML + full stats JSON to `.tmp/`
+ * so the new 6-stage funnel summary can be inspected in a browser without
+ * going through Gmail. Safe to call with empty digestJobs (composer handles it).
+ */
+async function writeDryRunPreview(
+  track: Track,
+  digestJobs: Job[],
+  stats: RunStats,
+  cappedAt: number,
+): Promise<void> {
+  try {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const { resolve } = await import("node:path");
+    const dir = resolve(process.cwd(), ".tmp");
+    await mkdir(dir, { recursive: true });
+    const html = composeDailyDigest({ jobs: digestJobs, stats, cappedAt, unhealthySources: [] });
+    const htmlPath = resolve(dir, `digest-preview-${track}.html`);
+    const statsPath = resolve(dir, `stats-${track}.json`);
+    await writeFile(htmlPath, html, "utf8");
+    await writeFile(statsPath, JSON.stringify(stats, null, 2), "utf8");
+    console.log(`[dry-run] digest preview → ${htmlPath}`);
+    console.log(`[dry-run] stats → ${statsPath}`);
+    console.log(
+      `[dry-run] funnel: ${stats.totalRaw} → ${stats.afterFilter} → ${stats.afterMetaFreshness} → ${stats.afterDedup} → ${stats.afterAutoReject} → ${stats.afterUrlVerify} (delivered ${stats.newJobs})`,
+    );
+  } catch (err) {
+    console.warn("[dry-run] failed to write preview:", err instanceof Error ? err.message : err);
+  }
 }
 
 function isSunday(iso: string): boolean {

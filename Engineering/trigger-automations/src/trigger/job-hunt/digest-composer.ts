@@ -154,11 +154,20 @@ export function composeDailyDigest(input: DigestInput): string {
       } Today's digest is thinner than usual.</div>`
     : "";
 
+  // Full funnel — each stage shows what's LEFT, and tooltip (title attr) shows
+  // the drop at that stage. Helps diagnose "why so few today?"
+  const dedupDrop = Math.max(0, stats.afterMetaFreshness - stats.afterDedup);
+  const metaDrop = Math.max(0, stats.afterFilter - stats.afterMetaFreshness);
+  const rejectDrop = Math.max(0, stats.afterDedup - stats.afterAutoReject);
+  const urlDrop = Math.max(0, stats.afterAutoReject - stats.afterUrlVerify);
   const summary = `<div class="summary">
     <span><b>${stats.totalRaw}</b> scraped</span>
-    <span><b>${stats.afterFilter}</b> passed filters</span>
-    <span><b>${stats.newJobs}</b> new after freshness check</span>
-    <span><b>${activeSourceCount}</b> of ${enabledSourceCount} sources returned data</span>
+    <span title="${stats.totalRaw - stats.afterFilter} dropped by gate + filter"><b>${stats.afterFilter}</b> passed filters</span>
+    <span title="${metaDrop} dropped by metadata-freshness"><b>${stats.afterMetaFreshness}</b> fresh</span>
+    <span title="${dedupDrop} already in sheet / intra-run dupes"><b>${stats.afterDedup}</b> new</span>
+    <span title="${rejectDrop} auto-rejected by LLM (hard constraints)"><b>${stats.afterAutoReject}</b> after LLM rank</span>
+    <span title="${urlDrop} URL verified as closed/404"><b>${stats.newJobs}</b> delivered</span>
+    <span><b>${activeSourceCount}</b>/${enabledSourceCount} sources active</span>
   </div>`;
 
   const legend = `<div class="legend">

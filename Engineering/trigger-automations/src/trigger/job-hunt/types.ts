@@ -127,7 +127,14 @@ export interface RunStats {
   totalRaw: number;
   afterMaltaGate: number;
   afterFilter: number;
+  /** passedFilter − metadata-freshness drops (Layer A). */
+  afterMetaFreshness: number;
+  /** afterMetaFreshness − sheet/intra-run duplicates (6-layer dedup). */
   afterDedup: number;
+  /** afterDedup − LLM hard-constraint auto-rejects (fitScore=0). */
+  afterAutoReject: number;
+  /** afterAutoReject − Layer B URL verification drops (404/closed/redirect). */
+  afterUrlVerify: number;
   newJobs: number;
   digestSent: boolean;
 }

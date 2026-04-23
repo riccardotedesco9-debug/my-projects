@@ -91,7 +91,10 @@ async function assessBatch(
 ): Promise<Map<string, LlmAssessment>> {
   const systemPrompt = buildSystemPrompt(profile, depth);
   const userContent = buildUserContent(batch);
-  const maxTokens = depth === "deep" ? 2000 : 1200;
+  // Triage budget raised from 1200 → 2500: at batchSize=15 and ~120 out-tokens/job
+  // the response was truncating at ~1150 tokens, leaving jobs unscored and
+  // defaulted to score=0 (which cascades into auto-reject at orchestrator).
+  const maxTokens = depth === "deep" ? 2000 : 2500;
 
   const resp = await fetch(API, {
     method: "POST",
@@ -114,7 +117,7 @@ async function assessBatch(
   }
   const body = (await resp.json()) as ClaudeResponse;
   const text = body.content?.find((c) => c.type === "text")?.text ?? "";
-  return parseResponse(text, batch);
+  return parseResponse(text, batch, body.stop_reason);
 }
 
 function buildSystemPrompt(profile: string, depth: "triage" | "deep"): string {
@@ -195,7 +198,7 @@ function buildUserContent(batch: Job[]): string {
   return `Score the following ${batch.length} jobs. Return JSON array.\n\n${JSON.stringify(payload, null, 2)}`;
 }
 
-function parseResponse(text: string, batch: Job[]): Map<string, LlmAssessment> {
+function parseResponse(text: string, batch: Job[], stopReason?: string): Map<string, LlmAssessment> {
   const out = new Map<string, LlmAssessment>();
   const trimmed = text.trim();
   // Strip accidental ```json fences if the model added them despite instructions.
@@ -207,14 +210,27 @@ function parseResponse(text: string, batch: Job[]): Map<string, LlmAssessment> {
     // Fallback: try to extract a JSON array substring
     const match = cleaned.match(/\[[\s\S]*\]/);
     if (!match) {
-      console.warn("[llm-rank] could not parse JSON from model response:", cleaned.slice(0, 300));
+      console.warn(`[llm-rank] could not parse JSON (stop=${stopReason}):`, cleaned.slice(0, 300));
       return out;
     }
     try {
       parsed = JSON.parse(match[0]);
     } catch (err) {
-      console.warn("[llm-rank] JSON extract failed:", err instanceof Error ? err.message : err);
-      return out;
+      // If the response was truncated at max_tokens, try to salvage complete
+      // objects from the start of the array rather than losing the whole batch.
+      if (stopReason === "max_tokens") {
+        const salvaged = salvageCompleteObjects(match[0]);
+        if (salvaged.length > 0) {
+          console.warn(`[llm-rank] response truncated (max_tokens), salvaged ${salvaged.length}/${batch.length} complete objects`);
+          parsed = salvaged;
+        } else {
+          console.warn(`[llm-rank] truncated + unsalvageable (stop=${stopReason}):`, err instanceof Error ? err.message : err);
+          return out;
+        }
+      } else {
+        console.warn(`[llm-rank] JSON extract failed (stop=${stopReason}):`, err instanceof Error ? err.message : err);
+        return out;
+      }
     }
   }
   if (!Array.isArray(parsed)) {
@@ -239,4 +255,47 @@ function parseResponse(text: string, batch: Job[]): Map<string, LlmAssessment> {
 function clamp(n: number, min: number, max: number): number {
   if (Number.isNaN(n)) return 50;
   return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+/**
+ * Walk a truncated JSON array and keep only the fully-closed objects at the
+ * start. Tolerates missing trailing `]` and partial last-object content.
+ * Brace-balance aware — ignores `{`/`}` inside strings.
+ */
+function salvageCompleteObjects(raw: string): unknown[] {
+  const out: unknown[] = [];
+  let i = raw.indexOf("[");
+  if (i < 0) return out;
+  i++; // step past [
+  while (i < raw.length) {
+    // skip whitespace + commas between objects
+    while (i < raw.length && /[\s,]/.test(raw[i])) i++;
+    if (raw[i] !== "{") break;
+    const start = i;
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (; i < raw.length; i++) {
+      const ch = raw[i];
+      if (esc) { esc = false; continue; }
+      if (inStr) {
+        if (ch === "\\") esc = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) { i++; break; }
+      }
+    }
+    if (depth !== 0) break; // unterminated object at tail → stop
+    try {
+      out.push(JSON.parse(raw.slice(start, i)));
+    } catch {
+      break;
+    }
+  }
+  return out;
 }

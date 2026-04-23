@@ -9,14 +9,5 @@ export const jobHuntGlobalScan = schedules.task({
   id: "job-hunt-global-scan",
   cron: { pattern: "5 7 * * *", timezone: "Europe/Malta" },
   maxDuration: 900,
-  run: async () => {
-    const stats = await runJobHunt({ track: "global" });
-    return {
-      totalRaw: stats.totalRaw,
-      afterFilter: stats.afterFilter,
-      newJobs: stats.newJobs,
-      digestSent: stats.digestSent,
-      perSource: stats.perSource,
-    };
-  },
+  run: async () => runJobHunt({ track: "global" }),
 });
