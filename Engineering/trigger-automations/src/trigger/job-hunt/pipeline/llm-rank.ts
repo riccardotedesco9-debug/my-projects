@@ -27,6 +27,16 @@ export interface LlmAssessment {
   /** Salary string extracted from the job text if mentioned (e.g. "€25k-30k",
    * "up to €40k", "competitive"). null when not found in the visible snippet. */
   estSalary?: string | null;
+  /** 1-2 sentence synthesis of what the ROLE actually is — responsibilities,
+   * team, scope. NOT a match assessment (that's `fit`). Written by Sonnet on
+   * the deep pass; Haiku leaves this null. Displayed in the digest in place
+   * of the raw Google snippet when present. */
+  roleSummary?: string | null;
+  /** 1-2 sentence synthesis of what the REVIEWS say about working there —
+   * culture, growth, red flags. Combines reputation data + public knowledge
+   * of the company. Null when the company is unknown and no review data
+   * was attached. Sonnet only. */
+  reputationSummary?: string | null;
 }
 
 interface ClaudeResponse {
@@ -139,10 +149,13 @@ async function assessBatch(
 ): Promise<Map<string, LlmAssessment>> {
   const systemPrompt = buildSystemPrompt(profile, depth);
   const userContent = buildUserContent(batch);
-  // Budget: ~200 out-tokens/job × 8 = 1600 nominal, 3500 gives 2x safety so
-  // Haiku doesn't truncate mid-batch (which was defaulting jobs to score=0).
-  // Sonnet runs on the top-K (≤30) in batches of ~6, produces denser output.
-  const maxTokens = depth === "deep" ? 3000 : 3500;
+  // Budget: Haiku triage ~200 out-tokens/job × 8 = 1600 nominal; 3500 is 2x
+  // safety against mid-batch JSON truncation (which used to default whole
+  // batches to score=0 before the salvage logic).
+  // Sonnet deep pass now also writes roleSummary + reputationSummary per job
+  // (~150 tokens each extra), so its per-job budget is ~500. Batch ~10 =
+  // 5000 nominal; 6000 gives 20% headroom before the salvage kicks in.
+  const maxTokens = depth === "deep" ? 6000 : 3500;
 
   // Retry on transient errors (529 overloaded, 503, 502, 500, 429 rate-limit)
   // with exponential backoff. Splitting the batch doesn't help for rate-limits
@@ -193,7 +206,11 @@ function buildSystemPrompt(profile: string, depth: "triage" | "deep"): string {
   const depthNote = depth === "deep"
     ? `You are doing a deep second-pass assessment. The jobs below were pre-screened. Sharpen fit reasoning and catch subtle red flags (required languages, hidden full-time, rotation shifts).
 
-When a job includes a "reputation" field (Glassdoor / Indeed ratings, summary, flags), you MUST incorporate it:
+DEEP-PASS EXTRAS — you MUST also produce on every job:
+- roleSummary: 1-2 sentences synthesising WHAT THE ROLE IS — responsibilities, team, scope, tooling. NOT a fit assessment (that's the "fit" field). Write it so the reader learns what they'd actually do day-to-day without clicking through. Max 240 chars. Use null only when the provided description is genuinely too sparse to infer anything beyond the title.
+- reputationSummary: 1-2 sentences synthesising WHAT IT'S LIKE TO WORK THERE — culture signals, growth opportunities, stability, common red flags from reviews. Combine the provided reputation data (Glassdoor/Indeed ratings + counts) with your public knowledge of the company. If the company is well-known in your training data (major iGaming, fintech, consultancy, etc.) you may draw on that even without live reputation data. Max 240 chars. Return null only when the company is unknown AND no reputation data was provided.
+
+When a job includes a "reputation" field (Glassdoor / Indeed ratings, summary, flags), you MUST incorporate it into both reputationSummary AND the fit line:
 - If rating is strong (4.0★+): reflect positively in the fit line ("well-rated employer on Glassdoor")
 - If rating is mediocre (3.0–3.9): neutral mention only when relevant
 - If rating is weak (<3.0) or reputation.redFlags is non-empty: MUST add a concern to redFlags
@@ -204,6 +221,7 @@ When a job has: no company name AND no description AND no reputation, the data i
 - Cap fitScore at 45 (Adjacent tier maximum). Do NOT give these 60–80 scores.
 - The "fit" line should acknowledge the gap: "Minimal data — title suggests X but full scope unclear without employer or description".
 - For redFlags: put ONE concise flag like "insufficient listing data — click through to verify". Do NOT pad with 3-4 generic concerns ("part-time status unknown", "salary not disclosed", "no description") — those are obvious from the absent data.
+- roleSummary and reputationSummary should both be null in these data-thin cases.
 
 RED-FLAG DISCIPLINE:
 - Maximum 3 redFlags per job.
@@ -211,7 +229,8 @@ RED-FLAG DISCIPLINE:
 - Never say "salary not disclosed" unless the role context makes salary genuinely critical to flag.`
     : `You are doing first-pass triage. Be decisive. Lean on the profile's scoring rubric.
 
-DATA-THIN HANDLING: if a job has no company + no description, cap fitScore at 45 and keep redFlags to one entry max.`;
+DATA-THIN HANDLING: if a job has no company + no description, cap fitScore at 45 and keep redFlags to one entry max.
+Leave roleSummary and reputationSummary as null — those are filled on the deep pass only.`;
 
   return `You evaluate job postings for a specific candidate and return STRICT JSON.
 
@@ -236,6 +255,8 @@ Return ONLY a JSON array (no prose, no markdown fence). One object per job, in t
 - redFlags: array of short strings — concerns the candidate should see before clicking. Empty array if none. NEVER include trivially-empty observations like "salary not disclosed", "schedule not specified", or "part-time status unknown" — those are already visible from absent fields. Flag only substantive concerns.
 - tags: array of 2-5 short strings — domain + work type tags (e.g. "iGaming", "part-time", "hybrid", "Power BI").
 - estSalary: string OR null — if the snippet/description mentions a salary ("€25k-30k", "€45,000", "up to €40k", "competitive package", "DOE"), copy that phrase verbatim. Use null when genuinely not mentioned in the visible text. DO NOT fabricate.
+- roleSummary: string OR null — DEEP PASS ONLY. 1-2 sentences on what the role actually is. Null on triage or data-thin jobs.
+- reputationSummary: string OR null — DEEP PASS ONLY. 1-2 sentences on what it's like to work there. Null on triage or when the company is unknown + no reputation data.
 </output_format>
 
 Do not add fields. Do not wrap in an object. Just the array. If fit is unknown, use null; redFlags and tags are always arrays (possibly empty). estSalary is null when not mentioned — never invent a number.`;
@@ -326,9 +347,19 @@ function parseResponse(text: string, batch: Job[], stopReason?: string): Map<str
     const estSalary = typeof rawSalary === "string" && rawSalary.trim()
       ? rawSalary.trim().slice(0, 80)
       : null;
-    out.set(sourceId, { fitScore, fit, redFlags, tags, estSalary });
+    // Summaries are Sonnet-only. Bound to 300 chars so a model that ignores
+    // the "max 240 chars" instruction can't blow the email layout.
+    const roleSummary = boundedStr(obj.roleSummary, 300);
+    const reputationSummary = boundedStr(obj.reputationSummary, 300);
+    out.set(sourceId, { fitScore, fit, redFlags, tags, estSalary, roleSummary, reputationSummary });
   }
   return out;
+}
+
+function boundedStr(v: unknown, max: number): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t ? t.slice(0, max) : null;
 }
 
 function clamp(n: number, min: number, max: number): number {

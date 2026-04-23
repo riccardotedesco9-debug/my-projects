@@ -248,6 +248,9 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
             j.fit = a.fit;
             j.redFlags = a.redFlags;
             j.tags = a.tags;
+            // Sonnet-only: role + reputation summaries for the digest rendering.
+            j.roleSummary = a.roleSummary ?? null;
+            j.reputationSummary = a.reputationSummary ?? null;
           }
         }
         console.log(`[llm-rank] Sonnet reranked ${sonnet.size}/${topForSonnet.length} top jobs`);

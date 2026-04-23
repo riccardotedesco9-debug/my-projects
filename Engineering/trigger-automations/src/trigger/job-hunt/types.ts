@@ -63,6 +63,14 @@ export interface Job {
    * company (regardless of outcome). Lets the digest distinguish "no reviews
    * found" from "we didn't look" — only jobs in the Sonnet top-K get lookups. */
   reputationLookedUp?: boolean;
+  /** Sonnet-written 1-2 sentence summary of what the role actually is.
+   * Replaces the raw Google snippet in the digest when present. Null for
+   * jobs outside Sonnet's top-K (they still show cleanDesc of descriptionMd). */
+  roleSummary?: string | null;
+  /** Sonnet-written 1-2 sentence summary of what it's like to work there.
+   * Displayed alongside the star ratings in the reputation block. Null when
+   * the company is unknown AND no reputation data was attached. */
+  reputationSummary?: string | null;
 }
 
 /** Public review signals for an employer — fetched once per company per 30 days

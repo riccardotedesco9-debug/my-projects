@@ -51,6 +51,7 @@ const STYLE = `
   .rep-good { display: inline-block; color: #116329; font-size: 12px; font-weight: 500; background: #f0faf3; padding: 4px 10px; border-radius: 4px; margin-top: 5px; line-height: 1.5; }
   .rep-bad { display: inline-block; color: #7a0517; font-size: 12px; font-weight: 500; background: #ffe8e6; padding: 4px 10px; border-radius: 4px; margin-top: 5px; line-height: 1.5; }
   .rep-missing { color: #838c98; font-size: 12px; font-style: italic; line-height: 1.5; }
+  .rep-summary { color: #424a53; font-size: 12.5px; line-height: 1.5; margin-top: 5px; }
   .why { font-size: 13px; color: #1f7334; margin: 10px 0 10px 38px; font-weight: 500; padding: 7px 10px; background: #f0faf3; border-left: 3px solid #1a7f37; border-radius: 4px; line-height: 1.55; }
   .chips { margin: 10px 0 0 38px; }
   .chip { display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 12px; background: #eaeef2; color: #424a53; margin: 0 5px 5px 0; font-weight: 500; line-height: 1.55; }
@@ -310,8 +311,14 @@ function renderJob(job: Job, rank: number): string {
 
   const reputationLine = renderReputation(job);
 
-  const desc = job.descriptionMd && job.descriptionMd.trim().length > 20
-    ? `<div class="desc">${escapeHtml(cleanDesc(job.descriptionMd))}</div>`
+  // Prefer Sonnet's written role summary (deep-pass top-30 only). Falls back
+  // to the cleaned Google snippet when we don't have a summary — lower-ranked
+  // jobs, or cases where Sonnet returned null for data-thin listings.
+  const roleBody = job.roleSummary && job.roleSummary.trim().length > 0
+    ? job.roleSummary.trim()
+    : cleanDesc(job.descriptionMd);
+  const desc = roleBody && roleBody.length > 20
+    ? `<div class="desc">${escapeHtml(roleBody)}</div>`
     : "";
 
   const details: string[] = [];
@@ -395,6 +402,11 @@ function renderReputation(job: Job): string {
 
   const parts: string[] = [];
   if (starParts.length > 0) parts.push(`<div class="rep-stars">${starParts.join(" &nbsp;·&nbsp; ")}</div>`);
+  // Sonnet's narrative summary (Sonnet top-30 only) — sits under the stars so
+  // the user gets context, not just numbers. Styled softer than goods/bads.
+  if (job.reputationSummary && job.reputationSummary.trim().length > 0) {
+    parts.push(`<div class="rep-summary">${escapeHtml(job.reputationSummary.trim())}</div>`);
+  }
   if (goods.length > 0) parts.push(`<div class="rep-good">✓ ${goods.map(escapeHtml).join(" · ")}</div>`);
   if (bads.length > 0) parts.push(`<div class="rep-bad">⚠ ${bads.map(escapeHtml).join(" · ")}</div>`);
 
