@@ -1,19 +1,15 @@
 // filter.ts — minimal pre-filter before the LLM ranks.
 //
-// Philosophy: Claude's judgment is the ranker. The pre-filter only drops jobs
-// that are cheaply and unambiguously wrong — never guessing about fit. A
-// "Logistics Manager" at a supply-chain co might be exactly the kind of
-// analytical-ops role Riccardo wants; only Claude can tell.
-//
 // Rules (applies to BOTH Malta + global tracks):
-//   1. Title matches an obvious non-analytical track regex (waiter, chef, BDR,
+//   1. Schedule must be EXPLICIT part-time. Silent-on-schedule listings are
+//      treated as full-time (user rule: "if they don't give any indication of
+//      being part-time, filter them out"). Only partTime === "yes" survives.
+//      Tradeoff: scrapers with no description (Castille sitemap, MFSA,
+//      greenhouse shells) zero out — acceptable because the user prefers a
+//      lean part-time-only digest over wasting LLM tokens on probable-FT
+//      roles from description-less sources.
+//   2. Title matches an obvious non-analytical track regex (waiter, chef, BDR,
 //      etc). Word-boundary-matched so "sales analyst" isn't hit by "sales".
-//   2. Schedule: only drop listings *explicitly* full-time. Silent-on-schedule
-//      listings (partTime === "unknown") are passed through — Claude reads the
-//      full context and either scores them down for hard FT wording or keeps
-//      them when the role is genuinely ambiguous. Rejecting "unknown" here
-//      zeros out scrapers that have no description to detect PT from (Castille
-//      sitemap, MFSA, Greenhouse shells), which was costing real yield.
 
 import { EXCLUDE_TITLE_PATTERNS } from "../config.js";
 import type { Job, Track } from "../types.js";
@@ -24,11 +20,16 @@ export interface FilterResult {
 }
 
 export function runFilter(job: Job, _track: Track = "malta"): FilterResult {
-  // Drop only when the listing is explicitly full-time. "unknown" passes —
-  // Claude's system prompt already handles FT-only language via fitScore=0
-  // hard-constraint auto-reject downstream, so false-FT risk is low.
-  if (job.partTime === "no") {
-    return { pass: false, reasons: ["explicitly full-time"] };
+  // Drop anything that isn't explicitly part-time — across both tracks.
+  // Silent schedule → assume FT → reject. The scraper is responsible for
+  // populating partTime from whatever signal it has (title, description,
+  // chip row); absence of signal here means the listing didn't advertise
+  // part-time, and we don't want those in the digest.
+  if (job.partTime !== "yes") {
+    const reason = job.partTime === "no"
+      ? "explicitly full-time"
+      : "no part-time indication (silent = FT)";
+    return { pass: false, reasons: [reason] };
   }
 
   // Title-only drop for clearly wrong tracks (applies to both Malta + global).

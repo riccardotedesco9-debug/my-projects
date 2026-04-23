@@ -74,10 +74,14 @@ function makeStats(overrides: Partial<RunStats> = {}): RunStats {
 // 1–3. Filter pass-through behaviour
 // ────────────────────────────────────────────────────────────────────
 
-test("filter: partTime=unknown passes through (regression guard on the Castille-fix)", () => {
+test("filter: partTime=unknown is rejected (strict PT-only policy)", () => {
+  // Policy: "if a listing doesn't say part-time, assume full-time and drop".
+  // Scrapers with no description (Castille sitemap, MFSA) go dark — acceptable
+  // tradeoff for a lean part-time-only digest.
   const job = makeJob({ partTime: "unknown", title: "data analyst" });
   const result = runFilter(job);
-  assert.equal(result.pass, true, "unknown-schedule jobs must reach Claude, not be filter-killed");
+  assert.equal(result.pass, false);
+  assert.match(result.reasons[0], /no part-time indication|silent = FT/);
 });
 
 test("filter: partTime=no is explicitly rejected", () => {
@@ -85,6 +89,12 @@ test("filter: partTime=no is explicitly rejected", () => {
   const result = runFilter(job);
   assert.equal(result.pass, false);
   assert.match(result.reasons[0], /explicitly full-time/);
+});
+
+test("filter: partTime=yes passes through", () => {
+  const job = makeJob({ partTime: "yes", title: "data analyst" });
+  const result = runFilter(job);
+  assert.equal(result.pass, true);
 });
 
 test("filter: excluded title (waiter) rejected even when partTime=yes", () => {
