@@ -281,7 +281,8 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     let candidateDigest = newJobs.slice(0, effectiveCap);
 
     // Layer B freshness — network-verify URLs of digest-bound jobs. Drops
-    // 404/410/redirects-to-listing/closed-marker pages. Parallelised with
+    // 404/410/redirects-to-listing/closed-marker pages AND jobs whose JSON-LD
+    // validThrough has passed or datePosted is >60 days old. Parallelised with
     // concurrency=5, 8s timeout each. Conservative: network errors → keep.
     phase = "freshness-verify";
     if (!dryRun && candidateDigest.length > 0) {
@@ -294,6 +295,9 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
           console.warn(`[freshness/url] drop ${j.source}:${j.sourceId} — ${v.reason}`);
           return false;
         }
+        // Enrich with JSON-LD posted date when the scraper didn't already
+        // populate one — lets the digest card show "Posted: …" honestly.
+        if (v?.postedAt && !j.postedAt) j.postedAt = v.postedAt;
         return true;
       });
       // Also remove stale entries from the sheet-writes so we don't store dead rows

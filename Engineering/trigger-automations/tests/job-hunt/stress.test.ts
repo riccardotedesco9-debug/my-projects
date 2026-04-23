@@ -23,6 +23,7 @@ import { passesMaltaGate } from "../../src/trigger/job-hunt/pipeline/malta-gate.
 import {
   isFreshFromMetadata,
   matchClosedMarker,
+  extractJobPostingLd,
 } from "../../src/trigger/job-hunt/pipeline/freshness.js";
 import {
   composeSubject,
@@ -394,6 +395,46 @@ for (const sample of LIVE_BODY_SAMPLES) {
     assert.equal(match, null, `false positive on live listing`);
   });
 }
+
+// ────────────────────────────────────────────────────────────────────
+// 10c. JSON-LD extraction for posted-date / validThrough
+// ────────────────────────────────────────────────────────────────────
+
+test("extractJobPostingLd: returns datePosted + validThrough from well-formed JSON-LD", () => {
+  const html = `
+<html><head>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"JobPosting","title":"Data Analyst","datePosted":"2026-04-01T00:00:00Z","validThrough":"2026-05-01T23:59:59Z"}</script>
+</head></html>
+  `;
+  const ld = extractJobPostingLd(html);
+  assert.equal(ld?.datePosted, "2026-04-01T00:00:00Z");
+  assert.equal(ld?.validThrough, "2026-05-01T23:59:59Z");
+});
+
+test("extractJobPostingLd: handles graph-style JSON-LD arrays", () => {
+  const html = `
+<script type='application/ld+json'>
+[{"@type":"Organization","name":"Acme"},{"@type":"JobPosting","datePosted":"2026-04-10"}]
+</script>
+  `;
+  const ld = extractJobPostingLd(html);
+  assert.equal(ld?.datePosted, "2026-04-10");
+  assert.equal(ld?.validThrough, undefined);
+});
+
+test("extractJobPostingLd: returns null when no JobPosting node exists", () => {
+  const html = `<script type="application/ld+json">{"@type":"Organization"}</script>`;
+  assert.equal(extractJobPostingLd(html), null);
+});
+
+test("extractJobPostingLd: tolerates malformed JSON block, keeps scanning", () => {
+  const html = `
+<script type="application/ld+json">NOT JSON</script>
+<script type="application/ld+json">{"@type":"JobPosting","datePosted":"2026-04-10"}</script>
+  `;
+  const ld = extractJobPostingLd(html);
+  assert.equal(ld?.datePosted, "2026-04-10");
+});
 
 // ────────────────────────────────────────────────────────────────────
 // 11. cleanDesc — Google snippet trailing-ellipsis handling

@@ -19,6 +19,11 @@ export const MAX_AGE_DAYS = 60;
 export interface FreshnessCheck {
   fresh: boolean;
   reason?: string;
+  /** When URL verify extracted a `datePosted` from the listing's JSON-LD, it
+   * gets returned here so the orchestrator can enrich the Job record. Lets
+   * the digest card show "Posted: DD/MM/YYYY" even on scrapers that don't
+   * surface posting dates (LinkedIn / Google snippet sources). */
+  postedAt?: string;
 }
 
 /** Metadata-based filter — O(1), no network. */
@@ -94,14 +99,48 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
     // Only check body text if we actually got HTML
     const ct = resp.headers.get("content-type") ?? "";
     if (resp.ok && ct.includes("text/html")) {
-      // Cap body read at 30KB — we only need the first viewport-ish chunk.
-      const body = (await resp.text()).slice(0, 30_000).toLowerCase();
+      // Read up to 60KB — JSON-LD schema blocks often sit past the 30KB mark.
+      // The text-regex pass still only looks at the first 30KB.
+      const raw = (await resp.text()).slice(0, 60_000);
+      const lower = raw.slice(0, 30_000).toLowerCase();
+
+      // LinkedIn: the "No longer accepting applications" banner is
+      // JS-rendered text, but LinkedIn server-renders a `<figure class="closed-job ...">`
+      // element into the initial HTML precisely when the job is closed. This
+      // is the most reliable LinkedIn signal and catches ~36% of LI URLs in
+      // our digests that had been slipping through text-regex detection.
+      if (/<figure\s+class="[^"]*\bclosed-job\b[^"]*"/i.test(raw)) {
+        return { fresh: false, reason: "linkedin closed-job marker" };
+      }
+
+      // Generic text patterns (non-LinkedIn platforms that render server-side).
       for (const re of CLOSED_PATTERNS) {
-        if (re.test(body)) {
-          // Include the matched pattern's source so we can audit false positives later.
+        if (re.test(lower)) {
           return { fresh: false, reason: `closed-marker in body: /${re.source}/` };
         }
       }
+
+      // JSON-LD JobPosting — authoritative posting dates. If validThrough has
+      // passed, the role is expired. If datePosted is > MAX_AGE_DAYS old, drop
+      // as stale. Extract on every page so we can also enrich the Job record
+      // with a posted date for the digest card.
+      const ld = extractJobPostingLd(raw);
+      if (ld?.validThrough) {
+        const t = Date.parse(ld.validThrough);
+        if (Number.isFinite(t) && t < Date.now()) {
+          return { fresh: false, reason: `validThrough passed (${ld.validThrough})`, postedAt: ld.datePosted };
+        }
+      }
+      if (ld?.datePosted) {
+        const t = Date.parse(ld.datePosted);
+        if (Number.isFinite(t)) {
+          const ageDays = (Date.now() - t) / 86_400_000;
+          if (ageDays > MAX_AGE_DAYS) {
+            return { fresh: false, reason: `datePosted ${ageDays.toFixed(0)}d old`, postedAt: ld.datePosted };
+          }
+        }
+      }
+      return { fresh: true, postedAt: ld?.datePosted };
     }
 
     return { fresh: true };
@@ -119,6 +158,31 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
 export function matchClosedMarker(lowercaseBody: string): RegExp | null {
   for (const re of CLOSED_PATTERNS) {
     if (re.test(lowercaseBody)) return re;
+  }
+  return null;
+}
+
+/** Extract the first JobPosting JSON-LD block from raw HTML. Returns `null`
+ * when absent or malformed. Used to pull authoritative posting dates from
+ * pages whose scrapers don't expose them (LinkedIn public view, Greenhouse
+ * ATS, Workable, etc.). Exposed for tests. */
+export function extractJobPostingLd(html: string): { datePosted?: string; validThrough?: string } | null {
+  const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    try {
+      const json = JSON.parse(m[1].trim());
+      const items = Array.isArray(json) ? json : [json];
+      for (const item of items) {
+        if (item && typeof item === "object" && item["@type"] === "JobPosting") {
+          const datePosted = typeof item.datePosted === "string" ? item.datePosted : undefined;
+          const validThrough = typeof item.validThrough === "string" ? item.validThrough : undefined;
+          if (datePosted || validThrough) return { datePosted, validThrough };
+        }
+      }
+    } catch {
+      // Some pages have HTML-escaped or embedded JSON that isn't strict — skip.
+    }
   }
   return null;
 }
