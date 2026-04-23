@@ -96,8 +96,11 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
     if (resp.ok && ct.includes("text/html")) {
       // Cap body read at 30KB — we only need the first viewport-ish chunk.
       const body = (await resp.text()).slice(0, 30_000).toLowerCase();
-      if (CLOSED_PATTERNS.some((re) => re.test(body))) {
-        return { fresh: false, reason: "closed-marker in body" };
+      for (const re of CLOSED_PATTERNS) {
+        if (re.test(body)) {
+          // Include the matched pattern's source so we can audit false positives later.
+          return { fresh: false, reason: `closed-marker in body: /${re.source}/` };
+        }
       }
     }
 
@@ -110,18 +113,44 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
   }
 }
 
-/** Common "this job is closed" markers across LinkedIn / Indeed / ATS. */
+/** Test helper — returns the first matching closed-pattern, if any, against a
+ * lowercased HTML body. Exposed for unit coverage; production callers use the
+ * verifyActive flow above. */
+export function matchClosedMarker(lowercaseBody: string): RegExp | null {
+  for (const re of CLOSED_PATTERNS) {
+    if (re.test(lowercaseBody)) return re;
+  }
+  return null;
+}
+
+/** Common "this job is closed" markers across LinkedIn / Indeed / ATS
+ * (Greenhouse, Workday, Lever, SmartRecruiters, Workable). Word-bounded and
+ * lowercased — the body is lowercased before test. Kept anchored on
+ * listing-specific nouns (role/vacancy/job/position/opportunity/listing/
+ * posting) so stray sentences ("we closed the Q3 deal") don't trip them. */
 const CLOSED_PATTERNS = [
-  /\bno longer accepting applications\b/,
-  /\bthis position (is|has been) (closed|filled)\b/,
-  /\bthis job (is|has been) (closed|filled|removed|expired)\b/,
-  /\bthe position (is|has been) (closed|filled)\b/,
-  /\bthis job posting is no longer available\b/,
-  /\bjob expired\b/,
-  /\bapplications are (closed|no longer)\b/,
-  /\bposition filled\b/,
-  /\bwe are no longer hiring for this role\b/,
-  /\bjobs\/view\/.*is no longer available\b/,  // LinkedIn
+  // Most common — any listing-noun + state verb. Covers "this role is filled",
+  // "the vacancy has been closed", "this job was withdrawn", etc.
+  /\b(this|the)\s+(role|vacancy|job|position|opportunity|listing|posting|advert|advertisement)\s+(is|has been|was|is now)\s+(closed|filled|removed|expired|withdrawn|archived|deleted|retired|cancell?ed)\b/,
+  // "is no longer available/open/active/being recruited"
+  /\b(this|the)\s+(role|vacancy|job|position|opportunity|listing|posting|advert|advertisement)\s+is\s+no\s+longer\s+(available|accepting|open|active|live|being\s+(recruited|filled|considered|advertised|offered))\b/,
+  // Application-side variants
+  /\bapplications?\s+(are|have\s+been|have|is|are\s+now|have\s+now)\s+(closed|no\s+longer\s+(accepted|being\s+accepted|open)|not\s+being\s+accepted)\b/,
+  /\bno\s+longer\s+accepting\s+(applications?|applicants?|candidates?|submissions?)\b/,
+  /\bwe\s+(have|are|have\s+now)\s+(closed|stopped\s+accepting|filled|no\s+longer\s+accepting)\s+(applications?|this\s+(role|position|vacancy))\b/,
+  // Bare-noun short form — "position filled", "role closed", "vacancy expired"
+  /\b(role|vacancy|job|position|posting|listing|advert)\s+(is\s+)?(filled|closed|expired|withdrawn|archived)\b/,
+  /\b(closed|expired)\s+(to\s+)?applications?\b/,
+  /\bjob\s+expired\b/,
+  // Hiring-side — "we're not hiring for this role", "we have filled this role"
+  /\bwe\s+are\s+no\s+longer\s+hiring\s+for\s+this\s+(role|position|vacancy|job)\b/,
+  /\bwe\s+have\s+(filled|closed)\s+this\s+(role|position|vacancy|job|opportunity)\b/,
+  // Opportunity-specific
+  /\bthis\s+opportunity\s+is\s+no\s+longer\s+available\b/,
+  // LinkedIn-specific URL-in-body marker
+  /\bjobs\/view\/.*is no longer available\b/,
+  // Generic "applications closed" / "closed to applications" headline variant
+  /\bapplications?\s+(for\s+this\s+(role|position|vacancy|job)\s+)?(have\s+)?closed\b/,
 ];
 
 /**

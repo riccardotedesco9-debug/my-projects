@@ -20,7 +20,10 @@ import {
 import { getReputationBatch } from "../../src/trigger/job-hunt/pipeline/company-reputation.js";
 import { dedup, buildSheetIndex } from "../../src/trigger/job-hunt/pipeline/dedup.js";
 import { passesMaltaGate } from "../../src/trigger/job-hunt/pipeline/malta-gate.js";
-import { isFreshFromMetadata } from "../../src/trigger/job-hunt/pipeline/freshness.js";
+import {
+  isFreshFromMetadata,
+  matchClosedMarker,
+} from "../../src/trigger/job-hunt/pipeline/freshness.js";
 import {
   composeSubject,
   composeHeartbeat,
@@ -344,6 +347,53 @@ test("composeHeartbeat: body conveys 'healthy, nothing to report' not 'failure'"
 // ────────────────────────────────────────────────────────────────────
 // 10. Subject sanity: non-zero match
 // ────────────────────────────────────────────────────────────────────
+
+// ────────────────────────────────────────────────────────────────────
+// 10b. Closed-listing markers in body text (freshness Layer B)
+// ────────────────────────────────────────────────────────────────────
+
+const CLOSED_BODY_SAMPLES = [
+  "The best role for you. this role is no longer accepting applications. Learn more",
+  "This position has been filled. We'll post new roles soon.",
+  "this vacancy has been closed",
+  "the job is no longer available",
+  "we are no longer accepting applications for this role",
+  "applications are closed",
+  "applications have now closed for this position",
+  "no longer accepting applicants",
+  "position filled — thank you for your interest",
+  "role filled. please check our other openings.",
+  "job expired — check our careers page for active postings",
+  "we have filled this opportunity. stay tuned.",
+  "this role has been withdrawn from the site",
+  "this advertisement is no longer available",
+  "vacancy closed to applications",
+  "this opportunity is no longer available",
+  "we are no longer hiring for this role",
+  "this role is no longer being advertised",
+];
+
+for (const sample of CLOSED_BODY_SAMPLES) {
+  test(`closed-marker: detects "${sample.slice(0, 60)}${sample.length > 60 ? "…" : ""}"`, () => {
+    const match = matchClosedMarker(sample.toLowerCase());
+    assert.ok(match !== null, `should flag as closed, pattern set missed this phrasing`);
+  });
+}
+
+const LIVE_BODY_SAMPLES = [
+  "Apply now for this exciting role at Acme. We are growing our team.",
+  "We're looking for a Data Analyst to join our hybrid team in Malta.",
+  "About the role: you will be responsible for building dashboards.",
+  "Salary: €35,000. Apply by 2026-05-30.",
+  "We closed our Series B last quarter and are expanding.", // safe: "we closed" not on a listing-noun
+];
+
+for (const sample of LIVE_BODY_SAMPLES) {
+  test(`closed-marker: does NOT flag live listing "${sample.slice(0, 60)}${sample.length > 60 ? "…" : ""}"`, () => {
+    const match = matchClosedMarker(sample.toLowerCase());
+    assert.equal(match, null, `false positive on live listing`);
+  });
+}
 
 // ────────────────────────────────────────────────────────────────────
 // 11. cleanDesc — Google snippet trailing-ellipsis handling
