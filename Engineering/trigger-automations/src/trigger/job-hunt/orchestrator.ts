@@ -362,28 +362,21 @@ function emptyPerSource(track: Track): RunStats["perSource"] {
 }
 
 /**
- * Global geo-gate — strict. User wants:
- *   Primary: fully remote global (workable from Malta)
- *   Bonus:   Ireland-based (potential relocation)
+ * Global geo-gate. User wants:
+ *   Primary: fully remote (workable from Malta today)
+ *   Bonus:   Ireland-based IF not strictly on-site — he MIGHT relocate later,
+ *            so remote/hybrid/unclear Ireland roles are still worth seeing;
+ *            pure on-site Dublin/Cork is useless until that move happens.
  *
- * Accept only if location clearly indicates Ireland OR the role is clearly
- * marked remote. We inspect `location` primarily; descriptionMd is only used
- * for the remote signal because city names buried in company blurbs (e.g.
- * "we were founded in Dublin 10 years ago") cause false positives.
+ * Region-locked remote (US-only, must-reside-in-US/Canada/etc.) is rejected
+ * up front regardless of what other signals say.
  */
 function passesGlobalGate(job: Job): boolean {
   const loc = (job.location ?? "").toLowerCase();
   const desc = job.descriptionMd.toLowerCase();
+  const blob = `${loc} ${desc}`;
 
-  // Ireland in the LOCATION field → accept
-  if (/\b(ireland|dublin|cork|galway|limerick|waterford|kilkenny)\b/.test(loc)) return true;
-
-  // Remote signal — location OR description, but then reject region-locked remote
-  const remoteSignals = /\b(remote|work from home|wfh|anywhere|fully remote|100% remote|work remotely|remote[-\s]first)\b/;
-  const isRemote = remoteSignals.test(loc) || remoteSignals.test(desc);
-  if (!isRemote) return false;
-
-  // Reject remote roles restricted to regions Riccardo can't work from
+  // Reject region-locked remote roles Riccardo can't work from Malta
   const usOnlyPatterns = [
     /\bremote[,\s-]*(us|usa|u\.s\.|united states)\b/,
     /\b(us|usa|united states|america)[-\s]based\b/,
@@ -395,10 +388,20 @@ function passesGlobalGate(job: Job): boolean {
     /\bremote\s*[-–]\s*(us|usa|united states|canada)\b/,
     /\bremote,?\s*(us|usa|united states|canada|brazil|india|australia)\b/,
   ];
-  const blob = `${loc} ${desc}`;
   if (usOnlyPatterns.some((r) => r.test(blob))) return false;
 
-  return true;
+  // Primary: fully remote → accept
+  const remoteSignals = /\b(remote|work from home|wfh|anywhere|fully remote|100% remote|work remotely|remote[-\s]first)\b/;
+  if (remoteSignals.test(loc) || remoteSignals.test(desc)) return true;
+
+  // Secondary: Ireland-based, but only if not strictly on-site.
+  // workMode is inferred by normalize.ts from title/desc/location — "unclear"
+  // means the scraper didn't see a definitive signal either way; we keep those
+  // so we don't accidentally drop a hybrid role that just wasn't tagged cleanly.
+  const isIreland = /\b(ireland|dublin|cork|galway|limerick|waterford|kilkenny)\b/.test(loc);
+  if (isIreland && job.workMode !== "onsite") return true;
+
+  return false;
 }
 
 /**
