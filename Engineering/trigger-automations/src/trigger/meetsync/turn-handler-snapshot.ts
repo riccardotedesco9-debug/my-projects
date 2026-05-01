@@ -46,6 +46,9 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
   if (snapshot.callerCalendarTokenInvalid) {
     lines.push(`Google Calendar: ✗ token expired (OAuth grant invalid). Events and free/busy data for this caller are NOT available until they run /connect again. Tell the user honestly if they ask about their calendar.`);
     lines.push("");
+  } else if (snapshot.callerCalendarRefreshFailing) {
+    lines.push(`Google Calendar: ⚠ bot's runtime can't refresh the caller's OAuth token right now (server-side config issue, NOT user's fault). Their /connect is fine — but the bot can't read or write Calendar this turn. Tell them honestly if they ask: "I can't reach your Calendar right now — there's a server-side wiring issue on my end, not your account." Do NOT say "connected" or claim events were booked.`);
+    lines.push("");
   } else if (!snapshot.callerCalendarConnected && snapshot.user.name) {
     lines.push(`Google Calendar: NOT connected for this caller. When the conversation becomes about booking a real meetup, point them at /connect so meetups actually land on their calendar. Don't nag if they're not booking anything yet.`);
     lines.push("");
@@ -76,7 +79,7 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
   // Recent history
   if (snapshot.recentHistory.length > 0) {
     lines.push("");
-    lines.push("[RECENT HISTORY — last 12 messages, oldest first]");
+    lines.push(`[RECENT HISTORY — last ${snapshot.recentHistory.length} messages, oldest first]`);
     for (const msg of snapshot.recentHistory) {
       const who = msg.role === "user" ? "User" : "Bot";
       // Trim long messages so the snapshot stays under ~2k tokens total
@@ -170,9 +173,13 @@ function scheduleCoverageLabel(scheduleJson: string, timezone: string): string {
  * personal-availability questions like "am I free at 10am tomorrow?"
  * directly from the snapshot — no extra tool call needed.
  *
- * Format: one line per shift, "Mon 30 Mar  15:00–00:00" (or "OFF" for
- * 00:00–00:00 fully-free placeholders). Capped at 35 entries to keep
- * the snapshot from blowing up on multi-month rotas.
+ * Format: one line per DATE (not per shift). If a date carries multiple
+ * entries (e.g. an OFF marker + a gym block, or a split shift), they're
+ * merged into one line: "Mon 4 May  OFF + 18:00–19:00 (gym)". This avoids
+ * the previous bug where the same date would render as two contradictory
+ * lines (one OFF, one busy) and Claude had to guess which to trust.
+ * Capped at 35 dates to keep the snapshot from blowing up on multi-month
+ * rotas.
  */
 function renderShiftListCompact(scheduleJson: string, indent: string): string[] {
   let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
@@ -183,37 +190,101 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     return [`${indent}(schedule data unparseable)`];
   }
   if (shifts.length === 0) return [];
+
+  // Group all entries by date so a date with OFF + activity (or a split
+  // shift across two windows) renders on one line, not two contradictory
+  // ones. Preserve insertion order within each date so labels stay stable.
+  const byDate = new Map<string, typeof shifts>();
+  for (const s of shifts) {
+    const list = byDate.get(s.date);
+    if (list) list.push(s);
+    else byDate.set(s.date, [s]);
+  }
+  const dates = Array.from(byDate.keys()).sort();
+
+  // Today anchor — UTC ISO. Used to insert a "── today ──" divider so
+  // Claude can distinguish past vs upcoming dates at a glance and won't
+  // count past off days when answering "how many off days do I have left
+  // this week". Computed in UTC for stable comparison against ISO date
+  // strings; the +/-1 day fuzz from timezone is acceptable here (the
+  // divider is a visual hint, not a strict cutoff).
+  const todayIso = new Date().toISOString().slice(0, 10);
   const out: string[] = [];
   out.push(`${indent}shifts:`);
   const MAX = 35;
-  const display = shifts.slice(0, MAX);
-  for (const s of display) {
-    const d = new Date(s.date + "T12:00:00Z");
+  const displayDates = dates.slice(0, MAX);
+  let dividerInserted = false;
+  for (const date of displayDates) {
+    if (!dividerInserted && date >= todayIso) {
+      out.push(`${indent}  ── today (${todayIso}) ──`);
+      dividerInserted = true;
+    }
+    const d = new Date(date + "T12:00:00Z");
     const dayName = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
     const dayNum = d.getUTCDate();
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
-    // Three canonical day-shapes (see turn-handler.ts encoding rules):
-    //   00:00–00:00 → OFF/free (matcher: fully free)
-    //   00:00–23:59 → busy all day; show the label (hectic / volunteer / etc.)
-    //   anything else → a partial busy window
-    const isOff = s.start_time === "00:00" && s.end_time === "00:00";
-    const isAllDayBusy = s.start_time === "00:00" && s.end_time === "23:59";
-    let time: string;
-    if (isOff) {
-      time = s.label ? `OFF (${s.label})` : "OFF";
-    } else if (isAllDayBusy) {
-      time = (s.label ?? "busy all day").toUpperCase();
-    } else {
-      // Partial busy window — include the label so Claude can tell the
-      // caller "Kurt's walking the dog Sunday morning", not just "busy".
-      time = s.label ? `${s.start_time}–${s.end_time} (${s.label})` : `${s.start_time}–${s.end_time}`;
-    }
-    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${time}`);
+    const entries = byDate.get(date)!;
+    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries)}`);
   }
-  if (shifts.length > MAX) {
-    out.push(`${indent}  …and ${shifts.length - MAX} more shifts`);
+  // Edge case: all dates are in the past — still emit the divider at the
+  // bottom so Claude sees that nothing upcoming is on file.
+  if (!dividerInserted) {
+    out.push(`${indent}  ── today (${todayIso}) — nothing upcoming on file ──`);
+  }
+  if (dates.length > MAX) {
+    out.push(`${indent}  …and ${dates.length - MAX} more dates`);
   }
   return out;
+}
+
+/**
+ * Format the entries for a single date into one human-readable string.
+ *
+ * Day-shapes (see turn-handler.ts encoding rules):
+ *   00:00–00:00          → OFF / free
+ *   00:00–23:59          → busy all day (hectic / volunteer / work / etc.)
+ *   anything else        → partial busy window
+ *
+ * When a date carries an OFF entry alongside one or more partial-busy
+ * entries (e.g. "Mon off, gym 18:00–19:00"), render as
+ * "OFF + 18:00–19:00 (gym)" — the OFF prefix preserves the off-from-work
+ * semantic, the partials preserve the actual blocked time. Two split
+ * shifts on a busy day render comma-separated: "12:00–14:00 (HK), 14:00–17:00 (Deliveries)".
+ */
+function formatDayEntries(entries: Array<{ start_time: string; end_time: string; label?: string }>): string {
+  const isOff = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "00:00";
+  const isAllDayBusy = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "23:59";
+
+  const offEntries = entries.filter(isOff);
+  const allDayBusy = entries.find(isAllDayBusy);
+  const partials = entries.filter((s) => !isOff(s) && !isAllDayBusy(s));
+
+  // All-day-busy dominates everything else on the same date — if both an
+  // OFF and a hectic-all-day are stored, the all-day-busy wins (it's the
+  // stronger signal). Should be rare; happens if a stale upload conflicts.
+  if (allDayBusy) {
+    return (allDayBusy.label ?? "busy all day").toUpperCase();
+  }
+
+  const renderPartial = (s: { start_time: string; end_time: string; label?: string }) =>
+    s.label ? `${s.start_time}–${s.end_time} (${s.label})` : `${s.start_time}–${s.end_time}`;
+
+  // OFF + activities → "OFF + 18:00–19:00 (gym)" on one line.
+  if (offEntries.length > 0 && partials.length > 0) {
+    const offLabel = offEntries[0].label && offEntries[0].label.toLowerCase() !== "off"
+      ? `OFF (${offEntries[0].label})`
+      : "OFF";
+    return `${offLabel} + ${partials.map(renderPartial).join(", ")}`;
+  }
+
+  // OFF only.
+  if (offEntries.length > 0) {
+    const label = offEntries[0].label;
+    return label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
+  }
+
+  // Partials only — comma-separate split shifts.
+  return partials.map(renderPartial).join(", ");
 }
 
 

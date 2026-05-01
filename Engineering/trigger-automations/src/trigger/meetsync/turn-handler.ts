@@ -41,7 +41,7 @@ import {
 } from "./telegram-client.js";
 import { classifyMime, mapMimeType, arrayBufferToBase64, bufferToText, spreadsheetToText } from "./schedule-parser.js";
 import { formatSnapshot, todayInTimezone } from "./turn-handler-snapshot.js";
-import { listCalendarEventsInWindow } from "./google-calendar.js";
+import { listCalendarEventsInWindow, probeCallerCalendarHealth } from "./google-calendar.js";
 import type { Snapshot } from "./d1-client.js";
 import {
   TOOL_SCHEMAS,
@@ -54,11 +54,12 @@ import {
 // --- Config ---
 
 const MODEL_ID = process.env.MEETSYNC_MODEL ?? "claude-sonnet-4-6";
-// Raised from 6 to 15. Bulk CSV uploads (7 contacts × add_contact +
-// 7 × parse_schedule + 1 reply = 15 calls) were hitting the limit and
-// silently cutting off mid-processing. Each iteration is one Claude API
-// call (~$0.01) — negligible for a personal bot.
-const MAX_ITERATIONS = 15;
+// Bulk CSV uploads drive both caps. Each iteration is one Claude API call
+// on the agentic loop (~12-15s + ~$0.01). A 13-person CSV needs ~14
+// iterations (one parse_schedule per person + one reply), and a 25-person
+// CSV could need ~30. Raised 15→30 so large rotas don't silently cut off
+// mid-processing. Negligible cost for a personal bot.
+const MAX_ITERATIONS = 30;
 const MAX_TOKENS = 2048;
 const BURST_GRACE_MS = 1200;
 
@@ -81,8 +82,12 @@ export type TurnPayload = z.infer<typeof payloadSchema>;
 
 // --- Anthropic API types (inlined — avoids SDK dep) ---
 
+// `cache_control` markers enable Anthropic prompt caching on text blocks.
+// Up to 4 breakpoints allowed per request; we use 3 (system, tools, snapshot).
+type CacheControl = { type: "ephemeral" };
+
 type ContentBlock =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; cache_control?: CacheControl }
   | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
   | { type: "document"; source: { type: "base64"; media_type: string; data: string } }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -108,7 +113,7 @@ function buildSystemPrompt(todayLabel: string, timezone: string): string {
 
 Today is ${todayLabel} in the caller's timezone (${timezone}).
 
-Ground every reply in the [STATE] block. It lists the caller's profile + schedule, their contacts (with each contact's live schedule, freeform facts, and language), and whether they've connected Google Calendar. Don't claim facts not in [STATE]. If [RECENT HISTORY] conflicts, trust [STATE]. Two common mistakes to avoid: (1) Time confabulation — when stating a specific time (e.g. "you finish at midnight"), re-check against [STATE]. 15:00–00:00 ≠ 17:00–02:00. (2) Person misclassification — when listing "who's working / off today" across many contacts, go person by person through [STATE] and verify each one's entry for that specific date. With 10+ contacts it's easy to misread one entry and wrongly mark someone as OFF when they're working. If a contact has no entry for a date but has shifts for surrounding dates, say "no data for that date" — don't assume OFF.
+Ground every reply in the [STATE] block. It lists the caller's profile + schedule, their contacts (with each contact's live schedule, freeform facts, and language), and whether they've connected Google Calendar. Don't claim facts not in [STATE]. If [RECENT HISTORY] conflicts, trust [STATE]. Three common mistakes to avoid: (1) Time confabulation — when stating a specific time (e.g. "you finish at midnight"), re-check against [STATE]. 15:00–00:00 ≠ 17:00–02:00. (2) Person misclassification — when listing "who's working / off today" across many contacts, go person by person through [STATE] and verify each one's entry for that specific date. With 10+ contacts it's easy to misread one entry and wrongly mark someone as OFF when they're working. If a contact has no entry for a date but has shifts for surrounding dates, say "no data for that date" — don't assume OFF. (3) Off-day miscounting — when answering "how many off days do I have", count DISTINCT DATES, not entries (one date with OFF + a gym block is ONE off day, not two). Default scope is upcoming only — count dates AT OR AFTER the "── today ──" divider in [STATE]. Past dates are visible for "was I off yesterday?" queries, but exclude them from "this week / coming up" counts unless the caller explicitly asks about the past.
 
 Mental model. The bot is NOT the meetup hub — **Google Calendar is**. Your job is short: help people find a time, write it to both calendars via book_meetup, step aside. Post-booking coordination ("are we still on?", changes) belongs on the calendar event itself. Minimise chatter after booking.
 
@@ -118,15 +123,21 @@ When the caller defers ("just guess", "you pick", "whatever works", "surprise me
 
 When an availability description arrives (dated shifts OR a recurring rhythm like "free after noon, Tuesdays volunteer"), call parse_schedule with dated shifts expanded for the next 14 days. upsert_knowledge is for side-facts ("lives in Gozo"), never the schedule. Note: compute_overlap also reads each /connect'd person's live Google Calendar and adds those events as busy blocks, so calendar-blocked times are automatically respected without the user restating them.
 
+DURABLE MEMORY — important. [RECENT HISTORY] only shows the last 30 messages and gets pruned to 50 rows nightly; anything older is GONE. The ONLY thing that survives across days is user.context (caller's profile facts) and contact notes. So whenever the caller mentions ANYTHING that should still be true next week — recurring exercise/therapy/medical slots, work patterns, family members' names, commute, location, language preference, food habits, anything they'd be annoyed to repeat — call upsert_knowledge in the SAME turn. Be greedy here: it's cheap and it's the difference between "the bot remembered" and "I had to tell it again". Don't ask permission; promote and move on. Same applies to facts about a contact (target='person'). When the caller asks "do you remember X?" and X is a recurring fact, check user.context FIRST — if it's there, restate; if not and they confirm it's true, save it now so this never happens again.
+
 Schedule encoding (schedule_json entries are BUSY windows; everything else is free):
 
 - FREE all day: start='00:00', end='00:00', label='off'
 - BUSY all day / hectic / uncertain: start='00:00', end='23:59', label='hectic' (or 'volunteer'/'work'/etc.)
 - Partial busy: the busy times
+- OFF day with activities: a date may carry BOTH a 00:00–00:00 OFF marker AND one or more partial-busy entries (e.g. gym 18:00–19:00). The OFF marker means "off work / main commitment"; the partial entries are personal activities ON that off day. NOT contradictory — both are real. If the user says "Mon off but going to the gym 6–7pm", emit BOTH; never drop one. In [STATE] you'll see this as "Mon  OFF + 18:00–19:00 (gym)" on a single line.
 
 Anti-examples:
 - "Free from noon" → store 00:00–12:00 busy, NOT 12:00–23:59
 - "Sundays hectic" → store 00:00–23:59 label='hectic', NOT 00:00–00:00 (that means fully free)
+- "Tue off, gym 6–7pm" → store {Tue 00:00–00:00 off} AND {Tue 18:00–19:00 gym}. Do NOT collapse to just the gym (loses "off" status) or just the OFF (loses gym block). Both entries together are correct.
+
+When describing such a day to the user, lead with the OFF status, then the activity: "you're off Tuesday — just gym 6–7pm" — NOT "you're working 6–7pm Tuesday" (wrong, they're off) and NOT "you're fully free Tuesday" (wrong, gym blocks 6–7pm). Same goes when describing contacts' schedules.
 
 In replies, never say "flexible" for uncertain days (reads as available). Say hectic/uncertain/depends. "Off"/"free" stays for confirmed free.
 
@@ -150,6 +161,8 @@ Single-day → one line per person. Single-person → one line per day.
 Use "14:00+" for free-from, "OFF", "12–14 / 17+". Names left-padded to align. Add a parenthetical caveat under a row ONLY from a concrete stored note ("Sofia commutes from Gozo — late nights tricky"); never invent. Mention contacts with no schedule below the block. Don't suggest "best day" unless asked.
 
 Reason over contacts' stored facts for logistics: "Kurt works till 4, lives across the island — 4:30 is tight, 5:30+ is realistic." Cite only what's in [STATE]. Shift labels matter too: "00:00–12:00 (dog walk)" → "Kurt's walking his dog Sunday morning", not just "busy".
+
+Pending Google Calendar invites: shifts whose label starts with "📩 awaiting RSVP —" are events someone else invited the caller to that they have NOT accepted yet. Treat them as busy for conflict checks, but proactively flag them — when the caller asks "what's my week" or "am I free Thursday", surface them as "you've got 2 invites still to respond to: …". Never tell the caller they're "booked" for a pending invite — they aren't until they accept. "❓ tentative RSVP —" labels mean the caller marked themselves as maybe; treat similarly — surface as "tentative" not "confirmed".
 
 Privacy on calendars — strict rule: the CALLER owns their own data. When the CALLER asks about THEIR OWN calendar, ALWAYS show the full event title, location, all detail — never abstract their own things to "appointment" or "busy". They already know what's there; abstracting is patronising and breaks trust. The privacy rule applies ONE WAY: when describing SOMEONE ELSE's events to the caller (or speaking about the caller's events to a third party), NEVER repeat the literal sensitive title — say "an appointment", "busy", or "something personal" instead. Applies to: therapy, counselling, medical, doctor, AA, custody, medication, anything you'd intuit isn't theirs to share. Wrong: "Marco has therapy at 2pm". Right: "Marco has an appointment at 2pm" or "Marco's busy 2-3pm". Obviously-shareable events (work shifts, football, dinner with named friends) stay as-is even cross-person. You can SEE every contact's full event titles in [STATE] for your own reasoning ("Marco will be drained after therapy, suggest something chill") — just don't repeat the sensitive title aloud to a different person.
 
@@ -181,7 +194,11 @@ function buildUserTurnContent(
   mediaCache: { base64: string; mediaType: string } | undefined,
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
-  blocks.push({ type: "text", text: snapshotText });
+  // Snapshot is static across all iterations of a single turn — cache it so
+  // iterations 2+ skip re-processing the ~30KB state block. Third of the
+  // three cache breakpoints (system + tools + snapshot). Biggest win on
+  // bulk CSV turns that loop through parse_schedule many times.
+  blocks.push({ type: "text", text: snapshotText, cache_control: { type: "ephemeral" } });
 
   // Attach media as its own block BEFORE the current-turn text so Claude
   // reads the state → sees the image → reads the text. This ordering
@@ -245,6 +262,14 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
   const targets: MergeTarget[] = [];
 
   if (snapshot.callerCalendarConnected) {
+    // Probe the caller's auth health BEFORE trying to read events. If refresh
+    // fails for server-side reasons (env vars missing, unauthorized_client),
+    // surface it explicitly so the persona doesn't lie about "✓ connected".
+    // invalid_grant is already covered by callerCalendarTokenInvalid.
+    const probe = await probeCallerCalendarHealth(snapshot.user.chat_id);
+    if (!probe.ok && probe.reason === "refresh_failed") {
+      snapshot.callerCalendarRefreshFailing = true;
+    }
     targets.push({
       chat_id: snapshot.user.chat_id,
       existing: snapshot.user.latest_schedule_json,
@@ -384,6 +409,18 @@ async function callClaude(
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set");
 
+  // Prompt caching: mark the system prompt and the last tool as ephemeral
+  // cache breakpoints. Every subsequent iteration within the same turn (and
+  // across turns within the 5-min cache TTL) reuses the cached prefix, which
+  // cuts per-iteration Anthropic latency from ~15s to ~3-5s. Critical for
+  // bulk-CSV turns that call parse_schedule 10+ times in sequence.
+  const cachedSystem = [
+    { type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } },
+  ];
+  const cachedTools = TOOL_SCHEMAS.map((t, i) =>
+    i === TOOL_SCHEMAS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t,
+  );
+
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -394,8 +431,8 @@ async function callClaude(
     body: JSON.stringify({
       model: MODEL_ID,
       max_tokens: MAX_TOKENS,
-      system: systemPrompt,
-      tools: TOOL_SCHEMAS,
+      system: cachedSystem,
+      tools: cachedTools,
       messages,
     }),
   });
@@ -463,7 +500,10 @@ async function sendFallback(
 export const turnHandler = schemaTask({
   id: "meetsync-turn-handler",
   schema: payloadSchema,
-  maxDuration: 120,
+  // Raised 120→300s. Bulk multi-person CSV uploads drive ~14s per agentic
+  // iteration × 13-25 people, which was timing out around the 9th person.
+  // 300s covers realistic bulk-rota uploads with headroom.
+  maxDuration: 300,
   run: async (payload) => runTurn(payload),
 });
 

@@ -130,6 +130,7 @@ Core principles when reading ANY schedule image:
 - **Lock onto an anchor first.** Identify the date axis (which direction the dates go — rows or columns) and the person axis (which direction the names go). Every cell you read must sit at the intersection of (target's name) × (a specific date). Verbalize this in the preamble. If you cannot find a date axis, say so and lower confidence.
 - **Be exhaustive.** Extract EVERY shift/entry visible in the target's row/column. Do not stop early.
 - **Both busy AND free days matter.** If a day in the target's row is explicitly OFF / blank / "—" / "rest" / coloured as non-working, emit a framing-B placeholder (00:00–00:00, label "OFF"). Don't silently skip.
+- **OFF + activities on the same day (IMPORTANT).** "Off day" means "off from work / main commitment", NOT "no plans whatsoever". If a day is marked OFF on the rota but the input ALSO mentions a personal activity for that same date (e.g. "Mon off, gym 18:00–19:00", "rest day — yoga 7am", "off but have a dentist 10–11"), emit **BOTH**: the 00:00–00:00 OFF placeholder AND the partial-busy activity entry on the same date. The OFF marker preserves the "I'm not working today" semantic; the activity entry preserves the actual blocked time. Never collapse one into the other. Same applies to typed text — "Tue I'm off but doing a 5k run 6–7pm" → emit one entry {Tue, 00:00, 00:00, "off"} AND a second entry {Tue, 18:00, 19:00, "5k run"}.
 - **Split shifts on one day.** If the target has TWO OR MORE time windows on the same day (e.g. Diego's Fri: "HK 12:00–14:00 / Deliveries 14:00–17:00"), emit each window as its own entry on that same date. Never collapse them into one range.
 - **Shifts spanning two rows.** If the rota uses one row per shift (not per person), a single person may have two or more rows on the same day. Read ALL of the target's rows for each date — don't stop at the first match.
 - **Ignore non-schedule distractions.** Email headers, logos, signatures, app chrome — all noise.
@@ -145,7 +146,7 @@ FRAMING A — "I work/am busy at these times" (work shifts, classes, meetings):
 → Each entry's label should match the shift's actual weekday, and its date MUST be a date from the lookup table that corresponds to that weekday.
 
 FRAMING B — "I'm free at these times" or "I'm totally free" / "whenever":
-→ The user has NO busy blocks for the dates they mention. Emit placeholder entries with start_time = "00:00" and end_time = "00:00" for each date in their stated range. Label each "fully free".
+→ The user has NO busy blocks for the dates they mention. Emit placeholder entries with start_time = "00:00" and end_time = "00:00" for each date in their stated range. Label each "off" (canonical OFF marker — keep this exact string).
 → "I'm free all day for the next 4 weeks" → use every row in the 28-day lookup window below.
 → "I'm free Tue and Thu" → the 4 Tue rows + 4 Thu rows, all 00:00–00:00.
 
@@ -174,7 +175,7 @@ JSON shape:
 - Each entry: { "date": "YYYY-MM-DD", "start_time": "HH:MM", "end_time": "HH:MM", "label": "optional description", "confidence": 0.0-1.0 }.
 - Use 24-hour format for times.
 - Exclude days off / holidays / breaks from busy-block entries (framing A).
-- For framing B (fully-free), use 00:00–00:00 placeholders.
+- For framing B (fully-free), use 00:00–00:00 placeholders with label="off" (always this exact label — downstream consumers detect OFF by times, but the snapshot displays the label so consistency keeps it clean).
 - confidence: 1.0 = clearly stated/legible, 0.7–0.9 = mostly sure, below 0.7 = uncertain.
 - If a person's name is visible, include it as "person_name" at the top level.
 - If the date range is visible (e.g., "April 2026"), include it as "date_range".
@@ -198,13 +199,22 @@ Preamble: Single-person weekly rota; target is Diego (only name visible); 6 entr
   ]
 }
 
+Example (off-day with personal activity — emit BOTH):
+Preamble: Caller wrote "Tue I'm off work but going to the gym 6–7pm". 2 entries: an OFF marker and a partial busy block on the same date.
+{
+  "shifts": [
+    { "date": "2026-04-21", "start_time": "00:00", "end_time": "00:00", "label": "off", "confidence": 1.0 },
+    { "date": "2026-04-21", "start_time": "18:00", "end_time": "19:00", "label": "gym", "confidence": 1.0 }
+  ]
+}
+
 Example (framing B — fully free for 3 days):
 Preamble: User typed "I'm free Mon–Wed"; 3 placeholder entries.
 {
   "shifts": [
-    { "date": "2026-04-13", "start_time": "00:00", "end_time": "00:00", "label": "fully free", "confidence": 1.0 },
-    { "date": "2026-04-14", "start_time": "00:00", "end_time": "00:00", "label": "fully free", "confidence": 1.0 },
-    { "date": "2026-04-15", "start_time": "00:00", "end_time": "00:00", "label": "fully free", "confidence": 1.0 }
+    { "date": "2026-04-13", "start_time": "00:00", "end_time": "00:00", "label": "off", "confidence": 1.0 },
+    { "date": "2026-04-14", "start_time": "00:00", "end_time": "00:00", "label": "off", "confidence": 1.0 },
+    { "date": "2026-04-15", "start_time": "00:00", "end_time": "00:00", "label": "off", "confidence": 1.0 }
   ]
 }`;
 }
@@ -302,24 +312,29 @@ async function parseMediaWithClaude(apiKey: string, base64Data: string, mediaTyp
     ? { type: "document", source: { type: "base64", media_type: mediaType, data: base64Data } }
     : { type: "image", source: { type: "base64", media_type: mediaType, data: base64Data } };
 
-  // Image/PDF path uses Opus + extended thinking. Rationale: Sonnet was drifting
+  // Image/PDF path uses Opus + adaptive thinking. Rationale: Sonnet was drifting
   // day labels and dropping split shifts on multi-person rotas (see
   // plans/reports/diagnose-260415-1523-diego-schedule.md). Opus holds row/column
-  // anchors better under ambiguity; the 4k-token thinking budget lets the model
-  // identify the target person's row before emitting JSON, which was the exact
-  // missing step in the failure case. Low call volume (one per onboarding).
+  // anchors better under ambiguity; adaptive thinking at high effort lets the
+  // model identify the target person's row before emitting JSON, which was the
+  // exact missing step in the failure case. Low call volume (one per onboarding).
   return await callClaude(
     apiKey,
     [mediaBlock, { type: "text", text: getExtractionPrompt(userName, timezone, personContext) }],
-    { model: process.env.MEETSYNC_IMAGE_MODEL ?? "claude-opus-4-7", maxTokens: 12000, thinkingBudget: 4000 },
+    { model: process.env.MEETSYNC_IMAGE_MODEL ?? "claude-opus-4-7", maxTokens: 12000, adaptiveThinking: true },
   );
 }
 
 interface CallClaudeOptions {
   model: string;
   maxTokens: number;
-  /** If set, enables extended thinking with this token budget. Temperature is forced to 1. */
-  thinkingBudget?: number;
+  /**
+   * If true, enables adaptive extended thinking with high effort. Opus 4.7+
+   * dropped the old `{ type: "enabled", budget_tokens }` contract in favour
+   * of adaptive thinking + `output_config.effort`. Temperature is forced to 1
+   * whenever thinking is on.
+   */
+  adaptiveThinking?: boolean;
 }
 
 async function callClaude(
@@ -332,8 +347,9 @@ async function callClaude(
     max_tokens: opts.maxTokens,
     messages: [{ role: "user", content }],
   };
-  if (opts.thinkingBudget) {
-    body.thinking = { type: "enabled", budget_tokens: opts.thinkingBudget };
+  if (opts.adaptiveThinking) {
+    body.thinking = { type: "adaptive" };
+    body.output_config = { effort: "high" };
     body.temperature = 1; // required when thinking is enabled
   }
 

@@ -114,10 +114,18 @@ export function computeOverlaps(
 
 /** Generate a brief human-readable explanation for why a free slot exists */
 function explainSlotN(block: TimeBlock, allShifts: ParsedShift[]): string {
-  if (allShifts.length === 0) return "everyone has the day off";
+  // Strip OFF markers (00:00–00:00) before computing min/max — they're
+  // informational entries, not real shifts. Without this filter, a date
+  // carrying both an OFF marker and a partial busy block (e.g. gym 18-19)
+  // would set earliestStart=0 and the "free morning before shifts start"
+  // branch becomes unreachable.
+  const realShifts = allShifts.filter(
+    (s) => !(s.start_time === "00:00" && s.end_time === "00:00"),
+  );
+  if (realShifts.length === 0) return "everyone has the day off";
 
-  const latestEnd = Math.max(...allShifts.map((s) => timeToMinutes(s.end_time)));
-  const earliestStart = Math.min(...allShifts.map((s) => timeToMinutes(s.start_time)));
+  const latestEnd = Math.max(...realShifts.map((s) => timeToMinutes(s.end_time)));
+  const earliestStart = Math.min(...realShifts.map((s) => timeToMinutes(s.start_time)));
 
   if (block.start >= latestEnd) {
     return `all free after ${minutesToTime(latestEnd)}`;

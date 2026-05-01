@@ -147,7 +147,13 @@ async function gatherBusyBlocksForDate(
   const pushShiftBlock = (
     s: { date: string; start_time: string; end_time: string; label?: string },
   ): void => {
-    if (s.start_time === "00:00" && s.end_time === "00:00") return; // OFF
+    // OFF marker — informational only ("off from work / main commitment"),
+    // NOT a hard block on availability. Skip this entry but keep processing
+    // the rest of the array — other entries on the same date (e.g. gym
+    // 18:00–19:00 on an off day) are real blocks and still get pushed below.
+    // Do not "fix" this skip without re-reading the encoding rules in
+    // turn-handler.ts buildSystemPrompt.
+    if (s.start_time === "00:00" && s.end_time === "00:00") return;
     const start = timeToMinutes(s.start_time);
     const end = timeToMinutes(s.end_time);
     const label = s.label ?? "busy";
@@ -255,7 +261,7 @@ const parseScheduleTool: ToolDefinition = {
     properties: {
       shifts: {
         type: "array",
-        description: "Pre-extracted shifts to save directly. Use this when you can already see the schedule in an attached file or in the user's text — skips the parser entirely. Each shift: {date: 'YYYY-MM-DD', start_time: 'HH:MM', end_time: 'HH:MM', label?: string}. Use 24-hour times. For days off, use start='00:00' end='00:00' with label='off' or 'free'.",
+        description: "Pre-extracted shifts to save directly. Use this when you can already see the schedule in an attached file or in the user's text — skips the parser entirely. Each shift: {date: 'YYYY-MM-DD', start_time: 'HH:MM', end_time: 'HH:MM', label?: string}. Use 24-hour times. For days off, use start='00:00' end='00:00' with label='off' (canonical — always this exact string). If a day is off but has a brief activity (e.g. 'Mon off, gym 6–7pm'), emit BOTH entries on the same date: the OFF marker AND the partial-busy entry. Don't drop one — both together preserve 'off from work, but gym blocks 18:00–19:00'.",
         items: {
           type: "object",
           required: ["date", "start_time", "end_time"],
@@ -442,7 +448,27 @@ async function persistShifts(
   attributedToName: string,
   source: "direct" | "text" | "media",
 ): Promise<ToolResult> {
-  const scheduleJson = JSON.stringify(result.shifts);
+  // Drop exact-duplicate (date, start, end, label) tuples before saving.
+  // The parser occasionally emits the same entry twice — multi-page PDF
+  // re-scans, recurring-pattern expansion that overlaps an existing entry,
+  // a rota with two empty slots on a single off day. Duplicates inflated
+  // off-day counts in the snapshot ("6 off days" when only 3 distinct
+  // dates were off) before the date-grouping fix in renderShiftListCompact.
+  // Belt-and-braces: also dedupe at save time so other consumers
+  // (gatherBusyBlocksForDate, compute_overlap) don't double-count either.
+  const seen = new Set<string>();
+  const dedupedShifts = result.shifts.filter((s) => {
+    const key = `${s.date}|${s.start_time}|${s.end_time}|${s.label ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const droppedDuplicates = result.shifts.length - dedupedShifts.length;
+  if (droppedDuplicates > 0) {
+    console.log(`[persistShifts] dropped ${droppedDuplicates} exact-duplicate entries from ${attributedToName || "self"}`);
+  }
+  const scheduleJson = JSON.stringify(dedupedShifts);
+  result = { shifts: dedupedShifts };
 
   // On-behalf path → person_notes.schedule_json
   if (attributedToName) {
@@ -869,19 +895,38 @@ const computeAndDeliverMatchTool: ToolDefinition = {
     // confabulation when reasoning about "when do I finish the day before?"
     const schedulesSummary: Record<string, Record<string, string>> = {};
     const callerName = ctx.snapshot.user.name ?? "Caller";
+    // Build per-date summaries that preserve OFF + activity coexistence.
+    // Group by date first; reconcile OFF/partials/all-day-busy in one pass
+    // so an off day with a gym block reads as "OFF + 18:00–19:00 (gym)"
+    // — not silently overwritten by either side.
     const addPersonSchedule = (name: string, json: string | null) => {
       if (!json) return;
       try {
         const shifts = JSON.parse(json) as Array<{ date: string; start_time: string; end_time: string; label?: string }>;
-        const byDay: Record<string, string> = {};
+        const grouped = new Map<string, typeof shifts>();
         for (const s of shifts) {
-          const label = s.label ? ` (${s.label})` : "";
-          if (s.start_time === "00:00" && s.end_time === "00:00") {
-            byDay[s.date] = "OFF";
+          const list = grouped.get(s.date);
+          if (list) list.push(s);
+          else grouped.set(s.date, [s]);
+        }
+        const byDay: Record<string, string> = {};
+        for (const [date, entries] of grouped) {
+          const offs = entries.filter((s) => s.start_time === "00:00" && s.end_time === "00:00");
+          const allDay = entries.find((s) => s.start_time === "00:00" && s.end_time === "23:59");
+          const partials = entries.filter(
+            (s) => !(s.start_time === "00:00" && s.end_time === "00:00")
+              && !(s.start_time === "00:00" && s.end_time === "23:59"),
+          );
+          const renderPartial = (s: { start_time: string; end_time: string; label?: string }) =>
+            `${s.start_time}–${s.end_time}${s.label ? ` (${s.label})` : ""}`;
+          if (allDay) {
+            byDay[date] = (allDay.label ?? "busy all day").toUpperCase();
+          } else if (offs.length > 0 && partials.length > 0) {
+            byDay[date] = `OFF + ${partials.map(renderPartial).join(", ")}`;
+          } else if (offs.length > 0) {
+            byDay[date] = "OFF";
           } else {
-            const existing = byDay[s.date];
-            const entry = `${s.start_time}–${s.end_time}${label}`;
-            byDay[s.date] = existing ? `${existing}, ${entry}` : entry;
+            byDay[date] = partials.map(renderPartial).join(", ");
           }
         }
         schedulesSummary[name] = byDay;
@@ -1479,9 +1524,16 @@ const bookMeetupTool: ToolDefinition = {
     }
 
     // Create ONE event on the caller's calendar with all email-attendees.
+    // If THIS write fails (token expired, env missing, network), short-circuit
+    // with an honest error — historically the tool returned ok:true with an
+    // empty booked[], and Claude misread it as "booked!" and lied to the user.
+    // We also skip the bot-side busy-memory write below so the stored
+    // schedule doesn't show phantom events that don't exist on the calendar.
+    let callerEventCreated = false;
     try {
       const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, tz, attendeeEmails);
       if (r === true) {
+        callerEventCreated = true;
         booked.push(ctx.snapshot.user.name ?? "you");
         // Mark email-attendees as booked too — Google sent them the invite.
         for (const t of attendeeTargets) {
@@ -1489,13 +1541,22 @@ const bookMeetupTool: ToolDefinition = {
           if (u?.email) booked.push(t.name);
         }
       } else if (r === "token_expired") {
-        skippedNotConnected.push(ctx.snapshot.user.name ?? "you");
+        return {
+          error: "calendar_token_expired",
+          message: "The caller's Google Calendar token is expired or revoked. Tell them their /connect needs to be re-run, and do NOT claim the meetup is booked. Nothing was written.",
+        };
       } else {
-        skippedNotConnected.push(ctx.snapshot.user.name ?? "you");
+        return {
+          error: "calendar_unavailable",
+          message: "Couldn't write the event to the caller's Google Calendar (refresh failed — check Trigger.dev env vars or the prior console.warn for detail). Tell the caller honestly that booking did not go through; do NOT say 'booked'. Nothing was written.",
+        };
       }
     } catch (err) {
-      failed.push(ctx.snapshot.user.name ?? "you");
       console.warn(`[book_meetup] shared event failed:`, err);
+      return {
+        error: "calendar_write_failed",
+        message: `Calendar API threw an error (${err instanceof Error ? err.message : String(err)}). Tell the caller honestly that booking did not go through. Nothing was written.`,
+      };
     }
 
     // For attendees WITHOUT email (not OAuth-connected), fall back to
