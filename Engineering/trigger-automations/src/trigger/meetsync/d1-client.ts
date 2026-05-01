@@ -698,10 +698,16 @@ export async function logMessage(
   return result.meta.last_row_id;
 }
 
-/** Get recent conversation history for a user (last 12 messages) */
+/** Get recent conversation history for a user (last 30 messages).
+ *  Bumped from 12 → 30 because facts referenced "a few sessions ago"
+ *  (exercise/therapy slots, partner names) were rotating out of context
+ *  before they were promoted to user.context. The cron in cleanup-conversation-log
+ *  caps total rows at 50 per chat, so 30 is a comfortable read-side ceiling.
+ *  Durable memory still requires upsert_knowledge — this just widens the
+ *  "remembers across days" feel. */
 export async function getRecentMessages(chatId: string) {
   const result = await query<{ role: string; message: string; created_at: string }>(
-    "SELECT role, message, created_at FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 12",
+    "SELECT role, message, created_at FROM conversation_log WHERE chat_id = ? ORDER BY created_at DESC LIMIT 30",
     [chatId]
   );
   // Reverse so oldest first (chronological order)
@@ -791,6 +797,12 @@ export interface Snapshot {
   // Set if the caller's OAuth token returned invalid_grant on refresh.
   // Surfaced in [STATE] so Claude nudges the user to re-/connect.
   callerCalendarTokenInvalid?: boolean;
+  // Set if Trigger.dev couldn't refresh the caller's token due to server-
+  // side config issues (env vars missing, network, unauthorized_client) —
+  // i.e. the user's /connect is fine, but the bot's runtime can't reach
+  // Calendar. Surfaced so Claude says "the bot can't reach your Calendar
+  // right now" instead of falsely asserting "✓ connected".
+  callerCalendarRefreshFailing?: boolean;
 }
 
 /**

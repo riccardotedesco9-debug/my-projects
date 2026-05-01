@@ -152,9 +152,21 @@ export async function listCalendarEventsInWindow(
         const selfAttendee = e.attendees?.find((a) => a.self === true);
         if (selfAttendee?.responseStatus === "declined") continue;
 
+        // Tag pending RSVPs so Claude can surface them to the caller. Both
+        // 'needsAction' (no response yet) and 'tentative' (maybe) are still
+        // treated as busy for conflict checks (better to preserve the slot
+        // than double-book), but the label tells Claude they're not locked
+        // in — so the bot can say "you have 3 invites awaiting RSVP next
+        // week" instead of treating them as confirmed commitments.
+        const rsvp = selfAttendee?.responseStatus;
+        const pendingTag =
+          rsvp === "needsAction" ? "📩 awaiting RSVP — " :
+          rsvp === "tentative" ? "❓ tentative RSVP — " :
+          "";
+
         const summary = e.summary?.slice(0, 40) ?? "busy";
         const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
-        const label = `calendar: ${summary}${locPart}`;
+        const label = `${pendingTag}calendar: ${summary}${locPart}`;
 
         // Timed event (standard meeting).
         const startDT = e.start?.dateTime;
@@ -350,6 +362,10 @@ type FreshTokenResult =
   | { ok: true; accessToken: string }
   | { ok: false; reason: "not_connected" | "token_expired" | "refresh_failed" };
 
+export async function probeCallerCalendarHealth(chatId: string): Promise<FreshTokenResult> {
+  return getFreshAccessToken(chatId);
+}
+
 async function getFreshAccessToken(chatId: string): Promise<FreshTokenResult> {
   const token = await getGoogleToken(chatId);
   if (!token) return { ok: false, reason: "not_connected" };
@@ -367,9 +383,13 @@ async function getFreshAccessToken(chatId: string): Promise<FreshTokenResult> {
     await markGoogleTokenInvalid(chatId, true).catch(() => {});
     return { ok: false, reason: "token_expired" };
   }
+  if (refreshed === "missing_env") {
+    // Already logged with key-presence detail inside refreshAccessToken.
+    return { ok: false, reason: "refresh_failed" };
+  }
   if (!refreshed) {
     console.warn(
-      `[google-calendar] token refresh returned null for chat=${chatId} — likely missing GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET`,
+      `[google-calendar] token refresh returned null for chat=${chatId} — fetch to oauth2.googleapis.com/token returned non-OK; see prior console.error for status + body`,
     );
     return { ok: false, reason: "refresh_failed" };
   }
@@ -379,10 +399,53 @@ async function getFreshAccessToken(chatId: string): Promise<FreshTokenResult> {
 
 async function refreshAccessToken(
   refreshToken: string
+): Promise<{ access_token: string; expires_at: string } | "invalid_grant" | "missing_env" | null> {
+  // Try every plausible (clientId, clientSecret) pair the user may have set
+  // under the various names that appear across their Trigger.dev prod env.
+  // We attempt them in order and return the first successful refresh — Google
+  // returns 401 unauthorized_client when the pair doesn't match the client
+  // that issued the refresh_token, so non-matching pairs cleanly fall through.
+  // Order matters: GOOGLE_CLIENT_* (canonical) → OAuth_*_Web (most likely for
+  // the redirect-based /connect flow) → OAuth_*_Desktop (last-resort, usually
+  // wrong for a Worker-side OAuth but cheap to try).
+  const candidates: Array<{ label: string; id?: string; secret?: string }> = [
+    { label: "GOOGLE_CLIENT_*", id: process.env.GOOGLE_CLIENT_ID, secret: process.env.GOOGLE_CLIENT_SECRET },
+    { label: "OAuth_*_Web", id: process.env.OAuth_Client_ID_Web, secret: process.env.OAuth_Client_Secret_Web },
+    { label: "OAuth_*_Desktop", id: process.env.OAuth_Client_ID_Desktop, secret: process.env.OAuth_Client_Secret_Desktop },
+  ].filter((c) => c.id && c.secret);
+
+  if (candidates.length === 0) {
+    console.warn(
+      `[google-calendar] refreshAccessToken aborted — no Google OAuth client env vars set on Trigger.dev prod. Need either GOOGLE_CLIENT_ID/SECRET, OAuth_Client_ID_Web/Secret_Web, or OAuth_Client_ID_Desktop/Secret_Desktop.`,
+    );
+    return "missing_env";
+  }
+
+  // We delegate the actual fetch into a helper so we can loop. Inline the
+  // request building here was easier when there was just one candidate.
+  let lastInvalidGrant = false;
+  for (const c of candidates) {
+    const r = await tryRefreshWithClient(refreshToken, c.id!, c.secret!, c.label);
+    if (r === "invalid_grant") {
+      lastInvalidGrant = true;
+      continue; // try other candidates — invalid_grant on one might be OK on another
+    }
+    if (r && typeof r === "object") {
+      console.log(`[google-calendar] token refresh succeeded using env pair: ${c.label}`);
+      return r;
+    }
+    // r === null (HTTP non-OK without invalid_grant — typically unauthorized_client) → try next pair
+  }
+
+  return lastInvalidGrant ? "invalid_grant" : null;
+}
+
+async function tryRefreshWithClient(
+  refreshToken: string,
+  clientId: string,
+  clientSecret: string,
+  label: string,
 ): Promise<{ access_token: string; expires_at: string } | "invalid_grant" | null> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  if (!clientId || !clientSecret) return null;
 
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -397,7 +460,7 @@ async function refreshAccessToken(
 
   if (!response.ok) {
     const errBody = await response.text();
-    console.error(`Google token refresh failed (${response.status}): ${errBody}`);
+    console.error(`Google token refresh failed for env pair ${label} (${response.status}): ${errBody}`);
     if (errBody.includes("invalid_grant")) return "invalid_grant";
     return null;
   }
