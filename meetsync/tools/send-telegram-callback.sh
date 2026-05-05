@@ -67,12 +67,16 @@ PAYLOAD=$(CALLBACK_DATA="$CALLBACK_DATA" CHAT_ID="$CHAT_ID" UPDATE_ID="$UPDATE_I
 
 echo ">> POST $WORKER_URL/webhook  (callback_query chat_id=$CHAT_ID data=$CALLBACK_DATA)"
 
-HTTP_CODE=$(curl -sS -o /tmp/meetsync-webhook-response.txt -w "%{http_code}" \
+# See send-telegram-update.sh for why we stream via stdout instead of `-o`.
+RESPONSE=$(curl -sS \
   -X POST "$WORKER_URL/webhook" \
   -H "Content-Type: application/json" \
   -H "X-Telegram-Bot-Api-Secret-Token: $TELEGRAM_WEBHOOK_SECRET" \
-  -d "$PAYLOAD")
+  -d "$PAYLOAD" \
+  -w $'\n__HTTP_CODE__:%{http_code}\n')
 
+HTTP_CODE=$(echo "$RESPONSE" | grep -o '__HTTP_CODE__:[0-9]*' | cut -d: -f2)
+BODY=$(echo "$RESPONSE" | sed '/^__HTTP_CODE__:/d')
 echo "<< HTTP $HTTP_CODE"
-cat /tmp/meetsync-webhook-response.txt
+[[ -n "$BODY" ]] && echo "$BODY"
 echo

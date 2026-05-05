@@ -56,12 +56,22 @@ PAYLOAD=$(TEXT="$TEXT" CHAT_ID="$CHAT_ID" UPDATE_ID="$UPDATE_ID" MSG_ID="$MSG_ID
 echo ">> POST $WORKER_URL/webhook  (chat_id=$CHAT_ID)"
 echo ">> text: $TEXT"
 
-HTTP_CODE=$(curl -sS -o /tmp/meetsync-webhook-response.txt -w "%{http_code}" \
+# Capture status + body via curl's -w trailer rather than -o <file>. The
+# old approach wrote the body to /tmp/meetsync-webhook-response.txt and
+# cat'd it back, but on Windows git-bash with MSYS_NO_PATHCONV=1 (set by
+# _lib.sh::send_webhook) `/tmp/...` resolves DIFFERENTLY for Windows
+# curl (drive-relative C:\tmp\) and for bash (MinGW /tmp). The file
+# was always being written and never being read. Streaming through
+# stdout sidesteps the path-mismatch entirely.
+RESPONSE=$(curl -sS \
   -X POST "$WORKER_URL/webhook" \
   -H "Content-Type: application/json" \
   -H "X-Telegram-Bot-Api-Secret-Token: $TELEGRAM_WEBHOOK_SECRET" \
-  -d "$PAYLOAD")
+  -d "$PAYLOAD" \
+  -w $'\n__HTTP_CODE__:%{http_code}\n')
 
+HTTP_CODE=$(echo "$RESPONSE" | grep -o '__HTTP_CODE__:[0-9]*' | cut -d: -f2)
+BODY=$(echo "$RESPONSE" | sed '/^__HTTP_CODE__:/d')
 echo "<< HTTP $HTTP_CODE"
-cat /tmp/meetsync-webhook-response.txt
+[[ -n "$BODY" ]] && echo "$BODY"
 echo
