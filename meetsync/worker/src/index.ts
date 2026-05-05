@@ -37,14 +37,14 @@ export default {
     }
 
     // Admin observability dashboard — session_events viewer.
-    // Gated on a query-string token matching TELEGRAM_WEBHOOK_SECRET
-    // so it's not publicly browsable. Not bulletproof (same secret
-    // used for webhook verification) but good enough to keep casual
-    // URL guessers out while letting the admin bookmark a one-URL
-    // view that doesn't need a full auth system.
+    // Gated on a query-string token. Prefer the separate DASHBOARD_TOKEN
+    // secret; fall back to TELEGRAM_WEBHOOK_SECRET so existing deploys
+    // keep working, but a freshly-set DASHBOARD_TOKEN means a leaked
+    // dashboard URL no longer compromises the Telegram webhook auth.
+    const dashboardToken = env.DASHBOARD_TOKEN ?? env.TELEGRAM_WEBHOOK_SECRET;
     if (url.pathname === "/dashboard") {
       const token = url.searchParams.get("token");
-      if (!token || token !== env.TELEGRAM_WEBHOOK_SECRET) {
+      if (!token || token !== dashboardToken) {
         return new Response("Unauthorized", { status: 401 });
       }
       return await renderDashboard(env);
@@ -53,10 +53,10 @@ export default {
     // One-shot webhook (re-)registration. Needed after round-9 to
     // include "callback_query" in allowed_updates so Telegram
     // actually delivers button-tap events — default is just ["message"]
-    // which silently drops callbacks. Secret-gated like /dashboard.
+    // which silently drops callbacks. Same DASHBOARD_TOKEN gate as above.
     if (url.pathname === "/setup-webhook") {
       const token = url.searchParams.get("token");
-      if (!token || token !== env.TELEGRAM_WEBHOOK_SECRET) {
+      if (!token || token !== dashboardToken) {
         return new Response("Unauthorized", { status: 401 });
       }
       const webhookUrl = `${url.origin}/webhook`;

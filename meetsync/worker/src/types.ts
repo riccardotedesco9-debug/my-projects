@@ -9,6 +9,12 @@ export interface Env {
   };
   TELEGRAM_BOT_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
+  // Optional separate secret for `/dashboard` and `/setup-webhook` admin
+  // endpoints. If set, those endpoints require it INSTEAD of the
+  // webhook secret — so a leaked dashboard URL doesn't compromise the
+  // Telegram webhook auth at the same time. If not set, falls back to
+  // TELEGRAM_WEBHOOK_SECRET to keep existing deploys working.
+  DASHBOARD_TOKEN?: string;
   TRIGGERDEV_API_KEY: string;
   TRIGGERDEV_API_URL: string;
   ADMIN_CHAT_ID: string; // Your Telegram chat ID — only this user can run admin commands
