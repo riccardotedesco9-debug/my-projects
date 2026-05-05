@@ -369,10 +369,18 @@ async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
 }
 
 async function classifyAdminIntent(text: string, env: Env): Promise<AdminIntent> {
-  // Fast-path: if no obvious admin keywords, skip the API call
-  const lower = text.toLowerCase();
-  const adminKeywords = ["block", "unblock", "remove", "ban", "kick", "who", "users", "list", "allowed"];
-  if (!adminKeywords.some((k) => lower.includes(k))) {
+  // Require an explicit `/admin` prefix. Previous heuristic (substring
+  // match on "block/users/list/…") fired on ordinary scheduling messages
+  // like "block out 6pm Tuesday" or "list everyone free Friday", burning
+  // an Anthropic Haiku call per turn and muddling admin vs end-user
+  // behaviour for the same chat. Now: only `/admin <command>` reaches
+  // the classifier.
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("/admin")) {
+    return { action: "not_admin" };
+  }
+  const adminBody = trimmed.slice("/admin".length).trim();
+  if (!adminBody) {
     return { action: "not_admin" };
   }
 
@@ -394,7 +402,7 @@ async function classifyAdminIntent(text: string, env: Env): Promise<AdminIntent>
 Actions: "block" (ban a user, needs chat_id), "unblock" (unban, needs chat_id), "list_blocked" (show blocked), "list_users" (show all users), "not_admin" (not an admin command).
 Extract chat IDs (numeric) from the message if present.
 Return: { "action": "...", "chat_id": "..." }`,
-        messages: [{ role: "user", content: text }],
+        messages: [{ role: "user", content: adminBody }],
       }),
     });
 
@@ -466,12 +474,17 @@ function extractPayload(msg: TelegramMessage): MessageRouterPayload | null {
   // timezone for first-time users.
   const telegram_language_code = msg.from?.language_code;
 
-  // Text message
+  // Text message — skip whitespace-only sends. The trim() below would
+  // leave text="" and the turn handler would burn a Sonnet round on
+  // an empty <user_message>. Returning null here drops it before the
+  // pre-log + trigger fire happen.
   if (msg.text) {
+    const trimmed = msg.text.trim();
+    if (!trimmed) return null;
     return {
       chat_id: chatId,
       message_type: "text",
-      text: msg.text.trim(),
+      text: trimmed,
       timestamp,
       telegram_language_code,
     };

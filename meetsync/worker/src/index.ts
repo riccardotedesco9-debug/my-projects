@@ -54,7 +54,12 @@ export default {
     // include "callback_query" in allowed_updates so Telegram
     // actually delivers button-tap events — default is just ["message"]
     // which silently drops callbacks. Same DASHBOARD_TOKEN gate as above.
+    // POST-only so link-preview crawlers / pre-fetchers can't trigger
+    // it just by surfacing the URL with a token in their referer.
     if (url.pathname === "/setup-webhook") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+      }
       const token = url.searchParams.get("token");
       if (!token || token !== dashboardToken) {
         return new Response("Unauthorized", { status: 401 });

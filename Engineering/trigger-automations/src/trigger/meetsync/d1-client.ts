@@ -256,10 +256,17 @@ export async function linkPersonNoteToChat(
     return null;
   }
 
+  // Atomic UPDATE: only succeeds if linked_chat_id is still null OR
+  // already equals our target. Closes the race between two concurrent
+  // resolution paths (e.g. an explicit add_contact and a phone-shadow
+  // batch) that both pass the read-side check above and then both try
+  // to UPDATE. Without the WHERE clause one could overwrite the other
+  // if they raced for the SAME name with DIFFERENT chat_ids.
   await query(
-    `UPDATE person_notes SET linked_chat_id = ?, updated_at = datetime('now')
-     WHERE id = ?`,
-    [linkedChatId, existing.id],
+    `UPDATE person_notes
+       SET linked_chat_id = ?, updated_at = datetime('now')
+       WHERE id = ? AND (linked_chat_id IS NULL OR linked_chat_id = ?)`,
+    [linkedChatId, existing.id, linkedChatId],
   );
   return { ...existing, linked_chat_id: linkedChatId };
 }
@@ -525,6 +532,40 @@ export async function findUserByName(name: string) {
 }
 
 /**
+ * Canonical shape of one entry inside a stored schedule_json blob.
+ * Time encoding rules live in turn-handler.ts buildSystemPrompt
+ * ("Schedule encoding…" section). Re-exported as the type-of-record
+ * so consumers don't keep redeclaring it inline.
+ */
+export interface ScheduleShift {
+  date: string;
+  start_time: string;
+  end_time: string;
+  label?: string;
+}
+
+/**
+ * Parse a stored schedule_json blob into a ScheduleShift[]. Returns
+ * null when the blob is null/undefined (no schedule on file) OR
+ * malformed (parse threw, or the top-level value isn't an array).
+ *
+ * Most callers treat null the same way (skip / treat as empty); a
+ * couple do differentiate "no schedule" from "corrupt blob" — for
+ * those, compare the input against null before calling. Centralising
+ * the parse here avoids the try/catch + Array.isArray dance being
+ * open-coded at 9 sites with subtly different fall-through.
+ */
+export function parseScheduleBlob(json: string | null | undefined): ScheduleShift[] | null {
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json);
+    return Array.isArray(parsed) ? (parsed as ScheduleShift[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The user's canonical current schedule (users.latest_schedule_json).
  * Any caller who has this user in their person_notes automatically sees
  * this schedule via loadSnapshot enrichment.
@@ -564,13 +605,9 @@ export async function removeBusyBlockFromUser(
 ): Promise<number> {
   const user = await getUser(chatId);
   if (!user?.latest_schedule_json) return 0;
-  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
-  try {
-    const parsed = JSON.parse(user.latest_schedule_json);
-    if (Array.isArray(parsed)) shifts = parsed;
-  } catch {
-    return 0;
-  }
+  const parsedShifts = parseScheduleBlob(user.latest_schedule_json);
+  if (!parsedShifts) return 0;
+  let shifts: ScheduleShift[] = parsedShifts;
   const before = shifts.length;
   shifts = shifts.filter((s) => !(s.date === date && (s.label ?? "") === labelMatch));
   const removed = before - shifts.length;
@@ -611,15 +648,9 @@ export async function appendBusyBlockToUser(
 ): Promise<void> {
   const user = await getUser(chatId);
   if (!user) return;
-  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
-  if (user.latest_schedule_json) {
-    try {
-      const parsed = JSON.parse(user.latest_schedule_json);
-      if (Array.isArray(parsed)) shifts = parsed;
-    } catch {
-      // Corrupted schedule — overwrite with just the new block below.
-    }
-  }
+  // Corrupt blob → start a new one with just the new block. Same
+  // behaviour as before, just routed through the central parse helper.
+  const shifts: ScheduleShift[] = parseScheduleBlob(user.latest_schedule_json) ?? [];
   shifts.push({ date, start_time: startTime, end_time: endTime, label });
   await updateUserLatestSchedule(chatId, JSON.stringify(shifts));
 }
@@ -759,37 +790,14 @@ export async function emitSessionEvent(
 // Parallelises independent reads with Promise.all. Total ~4-10 D1 round
 // trips depending on how many active sessions the caller has (0-3 typical).
 
-export interface SnapshotSessionEntry {
-  session: {
-    id: string;
-    code: string;
-    creator_chat_id: string;
-    status: string;
-    mode: string | null;
-    created_at: string;
-    expires_at: string;
-  };
-  participants: Array<{
-    id: string;
-    chat_id: string;
-    role: string;
-    state: string;
-    schedule_json: string | null;
-    preferred_slots: string | null;
-    name: string | null;
-    has_schedule: boolean;
-  }>;
-  pendingInvites: Array<{
-    id: string;
-    invitee_chat_id: string | null;
-    invitee_phone: string | null;
-    status: string;
-  }>;
-}
+// SnapshotSessionEntry was removed in the post-review cleanup — sessions
+// are not part of the runtime model after migration 0020 (shared-hub
+// refactor moved schedules onto users + contacts into person_notes).
+// Code that used `snapshot.activeSessions[0]?.session.id ?? "no-session"`
+// now just passes the literal "no-session" to emitSessionEvent.
 
 export interface Snapshot {
   user: UserProfile;
-  activeSessions: SnapshotSessionEntry[];
   personNotes: PersonNote[];
   recentHistory: Array<{ role: string; message: string; created_at: string }>;
   timezone: string;
@@ -890,14 +898,8 @@ export async function loadSnapshot(chatId: string): Promise<Snapshot> {
     last_stale_nudge_at: null,
   };
 
-  // Sessions are no longer part of the runtime model (see migration 0018
-  // and the shared-hub plan). Always empty; field retained on the Snapshot
-  // type so downstream code that iterates it remains valid.
-  const activeSessions: SnapshotSessionEntry[] = [];
-
   return {
     user,
-    activeSessions,
     personNotes,
     recentHistory,
     timezone: user.timezone ?? "Europe/Malta",

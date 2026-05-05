@@ -13,7 +13,7 @@
 // built with getPersonNotesForOwner(caller) so the privacy boundary is
 // already SQL-enforced — this formatter just passes them through.
 
-import type { Snapshot, UserProfile, PersonNote } from "./d1-client.js";
+import { parseScheduleBlob, type Snapshot, type UserProfile, type PersonNote } from "./d1-client.js";
 
 /**
  * Format a Snapshot as the human-readable [STATE] block that goes at
@@ -141,9 +141,9 @@ function formatPersonNotesSection(notes: PersonNote[], timezone: string): string
  * Helps Claude caveat stale data naturally without a rigid template.
  */
 function scheduleCoverageLabel(scheduleJson: string, timezone: string): string {
+  const shifts = parseScheduleBlob(scheduleJson);
+  if (!shifts || shifts.length === 0) return "";
   try {
-    const shifts = JSON.parse(scheduleJson) as Array<{ date: string }>;
-    if (!Array.isArray(shifts) || shifts.length === 0) return "";
     const dates = shifts.map((s) => s.date).filter(Boolean).sort();
     const lastDate = dates[dates.length - 1];
     if (!lastDate) return "";
@@ -193,13 +193,8 @@ function isoDateWithOffset(daysOffset: number): string {
 }
 
 function renderShiftListCompact(scheduleJson: string, indent: string): string[] {
-  let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
-  try {
-    const parsed = JSON.parse(scheduleJson);
-    if (Array.isArray(parsed)) shifts = parsed;
-  } catch {
-    return [`${indent}(schedule data unparseable)`];
-  }
+  const shifts = parseScheduleBlob(scheduleJson);
+  if (!shifts) return [`${indent}(schedule data unparseable)`];
   if (shifts.length === 0) return [];
 
   // Group all entries by date so a date with OFF + activity (or a split

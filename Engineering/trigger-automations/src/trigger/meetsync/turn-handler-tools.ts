@@ -46,6 +46,8 @@ import {
   getUser,
   linkPersonNoteToChat,
   type Snapshot,
+  parseScheduleBlob,
+  type ScheduleShift,
 } from "./d1-client.js";
 import {
   extractSchedule,
@@ -180,18 +182,9 @@ async function gatherBusyBlocksForDate(
   };
 
   const sched = await getLatestScheduleForUser(chatId);
-  if (sched) {
-    try {
-      const parsed = JSON.parse(sched) as Array<{
-        date: string;
-        start_time: string;
-        end_time: string;
-        label?: string;
-      }>;
-      for (const s of parsed) pushShiftBlock(s);
-    } catch {
-      // corrupt schedule — skip
-    }
+  const parsedSched = parseScheduleBlob(sched);
+  if (parsedSched) {
+    for (const s of parsedSched) pushShiftBlock(s);
   }
   try {
     // Pull calendar events for yesterday+today so overnight calendar
@@ -323,7 +316,6 @@ const parseScheduleTool: ToolDefinition = {
           const label = typeof raw.label === "string" ? raw.label : undefined;
           if (!dateRe.test(date) || !timeRe.test(start) || !timeRe.test(end)) {
             return {
-              ok: false,
               error: `Invalid shift format: date='${date}' start='${start}' end='${end}'. Each shift needs date='YYYY-MM-DD', start_time='HH:MM', end_time='HH:MM'. Fix the array and call again.`,
             };
           }
@@ -353,23 +345,21 @@ const parseScheduleTool: ToolDefinition = {
           } else if (category === "spreadsheet") {
             resolvedText = spreadsheetToText(buffer);
           } else {
-            return { ok: false, error: `Unsupported file type: ${mime}. Ask the user to send as image, PDF, CSV, Excel, or plain text.` };
+            return { error: `Unsupported file type: ${mime}. Ask the user to send as image, PDF, CSV, Excel, or plain text.` };
           }
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           if (msg.includes("audio/") || (explicitMimeType && explicitMimeType.startsWith("audio/"))) {
             return {
-              ok: false,
               error: "This is a voice/audio file, not a schedule image. The voice note was already transcribed to text — read the transcription in the user's message and either extract shifts directly (pass them in the 'shifts' array) or pass the text via 'text_content'.",
             };
           }
           await emitSessionEvent(
-            ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+            "no-session",
             "parse_schedule_media_download_failed",
             { chat_id: ctx.callerChatId, media_id: explicitMediaId, error: msg.slice(0, 200) },
           );
           return {
-            ok: false,
             error: `Couldn't download file_id=${explicitMediaId} from Telegram. The file may have expired (Telegram file_ids are session-scoped) or the id is wrong. Tell the user honestly that the previous file isn't fetchable any more and ask them to re-send it. Underlying: ${msg.slice(0, 200)}`,
           };
         }
@@ -412,19 +402,17 @@ const parseScheduleTool: ToolDefinition = {
         });
       } else {
         return {
-          ok: false,
           error: "No media available and no text_content provided. Tell the user honestly that nothing was passed to the parser, ask them to either send the schedule or type their hours.",
         };
       }
 
       if (result.shifts.length === 0) {
         await emitSessionEvent(
-          ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+          "no-session",
           "parse_schedule_zero_shifts",
           { chat_id: ctx.callerChatId, input_kind: textContent ? "text" : "media", attributed: attributedToName || null },
         );
         return {
-          ok: false,
           error: "Parser returned 0 shifts. The file may be unreadable, low-resolution, or not contain a schedule.",
         };
       }
@@ -436,11 +424,11 @@ const parseScheduleTool: ToolDefinition = {
       // extractSchedule keeps throwing on certain inputs (Sonnet schema
       // mismatch, JSON parse failure, API timeout, etc).
       await emitSessionEvent(
-        ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+        "no-session",
         "parse_schedule_threw",
         { chat_id: ctx.callerChatId, error: msg.slice(0, 400) },
       );
-      return { ok: false, error: `parse_schedule threw: ${msg.slice(0, 300)}` };
+      return { error: `parse_schedule threw: ${msg.slice(0, 300)}` };
     }
   },
 };
@@ -461,17 +449,15 @@ function mergeShiftsByDate<T extends { date: string }>(
   existingJson: string | null,
   newShifts: T[],
 ): T[] {
-  let existing: T[] = [];
-  if (existingJson) {
-    try {
-      const parsed = JSON.parse(existingJson);
-      if (Array.isArray(parsed)) existing = parsed as T[];
-    } catch {
-      // Corrupt blob — treat as empty rather than crash. Better surfaced
-      // by the [persistShifts] log line below than by a 500.
-      console.warn("[persistShifts] existing schedule_json was unparseable — treating as empty");
-    }
+  // parseScheduleBlob returns null for both "no blob" and "corrupt blob".
+  // Either way we want to treat as empty. Distinguish only for the warn
+  // log so a corrupt save surfaces in telemetry instead of silently
+  // becoming the new baseline.
+  const parsed = parseScheduleBlob(existingJson);
+  if (existingJson && !parsed) {
+    console.warn("[persistShifts] existing schedule_json was unparseable — treating as empty");
   }
+  const existing = (parsed ?? []) as unknown as T[];
   const coveredDates = new Set(newShifts.map((s) => s.date));
   const kept = existing.filter((s) => !coveredDates.has(s.date));
   return [...kept, ...newShifts];
@@ -509,15 +495,18 @@ async function persistShifts(
     console.log(`[persistShifts] dropped ${droppedDuplicates} exact-duplicate entries from ${attributedToName || "self"}`);
   }
 
-  // Pick the existing-blob source for this target (self vs on-behalf)
-  // and run the per-date merge. We use the snapshot's view of the blob
-  // — it was loaded at turn start and is the same row we're about to
-  // write back to, so no extra D1 read is needed.
+  // CAS-lite: re-read the latest blob from D1 right before the merge,
+  // not from the snapshot loaded at turn start. Burst-grace narrows
+  // but does NOT close the window where two parse_schedule calls (or
+  // a parse + book_meetup busy-block append) could read the same
+  // snapshot, both compute, both write — last writer would silently
+  // lose the other's dates. The re-read shrinks the race to "between
+  // this read and the upcoming write" which is single-digit ms in
+  // practice. Full row-version CAS would close it entirely; this
+  // captures most of the benefit without a schema change.
   const existingJson = attributedToName
-    ? ctx.snapshot.personNotes.find(
-        (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
-      )?.schedule_json ?? null
-    : ctx.snapshot.user.latest_schedule_json ?? null;
+    ? (await findPersonNote(ctx.callerChatId, attributedToName))?.schedule_json ?? null
+    : await getLatestScheduleForUser(ctx.callerChatId);
   const merged = mergeShiftsByDate(existingJson, dedupedNew);
   const newDateCount = new Set(dedupedNew.map((s) => s.date)).size;
   const totalDateCount = new Set(merged.map((s) => s.date)).size;
@@ -909,16 +898,25 @@ const computeAndDeliverMatchTool: ToolDefinition = {
         .filter((n) => !!n.linked_chat_id)
         .map((n) => ({ chat_id: n.linked_chat_id as string, id_prefix: `contact-cal:${n.linked_chat_id}`, isCaller: false })),
     ];
-    for (const src of calendarSources) {
-      try {
-        const events = await listCalendarEventsInWindow(src.chat_id, windowStart, windowEnd, overlapTz);
-        if (events.length > 0) {
-          const safeEvents = src.isCaller ? events : events.map(sanitiseContactCalendarEvent);
-          schedules.push({ id: src.id_prefix, schedule_json: JSON.stringify(safeEvents) });
+    // Parallelise — each source is one Google API round-trip (~200-400ms)
+    // and N=10 contacts adds up serially. Promise.all caps wall-time at
+    // the slowest source. Errors are caught per-source so one slow/broken
+    // contact can't poison the whole compute.
+    const calendarResults = await Promise.all(
+      calendarSources.map(async (src) => {
+        try {
+          const events = await listCalendarEventsInWindow(src.chat_id, windowStart, windowEnd, overlapTz);
+          return { src, events, ok: true as const };
+        } catch (err) {
+          console.warn(`[compute_overlap] calendar fetch failed for ${src.chat_id}:`, err);
+          return { src, events: [], ok: false as const };
         }
-      } catch (err) {
-        console.warn(`[compute_overlap] calendar fetch failed for ${src.chat_id}:`, err);
-      }
+      }),
+    );
+    for (const { src, events } of calendarResults) {
+      if (events.length === 0) continue;
+      const safeEvents = src.isCaller ? events : events.map(sanitiseContactCalendarEvent);
+      schedules.push({ id: src.id_prefix, schedule_json: JSON.stringify(safeEvents) });
     }
 
     if (schedules.length < 2) {
@@ -1270,13 +1268,11 @@ const queryScheduleHistoryTool: ToolDefinition = {
       };
     }
 
-    let allShifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
-    try {
-      const parsed = JSON.parse(scheduleJson);
-      if (Array.isArray(parsed)) allShifts = parsed;
-    } catch {
+    const parsedHistory = parseScheduleBlob(scheduleJson);
+    if (!parsedHistory) {
       return { error: "schedule_json unparseable for target — corrupt blob in D1." };
     }
+    const allShifts: ScheduleShift[] = parsedHistory;
 
     const inRange = allShifts
       .filter((s) => typeof s.date === "string" && s.date >= start && s.date <= end)
@@ -1680,11 +1676,23 @@ const bookMeetupTool: ToolDefinition = {
     // go as attendees on the single shared event created on the caller's
     // calendar — Google auto-invites them, so they get the event on their
     // own calendar with proper RSVP/edit/delete semantics.
+    // Batch the per-attendee email lookup into ONE D1 round-trip instead
+    // of N sequential getUser() calls. The same emailByChatId map is
+    // reused below for the "mark booked" step, halving D1 RTTs again.
+    const emailByChatId = new Map<string, string | null>();
+    if (attendeeTargets.length > 0) {
+      const placeholders = attendeeTargets.map(() => "?").join(", ");
+      const rows = await query<{ chat_id: string; email: string | null }>(
+        `SELECT chat_id, email FROM users WHERE chat_id IN (${placeholders})`,
+        attendeeTargets.map((t) => t.chat_id),
+      );
+      for (const r of rows.results) emailByChatId.set(r.chat_id, r.email);
+    }
     const attendeeEmails: string[] = [];
     const attendeesWithoutEmail: Array<{ name: string; chat_id: string }> = [];
     for (const t of attendeeTargets) {
-      const u = await getUser(t.chat_id);
-      if (u?.email) attendeeEmails.push(u.email);
+      const email = emailByChatId.get(t.chat_id) ?? null;
+      if (email) attendeeEmails.push(email);
       else attendeesWithoutEmail.push(t);
     }
 
@@ -1701,9 +1709,9 @@ const bookMeetupTool: ToolDefinition = {
         callerEventCreated = true;
         booked.push(ctx.snapshot.user.name ?? "you");
         // Mark email-attendees as booked too — Google sent them the invite.
+        // Reuse the batched emailByChatId map; no extra D1 round-trips.
         for (const t of attendeeTargets) {
-          const u = await getUser(t.chat_id);
-          if (u?.email) booked.push(t.name);
+          if (emailByChatId.get(t.chat_id)) booked.push(t.name);
         }
       } else if (r === "token_expired") {
         return {

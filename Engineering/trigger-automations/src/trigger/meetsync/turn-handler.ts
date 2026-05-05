@@ -32,6 +32,7 @@ import {
   loadSnapshot,
   emitSessionEvent,
   getUser,
+  parseScheduleBlob,
 } from "./d1-client.js";
 import {
   downloadMedia,
@@ -172,7 +173,7 @@ Travel time: calendar events now include locations when set ("@ Mater Dei Hospit
 
 Shift locations (office vs remote): if a shift label explicitly carries a location tag like "(office)", "(remote)", "(St Julian's)", "(home)", state it cleanly — "Wed you're in office, Thu remote". Never narrate the colour convention or the user's own profile rules back to them ("because brown means office") — they already know. If the label does NOT carry a location tag, DO NOT guess or confabulate from the user's context rules alone. Say honestly "your schedule doesn't say which days are in-office — re-upload if you want that tagged". Inventing an in-office day based on just the shift time is a hard fail.
 
-Malta public holidays: you know them — New Year's Day, Feast of St Paul (10 Feb), St Joseph (19 Mar), Freedom Day (31 Mar), Good Friday (date varies), Worker's Day (1 May), Sette Giugno (7 Jun), St Peter & St Paul (29 Jun), Assumption (15 Aug), Our Lady of Victories (8 Sep), Independence Day (21 Sep), Immaculate Conception (8 Dec), Republic Day (13 Dec), Christmas (25 Dec). When a stored schedule shows a "work" / "shift" busy block on a public holiday, that's almost certainly stale recurring data — most people don't work the holiday. Treat the day as likely FREE, mention the holiday by name, and ask the caller to confirm if they're actually working ("looks like a public holiday — assuming you're off?"). Use judgement on the family-heavy ones: Christmas Day, Good Friday, sometimes Assumption — many people aren't keen to schedule social meetups; flag it gently rather than just saying "you're free".
+Public holidays: this rule applies ONLY when the caller's timezone is Europe/Malta (you'll see this in [STATE]). For Malta callers you know the public holidays — New Year's Day, Feast of St Paul (10 Feb), St Joseph (19 Mar), Freedom Day (31 Mar), Good Friday (date varies), Worker's Day (1 May), Sette Giugno (7 Jun), St Peter & St Paul (29 Jun), Assumption (15 Aug), Our Lady of Victories (8 Sep), Independence Day (21 Sep), Immaculate Conception (8 Dec), Republic Day (13 Dec), Christmas (25 Dec). When a Malta caller's stored schedule shows a "work" / "shift" busy block on one of these, that's almost certainly stale recurring data — most people don't work the holiday. Treat the day as likely FREE, mention the holiday by name, and ask the caller to confirm if they're actually working ("looks like a public holiday — assuming you're off?"). Use judgement on the family-heavy ones: Christmas Day, Good Friday, sometimes Assumption — many people aren't keen to schedule social meetups; flag it gently rather than just saying "you're free". For callers in any OTHER timezone, do NOT apply Malta-specific holiday assumptions — you don't have their country's holiday list, so just trust the schedule on file rather than guessing.
 
 relay_message: only when the caller explicitly asks you to pass a message to a contact. Draft FIRST, show the caller, wait for their explicit yes, THEN call the tool. Draft in the RECIPIENT's language (from their [their profile] lang=…), not the caller's. Never send without confirmation.
 
@@ -441,26 +442,22 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
     if (failed) anyFailed = true;
     totalEvents += events.length;
     if (events.length === 0) continue;
-    let existing: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
-    if (target.existing) {
-      try {
-        const parsed = JSON.parse(target.existing);
-        if (Array.isArray(parsed)) existing = parsed;
-      } catch {
-        // Corrupt JSON in latest_schedule_json — skip the calendar merge
-        // for this target so the in-memory snapshot keeps the raw blob
-        // (downstream renderers tolerate junk). Overwriting with events-
-        // only here was the regression that made manual shifts vanish
-        // from the LLM's view whenever the blob was malformed.
-        console.warn(
-          `[snapshot] corrupt schedule_json for chat=${target.chat_id} — skipping calendar merge to preserve manual shifts`,
-        );
-        await emitSessionEvent("no-session", "snapshot_corrupt_schedule_json", {
-          chat_id: target.chat_id,
-        });
-        continue;
-      }
+    const parsed = parseScheduleBlob(target.existing);
+    if (target.existing && !parsed) {
+      // Corrupt JSON in latest_schedule_json — skip the calendar merge
+      // for this target so the in-memory snapshot keeps the raw blob
+      // (downstream renderers tolerate junk). Overwriting with events-
+      // only here was the regression that made manual shifts vanish
+      // from the LLM's view whenever the blob was malformed.
+      console.warn(
+        `[snapshot] corrupt schedule_json for chat=${target.chat_id} — skipping calendar merge to preserve manual shifts`,
+      );
+      await emitSessionEvent("no-session", "snapshot_corrupt_schedule_json", {
+        chat_id: target.chat_id,
+      });
+      continue;
     }
+    const existing = parsed ?? [];
     // Sanitise non-caller calendar event labels before merging into the
     // snapshot. Contacts' raw GCal titles (e.g. "Therapy with Dr X @
     // Mater Dei") and locations are personally-identifying; the
@@ -568,21 +565,39 @@ async function callClaude(
     i === TOOL_SCHEMAS.length - 1 ? { ...t, cache_control: { type: "ephemeral" } } : t,
   );
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: MODEL_ID,
-      max_tokens: MAX_TOKENS,
-      system: cachedSystem,
-      tools: cachedTools,
-      messages,
-    }),
-  });
+  // Per-iteration timeout: a hung Anthropic socket would otherwise stall
+  // the whole turn until Trigger.dev's 300s maxDuration cap, which the
+  // user just sees as a dead bot. 60s is generous (Sonnet rarely takes
+  // >20s even on bulk CSV parse loops) but safely under the wall budget
+  // so the turn handler can fail-fast and surface a fallback reply.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60_000);
+  let response: Response;
+  try {
+    response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: MODEL_ID,
+        max_tokens: MAX_TOKENS,
+        system: cachedSystem,
+        tools: cachedTools,
+        messages,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Claude API timed out after 60s");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const err = await response.text();
@@ -785,7 +800,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     await enrichSnapshotWithCalendarEvents(snapshot);
 
     await emitSessionEvent(
-      snapshot.activeSessions[0]?.session.id ?? "no-session",
+      "no-session",
       "turn_start",
       { chat_id: chatId, message_type: payload.message_type },
     );
@@ -838,7 +853,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
         if (joined) {
           await sendTextMessage(chatId, joined);
           await emitSessionEvent(
-            snapshot.activeSessions[0]?.session.id ?? "no-session",
+            "no-session",
             "turn_end",
             { action: "replied_direct", iterations: iter + 1 },
           );
@@ -854,7 +869,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
         if (block.type !== "tool_use") continue;
         const input = (block.input ?? {}) as Record<string, unknown>;
         await emitSessionEvent(
-          ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+          "no-session",
           `tool_called:${block.name}`,
           { chat_id: chatId },
         );
@@ -878,7 +893,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
           console.error("[turn-handler] sendPendingReply failed:", err);
         }
         await emitSessionEvent(
-          ctx.snapshot.activeSessions[0]?.session.id ?? "no-session",
+          "no-session",
           "turn_end",
           { action: "replied", iterations: iter + 1 },
         );
@@ -889,7 +904,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     // Hit the iteration cap without calling reply
     await sendFallback(chatId, "cap", userLang);
     await emitSessionEvent(
-      snapshot.activeSessions[0]?.session.id ?? "no-session",
+      "no-session",
       "turn_exceeded_tool_cap",
       { chat_id: chatId },
     );

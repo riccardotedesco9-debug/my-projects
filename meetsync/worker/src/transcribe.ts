@@ -41,7 +41,10 @@ export async function handleTranscribe(request: Request, env: Env): Promise<Resp
   // 3. Run Whisper via the runtime binding. Try v3-turbo first (modern,
   // accurate, handles Telegram OGG/Opus reliably), fall back to legacy
   // whisper if the account doesn't have v3 access.
-  const audioBytes = [...new Uint8Array(audioBuffer)];
+  // Array.from is identical to the spread idiom but avoids the iterator
+  // overhead per element on multi-MB voice notes — small win on the
+  // worker isolate's GC pressure.
+  const audioBytes = Array.from(new Uint8Array(audioBuffer));
 
   const tryRun = async (modelId: string): Promise<{ text?: string; error?: string }> => {
     try {

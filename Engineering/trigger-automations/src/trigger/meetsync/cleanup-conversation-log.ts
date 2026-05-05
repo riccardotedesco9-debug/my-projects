@@ -28,11 +28,18 @@ export const cleanupConversationLog = schedules.task({
     for (const { chat_id } of chatsResult.results) {
       try {
         const del = await query(
+          // ORDER BY created_at, id — `created_at` defaults to
+          // `datetime('now')` which has 1-second resolution, so two rows
+          // logged in the same second tied on the primary sort. SQLite's
+          // tie-break order is unspecified, so the keep-set could be
+          // arbitrary among the same-second rows. Adding `id DESC` makes
+          // the ordering total: newest second wins, and within a tie the
+          // largest (most recently inserted) row id wins.
           `DELETE FROM conversation_log
            WHERE chat_id = ? AND id NOT IN (
              SELECT id FROM conversation_log
              WHERE chat_id = ?
-             ORDER BY created_at DESC LIMIT 50
+             ORDER BY created_at DESC, id DESC LIMIT 50
            )`,
           [chat_id, chat_id],
         );
