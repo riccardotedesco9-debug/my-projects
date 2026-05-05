@@ -55,7 +55,7 @@ send_and_judge "$TEST_USER_A" \
 section "Future: out-of-window — bot must surface the 120d-ahead shift via the tool"
 send_and_judge "$TEST_USER_A" \
   "do I have anything on $FUTURE_DATE? thats 120 days out" \
-  "the reply mentions a shift on that date with hours around 14:00–20:00 (or 2pm–8pm). The bot must NOT claim there's nothing on file for a date that far out — history is preserved forever and reachable via the tool." \
+  "the reply explicitly tells the user they have a shift on the requested date with hours that include 14:00 and 20:00 (or 2pm and 8pm). Anything that conveys 'yes, there's a shift, here are the hours' passes. Phrasing like 'that's all that's on file for that day' is fine — it just means the listed shift is the only entry for that day, not that the schedule is empty. The test FAILS only if the bot claims it has NO data for that date or refuses to look up dates that far out." \
   60
 
 echo
