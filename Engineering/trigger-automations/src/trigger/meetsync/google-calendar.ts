@@ -5,6 +5,68 @@ import { getGoogleToken, saveGoogleToken, markGoogleTokenInvalid } from "./d1-cl
 
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
 
+/**
+ * Resolve the IANA timezone's UTC offset on a specific date as an ISO
+ * 8601 designator like "+02:00" / "-05:00" / "Z". Used to format
+ * timeMin/timeMax bounds for Google Calendar queries so the wall-clock
+ * day in the caller's tz matches the query window.
+ *
+ * Why date-specific: DST means the offset isn't constant for a given
+ * tz — Malta is +01:00 in winter and +02:00 in summer. Picking the
+ * offset based on noon-of-the-target-date is robust against the rare
+ * spring-forward/fall-back day overlap (the offset still points
+ * unambiguously to that day's working part).
+ */
+function isoOffsetForDate(dateIso: string, timezone: string): string {
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      timeZoneName: "longOffset",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const parts = fmt.formatToParts(new Date(dateIso + "T12:00:00Z"));
+    const raw = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+    if (raw === "GMT" || raw === "UTC") return "Z";
+    // Intl emits "GMT+02:00" / "GMT-05:00".
+    return raw.replace("GMT", "");
+  } catch {
+    // Bad timezone string — fall back to UTC.
+    return "Z";
+  }
+}
+
+/**
+ * Strip the personally-identifying parts of a calendar event before it
+ * reaches Claude. Drops the literal title (e.g. "Therapy with Dr X") and
+ * `@ location`, keeps the time geometry plus any RSVP / all-day prefix
+ * emitted by `listCalendarEventsInWindow`. Used wherever a CONTACT's
+ * calendar (i.e. someone other than the caller) is being merged into the
+ * snapshot or fed into a tool result. The privacy rule in the system
+ * prompt asks Claude to abstract sensitive cross-person titles, but
+ * that's prompt-only — sanitising at the data boundary makes the
+ * boundary real.
+ *
+ * Conventions preserved (match prefixes used elsewhere in this file):
+ *   "📩 awaiting RSVP — calendar: …"  → "📩 awaiting RSVP — calendar (busy)"
+ *   "❓ tentative RSVP — calendar: …" → "❓ tentative RSVP — calendar (busy)"
+ *   "all-day calendar: …"             → "all-day calendar (busy)"
+ *   "calendar: …"                     → "calendar (busy)"
+ */
+export function sanitiseContactCalendarEvent(
+  ev: { date: string; start_time: string; end_time: string; label?: string },
+): { date: string; start_time: string; end_time: string; label?: string } {
+  const label = ev.label ?? "";
+  let prefix = "";
+  if (label.startsWith("📩 awaiting RSVP — ")) prefix = "📩 awaiting RSVP — ";
+  else if (label.startsWith("❓ tentative RSVP — ")) prefix = "❓ tentative RSVP — ";
+  const rest = label.slice(prefix.length);
+  const isAllDay = rest.startsWith("all-day ");
+  const opaque = isAllDay ? "all-day calendar (busy)" : "calendar (busy)";
+  return { ...ev, label: `${prefix}${opaque}` };
+}
+
 interface CalendarEvent {
   summary: string;
   start: { dateTime: string; timeZone: string };
@@ -175,12 +237,39 @@ export async function listCalendarEventsInWindow(
           const sMatch = startDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
           const eMatch = endDT.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/);
           if (!sMatch || !eMatch) continue;
-          calOut.push({
-            date: sMatch[1],
-            start_time: `${sMatch[2]}:${sMatch[3]}`,
-            end_time: sMatch[1] === eMatch[1] ? `${eMatch[2]}:${eMatch[3]}` : "23:59",
-            label,
-          });
+          if (sMatch[1] === eMatch[1]) {
+            // Same-day timed event — emit one block.
+            calOut.push({
+              date: sMatch[1],
+              start_time: `${sMatch[2]}:${sMatch[3]}`,
+              end_time: `${eMatch[2]}:${eMatch[3]}`,
+              label,
+            });
+            continue;
+          }
+          // Cross-day timed event (e.g. 22:00 Mon → 06:00 Tue, or a
+          // 3-day timed retreat). Previously emitted ONE block on
+          // sDate with end=23:59, silently losing the next-day spill —
+          // so a 22:00–06:00 overnight on Mon would not block 00:00–
+          // 06:00 on Tue's free/busy view. Emit one block per day in
+          // the range, matching the all-day path's iteration shape.
+          const startTime = `${sMatch[2]}:${sMatch[3]}`;
+          const endTime = `${eMatch[2]}:${eMatch[3]}`;
+          const MAX_DAYS = 28;
+          let cursor = sMatch[1];
+          for (let i = 0; cursor <= eMatch[1] && i < MAX_DAYS; i++) {
+            const isFirst = cursor === sMatch[1];
+            const isLast = cursor === eMatch[1];
+            calOut.push({
+              date: cursor,
+              start_time: isFirst ? startTime : "00:00",
+              end_time: isLast ? endTime : "23:59",
+              label,
+            });
+            const d = new Date(cursor + "T12:00:00Z");
+            d.setUTCDate(d.getUTCDate() + 1);
+            cursor = d.toISOString().slice(0, 10);
+          }
           continue;
         }
 
@@ -264,18 +353,25 @@ async function listUserCalendarIds(accessToken: string): Promise<string[]> {
  */
 export async function findCalendarEventsOnDate(
   chatId: string,
-  date: string, // YYYY-MM-DD
+  date: string, // YYYY-MM-DD (interpreted in `timezone` below)
   titleHint: string,
+  timezone: string = "UTC",
 ): Promise<Array<{ id: string; calendar_id: string; summary: string; start_time: string; end_time: string; attendee_emails: string[] }>> {
   const auth = await getFreshAccessToken(chatId);
   if (!auth.ok) return [];
   const accessToken = auth.accessToken;
   const calendarIds = await listUserCalendarIds(accessToken);
+  // Anchor the day window in the caller's tz, not UTC. Previously
+  // `${date}T00:00:00Z` / `${date}T23:59:59Z` was used regardless of
+  // tz, so a Malta user querying May 5 actually saw UTC May 5 — i.e.
+  // Malta May 5 02:00 → May 6 01:59. The user's "23:30 the night
+  // before" event silently slipped out of the window.
+  const offset = isoOffsetForDate(date, timezone);
   const qs = new URLSearchParams({
     singleEvents: "true",
     orderBy: "startTime",
-    timeMin: `${date}T00:00:00Z`,
-    timeMax: `${date}T23:59:59Z`,
+    timeMin: `${date}T00:00:00${offset}`,
+    timeMax: `${date}T23:59:59${offset}`,
   }).toString();
   const hint = titleHint.trim().toLowerCase();
   const perCalendar = await Promise.all(

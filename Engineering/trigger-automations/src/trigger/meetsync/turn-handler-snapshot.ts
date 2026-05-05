@@ -330,6 +330,38 @@ function formatDayEntries(entries: Array<{ start_time: string; end_time: string;
 
 
 /**
+ * "Today" as YYYY-MM-DD in the caller's timezone. Use this anywhere you
+ * need a date anchor for calendar windowing or schedule lookups —
+ * `new Date().toISOString().slice(0, 10)` is UTC and silently drifts by
+ * a day for non-UTC users near midnight (Malta-evening UTC is "tomorrow"
+ * UTC; Pacific-morning UTC is "yesterday" UTC).
+ */
+export function todayIsoInTimezone(timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === "year")?.value ?? "2026";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * ISO date `daysOffset` days after `startIsoDate` (still YYYY-MM-DD).
+ * Used to extend the calendar-fetch window from "today in tz" forward.
+ * The arithmetic is plain UTC stride (24h × n), which is stable across
+ * DST because we only care about the date string, not a wall-clock time.
+ */
+export function isoDateOffset(startIsoDate: string, daysOffset: number): string {
+  const d = new Date(startIsoDate + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + daysOffset);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * Compute "today" in the user's timezone as a human-readable label,
  * e.g. "Saturday, 2026-04-11". The turn handler uses the same value
  * for the system prompt and the snapshot so all date references agree.

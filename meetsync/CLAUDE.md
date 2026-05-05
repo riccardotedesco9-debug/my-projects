@@ -30,7 +30,7 @@ Engineering/trigger-automations/src/trigger/meetsync/
 ├── telegram-client.ts       — Telegram Bot API client
 ├── schedule-parser.ts       — Claude-assisted schedule extraction
 ├── match-compute.ts         — Pure overlap computation
-├── fire-reminders.ts        — Cron task (every minute)
+├── fire-reminders.ts        — Cron task (every 5 min — D1 rate limit; reminders fire ±4 min)
 └── nudge-stale-schedules.ts — Cron task (daily 09:00 UTC)
 ```
 

@@ -67,7 +67,9 @@ import {
   listCalendarEventsInWindow,
   findCalendarEventsOnDate,
   deleteCalendarEvent,
+  sanitiseContactCalendarEvent,
 } from "./google-calendar.js";
+import { todayIsoInTimezone, isoDateOffset } from "./turn-handler-snapshot.js";
 
 // --- Types ---
 
@@ -141,6 +143,7 @@ async function gatherBusyBlocksForDate(
   chatId: string,
   date: string,
   timezone: string,
+  sanitiseCalendarLabels = false,
 ): Promise<Array<{ start: number; end: number; label: string }>> {
   const blocks: Array<{ start: number; end: number; label: string }> = [];
   const prevDate = shiftDateISO(date, -1);
@@ -192,9 +195,14 @@ async function gatherBusyBlocksForDate(
   }
   try {
     // Pull calendar events for yesterday+today so overnight calendar
-    // events that end on `date` also count as busy.
+    // events that end on `date` also count as busy. When this is a
+    // contact (not the caller), sanitise event labels before they
+    // reach the conflict reason / blocks list — the privacy rule
+    // shouldn't depend on Claude remembering to abstract.
     const events = await listCalendarEventsInWindow(chatId, prevDate, date, timezone);
-    for (const e of events) pushShiftBlock(e);
+    for (const e of events) {
+      pushShiftBlock(sanitiseCalendarLabels ? sanitiseContactCalendarEvent(e) : e);
+    }
   } catch {
     // calendar read is best-effort
   }
@@ -887,22 +895,26 @@ const computeAndDeliverMatchTool: ToolDefinition = {
     // 9–5"); calendar has real appointments ("dentist 3pm Thursday").
     // Merging both gives a truthful picture without requiring users to
     // re-type their meetings. Silent no-op for anyone not /connect'd.
+    //
+    // Anchor the window in the caller's tz (was UTC — drifted by a day
+    // for users near midnight in non-UTC tz). And sanitise non-caller
+    // calendar event labels so contacts' raw GCal titles don't reach
+    // Claude unredacted.
     const overlapTz = resolveCallerTimezone(ctx);
-    const windowStart = new Date().toISOString().slice(0, 10);
-    const windowEnd = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-    const calendarSources: Array<{ chat_id: string; id_prefix: string }> = [
-      { chat_id: ctx.callerChatId, id_prefix: "caller-cal" },
+    const windowStart = todayIsoInTimezone(overlapTz);
+    const windowEnd = isoDateOffset(windowStart, 21);
+    const calendarSources: Array<{ chat_id: string; id_prefix: string; isCaller: boolean }> = [
+      { chat_id: ctx.callerChatId, id_prefix: "caller-cal", isCaller: true },
       ...contacts
         .filter((n) => !!n.linked_chat_id)
-        .map((n) => ({ chat_id: n.linked_chat_id as string, id_prefix: `contact-cal:${n.linked_chat_id}` })),
+        .map((n) => ({ chat_id: n.linked_chat_id as string, id_prefix: `contact-cal:${n.linked_chat_id}`, isCaller: false })),
     ];
     for (const src of calendarSources) {
       try {
         const events = await listCalendarEventsInWindow(src.chat_id, windowStart, windowEnd, overlapTz);
         if (events.length > 0) {
-          schedules.push({ id: src.id_prefix, schedule_json: JSON.stringify(events) });
+          const safeEvents = src.isCaller ? events : events.map(sanitiseContactCalendarEvent);
+          schedules.push({ id: src.id_prefix, schedule_json: JSON.stringify(safeEvents) });
         }
       } catch (err) {
         console.warn(`[compute_overlap] calendar fetch failed for ${src.chat_id}:`, err);
@@ -1626,7 +1638,12 @@ const bookMeetupTool: ToolDefinition = {
     const reqStart = timeToMinutes(startTime);
     const reqEnd = timeToMinutes(endTime);
     for (const t of conflictTargets) {
-      const busy = await gatherBusyBlocksForDate(t.chat_id, date, tz);
+      // Sanitise calendar labels for non-caller targets so a conflict
+      // reason like "busy 📩 awaiting RSVP — calendar: Therapy with Dr X
+      // (15:00–16:00)" never makes it into the caller-facing reply.
+      // Caller's own events stay as full labels.
+      const sanitiseCal = t.chat_id !== ctx.callerChatId;
+      const busy = await gatherBusyBlocksForDate(t.chat_id, date, tz, sanitiseCal);
       const hit = busy.find((b) => reqStart < b.end && reqEnd > b.start);
       if (hit) {
         conflicts.push({
@@ -1789,7 +1806,7 @@ const cancelMeetupTool: ToolDefinition = {
 
     // Always list candidates first — even with event_id we re-fetch to be
     // sure it's still on the calendar and to get its attendees for cleanup.
-    const candidates = await findCalendarEventsOnDate(ctx.callerChatId, date, titleHint);
+    const candidates = await findCalendarEventsOnDate(ctx.callerChatId, date, titleHint, resolveCallerTimezone(ctx));
     if (candidates.length === 0) {
       return { error: "not_found", message: `No events on ${date}${titleHint ? ` matching '${titleHint}'` : ""} across the caller's calendars.` };
     }

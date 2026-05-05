@@ -40,8 +40,8 @@ import {
   type InlineKeyboard,
 } from "./telegram-client.js";
 import { classifyMime, mapMimeType, arrayBufferToBase64, bufferToText, spreadsheetToText } from "./schedule-parser.js";
-import { formatSnapshot, todayInTimezone } from "./turn-handler-snapshot.js";
-import { listCalendarEventsInWindow, probeCallerCalendarHealth } from "./google-calendar.js";
+import { formatSnapshot, todayInTimezone, todayIsoInTimezone, isoDateOffset } from "./turn-handler-snapshot.js";
+import { listCalendarEventsInWindow, probeCallerCalendarHealth, sanitiseContactCalendarEvent } from "./google-calendar.js";
 import type { Snapshot } from "./d1-client.js";
 import {
   TOOL_SCHEMAS,
@@ -311,10 +311,12 @@ function buildMessagesArray(
  * AND we can't leave them as a trailing user run because the API
  * forbids consecutive same-role turns.
  *
- * Note: the FIRST popped entry is the actual current turn echoing
- * back from the Worker pre-log, so it duplicates `currentText` and
- * is dropped silently. Subsequent pops are real burst-tail content
- * that bailed turns left behind — those need to survive.
+ * Note: with `popped.unshift`, the LAST element of `popped` is the
+ * most-recently-logged trailing user turn — i.e. the current turn
+ * echoing back from the Worker pre-log. That last element duplicates
+ * `currentText` and is dropped silently. Earlier elements (`popped[0..n-2]`)
+ * are real burst-tail content from prior bailed turns; those survive
+ * and get folded into the current user turn by the caller.
  */
 function extractTrailingUserTurns(
   recentHistory: Snapshot["recentHistory"],
@@ -326,14 +328,15 @@ function extractTrailingUserTurns(
     popped.unshift(trimmed.pop()!.message);
   }
   // Drop the most-recent popped entry if it matches the current turn.
-  // Worker pre-logs text turns as `text.slice(0, 500)` and media turns as
-  // a synthetic `[photo uploaded · file_id=...]` marker, so the literal
-  // identity check covers most real cases; for safety also drop if the
-  // popped entry is a [...uploaded · ...] / [voice message ...] marker
-  // (the rich current turn already labels the media via turnLabel).
+  // Worker pre-logs media turns as a fixed synthetic `[photo uploaded ·
+  // file_id=...]` / `[document uploaded · …]` / `[voice message · …]` /
+  // `[contact shared · …]` marker. Pin the regex to those literal labels
+  // — the prior `.+?` alternation matched any well-formed `[X Y...]`
+  // line and could silently drop a real first user message that happened
+  // to start with bracketed text.
   if (popped.length > 0) {
     const last = popped[popped.length - 1];
-    const isMediaMarker = /^\[(photo|document|voice|contact|.+?) (uploaded|message|shared) ?(?:·|\b)/.test(last);
+    const isMediaMarker = /^\[(photo uploaded|document uploaded|voice message|contact shared) ·/.test(last);
     // Worker pre-log caps text at 4000 chars (handle-message.ts). Match the
     // popped entry's prefix against currentText's first 4000 chars to
     // detect the echo-back of the current turn even when the user pasted
@@ -362,11 +365,25 @@ function extractTrailingUserTurns(
  * is dominated by the slowest Google API call (~200-400ms), not their sum.
  */
 async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<void> {
-  const todayISO = new Date().toISOString().slice(0, 10);
-  const windowEnd = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Anchor "today" in the caller's tz, not UTC. Otherwise a Malta-evening
+  // request crosses UTC midnight and fetches events from "tomorrow" UTC,
+  // missing the rest of today's local events (and similarly for Pacific
+  // mornings). Same fix applies in compute_overlap and findCalendarEventsOnDate.
+  const todayISO = todayIsoInTimezone(snapshot.timezone);
+  const windowEnd = isoDateOffset(todayISO, 21);
   const tz = snapshot.timezone;
 
-  type MergeTarget = { chat_id: string; write: (json: string) => void; existing: string | null };
+  type MergeTarget = {
+    chat_id: string;
+    write: (json: string) => void;
+    existing: string | null;
+    // Privacy boundary: caller sees own events fully; contacts' raw event
+    // titles + locations are sanitised before they reach Claude. Without
+    // this, the prompt's "abstract sensitive titles" rule is best-effort
+    // guidance only — one LLM slip would put another user's literal
+    // therapy/medical title into the caller's reply.
+    isCaller: boolean;
+  };
   const targets: MergeTarget[] = [];
 
   if (snapshot.callerCalendarConnected) {
@@ -384,6 +401,7 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
       write: (json) => {
         snapshot.user = { ...snapshot.user, latest_schedule_json: json };
       },
+      isCaller: true,
     });
   }
   for (const n of snapshot.personNotes) {
@@ -394,6 +412,7 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
       write: (json) => {
         n.schedule_json = json;
       },
+      isCaller: false,
     });
   }
 
@@ -442,7 +461,16 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
         continue;
       }
     }
-    target.write(JSON.stringify([...existing, ...events]));
+    // Sanitise non-caller calendar event labels before merging into the
+    // snapshot. Contacts' raw GCal titles (e.g. "Therapy with Dr X @
+    // Mater Dei") and locations are personally-identifying; the
+    // privacy rule in the system prompt asks Claude to abstract them
+    // when describing across people, but that's prompt-only — one LLM
+    // slip leaks the literal title. Keep the busy-block geometry (date
+    // + times + RSVP / all-day prefix) so conflict detection and
+    // logistics reasoning still work, but drop the title and location.
+    const eventsForTarget = target.isCaller ? events : events.map(sanitiseContactCalendarEvent);
+    target.write(JSON.stringify([...existing, ...eventsForTarget]));
   }
   if (anyFailed) snapshot.calendarDegraded = true;
   console.log(

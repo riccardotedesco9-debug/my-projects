@@ -346,14 +346,20 @@ async function handleAdminCommand(text: string, env: Env): Promise<boolean> {
   }
 
   if (intent.action === "list_users") {
+    // Migration 0020 dropped `participants` (shared-hub refactor moved
+    // schedules onto `users` and contacts into `person_notes`). Pre-fix
+    // this admin query 500'd silently; now it lists the most-recently-
+    // active users straight off the canonical table.
     const result = await env.DB.prepare(
-      "SELECT DISTINCT chat_id FROM participants ORDER BY created_at DESC LIMIT 50"
-    ).all<{ chat_id: string }>();
+      "SELECT chat_id, name, last_seen FROM users ORDER BY last_seen DESC LIMIT 50"
+    ).all<{ chat_id: string; name: string | null; last_seen: string }>();
 
     if (!result.results.length) {
       await sendAdminReply(env, "No users yet.");
     } else {
-      const list = result.results.map((r) => `- ${r.chat_id}`).join("\n");
+      const list = result.results
+        .map((r) => `- ${r.chat_id}${r.name ? ` (${r.name})` : ""} — last seen ${r.last_seen}`)
+        .join("\n");
       await sendAdminReply(env, `*Users (${result.results.length}):*\n${list}`);
     }
     return true;
