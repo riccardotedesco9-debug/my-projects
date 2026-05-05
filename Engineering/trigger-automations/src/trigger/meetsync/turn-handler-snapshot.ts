@@ -75,18 +75,14 @@ export function formatSnapshot(snapshot: Snapshot, todayLabel: string): string {
   // Shared-hub model: no session section. Contacts + their schedules are
   // already rendered by formatPersonNotesSection. The caller's own schedule
   // is rendered in formatUserSection.
-
-  // Recent history
-  if (snapshot.recentHistory.length > 0) {
-    lines.push("");
-    lines.push(`[RECENT HISTORY — last ${snapshot.recentHistory.length} messages, oldest first]`);
-    for (const msg of snapshot.recentHistory) {
-      const who = msg.role === "user" ? "User" : "Bot";
-      // Trim long messages so the snapshot stays under ~2k tokens total
-      const text = msg.message.length > 500 ? msg.message.slice(0, 500) + "…" : msg.message;
-      lines.push(`${who}: ${text}`);
-    }
-  }
+  //
+  // Recent history is no longer rendered as a flat text block here. As of
+  // the multi-turn fix, the turn handler passes prior conversation_log
+  // entries to Claude as proper user/assistant messages in the messages[]
+  // array — the way Claude.ai natively passes context. Flat-text "User: X
+  // / Bot: Y" narrative was getting truncated at 500 chars per message and
+  // collapsed into a single user turn, which Claude couldn't pattern-match
+  // against. See turn-handler.ts buildMessagesArray.
 
   return lines.join("\n");
 }

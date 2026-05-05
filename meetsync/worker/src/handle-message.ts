@@ -167,7 +167,11 @@ async function routeExtractedPayload(
   let logId: number | undefined;
   if (routerPayload.message_type === "text" && routerPayload.text) {
     try {
-      const trimmed = routerPayload.text.slice(0, 500);
+      // Cap matches d1-client.logMessage (4000). Bumped from 500 so
+      // long pasted schedules and multi-line plans survive the pre-log
+      // and are replayable through the multi-turn history at the next
+      // turn.
+      const trimmed = routerPayload.text.slice(0, 4000);
       const insert = await env.DB.prepare(
         "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, 'user', ?)"
       ).bind(routerPayload.chat_id, trimmed).run();

@@ -686,8 +686,12 @@ export async function logMessage(
   role: "user" | "bot",
   message: string
 ): Promise<number> {
-  // Cap message length to prevent bloat
-  const trimmed = message.slice(0, 1000);
+  // Cap per-message length to keep one row's storage bounded. Bumped
+  // 1000 → 4000 so long voice transcriptions and pasted multi-week
+  // schedules survive intact for replay through the multi-turn history.
+  // The nightly cleanup cron caps total rows per chat at 50, so total
+  // chat storage stays bounded at ~200 KB worst case.
+  const trimmed = message.slice(0, 4000);
   const result = await query(
     "INSERT INTO conversation_log (chat_id, role, message) VALUES (?, ?, ?)",
     [chatId, role, trimmed]

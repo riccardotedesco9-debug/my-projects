@@ -131,7 +131,7 @@ cd worker && npx wrangler d1 execute meetsync-db --remote --command="DELETE FROM
 
 ## Key invariants
 
-- **Schedules live on `users`, not on a session.** A user has one canonical schedule, overwritten on each upload.
+- **Schedules live on `users`, not on a session.** A user has one canonical schedule, **merged per-date on every upload** — a new upload owns only the dates it covers; dates from earlier uploads stay put. So Mon–Wed today + Thu–Fri next week ends up as a full Mon–Fri schedule. Re-uploading a single date replaces just that date's entries. (Was a full overwrite before the merge fix.)
 - **Visibility is per-caller.** Each user has their own `person_notes`. Snapshot enriches each linked contact with their live `latest_schedule_json` + Google Calendar events.
 - **Calendar is the source of truth post-booking.** `book_meetup` creates events with attendees; the bot's job is over after that.
 - **Privacy is one-way.** Caller sees their own events in full; sensitive events of others are abstracted by Claude when describing them across people.

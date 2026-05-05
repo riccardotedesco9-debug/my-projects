@@ -438,9 +438,44 @@ const parseScheduleTool: ToolDefinition = {
 };
 
 /**
- * Save extracted shifts to the right target (person_note or participant)
- * and sync the in-turn snapshot. Used by both the parser path and the
+ * Per-date merge: union prior shifts with newly-parsed ones, replacing
+ * only the dates the new parse covers. Rationale: rotas come in piecemeal
+ * (week 1 today, week 2 next week). A REPLACE-everything strategy silently
+ * loses earlier weeks the moment the user uploads a partial follow-up —
+ * which was the bug behind the recurring "schedule got mixed up" reports.
+ *
+ * Semantics: any date present in `newShifts` has its existing entries
+ * dropped and is fully owned by `newShifts`. Dates NOT present in
+ * `newShifts` keep their existing entries verbatim. So a re-upload of
+ * Wed (with changes) updates Wed only; Mon/Tue/Thu/Fri stay put.
+ */
+function mergeShiftsByDate<T extends { date: string }>(
+  existingJson: string | null,
+  newShifts: T[],
+): T[] {
+  let existing: T[] = [];
+  if (existingJson) {
+    try {
+      const parsed = JSON.parse(existingJson);
+      if (Array.isArray(parsed)) existing = parsed as T[];
+    } catch {
+      // Corrupt blob — treat as empty rather than crash. Better surfaced
+      // by the [persistShifts] log line below than by a 500.
+      console.warn("[persistShifts] existing schedule_json was unparseable — treating as empty");
+    }
+  }
+  const coveredDates = new Set(newShifts.map((s) => s.date));
+  const kept = existing.filter((s) => !coveredDates.has(s.date));
+  return [...kept, ...newShifts];
+}
+
+/**
+ * Save extracted shifts to the right target (person_note or self) and
+ * sync the in-turn snapshot. Used by both the parser path and the
  * direct-shifts escape hatch.
+ *
+ * Merge behaviour: per-date replace, NOT total replace. See
+ * mergeShiftsByDate above for the rationale.
  */
 async function persistShifts(
   ctx: ToolContext,
@@ -448,27 +483,42 @@ async function persistShifts(
   attributedToName: string,
   source: "direct" | "text" | "media",
 ): Promise<ToolResult> {
-  // Drop exact-duplicate (date, start, end, label) tuples before saving.
-  // The parser occasionally emits the same entry twice — multi-page PDF
-  // re-scans, recurring-pattern expansion that overlaps an existing entry,
-  // a rota with two empty slots on a single off day. Duplicates inflated
-  // off-day counts in the snapshot ("6 off days" when only 3 distinct
-  // dates were off) before the date-grouping fix in renderShiftListCompact.
-  // Belt-and-braces: also dedupe at save time so other consumers
-  // (gatherBusyBlocksForDate, compute_overlap) don't double-count either.
+  // Drop exact-duplicate (date, start, end, label) tuples WITHIN the new
+  // parse first — the parser occasionally emits the same entry twice on
+  // multi-page PDFs / overlapping recurring expansions. Then merge per-
+  // date with whatever's already on file. The merge guarantees each date
+  // is "owned" by the most recent upload, so re-uploading Wed updates
+  // Wed without disturbing Mon/Tue.
   const seen = new Set<string>();
-  const dedupedShifts = result.shifts.filter((s) => {
+  const dedupedNew = result.shifts.filter((s) => {
     const key = `${s.date}|${s.start_time}|${s.end_time}|${s.label ?? ""}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
-  const droppedDuplicates = result.shifts.length - dedupedShifts.length;
+  const droppedDuplicates = result.shifts.length - dedupedNew.length;
   if (droppedDuplicates > 0) {
     console.log(`[persistShifts] dropped ${droppedDuplicates} exact-duplicate entries from ${attributedToName || "self"}`);
   }
-  const scheduleJson = JSON.stringify(dedupedShifts);
-  result = { shifts: dedupedShifts };
+
+  // Pick the existing-blob source for this target (self vs on-behalf)
+  // and run the per-date merge. We use the snapshot's view of the blob
+  // — it was loaded at turn start and is the same row we're about to
+  // write back to, so no extra D1 read is needed.
+  const existingJson = attributedToName
+    ? ctx.snapshot.personNotes.find(
+        (n) => n.name.toLowerCase() === attributedToName.toLowerCase(),
+      )?.schedule_json ?? null
+    : ctx.snapshot.user.latest_schedule_json ?? null;
+  const merged = mergeShiftsByDate(existingJson, dedupedNew);
+  const newDateCount = new Set(dedupedNew.map((s) => s.date)).size;
+  const totalDateCount = new Set(merged.map((s) => s.date)).size;
+  const keptDateCount = totalDateCount - newDateCount;
+  console.log(
+    `[persistShifts] merged for ${attributedToName || "self"}: ${dedupedNew.length} new shifts on ${newDateCount} dates, kept ${keptDateCount} pre-existing dates, total ${merged.length} shifts on ${totalDateCount} dates`,
+  );
+  const scheduleJson = JSON.stringify(merged);
+  result = { shifts: merged };
 
   // On-behalf path → person_notes.schedule_json
   if (attributedToName) {
@@ -499,6 +549,8 @@ async function persistShifts(
       source,
       target: `person_note:${attributedToName}`,
       shift_count: result.shifts.length,
+      new_dates: newDateCount,
+      kept_dates: keptDateCount,
     });
     return {
       saved: true,
@@ -517,6 +569,8 @@ async function persistShifts(
     source,
     target: `user:${ctx.callerChatId}`,
     shift_count: result.shifts.length,
+    new_dates: newDateCount,
+    kept_dates: keptDateCount,
   });
 
   // Fire any outstanding watchers — callers who asked the bot to let them

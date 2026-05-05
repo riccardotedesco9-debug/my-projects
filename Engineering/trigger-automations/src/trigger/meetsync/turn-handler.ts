@@ -113,17 +113,17 @@ function buildSystemPrompt(todayLabel: string, timezone: string): string {
 
 Today is ${todayLabel} in the caller's timezone (${timezone}).
 
-Ground every reply in the [STATE] block. It lists the caller's profile + schedule, their contacts (with each contact's live schedule, freeform facts, and language), and whether they've connected Google Calendar. Don't claim facts not in [STATE]. If [RECENT HISTORY] conflicts, trust [STATE]. Three common mistakes to avoid: (1) Time confabulation — when stating a specific time (e.g. "you finish at midnight"), re-check against [STATE]. 15:00–00:00 ≠ 17:00–02:00. (2) Person misclassification — when listing "who's working / off today" across many contacts, go person by person through [STATE] and verify each one's entry for that specific date. With 10+ contacts it's easy to misread one entry and wrongly mark someone as OFF when they're working. If a contact has no entry for a date but has shifts for surrounding dates, say "no data for that date" — don't assume OFF. (3) Off-day miscounting — when answering "how many off days do I have", count DISTINCT DATES, not entries (one date with OFF + a gym block is ONE off day, not two). Default scope is upcoming only — count dates AT OR AFTER the "── today ──" divider in [STATE]. Past dates are visible for "was I off yesterday?" queries, but exclude them from "this week / coming up" counts unless the caller explicitly asks about the past.
+Ground every reply in the [STATE] block. It lists the caller's profile + schedule, their contacts (with each contact's live schedule, freeform facts, and language), and whether they've connected Google Calendar. Don't claim facts not in [STATE]. If anything in the prior conversation turns conflicts with [STATE], trust [STATE] — chat history is a record of what was said, [STATE] is the ground truth of what is. Three common mistakes to avoid: (1) Time confabulation — when stating a specific time (e.g. "you finish at midnight"), re-check against [STATE]. 15:00–00:00 ≠ 17:00–02:00. (2) Person misclassification — when listing "who's working / off today" across many contacts, go person by person through [STATE] and verify each one's entry for that specific date. With 10+ contacts it's easy to misread one entry and wrongly mark someone as OFF when they're working. If a contact has no entry for a date but has shifts for surrounding dates, say "no data for that date" — don't assume OFF. (3) Off-day miscounting — when answering "how many off days do I have", count DISTINCT DATES, not entries (one date with OFF + a gym block is ONE off day, not two). Default scope is upcoming only — count dates AT OR AFTER the "── today ──" divider in [STATE]. Past dates are visible for "was I off yesterday?" queries, but exclude them from "this week / coming up" counts unless the caller explicitly asks about the past.
 
 Mental model. The bot is NOT the meetup hub — **Google Calendar is**. Your job is short: help people find a time, write it to both calendars via book_meetup, step aside. Post-booking coordination ("are we still on?", changes) belongs on the calendar event itself. Minimise chatter after booking.
 
-Users. Everyone has ONE schedule on file, overwritten on each upload. Each user has their own private contacts list. When the caller names someone new, call add_contact — phone is OPTIONAL. Most contacts don't use Telegram; just create them by name and save their schedule. If a phone IS given, the bot shadow-tracks so the link fires automatically when that number joins. Do NOT offer invite URLs. Never gatekeep on phone — create the contact and move on.
+Users. Each user has ONE schedule on file. Uploads MERGE per-date: a new upload owns only the dates it covers — earlier dates from prior uploads stay put. So a user can upload Mon–Wed today and Thu–Fri next week and end up with the full week saved. A re-upload of a single date replaces just that date's entries. Don't tell the user "your previous schedule was wiped" — that's no longer true. Each user has their own private contacts list. When the caller names someone new, call add_contact — phone is OPTIONAL. Most contacts don't use Telegram; just create them by name and save their schedule. If a phone IS given, the bot shadow-tracks so the link fires automatically when that number joins. Do NOT offer invite URLs. Never gatekeep on phone — create the contact and move on.
 
 When the caller defers ("just guess", "you pick", "whatever works", "surprise me", "I dunno just book it"), that's explicit permission to commit to a sensible default — don't re-ask. Pick the next non-conflicting slot of at least 90 min within any window they hinted at; narrate the pick in one line ("booking Mon 4–6pm — tweak in Calendar if you like"), call book_meetup, stop. If the caller has already tapped Confirm or said "yes book it", book — don't re-confirm.
 
 When an availability description arrives (dated shifts OR a recurring rhythm like "free after noon, Tuesdays volunteer"), call parse_schedule with dated shifts expanded for the next 14 days. upsert_knowledge is for side-facts ("lives in Gozo"), never the schedule. Note: compute_overlap also reads each /connect'd person's live Google Calendar and adds those events as busy blocks, so calendar-blocked times are automatically respected without the user restating them.
 
-DURABLE MEMORY — important. [RECENT HISTORY] only shows the last 30 messages and gets pruned to 50 rows nightly; anything older is GONE. The ONLY thing that survives across days is user.context (caller's profile facts) and contact notes. So whenever the caller mentions ANYTHING that should still be true next week — recurring exercise/therapy/medical slots, work patterns, family members' names, commute, location, language preference, food habits, anything they'd be annoyed to repeat — call upsert_knowledge in the SAME turn. Be greedy here: it's cheap and it's the difference between "the bot remembered" and "I had to tell it again". Don't ask permission; promote and move on. Same applies to facts about a contact (target='person'). When the caller asks "do you remember X?" and X is a recurring fact, check user.context FIRST — if it's there, restate; if not and they confirm it's true, save it now so this never happens again.
+DURABLE MEMORY — important. The conversation turns above this current one show recent chat (oldest first → newest), but the chat log is pruned to 50 rows per chat nightly; anything older is GONE. The ONLY thing that survives across days is user.context (caller's profile facts) and contact notes. So whenever the caller mentions ANYTHING that should still be true next week — recurring exercise/therapy/medical slots, work patterns, family members' names, commute, location, language preference, food habits, anything they'd be annoyed to repeat — call upsert_knowledge in the SAME turn. Be greedy here: it's cheap and it's the difference between "the bot remembered" and "I had to tell it again". Don't ask permission; promote and move on. Same applies to facts about a contact (target='person'). When the caller asks "do you remember X?" and X is a recurring fact, check user.context FIRST — if it's there, restate; if not and they confirm it's true, save it now so this never happens again.
 
 Schedule encoding (schedule_json entries are BUSY windows; everything else is free):
 
@@ -192,6 +192,7 @@ function buildUserTurnContent(
   payload: TurnPayload,
   currentText: string | undefined,
   mediaCache: { base64: string; mediaType: string } | undefined,
+  priorBurstTexts: string[],
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   // Snapshot is static across all iterations of a single turn — cache it so
@@ -229,13 +230,120 @@ function buildUserTurnContent(
     ? `[CURRENT TURN — user sent a voice note, transcribed to text below]`
     : `[CURRENT TURN — text message]`;
 
+  // Earlier-burst texts: if the user sent multiple messages in quick
+  // succession, only the latest turn handler runs (burst-grace bails the
+  // earlier ones via the log_id guard). The bailed turns leave user-role
+  // entries in conversation_log that we'd otherwise emit as consecutive
+  // user-role API messages — which Claude rejects. Fold them in here so
+  // the model still sees what the user said in the burst.
+  const burstPreamble = priorBurstTexts.length > 0
+    ? `[Earlier in this burst, the user also said:]\n${priorBurstTexts.map((t) => `- ${t}`).join("\n")}\n\n`
+    : "";
+
   const userMessage = currentText ?? "";
   blocks.push({
     type: "text",
-    text: `\n${turnLabel}\n<user_message>\n${userMessage}\n</user_message>`,
+    text: `\n${turnLabel}\n<user_message>\n${burstPreamble}${userMessage}\n</user_message>`,
   });
 
   return blocks;
+}
+
+/**
+ * Build the multi-turn `messages` array for the Claude API call.
+ *
+ * Recent conversation history (loaded by loadSnapshot) is emitted as
+ * proper alternating user/assistant turns BEFORE the current turn —
+ * mirroring how Claude.ai passes context natively. Replaces the prior
+ * approach of inlining a flat-text "[RECENT HISTORY]" block into the
+ * single user turn, which (a) truncated each historical message to 500
+ * chars and (b) gave Claude a narrative to read instead of a
+ * conversation to reason over.
+ *
+ * Behaviour:
+ *  - `recentHistory` is oldest-first. The Worker pre-logs every inbound
+ *    user message before forwarding to Trigger.dev, so the trailing
+ *    entry is (almost always) the current turn echoing back. We pop
+ *    that off and re-attach it as the rich current turn (with [STATE]
+ *    + media) returned by buildUserTurnContent.
+ *  - Earlier burst-tail user entries (rare — only when burst-grace
+ *    bailed prior turns) are surfaced via `priorBurstTexts` so they
+ *    don't get lost AND so we don't end up with two consecutive user
+ *    turns (Claude API rejects non-alternating roles).
+ *  - Consecutive same-role historical entries are coalesced (concat
+ *    with blank line). Happens when the bot sent multiple log lines
+ *    for one reply, or earlier bursts the bot did acknowledge.
+ *  - If the resulting first message isn't user-role (history starts
+ *    with a stale assistant entry), drop assistant turns from the
+ *    front until we find a user turn.
+ */
+function buildMessagesArray(
+  recentHistory: Snapshot["recentHistory"],
+  currentTurnContent: ContentBlock[],
+): AnthropicMessage[] {
+  const messages: AnthropicMessage[] = [];
+  for (const m of recentHistory) {
+    const role: "user" | "assistant" = m.role === "user" ? "user" : "assistant";
+    const last = messages[messages.length - 1];
+    if (last && last.role === role) {
+      const lastText = typeof last.content === "string"
+        ? last.content
+        : last.content
+            .filter((b): b is { type: "text"; text: string } => b.type === "text")
+            .map((b) => b.text)
+            .join("\n");
+      last.content = `${lastText}\n\n${m.message}`;
+    } else {
+      messages.push({ role, content: m.message });
+    }
+  }
+  while (messages.length > 0 && messages[0].role !== "user") messages.shift();
+  messages.push({ role: "user", content: currentTurnContent });
+  return messages;
+}
+
+/**
+ * Strip the trailing user-role entries from history because they are
+ * the current turn (and any earlier burst-bailed turns) we're about
+ * to emit as the rich current user turn. Returns the popped texts so
+ * the caller can fold them into the current turn's <user_message>
+ * block — they'd otherwise be lost when we drop them from history,
+ * AND we can't leave them as a trailing user run because the API
+ * forbids consecutive same-role turns.
+ *
+ * Note: the FIRST popped entry is the actual current turn echoing
+ * back from the Worker pre-log, so it duplicates `currentText` and
+ * is dropped silently. Subsequent pops are real burst-tail content
+ * that bailed turns left behind — those need to survive.
+ */
+function extractTrailingUserTurns(
+  recentHistory: Snapshot["recentHistory"],
+  currentText: string | undefined,
+): { trimmed: Snapshot["recentHistory"]; burstTexts: string[] } {
+  const trimmed = recentHistory.slice();
+  const popped: string[] = [];
+  while (trimmed.length > 0 && trimmed[trimmed.length - 1].role === "user") {
+    popped.unshift(trimmed.pop()!.message);
+  }
+  // Drop the most-recent popped entry if it matches the current turn.
+  // Worker pre-logs text turns as `text.slice(0, 500)` and media turns as
+  // a synthetic `[photo uploaded · file_id=...]` marker, so the literal
+  // identity check covers most real cases; for safety also drop if the
+  // popped entry is a [...uploaded · ...] / [voice message ...] marker
+  // (the rich current turn already labels the media via turnLabel).
+  if (popped.length > 0) {
+    const last = popped[popped.length - 1];
+    const isMediaMarker = /^\[(photo|document|voice|contact|.+?) (uploaded|message|shared) ?(?:·|\b)/.test(last);
+    // Worker pre-log caps text at 4000 chars (handle-message.ts). Match the
+    // popped entry's prefix against currentText's first 4000 chars to
+    // detect the echo-back of the current turn even when the user pasted
+    // a longer message than the cap allows.
+    const matchesCurrent = currentText !== undefined && last.startsWith(currentText.slice(0, 4000));
+    if (matchesCurrent || isMediaMarker) {
+      popped.pop();
+    }
+  }
+  return { trimmed, burstTexts: popped };
 }
 
 // --- Telegram helpers ---
@@ -320,7 +428,18 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
         const parsed = JSON.parse(target.existing);
         if (Array.isArray(parsed)) existing = parsed;
       } catch {
-        // corrupt existing — overwrite with just events
+        // Corrupt JSON in latest_schedule_json — skip the calendar merge
+        // for this target so the in-memory snapshot keeps the raw blob
+        // (downstream renderers tolerate junk). Overwriting with events-
+        // only here was the regression that made manual shifts vanish
+        // from the LLM's view whenever the blob was malformed.
+        console.warn(
+          `[snapshot] corrupt schedule_json for chat=${target.chat_id} — skipping calendar merge to preserve manual shifts`,
+        );
+        await emitSessionEvent("no-session", "snapshot_corrupt_schedule_json", {
+          chat_id: target.chat_id,
+        });
+        continue;
       }
     }
     target.write(JSON.stringify([...existing, ...events]));
@@ -646,7 +765,21 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
     // 7. Build system prompt + user turn content
     const systemPrompt = buildSystemPrompt(todayLabel, snapshot.timezone);
     const snapshotText = formatSnapshot(snapshot, todayLabel);
-    const userTurnContent = buildUserTurnContent(snapshotText, payload, currentText, mediaCache);
+    // Split history: drop the trailing user run (current turn echoed back
+    // by the Worker pre-log + any earlier burst-bailed turns) and fold
+    // the bailed-burst content into the current user message. Leaves a
+    // history that strictly ends with an assistant turn (or is empty).
+    const { trimmed: priorHistory, burstTexts } = extractTrailingUserTurns(
+      snapshot.recentHistory,
+      currentText,
+    );
+    const userTurnContent = buildUserTurnContent(
+      snapshotText,
+      payload,
+      currentText,
+      mediaCache,
+      burstTexts,
+    );
 
     // 8. Run the tool-use loop
     const ctx: ToolContext = {
@@ -656,9 +789,7 @@ export async function runTurn(payload: TurnPayload): Promise<Record<string, unkn
       currentText,
       replySent: false,
     };
-    const messages: AnthropicMessage[] = [
-      { role: "user", content: userTurnContent },
-    ];
+    const messages = buildMessagesArray(priorHistory, userTurnContent);
 
     for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
       let response: AnthropicResponse;
