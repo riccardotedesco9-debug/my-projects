@@ -177,6 +177,21 @@ function scheduleCoverageLabel(scheduleJson: string, timezone: string): string {
  * Capped at 35 dates to keep the snapshot from blowing up on multi-month
  * rotas.
  */
+// Active window for snapshot rendering. The full schedule history lives
+// in users.latest_schedule_json forever (per-date merge, no pruning), but
+// rendering EVERY past+future entry every turn balloons the snapshot text
+// over time and burns tokens for data the user usually isn't asking
+// about. So [STATE] surfaces today−WINDOW_DAYS_BACK → today+WINDOW_DAYS_FORWARD
+// inline, and Claude calls query_schedule_history for anything outside.
+const WINDOW_DAYS_BACK = 14;
+const WINDOW_DAYS_FORWARD = 60;
+
+function isoDateWithOffset(daysOffset: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + daysOffset);
+  return d.toISOString().slice(0, 10);
+}
+
 function renderShiftListCompact(scheduleJson: string, indent: string): string[] {
   let shifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
   try {
@@ -196,7 +211,7 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     if (list) list.push(s);
     else byDate.set(s.date, [s]);
   }
-  const dates = Array.from(byDate.keys()).sort();
+  const allDates = Array.from(byDate.keys()).sort();
 
   // Today anchor — UTC ISO. Used to insert a "── today ──" divider so
   // Claude can distinguish past vs upcoming dates at a glance and won't
@@ -205,8 +220,38 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
   // strings; the +/-1 day fuzz from timezone is acceptable here (the
   // divider is a visual hint, not a strict cutoff).
   const todayIso = new Date().toISOString().slice(0, 10);
+  const windowStart = isoDateWithOffset(-WINDOW_DAYS_BACK);
+  const windowEnd = isoDateWithOffset(WINDOW_DAYS_FORWARD);
+
+  // Window the render to the active range. Out-of-window dates are still
+  // in D1 and reachable via query_schedule_history; we just don't pay the
+  // tokens to inline them every turn. Count what's hidden so Claude can
+  // tell the user "I have N older / M further dates on file too".
+  const dates = allDates.filter((d) => d >= windowStart && d <= windowEnd);
+  const hiddenBefore = allDates.filter((d) => d < windowStart).length;
+  const hiddenAfter = allDates.filter((d) => d > windowEnd).length;
+  const earliestStored = allDates[0];
+  const latestStored = allDates[allDates.length - 1];
+
   const out: string[] = [];
-  out.push(`${indent}shifts:`);
+  out.push(`${indent}shifts (active window ${windowStart} → ${windowEnd}):`);
+
+  // Surface hidden-date counts up-front so Claude doesn't say "I don't have
+  // that on file" for older/further dates that DO exist in storage.
+  if (hiddenBefore > 0) {
+    out.push(`${indent}  …${hiddenBefore} older date(s) on file (earliest ${earliestStored}) — call query_schedule_history if asked`);
+  }
+  if (hiddenAfter > 0) {
+    out.push(`${indent}  …${hiddenAfter} further-future date(s) on file (latest ${latestStored}) — call query_schedule_history if asked`);
+  }
+
+  if (dates.length === 0) {
+    // All entries are outside the window. Still emit the today divider so
+    // Claude sees the orientation and knows nothing upcoming-soon is on file.
+    out.push(`${indent}  ── today (${todayIso}) — nothing in the active window ──`);
+    return out;
+  }
+
   const MAX = 35;
   const displayDates = dates.slice(0, MAX);
   let dividerInserted = false;
@@ -222,13 +267,13 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     const entries = byDate.get(date)!;
     out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries)}`);
   }
-  // Edge case: all dates are in the past — still emit the divider at the
-  // bottom so Claude sees that nothing upcoming is on file.
+  // Edge case: all dates within the window are in the past — emit the
+  // divider at the bottom so Claude sees that nothing upcoming is on file.
   if (!dividerInserted) {
     out.push(`${indent}  ── today (${todayIso}) — nothing upcoming on file ──`);
   }
   if (dates.length > MAX) {
-    out.push(`${indent}  …and ${dates.length - MAX} more dates`);
+    out.push(`${indent}  …and ${dates.length - MAX} more dates inside the window`);
   }
   return out;
 }

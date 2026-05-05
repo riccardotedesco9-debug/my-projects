@@ -1185,6 +1185,100 @@ const setPersonHiddenTool: ToolDefinition = {
   },
 };
 
+// --- Tool 7a: query_schedule_history ---
+//
+// The snapshot's [STATE] block only renders shifts inside an active window
+// (today−14d → today+60d). Full schedule history lives in
+// users.latest_schedule_json (or person_notes.schedule_json) forever — the
+// per-date merge in persistShifts never prunes — but rendering every date
+// each turn would balloon token cost as months pass. So out-of-window
+// dates are reachable via this tool. Claude calls it when the user asks
+// "what was my September look like" / "did I work last Christmas" /
+// "what's penciled in for December".
+
+const queryScheduleHistoryTool: ToolDefinition = {
+  name: "query_schedule_history",
+  description:
+    "Look up shifts on dates OUTSIDE the active window shown in [STATE] (today−14d → today+60d). Use whenever the user asks about a specific past date older than two weeks ago, or a future date more than two months out, that is NOT in the inline shift list. Examples: 'was I working on 12 March?', 'what was my schedule in September?', 'do I have anything penciled for Christmas?'. Returns shifts in the date range, grouped by date. Reads the full stored schedule — nothing is ever deleted, so even years-old uploads come back. Don't fabricate; if the tool returns no rows for a date, tell the user honestly that nothing's on file for that date.",
+  input_schema: {
+    type: "object",
+    required: ["start_date", "end_date"],
+    properties: {
+      start_date: {
+        type: "string",
+        description: "Inclusive start date in YYYY-MM-DD. Pick a sensible window around what the user asked — e.g. for 'September' use 2026-09-01. Don't query single-day windows just to check one date — a 3-7 day window is fine and gives you context.",
+      },
+      end_date: {
+        type: "string",
+        description: "Inclusive end date in YYYY-MM-DD. Must be >= start_date.",
+      },
+      contact_name: {
+        type: "string",
+        description: "Optional. The name of a contact (must already be in the caller's person_notes) whose history to query. Omit to query the caller's own history.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const start = typeof input.start_date === "string" ? input.start_date : "";
+    const end = typeof input.end_date === "string" ? input.end_date : "";
+    const contactName = typeof input.contact_name === "string" ? input.contact_name.trim() : "";
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRe.test(start) || !dateRe.test(end)) {
+      return { error: "start_date and end_date must be YYYY-MM-DD." };
+    }
+    if (start > end) {
+      return { error: `start_date (${start}) must be on or before end_date (${end}).` };
+    }
+
+    let scheduleJson: string | null;
+    let target: string;
+    if (contactName) {
+      const note = ctx.snapshot.personNotes.find(
+        (n) => n.name.toLowerCase() === contactName.toLowerCase(),
+      );
+      if (!note) {
+        return {
+          error: "contact_not_found",
+          message: `No contact named '${contactName}' in your list.`,
+        };
+      }
+      scheduleJson = note.schedule_json;
+      target = `person_note:${contactName}`;
+    } else {
+      scheduleJson = ctx.snapshot.user.latest_schedule_json;
+      target = `user:${ctx.callerChatId}`;
+    }
+
+    if (!scheduleJson) {
+      return {
+        target,
+        range: { start, end },
+        shifts: [],
+        notes: "no schedule on file for this target",
+      };
+    }
+
+    let allShifts: Array<{ date: string; start_time: string; end_time: string; label?: string }> = [];
+    try {
+      const parsed = JSON.parse(scheduleJson);
+      if (Array.isArray(parsed)) allShifts = parsed;
+    } catch {
+      return { error: "schedule_json unparseable for target — corrupt blob in D1." };
+    }
+
+    const inRange = allShifts
+      .filter((s) => typeof s.date === "string" && s.date >= start && s.date <= end)
+      .sort((a, b) => a.date.localeCompare(b.date) || a.start_time.localeCompare(b.start_time));
+
+    return {
+      target,
+      range: { start, end },
+      shift_count: inRange.length,
+      shifts: inRange,
+    };
+  },
+};
+
 // --- Tool 7: reset_conversation ---
 
 const sessionActionTool: ToolDefinition = {
@@ -1777,6 +1871,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   computeAndDeliverMatchTool,
   upsertKnowledgeTool,
   setPersonHiddenTool,
+  queryScheduleHistoryTool,
   sessionActionTool,
   scheduleReminderTool,
   listRemindersTool,
