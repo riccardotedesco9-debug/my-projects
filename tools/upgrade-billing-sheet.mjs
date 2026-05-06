@@ -17,6 +17,7 @@ const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 const MONTHLY = "monthly";
 const SUMMARY = "summary";
 const ALERTS = "alerts";
+const DASHBOARD = "dashboard";
 
 // Must match SHEET_HEADERS in sheet-writer.ts. 25 cols → A..Y.
 const MONTHLY_HEADERS = [
@@ -115,16 +116,25 @@ async function writeRange(token, sheetId, range, values) {
 // ────────────────────────────────────────────────────────────────────
 
 function ensureTabRequests(meta) {
+  // dashboard = transposed primary view (metrics down, months across)
+  // monthly   = raw cron-written rows; kept around but de-prioritised
+  // The cron writes to `monthly`; dashboard auto-renders via TRANSPOSE.
   const reqs = [];
-  for (const [title, color] of [
-    [SUMMARY, COLOR_GREEN],
-    [MONTHLY, COLOR_BLUE],
-    [ALERTS, COLOR_RED],
+  const COLOR_GREY = { red: 0.7, green: 0.7, blue: 0.72 };
+  for (const [title, color, frozenRow, frozenCol] of [
+    [SUMMARY, COLOR_GREEN, 0, 0],
+    [DASHBOARD, COLOR_BLUE, 1, 1],
+    [MONTHLY, COLOR_GREY, 1, 0],
+    [ALERTS, COLOR_RED, 1, 0],
   ]) {
     if (!findTab(meta, title)) {
       reqs.push({
         addSheet: {
-          properties: { title, tabColor: color, gridProperties: { frozenRowCount: 1 } },
+          properties: {
+            title,
+            tabColor: color,
+            gridProperties: { frozenRowCount: frozenRow, frozenColumnCount: frozenCol },
+          },
         },
       });
     }
@@ -132,25 +142,34 @@ function ensureTabRequests(meta) {
   return reqs;
 }
 
-function tabUpdateRequests(monthlyId, alertsId, summaryId) {
-  // Frozen header row + tab color (idempotent — re-applying same value is a no-op).
+function tabUpdateRequests(ids) {
+  const COLOR_GREY = { red: 0.7, green: 0.7, blue: 0.72 };
+  // Idempotent: re-applying the same tab properties is a no-op for Sheets.
+  // Tab order: summary → dashboard → monthly → alerts (dashboard is the
+  // primary readable view; monthly stays as the raw data source).
   return [
     {
       updateSheetProperties: {
-        properties: { sheetId: monthlyId, tabColor: COLOR_BLUE, gridProperties: { frozenRowCount: 1 } },
-        fields: "tabColor,gridProperties.frozenRowCount",
+        properties: { sheetId: ids.summary, tabColor: COLOR_GREEN, index: 0, gridProperties: { frozenRowCount: 0, hideGridlines: true } },
+        fields: "tabColor,index,gridProperties.frozenRowCount,gridProperties.hideGridlines",
       },
     },
     {
       updateSheetProperties: {
-        properties: { sheetId: alertsId, tabColor: COLOR_RED, gridProperties: { frozenRowCount: 1 } },
-        fields: "tabColor,gridProperties.frozenRowCount",
+        properties: { sheetId: ids.dashboard, tabColor: COLOR_BLUE, index: 1, gridProperties: { frozenRowCount: 1, frozenColumnCount: 1 } },
+        fields: "tabColor,index,gridProperties.frozenRowCount,gridProperties.frozenColumnCount",
       },
     },
     {
       updateSheetProperties: {
-        properties: { sheetId: summaryId, tabColor: COLOR_GREEN, gridProperties: { frozenRowCount: 0 } },
-        fields: "tabColor,gridProperties.frozenRowCount",
+        properties: { sheetId: ids.monthly, tabColor: COLOR_GREY, index: 2, gridProperties: { frozenRowCount: 1 } },
+        fields: "tabColor,index,gridProperties.frozenRowCount",
+      },
+    },
+    {
+      updateSheetProperties: {
+        properties: { sheetId: ids.alerts, tabColor: COLOR_RED, index: 3, gridProperties: { frozenRowCount: 1 } },
+        fields: "tabColor,index,gridProperties.frozenRowCount",
       },
     },
   ];
@@ -270,6 +289,152 @@ function monthlyConditionalFormatRequests(sheetId) {
   ];
 }
 
+/**
+ * Format the transposed dashboard tab. After =TRANSPOSE(monthly!A1:Y100):
+ *   row 1 = months across (was column A on monthly)
+ *   col A = metric names (was row 1 / headers on monthly)
+ *   B2..Z25 = data values (one column per month)
+ *
+ * Number formatting on the transposed tab is per-row instead of per-column.
+ * Row indices below are 0-indexed, MONTHLY_HEADERS is the source order.
+ */
+function dashboardFormatRequests(sheetId) {
+  const reqs = [];
+
+  // Bold + dark bg for top row (months) and first column (metric labels).
+  const headerFmt = {
+    backgroundColor: COLOR_HEADER_BG,
+    textFormat: { foregroundColor: COLOR_HEADER_FG, bold: true, fontSize: 10 },
+    horizontalAlignment: "LEFT",
+    verticalAlignment: "MIDDLE",
+    padding: { top: 4, bottom: 4, left: 8, right: 8 },
+  };
+  reqs.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 30 },
+      cell: { userEnteredFormat: headerFmt },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)",
+    },
+  });
+  reqs.push({
+    repeatCell: {
+      range: { sheetId, startRowIndex: 0, endRowIndex: MONTHLY_HEADERS.length, startColumnIndex: 0, endColumnIndex: 1 },
+      cell: { userEnteredFormat: { ...headerFmt, horizontalAlignment: "LEFT" } },
+      fields: "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,padding)",
+    },
+  });
+
+  // Per-row number formatting. Map MONTHLY_HEADERS index → format type.
+  // Rows here are 0-indexed in the transposed dashboard (row 0 = "month",
+  // row 1 = "anthropic_tokens", ...).
+  const fmtByHeader = {
+    anthropic_usd: "currency",
+    trigger_usd: "currency",
+    cloudflare_usd: "currency",
+    total_usd: "currency",
+    delta_usd_vs_prev: "currency",
+    rolling_3mo_avg_usd: "currency",
+    delta_pct_vs_prev: "percent",
+    anthropic_tokens: "int",
+    elevenlabs_chars_used: "int",
+    elevenlabs_chars_remaining: "int",
+    trigger_runs: "int",
+    cloudflare_requests: "int",
+    firecrawl_credits_used: "int",
+    firecrawl_credits_remaining: "int",
+    meetsync_active_users: "int",
+    meetsync_new_users: "int",
+    meetsync_turns: "int",
+    meetsync_reminders_fired: "int",
+    jobhunt_runs: "int",
+    jobhunt_jobs_ingested: "int",
+    jobhunt_emails_sent: "int",
+    alert_count: "int",
+  };
+  const patterns = {
+    currency: { type: "CURRENCY", pattern: "$#,##0.00" },
+    percent: { type: "NUMBER", pattern: "+0.0\"%\";-0.0\"%\";0.0\"%\"" },
+    int: { type: "NUMBER", pattern: "#,##0" },
+  };
+  for (let i = 0; i < MONTHLY_HEADERS.length; i++) {
+    const fmt = fmtByHeader[MONTHLY_HEADERS[i]];
+    if (!fmt) continue;
+    reqs.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: i, endRowIndex: i + 1, startColumnIndex: 1, endColumnIndex: 30 },
+        cell: { userEnteredFormat: { numberFormat: patterns[fmt] } },
+        fields: "userEnteredFormat.numberFormat",
+      },
+    });
+  }
+
+  // Conditional formatting on the delta_pct_vs_prev row + alert_count row.
+  const deltaPctRow = MONTHLY_HEADERS.indexOf("delta_pct_vs_prev");
+  const alertCountRow = MONTHLY_HEADERS.indexOf("alert_count");
+  if (deltaPctRow >= 0) {
+    reqs.push({
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: deltaPctRow, endRowIndex: deltaPctRow + 1, startColumnIndex: 1, endColumnIndex: 30 }],
+          booleanRule: {
+            condition: { type: "NUMBER_GREATER", values: [{ userEnteredValue: "50" }] },
+            format: { backgroundColor: { red: 1, green: 0.85, blue: 0.85 }, textFormat: { bold: true } },
+          },
+        },
+        index: 0,
+      },
+    });
+    reqs.push({
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: deltaPctRow, endRowIndex: deltaPctRow + 1, startColumnIndex: 1, endColumnIndex: 30 }],
+          booleanRule: {
+            condition: { type: "NUMBER_LESS", values: [{ userEnteredValue: "0" }] },
+            format: { backgroundColor: { red: 0.85, green: 0.95, blue: 0.85 } },
+          },
+        },
+        index: 1,
+      },
+    });
+  }
+  if (alertCountRow >= 0) {
+    reqs.push({
+      addConditionalFormatRule: {
+        rule: {
+          ranges: [{ sheetId, startRowIndex: alertCountRow, endRowIndex: alertCountRow + 1, startColumnIndex: 1, endColumnIndex: 30 }],
+          booleanRule: {
+            condition: { type: "NUMBER_GREATER", values: [{ userEnteredValue: "0" }] },
+            format: {
+              backgroundColor: { red: 1, green: 0.8, blue: 0.8 },
+              textFormat: { bold: true, foregroundColor: { red: 0.55, green: 0, blue: 0 } },
+            },
+          },
+        },
+        index: 2,
+      },
+    });
+  }
+
+  // Make the label column (col A) wider — metric names get squashed otherwise.
+  reqs.push({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: 1 },
+      properties: { pixelSize: 220 },
+      fields: "pixelSize",
+    },
+  });
+  // Data columns (B..) — set a comfortable fixed width.
+  reqs.push({
+    updateDimensionProperties: {
+      range: { sheetId, dimension: "COLUMNS", startIndex: 1, endIndex: 30 },
+      properties: { pixelSize: 130 },
+      fields: "pixelSize",
+    },
+  });
+
+  return reqs;
+}
+
 function autoResizeRequests(sheetId, columnCount) {
   return [
     {
@@ -290,13 +455,13 @@ function autoResizeRequests(sheetId, columnCount) {
 // ────────────────────────────────────────────────────────────────────
 
 function summarySeedValues() {
-  // Latest row of `monthly` referenced via INDEX(... LOOKUP). LOOKUP with a
-  // search key that's always larger than any string in the column finds the
-  // last non-empty cell — robust against blank trailing rows.
+  // Latest data-row of `monthly` (range starts at row 2 — skips header so an
+  // empty-data column doesn't return the header text). MATCH(2, 1/(...))
+  // finds the last non-empty index; IFERROR returns blank when no data yet.
   const last = (col) =>
-    `=IFERROR(INDEX(monthly!${col}:${col},MATCH(2,1/(monthly!${col}:${col}<>""))),)`;
+    `=IFERROR(INDEX(monthly!${col}2:${col}500,MATCH(2,1/(monthly!${col}2:${col}500<>""))),"")`;
   const lastMinusOne = (col) =>
-    `=IFERROR(INDEX(monthly!${col}:${col},MATCH(2,1/(monthly!${col}:${col}<>""))-1),)`;
+    `=IFERROR(INDEX(monthly!${col}2:${col}500,MATCH(2,1/(monthly!${col}2:${col}500<>""))-1),"")`;
 
   return [
     [, , , , , , , , ,], // row 1 (blank padding)
@@ -324,46 +489,71 @@ function summarySeedValues() {
 }
 
 function summaryFormatRequests(sheetId) {
-  // Title (B2): big bold.
-  // Label rows (4, 7, 10): small grey uppercase.
-  // Value rows (5, 8, 11): huge bold.
-  return [
+  // Layout (1-indexed):
+  //   row 2  → title (huge bold)
+  //   row 4  → labels (small grey)   row 5  → values (huge bold)
+  //   row 7  → labels                row 8  → values
+  //   row 10 → labels                row 11 → values
+  //   row 13/14 → "Latest month / Previous month" labels + dates
+  //
+  // Tile values live at columns B, D, F, H — every other column.
+  const TITLE_FMT = { textFormat: { bold: true, fontSize: 18 }, horizontalAlignment: "LEFT" };
+  const LABEL_FMT = {
+    textFormat: { bold: true, fontSize: 9, foregroundColor: { red: 0.4, green: 0.4, blue: 0.42 } },
+    horizontalAlignment: "LEFT",
+  };
+  const VALUE_FMT = {
+    textFormat: { bold: true, fontSize: 22 },
+    horizontalAlignment: "LEFT",
+    verticalAlignment: "MIDDLE",
+  };
+
+  // Number-format mapping for each value tile (col → format).
+  // Row 5 tiles: B=total_usd, D=delta_pct, F=3mo_avg, H=active_users
+  // Row 8 tiles: B=turns, D=reminders, F=jobhunt_runs, H=alerts
+  // Row 11 tiles: B=11labs_used, D=11labs_left, F=fc_used, H=fc_left
+  // (zero-indexed column positions for the API)
+  const currencyTiles = [
+    { row: 4, col: 1 }, // B5 — total_usd
+    { row: 4, col: 5 }, // F5 — rolling_3mo_avg_usd
+  ];
+  const percentTiles = [
+    { row: 4, col: 3 }, // D5 — delta_pct_vs_prev
+  ];
+  const intTiles = [
+    { row: 4, col: 7 }, // H5 — active_users
+    { row: 7, col: 1 }, // B8 — turns
+    { row: 7, col: 3 }, // D8 — reminders_fired
+    { row: 7, col: 5 }, // F8 — jobhunt_runs
+    { row: 7, col: 7 }, // H8 — alerts
+    { row: 10, col: 1 }, // B11 — elevenlabs used
+    { row: 10, col: 3 }, // D11 — elevenlabs left
+    { row: 10, col: 5 }, // F11 — firecrawl used
+    { row: 10, col: 7 }, // H11 — firecrawl left
+  ];
+
+  const reqs = [
+    // Title
     {
       repeatCell: {
         range: { sheetId, startRowIndex: 1, endRowIndex: 2, startColumnIndex: 1, endColumnIndex: 9 },
-        cell: {
-          userEnteredFormat: {
-            textFormat: { bold: true, fontSize: 18 },
-            horizontalAlignment: "LEFT",
-          },
-        },
+        cell: { userEnteredFormat: TITLE_FMT },
         fields: "userEnteredFormat(textFormat,horizontalAlignment)",
       },
     },
-    // Label rows: 4 (index 3), 7 (6), 10 (9)
+    // Labels (rows 4, 7, 10)
     ...[3, 6, 9].map((rowIndex) => ({
       repeatCell: {
         range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 9 },
-        cell: {
-          userEnteredFormat: {
-            textFormat: { bold: true, fontSize: 9, foregroundColor: { red: 0.4, green: 0.4, blue: 0.42 } },
-            horizontalAlignment: "LEFT",
-          },
-        },
+        cell: { userEnteredFormat: LABEL_FMT },
         fields: "userEnteredFormat(textFormat,horizontalAlignment)",
       },
     })),
-    // Value rows: 5 (4), 8 (7), 11 (10)
+    // Value rows (rows 5, 8, 11)
     ...[4, 7, 10].map((rowIndex) => ({
       repeatCell: {
         range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 9 },
-        cell: {
-          userEnteredFormat: {
-            textFormat: { bold: true, fontSize: 22 },
-            horizontalAlignment: "LEFT",
-            verticalAlignment: "MIDDLE",
-          },
-        },
+        cell: { userEnteredFormat: VALUE_FMT },
         fields: "userEnteredFormat(textFormat,horizontalAlignment,verticalAlignment)",
       },
     })),
@@ -383,6 +573,79 @@ function summaryFormatRequests(sheetId) {
       },
     },
   ];
+
+  // Per-tile number formatting.
+  for (const t of currencyTiles) {
+    reqs.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: t.row, endRowIndex: t.row + 1, startColumnIndex: t.col, endColumnIndex: t.col + 1 },
+        cell: { userEnteredFormat: { numberFormat: { type: "CURRENCY", pattern: "$#,##0.00" } } },
+        fields: "userEnteredFormat.numberFormat",
+      },
+    });
+  }
+  for (const t of percentTiles) {
+    reqs.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: t.row, endRowIndex: t.row + 1, startColumnIndex: t.col, endColumnIndex: t.col + 1 },
+        cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "+0.0\"%\";-0.0\"%\";0.0\"%\"" } } },
+        fields: "userEnteredFormat.numberFormat",
+      },
+    });
+  }
+  for (const t of intTiles) {
+    reqs.push({
+      repeatCell: {
+        range: { sheetId, startRowIndex: t.row, endRowIndex: t.row + 1, startColumnIndex: t.col, endColumnIndex: t.col + 1 },
+        cell: { userEnteredFormat: { numberFormat: { type: "NUMBER", pattern: "#,##0" } } },
+        fields: "userEnteredFormat.numberFormat",
+      },
+    });
+  }
+
+  // Conditional formatting: D5 (delta_pct) red if >50, green if <0.
+  // H8 (alerts) red bg if >0.
+  reqs.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{ sheetId, startRowIndex: 4, endRowIndex: 5, startColumnIndex: 3, endColumnIndex: 4 }],
+        booleanRule: {
+          condition: { type: "NUMBER_GREATER", values: [{ userEnteredValue: "50" }] },
+          format: { backgroundColor: { red: 1, green: 0.85, blue: 0.85 } },
+        },
+      },
+      index: 0,
+    },
+  });
+  reqs.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{ sheetId, startRowIndex: 4, endRowIndex: 5, startColumnIndex: 3, endColumnIndex: 4 }],
+        booleanRule: {
+          condition: { type: "NUMBER_LESS", values: [{ userEnteredValue: "0" }] },
+          format: { backgroundColor: { red: 0.85, green: 0.95, blue: 0.85 } },
+        },
+      },
+      index: 1,
+    },
+  });
+  reqs.push({
+    addConditionalFormatRule: {
+      rule: {
+        ranges: [{ sheetId, startRowIndex: 7, endRowIndex: 8, startColumnIndex: 7, endColumnIndex: 8 }],
+        booleanRule: {
+          condition: { type: "NUMBER_GREATER", values: [{ userEnteredValue: "0" }] },
+          format: {
+            backgroundColor: { red: 1, green: 0.8, blue: 0.8 },
+            textFormat: { bold: true, foregroundColor: { red: 0.55, green: 0, blue: 0 } },
+          },
+        },
+      },
+      index: 2,
+    },
+  });
+
+  return reqs;
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -410,29 +673,37 @@ async function main() {
     await batchUpdate(token, sheetId, addReqs);
     meta = await getMeta(token, sheetId);
   } else {
-    console.log("  all 3 tabs already exist — formatting only.");
+    console.log("  all 4 tabs already exist — formatting only.");
   }
 
-  const monthlyTab = findTab(meta, MONTHLY);
-  const alertsTab = findTab(meta, ALERTS);
-  const summaryTab = findTab(meta, SUMMARY);
+  const ids = {
+    summary: findTab(meta, SUMMARY).sheetId,
+    dashboard: findTab(meta, DASHBOARD).sheetId,
+    monthly: findTab(meta, MONTHLY).sheetId,
+    alerts: findTab(meta, ALERTS).sheetId,
+  };
 
-  // 2. Write headers (idempotent — overwrites with same value).
-  console.log("Writing headers…");
+  // 2. Write headers and the dashboard's TRANSPOSE formula.
+  console.log("Writing headers + dashboard formula…");
   await writeRange(token, sheetId, `${MONTHLY}!A1:${String.fromCharCode(64 + MONTHLY_HEADERS.length)}1`, [MONTHLY_HEADERS]);
   await writeRange(token, sheetId, `${ALERTS}!A1:C1`, [ALERTS_HEADERS]);
+  // Dashboard is a single TRANSPOSE — spills the whole monthly table down
+  // (metrics) and right (months). 200-row source bound is generous: we write
+  // 1 row/month, so 200 rows = 16+ years of history.
+  await writeRange(token, sheetId, `${DASHBOARD}!A1`, [[`=TRANSPOSE(monthly!A1:Y200)`]]);
 
   // 3. Apply formatting in one batch.
   console.log("Applying formatting…");
   const fmtReqs = [
-    ...tabUpdateRequests(monthlyTab.sheetId, alertsTab.sheetId, summaryTab.sheetId),
-    ...headerFormatRequests(monthlyTab.sheetId, MONTHLY_HEADERS.length),
-    ...headerFormatRequests(alertsTab.sheetId, ALERTS_HEADERS.length),
-    ...monthlyNumberFormatRequests(monthlyTab.sheetId),
-    ...monthlyConditionalFormatRequests(monthlyTab.sheetId),
-    ...autoResizeRequests(monthlyTab.sheetId, MONTHLY_HEADERS.length),
-    ...autoResizeRequests(alertsTab.sheetId, ALERTS_HEADERS.length),
-    ...summaryFormatRequests(summaryTab.sheetId),
+    ...tabUpdateRequests(ids),
+    ...headerFormatRequests(ids.monthly, MONTHLY_HEADERS.length),
+    ...headerFormatRequests(ids.alerts, ALERTS_HEADERS.length),
+    ...monthlyNumberFormatRequests(ids.monthly),
+    ...monthlyConditionalFormatRequests(ids.monthly),
+    ...autoResizeRequests(ids.monthly, MONTHLY_HEADERS.length),
+    ...autoResizeRequests(ids.alerts, ALERTS_HEADERS.length),
+    ...dashboardFormatRequests(ids.dashboard),
+    ...summaryFormatRequests(ids.summary),
   ];
   await batchUpdate(token, sheetId, fmtReqs);
 
