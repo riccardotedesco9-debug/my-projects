@@ -65,12 +65,19 @@ export async function fetchCloudflareUsage(
       }),
     });
     if (!res.ok) {
+      // 401/403 = token missing the right scopes. Silent-skip; manual
+      // tracking via dash.cloudflare.com → Workers & Pages → Analytics.
+      if (res.status === 401 || res.status === 403) return emptyUsage("cloudflare", null);
       const body = await res.text().catch(() => "");
       return emptyUsage("cloudflare", `HTTP ${res.status}: ${body.slice(0, 200)}`);
     }
     const json = (await res.json()) as GraphQLResponse;
     if (json.errors?.length) {
-      return emptyUsage("cloudflare", `GraphQL: ${json.errors[0].message}`);
+      const msg = json.errors[0].message;
+      // GraphQL returns 200 with an "authorization" error when scopes
+      // are missing — silent-skip the same as 401/403.
+      if (/not authorized/i.test(msg)) return emptyUsage("cloudflare", null);
+      return emptyUsage("cloudflare", `GraphQL: ${msg}`);
     }
     const buckets = json.data?.viewer.accounts[0]?.workersInvocationsAdaptive ?? [];
     const totalRequests = buckets.reduce((acc, b) => acc + (b.sum?.requests ?? 0), 0);
