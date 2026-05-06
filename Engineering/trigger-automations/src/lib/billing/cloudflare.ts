@@ -1,5 +1,8 @@
 // Cloudflare Workers + D1 monthly usage via the GraphQL Analytics API.
-// Auth: Bearer CLOUDFLARE_API_TOKEN with Account.Analytics.Read scope.
+// Auth: Bearer CLOUDFLARE_BILLING_API_TOKEN with Account.Analytics.Read
+// scope (separate from the wrangler-scoped CLOUDFLARE_API_TOKEN since
+// the wrangler scopes don't include analytics access). Falls back to
+// CLOUDFLARE_API_TOKEN if the billing-specific one isn't set.
 // CLOUDFLARE_ACCOUNT_ID is the same env var meetsync uses for D1.
 
 import type { ProviderUsage } from "./types.js";
@@ -39,10 +42,10 @@ export async function fetchCloudflareUsage(
   monthStartISO: string,
   monthEndISO: string,
 ): Promise<ProviderUsage> {
-  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const token = process.env.CLOUDFLARE_BILLING_API_TOKEN ?? process.env.CLOUDFLARE_API_TOKEN;
   const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
   if (!token || !accountId) {
-    return emptyUsage("cloudflare", "CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set");
+    return emptyUsage("cloudflare", "CLOUDFLARE_BILLING_API_TOKEN or CLOUDFLARE_ACCOUNT_ID not set");
   }
 
   // GraphQL `date_geq` / `date_leq` accept YYYY-MM-DD.
