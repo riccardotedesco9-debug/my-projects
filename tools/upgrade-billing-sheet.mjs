@@ -58,6 +58,11 @@ const COLOR_HEADER_BG = { red: 0.15, green: 0.15, blue: 0.18 };
 const COLOR_HEADER_FG = { red: 1, green: 1, blue: 1 };
 
 function opRead(ref) {
+  // Env-var fallback for shells without op CLI signed in. Map the opRef's
+  // path segments to OP_<UPPER_SNAKE>; e.g. op://AI-Stack/billing-sheet/password
+  // → OP_AI_STACK_BILLING_SHEET_PASSWORD. Falls through to `op read` otherwise.
+  const envName = "OP_" + ref.replace(/^op:\/\//, "").replace(/[\/-]/g, "_").toUpperCase();
+  if (process.env[envName]) return process.env[envName];
   return execSync(`op read "${ref}"`, { encoding: "utf8" }).trim();
 }
 
