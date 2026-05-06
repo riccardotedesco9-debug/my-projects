@@ -37,7 +37,10 @@ export async function fetchAnthropicUsage(
   monthEndISO: string,
 ): Promise<ProviderUsage> {
   const key = process.env.ANTHROPIC_ADMIN_API_KEY;
-  if (!key) return emptyUsage("anthropic", "ANTHROPIC_ADMIN_API_KEY not set");
+  // Silent skip when not set — admin keys are only on Team/Org plans, so
+  // personal accounts can't auto-track. Check usage manually at
+  // platform.claude.com/settings/usage.
+  if (!key) return emptyUsage("anthropic", null);
 
   const url = new URL("https://api.anthropic.com/v1/organizations/usage_report/messages");
   url.searchParams.set("starting_at", monthStartISO);
@@ -62,6 +65,9 @@ export async function fetchAnthropicUsage(
         },
       });
       if (!res.ok) {
+        // 401 = admin keys not enabled on plan. Silent-skip; manual
+        // tracking via platform.claude.com/settings/usage.
+        if (res.status === 401) return emptyUsage("anthropic", null);
         const body = await res.text().catch(() => "");
         return emptyUsage("anthropic", `HTTP ${res.status}: ${body.slice(0, 200)}`);
       }
