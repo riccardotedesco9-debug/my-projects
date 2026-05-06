@@ -25,10 +25,9 @@ seed_user "$TEST_USER_A" "Sam" "en"
 
 # Pick a Tuesday well in the future so it's never "today" (avoids
 # tense ambiguity in the judge prompt). 2026-05-12 is a Tuesday.
-SCHEDULE='[
-  {"date":"2026-05-12","start_time":"00:00","end_time":"00:00","label":"off"},
-  {"date":"2026-05-12","start_time":"18:00","end_time":"19:00","label":"gym"}
-]'
+# JSON must stay on one line — seed_schedule embeds it in a SQL string
+# and newlines break the UPDATE statement.
+SCHEDULE='[{"date":"2026-05-12","start_time":"00:00","end_time":"00:00","label":"off"},{"date":"2026-05-12","start_time":"18:00","end_time":"19:00","label":"gym"}]'
 seed_schedule "$TEST_USER_A" "$SCHEDULE"
 
 section "Ask 'what's my Tuesday 12 May look like?' — bot must mention BOTH OFF and gym"
