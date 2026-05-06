@@ -7,17 +7,28 @@ import type { World } from './types';
 const ROLE_NAMES = ['Plant', 'Hunter', 'Apex', 'Scvgr', 'Para', 'Swarm', 'Nomad'];
 const ROLE_COLORS = ['#44cc44', '#cc8844', '#cc3333', '#aa8866', '#aa44cc', '#44cccc', '#cccc44'];
 
-// 7x7 energy flow matrix: flowMatrix[from][to] = energy transferred this window
+// 7x7 energy flow matrix: flowMatrix[from][to] accumulates energy this window
+// flowRender holds the last completed window's averages (what the graph displays)
 let flowMatrix: number[][] = Array.from({ length: 7 }, () => new Array(7).fill(0));
+let flowRender: number[][] = Array.from({ length: 7 }, () => new Array(7).fill(0));
 let windowTicks = 0;
 const SAMPLE_WINDOW = 200;
-let visible = false;
+let visible = true;
 
 // Role populations for node sizing
 let rolePopulations: number[] = new Array(7).fill(0);
 
 export function toggleEcosystemGraph(): void { visible = !visible; }
 export function isEcosystemGraphVisible(): boolean { return visible; }
+
+// Clear all per-run state on world reset
+export function resetEcosystemGraph(): void {
+  for (let i = 0; i < 7; i++) {
+    for (let j = 0; j < 7; j++) { flowMatrix[i][j] = 0; flowRender[i][j] = 0; }
+    rolePopulations[i] = 0;
+  }
+  windowTicks = 0;
+}
 
 // Record energy flow between roles (called from reactions)
 export function recordEnergyFlow(fromRole: number, toRole: number, amount: number): void {
@@ -36,10 +47,14 @@ export function updateEcosystemGraph(world: World): void {
 
   windowTicks++;
   if (windowTicks >= SAMPLE_WINDOW) {
-    // Average the flow matrix over the window, then reset
-    for (let i = 0; i < 7; i++)
-      for (let j = 0; j < 7; j++)
-        flowMatrix[i][j] /= SAMPLE_WINDOW;
+    // Snapshot averages into flowRender, then zero flowMatrix for next window.
+    // (Previously flowMatrix was divided but not zeroed → unbounded drift.)
+    for (let i = 0; i < 7; i++) {
+      for (let j = 0; j < 7; j++) {
+        flowRender[i][j] = flowMatrix[i][j] / SAMPLE_WINDOW;
+        flowMatrix[i][j] = 0;
+      }
+    }
     windowTicks = 0;
   }
 }
@@ -74,7 +89,7 @@ export function renderEcosystemGraph(ctx: CanvasRenderingContext2D, _canvasW: nu
   for (let from = 0; from < 7; from++) {
     for (let to = 0; to < 7; to++) {
       if (from === to) continue;
-      const flow = flowMatrix[from][to];
+      const flow = flowRender[from][to];
       if (flow < 0.01) continue;
 
       const [x1, y1] = positions[from];

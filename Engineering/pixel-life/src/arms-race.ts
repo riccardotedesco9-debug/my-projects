@@ -28,6 +28,14 @@ let eventLog: ArmsRaceEvent[] = [];
 let notifications: { message: string; color: string; age: number }[] = [];
 let lastSnapshotTick = 0;
 
+// Clear per-run arms-race state on world reset
+export function resetArmsRace(): void {
+  snapshots.clear();
+  eventLog.length = 0;
+  notifications.length = 0;
+  lastSnapshotTick = 0;
+}
+
 export function updateArmsRace(world: World): void {
   if (world.tick - lastSnapshotTick < SNAPSHOT_INTERVAL) return;
   lastSnapshotTick = world.tick;
@@ -87,6 +95,12 @@ function addEvent(tick: number, message: string, color: string): void {
   eventLog.push({ tick, message, color });
   notifications.push({ message, color, age: 0 });
   if (eventLog.length > 50) eventLog.shift();
+  if (notifications.length > 3) notifications.shift();
+}
+
+// External notification pusher — used by species-tree etc. to surface moments
+export function pushNotification(message: string, color: string): void {
+  notifications.push({ message, color, age: 0 });
   if (notifications.length > 3) notifications.shift();
 }
 

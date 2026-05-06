@@ -23,10 +23,29 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      /* allow flex child to shrink below its intrinsic canvas size */
+      min-width: 0;
+      min-height: 0;
+      overflow: hidden;
+      padding: 8px;
+    }
+
+    /* Canvas wrapper keeps the simulation at 4:3 regardless of window size,
+       filling whichever axis is the binding constraint. */
+    #canvas-wrap {
+      position: relative;
+      aspect-ratio: 4 / 3;
+      max-width: 100%;
+      max-height: 100%;
+      width: 100%;
+      /* Scale height from width; flexbox + aspect-ratio handle the rest. */
     }
 
     #substrate-canvas, #pixel-canvas {
       position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
       image-rendering: pixelated;
       image-rendering: crisp-edges;
     }
@@ -139,8 +158,10 @@
 </head>
 <body>
   <div id="sim-container">
-    <canvas id="substrate-canvas"></canvas>
-    <canvas id="pixel-canvas"></canvas>
+    <div id="canvas-wrap">
+      <canvas id="substrate-canvas"></canvas>
+      <canvas id="pixel-canvas"></canvas>
+    </div>
   </div>
 
   <div id="controls">
@@ -159,7 +180,7 @@
     </div>
     <div class="control-row">
       <label>Speed</label>
-      <input type="range" id="slider-speed" min="1" max="40" value="10" />
+      <input type="range" id="slider-speed" min="1" max="1000" value="10" />
       <span class="value" id="val-speed">1x</span>
     </div>
 

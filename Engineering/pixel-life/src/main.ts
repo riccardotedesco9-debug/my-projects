@@ -4,7 +4,16 @@ import { simulateTick, lastTickEvents } from './simulation';
 import { initRenderer, renderFrame } from './renderer';
 import { initControls, initCanvasInteraction } from './ui-controls';
 import { initStats, updateStatsDisplay, setDisplayTps } from './stats';
-import { initAudio, updateAmbientSeason, playTickSfx } from './audio';
+import { initAudio, updateAmbientSeason, playTickSfx, resumeAudio, resetAudio } from './audio';
+import { resetSpeciesTree } from './species-tree';
+import { resetEcosystemGraph } from './ecosystem-graph';
+import { resetPacks } from './pack-hunting';
+import { resetMigration } from './migration';
+import { resetArmsRace } from './arms-race';
+import { resetHud } from './canvas-hud';
+import { resetTween } from './renderer';
+import { resetInspector } from './creature-inspector';
+import { resetReplay } from './replay';
 import { initInspector, updateInspector } from './creature-inspector';
 import { initGodMode } from './god-mode';
 import { initReplay, isReplaying, advanceReplay, renderReplayFrame, recordTick } from './replay';
@@ -30,6 +39,9 @@ function reset(): void {
   initStats(world, config);
   const pixelCanvas = document.getElementById('pixel-canvas') as HTMLCanvasElement;
   initCanvasInteraction(pixelCanvas, world, config);
+  // Clear all module-level state that outlived the previous world
+  resetSpeciesTree(); resetEcosystemGraph(); resetPacks(); resetMigration();
+  resetArmsRace(); resetHud(); resetTween(); resetInspector(); resetReplay(); resetAudio();
   lastTickTime = 0;
   tickAccum = 0;
 }
@@ -57,8 +69,11 @@ function gameLoop(now: number): void {
       const tickInterval = 1000 / (BASE_TPS * config.simSpeed);
       tickAccum += dt;
 
+      // Budget scales with sim speed: normal speeds keep 60fps rendering,
+      // high speeds (>10x) trade rendering for more ticks per frame
+      const budget = config.simSpeed > 10 ? 28 : 14;
       const budgetStart = performance.now();
-      while (tickAccum >= tickInterval && (performance.now() - budgetStart) < 14) {
+      while (tickAccum >= tickInterval && (performance.now() - budgetStart) < budget) {
         simulateTick(world, config);
         recordTick(world);
         tickAccum -= tickInterval;
@@ -67,7 +82,7 @@ function gameLoop(now: number): void {
       if (tickAccum > tickInterval * 3) tickAccum = 0;
 
       updateAmbientSeason(world.season);
-      playTickSfx(lastTickEvents, world.pixels.size, world.width * world.height * 0.3);
+      playTickSfx(lastTickEvents, world.pixels.size, world.width * world.height * 0.3, world.tick);
     }
 
     renderFrame(world, config);
@@ -82,6 +97,7 @@ function gameLoop(now: number): void {
       document.removeEventListener('visibilitychange', resume);
       lastTickTime = 0;
       tickAccum = 0;
+      resumeAudio(); // browsers may suspend audio context when tab hidden
       requestAnimationFrame(gameLoop);
     };
     document.addEventListener('visibilitychange', resume);

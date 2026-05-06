@@ -3,25 +3,33 @@ import { getCamera, screenToWorld } from './renderer';
 import { showInspector, hideInspector, toggleFollow } from './creature-inspector';
 import { isGodModeActive, executeGodTool, toggleGodModeVisibility, setGodTool } from './god-mode';
 import { seedPixels } from './world';
+import { playUiSfx } from './audio';
 
 let resetCallback: () => void;
 let _world: import('./types').World | null = null;
+let _controlsInitialized = false;
+let _canvasInteractionInitialized = false;
 
 
 export function initControls(config: SimConfig, onReset: () => void): void {
   resetCallback = onReset;
+  // DOM bindings must only register once — reset() re-calls initControls which
+  // would otherwise stack document-level keydown handlers forever
+  if (_controlsInitialized) return;
+  _controlsInitialized = true;
 
   // Simulation buttons
-  el<HTMLButtonElement>('btn-play').onclick = () => { config.paused = false; };
-  el<HTMLButtonElement>('btn-pause').onclick = () => { config.paused = true; };
-  el<HTMLButtonElement>('btn-reset').onclick = () => resetCallback();
+  el<HTMLButtonElement>('btn-play').onclick = () => { playUiSfx(); config.paused = false; };
+  el<HTMLButtonElement>('btn-pause').onclick = () => { playUiSfx(); config.paused = true; };
+  el<HTMLButtonElement>('btn-reset').onclick = () => { playUiSfx(); resetCallback(); };
 
   // Sliders
   bindSlider('slider-speed', 'val-speed', v => {
-    // 1-10 = 0.1x to 1.0x, 10-40 = 1x to 4x
-    const speed = v <= 10 ? v / 10 : 1 + (v - 10) / 10;
+    // Linear 1-1000 → 0.1x-100x. Hardware/framerate caps effective speed past ~30x,
+    // but user gets "crank it to the max" control.
+    const speed = v / 10;
     config.simSpeed = speed;
-    return `${speed.toFixed(1)}x`;
+    return speed < 10 ? `${speed.toFixed(1)}x` : `${Math.round(speed)}x`;
   });
   bindSlider('slider-population', 'val-population', v => {
     config.initialPopulation = v;
@@ -50,6 +58,7 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   const defaultsBtn = document.getElementById('btn-defaults');
   if (defaultsBtn) {
     defaultsBtn.onclick = () => {
+      playUiSfx();
       const defaults: Record<string, number> = {
         'slider-speed': 10, 'slider-population': 100, 'slider-emission': 10,
         'slider-harvest': 28, 'slider-repro': 35, 'slider-upkeep': 100,
@@ -67,6 +76,7 @@ export function initControls(config: SimConfig, onReset: () => void): void {
   const viewIds = ['view-normal', 'view-energy', 'view-trophic', 'view-substrate', 'view-lineage', 'view-territory'];
   viewIds.forEach((id, i) => {
     el<HTMLButtonElement>(id).onclick = () => {
+      playUiSfx();
       config.viewMode = viewModes[i];
       viewIds.forEach((vid, vi) => {
         el<HTMLButtonElement>(vid).classList.toggle('active', vi === i);
@@ -92,7 +102,9 @@ export function initCanvasInteraction(
   world: World,
   config: SimConfig,
 ): void {
-  _world = world;
+  _world = world; // refresh world ref even if bindings already registered
+  if (_canvasInteractionInitialized) return;
+  _canvasInteractionInitialized = true;
   let painting = false;
 
   canvas.addEventListener('mousedown', (e) => {

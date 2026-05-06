@@ -589,6 +589,3 @@ export function getSpriteForPixel(pixel: Pixel, direction: number, frame: number
   return sprite;
 }
 
-export function getVariantIndex(pixel: Pixel): number {
-  return (pixel.dna[0] + pixel.dna[1] + pixel.dna[2] + pixel.dna[GENE.REACT_TYPE]) % 3;
-}

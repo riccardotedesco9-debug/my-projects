@@ -112,26 +112,14 @@ export function terrainColorInContext(
       break;
   }
 
-  // Creature wear: worn paths blend to warm tan, heavy wear gets golden glow
-  if (wear > 15) {
-    const wearT = Math.min(1, (wear - 15) / 120);
-    // Light wear: blend toward warm tan (65, 50, 30)
-    // Heavy wear: golden-brown highway (80, 60, 25)
-    const heavy = wearT > 0.5;
-    const tr = heavy ? 80 : 65, tg = heavy ? 60 : 50, tb = heavy ? 25 : 30;
-    const blend = wearT * 0.6;
-    r = (r * (1 - blend) + tr * blend) | 0;
-    g = (g * (1 - blend) + tg * blend) | 0;
-    b = (b * (1 - blend) + tb * blend) | 0;
-  }
+  // Creature wear tint removed — ground paths cluttered the view. Wear data still
+  // tracked for gameplay (movement cost bonus on worn paths via wornBonus in
+  // movement.ts), just not drawn.
+  void wear;
 
-  // Corpse staining: reddish-brown marks (battlefield memory)
-  if (corpse > 0) {
-    const cf = Math.min(1, corpse / 40);
-    r = Math.min(255, r + ((cf * 50) | 0));
-    g = Math.min(255, g + ((cf * 10) | 0));
-    b = Math.max(0, b - ((cf * 5) | 0));
-  }
+  // Corpse staining removed — corpses still exist as a gameplay mechanic
+  // (scavengers eat them via metabolism.ts corpseGain) but no ground mark.
+  void corpse;
 
   return [clamp(r), clamp(g), clamp(b)];
 }

@@ -11,6 +11,7 @@ import {
   SEXUAL_MIN_SIMILARITY, SEXUAL_MAX_SIMILARITY,
   HYBRID_VIGOR_MIN, HYBRID_VIGOR_MAX, HYBRID_VIGOR_BONUS,
   REPRO_MIN_ENERGY, REPRO_MAX_ENERGY, REPRO_TAX, MAX_POP_FRACTION,
+  SATIETY_REPRO_MIN, SATIETY_REPRO_COST,
 } from './constants';
 
 const DX = [-1, 0, 1, -1, 1, -1, 0, 1];
@@ -28,7 +29,10 @@ export function trySexualReproduction(
   // Population cap
   if (world.pixels.size >= world.width * world.height * MAX_POP_FRACTION) return false;
 
-  // Both must have energy above their reproduction threshold
+  // Primary gate: both parents must be well-fed
+  if (a.state[1] < SATIETY_REPRO_MIN || b.state[1] < SATIETY_REPRO_MIN) return false;
+
+  // Secondary: both need energy to pay for the child
   const threshA = REPRO_MIN_ENERGY + (getEffectiveGene(a, GENE.REPRO_THRESHOLD) / 255) * (REPRO_MAX_ENERGY - REPRO_MIN_ENERGY);
   const threshB = REPRO_MIN_ENERGY + (getEffectiveGene(b, GENE.REPRO_THRESHOLD) / 255) * (REPRO_MAX_ENERGY - REPRO_MIN_ENERGY);
   if (a.energy < threshA || b.energy < threshB) return false;
@@ -44,9 +48,9 @@ export function trySexualReproduction(
   const [nx, ny] = emptyCell;
 
   // Crossover + mutation
-  let childDna = crossoverDna(a.dna, b.dna);
+  const crossovered = crossoverDna(a.dna, b.dna);
   const avgMutRate = Math.floor((a.dna[GENE.MUTATION_RATE] + b.dna[GENE.MUTATION_RATE]) / 2);
-  childDna = mutateDna(childDna, avgMutRate, config.mutationIntensity);
+  const childDna = mutateDna(crossovered, avgMutRate, config.mutationIntensity);
 
   const childRegGenes = mutateRegulatoryGenes(
     crossoverRegulatoryGenes(a.regulatoryGenes, b.regulatoryGenes)
@@ -75,6 +79,10 @@ export function trySexualReproduction(
   world.pixels.set(cellKey(nx, ny, world.width), child);
   events.sexualRepros++;
   events.births++;
+
+  // Consume fullness on both parents — they must feed again before next mating
+  a.state[1] = Math.max(0, a.state[1] - SATIETY_REPRO_COST);
+  b.state[1] = Math.max(0, b.state[1] - SATIETY_REPRO_COST);
 
   // Visual: mating effect between parents + birth ring for child
   const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;

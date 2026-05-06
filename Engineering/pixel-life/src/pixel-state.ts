@@ -1,4 +1,5 @@
 import type { Pixel } from './types';
+import { GENE } from './types';
 import { THREAT_DECAY, SATIETY_DECAY, SOCIAL_DECAY } from './constants';
 
 // Decay internal state registers each tick
@@ -25,7 +26,7 @@ export function formatPixelState(pixel: Pixel): string {
   return labels.map((l, i) => `${l}: ${pixel.state[i]}`).join(' | ');
 }
 
-// Check if pixel qualifies as a "wall" (sessile structure)
+// Check if pixel qualifies as a "wall" (sessile structure): high armor + low speed + stationary
 export function isWallPixel(pixel: Pixel): boolean {
-  return pixel.dna[14] > 200 && pixel.dna[3] < 50 && pixel.wallTicks > 50;
+  return pixel.dna[GENE.ARMOR] > 200 && pixel.dna[GENE.SPEED] < 50 && pixel.wallTicks > 50;
 }

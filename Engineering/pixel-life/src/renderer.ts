@@ -57,10 +57,10 @@ export function initRenderer(_world: World, config: SimConfig): void {
   pixCanvas = document.getElementById('pixel-canvas') as HTMLCanvasElement;
 
   const dw = w * s, dh = h * s;
+  // Drawing buffer stays at full native resolution — CSS handles display scaling
+  // via #canvas-wrap (aspect-ratio 4:3, max-width/height 100%) in index.html
   subCanvas.width = dw; subCanvas.height = dh;
   pixCanvas.width = dw; pixCanvas.height = dh;
-  subCanvas.style.width = `${dw}px`; subCanvas.style.height = `${dh}px`;
-  pixCanvas.style.width = `${dw}px`; pixCanvas.style.height = `${dh}px`;
 
   subCtx = subCanvas.getContext('2d', { alpha: false })!;
   pixCtx = pixCanvas.getContext('2d', { alpha: true })!;
@@ -109,7 +109,8 @@ export function renderFrame(world: World, config: SimConfig): void {
   applyTransform(pixCtx, camera);
   pixCtx.imageSmoothingEnabled = false;
 
-  if (lod >= 2) renderPackLines(world);
+  // Pack connection lines removed (visual clutter). Pack membership still visible
+  // via coordinated movement + pack-bonus effects.
   renderPixels(world, config, lod);
   renderEffects(pixCtx);
   renderInspectorOverlay(pixCtx, world, config);
@@ -201,20 +202,13 @@ function renderTerrainImageData(world: World, config: SimConfig): void {
         else if (t === Terrain.WATER) { b = Math.min(255, b + ((boost * 1.5) | 0)); g = Math.min(255, g + ((boost * 1.0) | 0)); }
         else { r = Math.min(255, r + ((boost * 0.8) | 0)); g = Math.min(255, g + ((boost * 0.8) | 0)); }
       }
-      if (!fullFood && world.terrain[ci] >= Terrain.GRASS && food < 0.1) {
-        const deplete = (0.1 - food) / 0.1;
-        r = Math.min(255, r + ((deplete * 18) | 0));
-        g = Math.max(0, g - ((deplete * 10) | 0));
-        b = Math.max(0, b - ((deplete * 4) | 0));
-      }
+      // Food depletion tint removed — it was the "black trail" on grass where
+      // creatures had grazed. Food data still drives reproduction/upkeep.
+      void fullFood;
 
-      const ph = world.pheromone[ci];
-      if (ph > 0.015) {
-        const pi2 = Math.min(1, ph * 2);
-        r = Math.min(255, r + ((pi2 * 20) | 0));
-        g = Math.min(255, g + ((pi2 * 12) | 0));
-        b = Math.min(255, b + ((pi2 * 4) | 0));
-      }
+      // Pheromone/wear/trail ground tints removed — they cluttered the view.
+      // The underlying data still drives movement (pack-hunting, wear bonus) but
+      // is no longer rendered. Trail memory is a gameplay mechanic, not a visual.
 
       // Territory view mode: tint cells with territory owner color
       if (config.viewMode === 'territory') {
@@ -351,15 +345,9 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
           pixCtx.fillStyle = '#ffcc22';
           pixCtx.beginPath(); pixCtx.arc(auraX, auraY, auraR, 0, Math.PI * 2); pixCtx.fill();
           pixCtx.globalAlpha = 1;
-        } else if (pixel.energy < 20) {
-          // Starving — red flicker aura
-          if (Math.sin(frameCount * 0.4) > 0) {
-            pixCtx.globalAlpha = 0.2;
-            pixCtx.fillStyle = '#ff4444';
-            pixCtx.beginPath(); pixCtx.arc(auraX, auraY, auraR * 0.6, 0, Math.PI * 2); pixCtx.fill();
-            pixCtx.globalAlpha = 1;
-          }
         }
+        // Starving red flicker removed — with no death by starvation, low-energy
+        // creatures are normal state. Constant red flicker across the map was noise.
 
         // Size reflects power: armor + energy scale the sprite (0.7x to 1.15x)
         const armorFactor = pixel.dna[GENE.ARMOR] / 255;
@@ -404,6 +392,17 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
         if (e < 0.15) pixCtx.globalAlpha = 0.75;
         pixCtx.drawImage(sprite, spriteDrawX, spriteDrawY, drawSize, drawSize);
         pixCtx.globalAlpha = 1;
+
+        // Role glyph: bright role-colored ring around the creature so each of the
+        // 7 roles is unmistakable at standard zoom. Outer stroke doubles as a sharp
+        // dark outline for creature/terrain contrast.
+        const [glR, glG, glB] = roleBrightColor(role);
+        pixCtx.strokeStyle = `rgba(${glR},${glG},${glB},0.95)`;
+        pixCtx.lineWidth = 0.6;
+        pixCtx.strokeRect(drawX + 0.2, drawY + 0.2, S - 0.4, S - 0.4);
+        pixCtx.strokeStyle = 'rgba(0,0,0,0.55)';
+        pixCtx.lineWidth = 0.25;
+        pixCtx.strokeRect(drawX, drawY, S, S);
 
         // Status bars underneath — energy (HP) + armor bar
         const barW = S * 0.9;
@@ -461,16 +460,6 @@ function renderPixels(world: World, config: SimConfig, lod: number): void {
           pixCtx.globalAlpha = 1;
         }
 
-        // Direction trail
-        if (prev && (prev.gx !== pixel.x || prev.gy !== pixel.y)) {
-          pixCtx.strokeStyle = `rgba(${r},${g},${b},0.2)`;
-          pixCtx.lineWidth = 0.5;
-          pixCtx.beginPath();
-          pixCtx.moveTo(prev.gx * S + S / 2, prev.gy * S + S / 2);
-          pixCtx.lineTo(drawX + S / 2, drawY + S / 2);
-          pixCtx.stroke();
-        }
-
         // Locomotion badge — small wing/fin icon for flyers/swimmers
         if (loco === 'fly') {
           // Tiny wing marks on sides
@@ -510,7 +499,7 @@ function drawCreature(
   pixel: Pixel, cx: number, cy: number, e: number,
   role: number, col: string, r: number, g: number, b: number,
 ): void {
-  const isWall = pixel.dna[14] > 200 && pixel.dna[3] < 50 && pixel.wallTicks > 50;
+  const isWall = pixel.dna[GENE.ARMOR] > 200 && pixel.dna[GENE.SPEED] < 50 && pixel.wallTicks > 50;
   if (isWall) {
     pixCtx.fillStyle = `rgb(${(r * 0.3) | 0},${(g * 0.3) | 0},${(b * 0.3) | 0})`;
     pixCtx.fillRect(pixel.x * S, pixel.y * S, S, S);
@@ -519,8 +508,9 @@ function drawCreature(
 
   const harvestAvg = (pixel.dna[0] + pixel.dna[1] + pixel.dna[2]) / 3;
   const bodyMass = (pixel.dna[GENE.ARMOR] * 0.4 + harvestAvg * 0.3 + (255 - pixel.dna[GENE.SPEED]) * 0.3) / 255;
-  const baseRadius = 1.2 + bodyMass * 2.8;
-  const radius = baseRadius * (0.4 + e * 0.6);
+  // Larger minimum size so creatures are clearly legible at zoomed-out view
+  const baseRadius = 2.2 + bodyMass * 2.0;
+  const radius = baseRadius * (0.7 + e * 0.3);
 
   const glowAlpha = e > 0.6 ? 0.08 + e * 0.05 : 0;
   if (glowAlpha > 0) {
@@ -553,6 +543,38 @@ function drawCreature(
       break;
     case 6: drawArrow(cx, cy, radius); break;
   }
+
+  // Dark outline for contrast against terrain — makes every creature pop at zoomed-out
+  pixCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+  pixCtx.lineWidth = 0.6;
+  pixCtx.beginPath();
+  if (role === 0) {
+    pixCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+  } else if (role === 1) {
+    const p = 0.6 + (pixel.dna[GENE.SPEED] / 255) * 0.8;
+    pixCtx.moveTo(cx, cy - radius * p);
+    pixCtx.lineTo(cx + radius * 0.7, cy + radius * 0.5);
+    pixCtx.lineTo(cx - radius * 0.7, cy + radius * 0.5);
+    pixCtx.closePath();
+  } else if (role === 2) {
+    const dr = radius + 0.5;
+    pixCtx.moveTo(cx, cy - dr); pixCtx.lineTo(cx + dr, cy);
+    pixCtx.lineTo(cx, cy + dr); pixCtx.lineTo(cx - dr, cy); pixCtx.closePath();
+  } else if (role === 5) {
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      const x = cx + Math.cos(a) * radius, y = cy + Math.sin(a) * radius;
+      if (i === 0) pixCtx.moveTo(x, y); else pixCtx.lineTo(x, y);
+    }
+    pixCtx.closePath();
+  } else if (role === 6) {
+    pixCtx.moveTo(cx + radius, cy);
+    pixCtx.lineTo(cx - radius * 0.5, cy - radius * 0.6);
+    pixCtx.lineTo(cx - radius * 0.2, cy);
+    pixCtx.lineTo(cx - radius * 0.5, cy + radius * 0.6);
+    pixCtx.closePath();
+  }
+  if (role === 0 || role === 1 || role === 2 || role === 5 || role === 6) pixCtx.stroke();
 
   if (pixel.generation > 10) {
     const lw = pixel.generation > 50 ? 1.0 : 0.5;
@@ -625,40 +647,9 @@ function getTerrainFitness(role: number, t: Terrain): number {
 // Movement tweening state: tracks previous positions for smooth interpolation
 const _tweenPositions = new Map<number, { gx: number; gy: number; t: number }>();
 
-// Pack connection lines: draw lines between pack members
-function renderPackLines(world: World): void {
-  const packMembers = new Map<number, { x: number; y: number }[]>();
-  for (const p of world.pixels.values()) {
-    if (p.packId === 0) continue;
-    if (!packMembers.has(p.packId)) packMembers.set(p.packId, []);
-    packMembers.get(p.packId)!.push({ x: p.x * S + S / 2, y: p.y * S + S / 2 });
-  }
-
-  for (const [, members] of packMembers) {
-    if (members.length < 2) continue;
-    // Draw lines between all adjacent pairs (nearest neighbor connections)
-    pixCtx.strokeStyle = 'rgba(255,120,60,0.2)';
-    pixCtx.lineWidth = 0.4;
-    pixCtx.setLineDash([1, 2]); // dashed lines for pack connections
-    for (let i = 0; i < members.length; i++) {
-      // Connect to nearest other member
-      let bestDist = Infinity, bestJ = -1;
-      for (let j = i + 1; j < members.length; j++) {
-        const dx = members[i].x - members[j].x;
-        const dy = members[i].y - members[j].y;
-        const dist = dx * dx + dy * dy;
-        if (dist < bestDist) { bestDist = dist; bestJ = j; }
-      }
-      if (bestJ >= 0 && bestDist < (S * 8) * (S * 8)) {
-        pixCtx.beginPath();
-        pixCtx.moveTo(members[i].x, members[i].y);
-        pixCtx.lineTo(members[bestJ].x, members[bestJ].y);
-        pixCtx.stroke();
-      }
-    }
-    pixCtx.setLineDash([]); // reset dash
-  }
-}
+// Clear tween cache on world reset — pixel IDs restart at 1 and would collide with
+// dead pixels' cached tween positions, causing visible teleports
+export function resetTween(): void { _tweenPositions.clear(); }
 
 // Behavior icons: drawn above creatures at LOD 2
 // Each icon has a dark pill background so it's readable against any terrain

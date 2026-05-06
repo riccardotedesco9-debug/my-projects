@@ -11,6 +11,12 @@ const MIGRATION_SPEED_MIN = 150;      // creatures must be fast to migrate
 let lastUpdateTick = 0;
 let prevSeason: Season = 'spring';
 
+// Clear per-run migration state on world reset
+export function resetMigration(): void {
+  lastUpdateTick = 0;
+  prevSeason = 'spring';
+}
+
 // Record seasonal food quality at season transitions
 export function onSeasonChange(world: World, newSeason: Season): void {
   if (newSeason === prevSeason) return;

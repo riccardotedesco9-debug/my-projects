@@ -57,6 +57,7 @@ export interface Pixel {
   migrationTarget: { x: number; y: number } | null;
   seasonalMemory: { season: Season; x: number; y: number; food: number }[];
   state: Uint8Array;                // [threat, satiety, social] — 3 internal registers
+  role: number;                     // precomputed role (DNA is immutable, role is stable)
 }
 
 export interface World {

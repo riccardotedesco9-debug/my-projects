@@ -17,8 +17,12 @@ import { updateEcosystemGraph } from './ecosystem-graph';
 import { trySexualReproduction } from './sexual-reproduction';
 import { updateEvents } from './events';
 import { updateWeather } from './weather';
-import { seedPixels, recordPopulation } from './world';
+import { seedPixels, recordPopulation, cellKey } from './world';
 import { AUTO_SEED_EMPTY_TICKS, AUTO_SEED_COUNT } from './constants';
+import { createPixel } from './pixel';
+import { createArchetypeDnaForRole } from './pixel';
+import { isPassable } from './terrain';
+import { getCreatureRole } from './metabolism';
 
 let shuffleArr: Pixel[] = [];
 export let lastTickEvents: TickEvents = createTickEvents();
@@ -79,6 +83,13 @@ export function simulateTick(world: World, config: SimConfig): void {
     world.emptyTicks = 0;
   }
 
+  // Per-role extinction rescue: every 2000 ticks, revive any role at 0 population.
+  // Rare colonization event — if a role can't survive the current environment,
+  // it shouldn't persist. Spatial crowd/pioneer rules in metabolism carry the dynamics.
+  if (world.tick % 2000 === 1999) {
+    rescueExtinctRoles(world);
+  }
+
   world.prevPopulation = world.pixels.size;
   world.tick++;
   lastTickEvents = events;
@@ -102,6 +113,24 @@ function checkSexualReproduction(world: World, config: SimConfig, events: TickEv
         trySexualReproduction(pixel, neighbor, world, config, events);
         break;
       }
+    }
+  }
+}
+
+function rescueExtinctRoles(world: World): void {
+  const counts = new Array(7).fill(0);
+  for (const p of world.pixels.values()) counts[getCreatureRole(p)]++;
+  for (let role = 0; role < 7; role++) {
+    if (counts[role] > 0) continue;
+    // Spawn 2 of the missing role at random open cells — a colonization seed, not a safety net.
+    for (let i = 0; i < 2; i++) {
+      const x = Math.floor(Math.random() * world.width);
+      const y = Math.floor(Math.random() * world.height);
+      const k = cellKey(x, y, world.width);
+      if (world.pixels.has(k)) continue;
+      if (!isPassable(world.terrain[k])) continue;
+      const dna = createArchetypeDnaForRole(role);
+      world.pixels.set(k, createPixel(world.nextPixelId++, x, y, dna, [], 50, 0));
     }
   }
 }

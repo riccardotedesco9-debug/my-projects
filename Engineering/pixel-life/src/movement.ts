@@ -76,8 +76,30 @@ export function movePixel(pixel: Pixel, world: World, config: SimConfig, events:
     bestDy = Math.sign(Math.round(fy * 2)) || bestDy;
   }
 
-  const nx = wrapX(pixel.x + bestDx, world.width);
-  const ny = wrapY(pixel.y + bestDy, world.height);
+  let nx = wrapX(pixel.x + bestDx, world.width);
+  let ny = wrapY(pixel.y + bestDy, world.height);
+
+  // If target cell is held by an ally (no-op on reaction), reroute to an open adjacent
+  // cell — avoids permanent standstill when hunters cluster with allies
+  const firstOccupant = world.pixels.get(cellKey(nx, ny, world.width));
+  if (firstOccupant && isAllyOf(pixel, firstOccupant)) {
+    let rerouted = false;
+    const start = Math.floor(Math.random() * 8);
+    for (let k = 0; k < 8; k++) {
+      const i = (start + k) % 8;
+      const tx = wrapX(pixel.x + DX[i], world.width);
+      const ty = wrapY(pixel.y + DY[i], world.height);
+      if (world.pixels.has(cellKey(tx, ty, world.width))) continue;
+      if (!canTraverse(pixel, world.terrain[ty * world.width + tx])) continue;
+      bestDx = DX[i]; bestDy = DY[i]; nx = tx; ny = ty;
+      rerouted = true;
+      break;
+    }
+    // Completely walled in by allies — count as stationary and exit, matching
+    // the speed-fail branch (line 23). Without this, wallTicks stalls and the
+    // pixel silently loses ticks with no state updates.
+    if (!rerouted) { pixel.wallTicks++; return; }
+  }
 
   // Terrain traversal check — swimmers/flyers can enter water
   if (!canTraverse(pixel, world.terrain[ny * world.width + nx])) return;
@@ -141,13 +163,26 @@ function seekPheromone(pixel: Pixel, world: World): [number, number] {
 
 function seekPixel(pixel: Pixel, world: World, range: number, flee: boolean): [number, number] {
   const { width: w, height: h } = world;
+  // Ally filter only applies to hostile absorbers (REACT_TYPE < 64 — mirrors
+  // reactions.ts:28). Non-absorbers (sharers/catalyzers/repellers) WANT to find
+  // same-role partners, especially Swarm (role 5) which depends on cohesion.
+  const selfReactType = pixel.dna[GENE.REACT_TYPE];
+  const selfIsHostile = selfReactType < 64;
+  const selfRole = selfIsHostile ? getCreatureRole(pixel) : -1;
+  const selfIsPredator = selfRole === 1 || selfRole === 2;
   let bestDist = range * range + 1, bx = 0, by = 0;
-  for (let dy = -range; dy <= range; dy++) {
+  outer: for (let dy = -range; dy <= range; dy++) {
     for (let dx = -range; dx <= range; dx++) {
       if (dx === 0 && dy === 0) continue;
       const nx = wrapX(pixel.x + dx, w), ny = wrapY(pixel.y + dy, h);
       const target = world.pixels.get(cellKey(nx, ny, w));
       if (!target) continue;
+      if (selfIsHostile) {
+        // Hostile: skip allies so hunters steer toward prey
+        const targetRole = getCreatureRole(target);
+        if (targetRole === selfRole) continue;
+        if (selfIsPredator && (targetRole === 1 || targetRole === 2)) continue;
+      }
       // Forest provides cover — harder to spot prey
       if (givesCover(world.terrain[ny * w + nx]) && Math.random() < CAMOUFLAGE_CHANCE) continue;
       const dist = dx * dx + dy * dy;
@@ -155,8 +190,18 @@ function seekPixel(pixel: Pixel, world: World, range: number, flee: boolean): [n
         bestDist = dist;
         bx = flee ? -Math.sign(dx) : Math.sign(dx);
         by = flee ? -Math.sign(dy) : Math.sign(dy);
+        // Short-circuit: dist=1 is the minimum — no closer target can exist.
+        // Big perf win at high pop since most predators find prey in the 8 neighbors.
+        if (dist === 1) break outer;
       }
     }
   }
   return [bx, by];
+}
+
+function isAllyOf(a: Pixel, b: Pixel): boolean {
+  const ra = getCreatureRole(a), rb = getCreatureRole(b);
+  if (ra === rb) return true;
+  if ((ra === 1 || ra === 2) && (rb === 1 || rb === 2)) return true; // predators don't fight each other
+  return false;
 }

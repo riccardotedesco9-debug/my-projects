@@ -10,7 +10,7 @@ import { addBirthEffect, toCanvasCenter } from './effects';
 import {
   REPRO_MIN_ENERGY, REPRO_MAX_ENERGY, REPRO_TAX,
   REPRO_SHARE_MIN, REPRO_SHARE_MAX, MAX_POP_FRACTION,
-  SATIETY_REPRO_THRESHOLD,
+  SATIETY_REPRO_THRESHOLD, SATIETY_REPRO_MIN, SATIETY_REPRO_COST,
 } from './constants';
 
 const DX = [-1, 0, 1, -1, 1, -1, 0, 1];
@@ -25,13 +25,15 @@ export function tryReproduce(
   // Population cap check
   if (world.pixels.size >= world.width * world.height * MAX_POP_FRACTION) return;
 
-  // Energy threshold check
+  // PRIMARY gate: must have fed recently. No food = no children.
+  // This is the "eat to reproduce" loop that drives rock-paper-scissors balance.
+  if (pixel.state[1] < SATIETY_REPRO_MIN) return;
+
+  // Secondary energy gate: still need energy to pay for the child
   const reproGene = getEffectiveGene(pixel, GENE.REPRO_THRESHOLD);
   const threshold = REPRO_MIN_ENERGY + (reproGene / 255) * (REPRO_MAX_ENERGY - REPRO_MIN_ENERGY);
 
-  if (pixel.energy < threshold) return;
-
-  // Satiety state: if high, prioritize reproduction (lower effective threshold by 20%)
+  // Satiety bonus: super-fed creatures reproduce at a lower energy threshold
   const effectiveThreshold = pixel.state[1] > SATIETY_REPRO_THRESHOLD
     ? threshold * 0.8
     : threshold;
@@ -66,6 +68,9 @@ export function tryReproduce(
 
   world.pixels.set(cellKey(nx, ny, world.width), child);
   events.births++;
+
+  // Consume the "fullness" — parent must feed again before the next child
+  pixel.state[1] = Math.max(0, pixel.state[1] - SATIETY_REPRO_COST);
 
   // Visual effect: birth ring in parent's color
   const [cr, cg, cb] = dnaToColor(pixel.dna, pixel.energy, getCreatureRole(pixel));

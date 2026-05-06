@@ -2,7 +2,7 @@ import type { SimConfig } from './types';
 
 // -- Energy --
 export const MAX_ENERGY = 100.0;
-export const BASE_UPKEEP = 0.04;        // low baseline — creatures survive long enough to evolve
+export const BASE_UPKEEP = 0.025;       // low baseline — starvation no longer kills, kept for friction only
 export const SPEED_UPKEEP = 0.04;       // cheap speed — predators need to chase
 export const SENSE_UPKEEP = 0.02;       // cheap sensing
 export const HARVEST_RATE = 0.45;       // generous harvest — food is available, competition is for the best spots
@@ -53,6 +53,9 @@ export const SOCIAL_DECAY = 1;
 export const SOCIAL_DOUBLE_THRESHOLD = 150;
 export const THREAT_FLEE_THRESHOLD = 100;
 export const SATIETY_REPRO_THRESHOLD = 200;
+// Reproduction satiety gates (new model: no starvation death; eating gates breeding)
+export const SATIETY_REPRO_MIN = 25;    // below this, cannot reproduce at all — permissive so ecosystem stays active
+export const SATIETY_REPRO_COST = 30;   // consumed per birth — must feed again before next child
 export const WALL_TICKS_THRESHOLD = 50;
 export const WALL_ARMOR_MIN = 200;
 export const WALL_SPEED_MAX = 50;
@@ -141,7 +144,7 @@ export const TERRAIN_TILE_SIZE = 16;
 export const WATER_ANIM_INTERVAL = 30;
 
 // -- Rendering --
-export const SUBSTRATE_RENDER_INTERVAL = 4;
+export const SUBSTRATE_RENDER_INTERVAL = 8;
 export const POP_HISTORY_LENGTH = 500;
 export const TRAIL_INTENSITY = 0.04;        // substrate deposited as movement trail
 

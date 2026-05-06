@@ -14,6 +14,14 @@ let lastSampleTick = 0;
 let prevSeason = '';
 let seasonFlashAlpha = 0;
 
+// Clear per-run HUD state on world reset
+export function resetHud(): void {
+  traitHistory.length = 0;
+  lastSampleTick = 0;
+  prevSeason = '';
+  seasonFlashAlpha = 0;
+}
+
 const ROLE_COLORS = ['#44cc44', '#cc8844', '#cc3333', '#aa8866', '#aa44cc', '#44cccc', '#cccc44'];
 const ROLE_LABELS = ['Plant', 'Hunter', 'Apex', 'Scvgr', 'Para', 'Swarm', 'Nomad'];
 

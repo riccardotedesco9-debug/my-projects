@@ -17,6 +17,16 @@ let replayIdx = 0;
 let replaySpeed = 1;
 let lastRecordTick = 0;
 
+// Clear per-run replay state on world reset (stops active replay, drops old snapshots)
+export function resetReplay(): void {
+  snapshots = [];
+  recording = false;
+  replaying = false;
+  replayIdx = 0;
+  replaySpeed = 1;
+  lastRecordTick = 0;
+}
+
 export function isRecording(): boolean { return recording; }
 export function isReplaying(): boolean { return replaying; }
 export function getReplayIdx(): number { return replayIdx; }

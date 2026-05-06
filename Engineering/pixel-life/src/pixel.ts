@@ -15,6 +15,20 @@ export function createRandomDna(): Uint8Array {
   return createWildDna();                            // 3% random wildcards
 }
 
+// Spawn DNA for a specific role — used for extinction rescue in simulation.ts
+export function createArchetypeDnaForRole(role: number): Uint8Array {
+  switch (role) {
+    case 0: return createProducerDna();
+    case 1: return createConsumerDna();
+    case 2: return createApexDna();
+    case 3: return createScavengerDna();
+    case 4: return createParasiteDna();
+    case 5: return createSwarmDna();
+    case 6: return createNomadDna();
+    default: return createRandomDna();
+  }
+}
+
 // PLANT: slow, high harvest, stays put, soft target
 function createProducerDna(): Uint8Array {
   const dna = new Uint8Array(CORE_GENOME_SIZE);
@@ -189,9 +203,29 @@ export function createPixel(
     memory: [], packId: 0,
     migrationTarget: null, seasonalMemory: [],
     state: new Uint8Array(3),
+    role: computeRoleFromDna(dna),
   };
 }
 
 export function getEffectiveGene(pixel: Pixel, geneIdx: number): number {
   return applyRegulation(pixel, geneIdx);
+}
+
+// Pure DNA → role classification. Roles never change post-birth
+// (dna is immutable), so we cache role on the Pixel at creation.
+// 0=plant, 1=hunter, 2=apex, 3=scavenger, 4=parasite, 5=swarm, 6=nomad
+export function computeRoleFromDna(dna: Uint8Array): number {
+  const rt = dna[GENE.REACT_TYPE];
+  const speed = dna[GENE.SPEED];
+  const adhesion = dna[GENE.ADHESION];
+  const sense = dna[GENE.SENSE_TARGET];
+  const threshold = dna[GENE.REACT_THRESHOLD];
+
+  if (adhesion > 180 && rt >= 64 && rt < 128) return 5; // Swarm
+  if (rt >= 128 && rt < 192 && sense >= 85 && sense < 170) return 4; // Parasite
+  if (rt >= 192 && speed > 160 && sense < 60) return 6; // Nomad
+  if (rt < 15) return 2; // Apex
+  if (rt >= 15 && rt < 64 && (sense >= 60 && sense < 85 || threshold > 80)) return 3; // Scavenger
+  if (rt < 64 && sense >= 85) return 1; // Hunter
+  return 0; // Plant
 }

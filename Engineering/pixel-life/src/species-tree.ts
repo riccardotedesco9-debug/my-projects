@@ -4,6 +4,10 @@
 import type { World } from './types';
 import { getCreatureRole } from './metabolism';
 import { SPECIES_DISTANCE_THRESHOLD, SPECIES_COMPUTE_INTERVAL } from './constants';
+import { pushNotification } from './arms-race';
+
+const ROLE_NAMES = ['Plant', 'Hunter', 'Apex', 'Scavenger', 'Parasite', 'Swarm', 'Nomad'];
+const NEW_SPECIES_NOTIFY_AFTER_TICK = 500; // suppress startup flurry
 
 interface SpeciesNode {
   id: number;
@@ -20,11 +24,19 @@ interface SpeciesNode {
 const species: Map<number, SpeciesNode> = new Map();
 const pixelSpecies = new Map<number, number>(); // pixelId → speciesId
 let nextSpeciesId = 1;
-let visible = false;
+let visible = true;
 let lastComputeTick = 0;
 
 export function toggleSpeciesTree(): void { visible = !visible; }
 export function isSpeciesTreeVisible(): boolean { return visible; }
+
+// Clear all per-run state so a fresh world doesn't inherit ghost species
+export function resetSpeciesTree(): void {
+  species.clear();
+  pixelSpecies.clear();
+  nextSpeciesId = 1;
+  lastComputeTick = 0;
+}
 
 export function updateSpeciesTree(world: World): void {
   if (world.tick - lastComputeTick < SPECIES_COMPUTE_INTERVAL) return;
@@ -118,6 +130,13 @@ export function updateSpeciesTree(world: World): void {
       sp.roleDistribution[cluster.role] = cluster.members.length;
       species.set(sp.id, sp);
       for (const pid of cluster.members) pixelSpecies.set(pid, sp.id);
+
+      // Visual moment: surface new species as a notification banner (after startup)
+      if (world.tick >= NEW_SPECIES_NOTIFY_AFTER_TICK) {
+        const parentLabel = parentId ? ` from #${parentId}` : '';
+        const roleName = ROLE_NAMES[cluster.role] ?? 'Unknown';
+        pushNotification(`* NEW SPECIES #${sp.id} (${roleName})${parentLabel}`, sp.color);
+      }
     }
   }
 
@@ -142,70 +161,100 @@ export function updateSpeciesTree(world: World): void {
 export function renderSpeciesTree(ctx: CanvasRenderingContext2D, _canvasW: number, canvasH: number): void {
   if (!visible) return;
 
-  const tw = 260, th = 200;
-  const tx = 10, ty = canvasH - th - 30;
+  const pw = 280, ph = 190;
+  const px = 10, py = canvasH - ph - 24;
 
-  // Background
-  ctx.fillStyle = 'rgba(0,0,0,0.8)';
-  ctx.fillRect(tx - 5, ty - 18, tw + 10, th + 24);
+  // Panel background
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(px - 6, py - 22, pw + 12, ph + 30);
 
-  ctx.font = '10px Consolas, monospace';
-  ctx.fillStyle = '#889';
-  ctx.fillText('SPECIES TREE (T to toggle)', tx, ty - 6);
+  // Title
+  ctx.font = 'bold 11px Consolas, monospace';
+  ctx.fillStyle = '#00ff88';
+  ctx.fillText('SPECIES ALIVE', px, py - 8);
+  ctx.font = '9px Consolas, monospace';
+  ctx.fillStyle = '#556';
+  ctx.fillText('(T to hide)', px + 110, py - 8);
 
-  const activeSpecies = Array.from(species.values())
-    .filter(s => s.alive || s.lastTick > (species.values().next().value?.firstTick ?? 0) - 10000)
-    .sort((a, b) => a.firstTick - b.firstTick);
+  // Sort: alive by population desc
+  const all = Array.from(species.values());
+  const alive = all.filter(s => s.alive).sort((a, b) => b.currentPop - a.currentPop);
+  const extinct = all.filter(s => !s.alive).length;
 
-  if (activeSpecies.length === 0) {
+  if (alive.length === 0) {
+    ctx.font = '10px Consolas, monospace';
     ctx.fillStyle = '#556';
-    ctx.fillText('No species detected yet...', tx + 10, ty + 20);
+    ctx.fillText('No species detected yet...', px + 10, py + 20);
     return;
   }
 
-  // Find time range
-  const minTick = activeSpecies[0].firstTick;
-  const maxTick = Math.max(...activeSpecies.map(s => s.lastTick));
-  const tickRange = Math.max(1, maxTick - minTick);
+  // Normalize population for bar width
+  const maxPop = Math.max(5, ...alive.map(s => s.currentPop));
+  const rowH = 18;
+  const maxRows = Math.min(alive.length, 8);
+  const listStartY = py + 6;
 
-  // Draw each species as a horizontal bar
-  const barH = Math.min(12, (th - 10) / activeSpecies.length);
-  for (let i = 0; i < activeSpecies.length && i < 15; i++) {
-    const sp = activeSpecies[i];
-    const y = ty + 4 + i * barH;
-    const x0 = tx + ((sp.firstTick - minTick) / tickRange) * (tw - 40) + 30;
-    const x1 = tx + ((sp.lastTick - minTick) / tickRange) * (tw - 40) + 30;
+  ctx.font = '10px Consolas, monospace';
+  for (let i = 0; i < maxRows; i++) {
+    const sp = alive[i];
+    const y = listStartY + i * rowH;
 
-    // Bar
+    // Role color dot
     ctx.fillStyle = sp.color;
-    ctx.globalAlpha = sp.alive ? 0.8 : 0.3;
-    ctx.fillRect(x0, y, Math.max(2, x1 - x0), barH - 2);
-    ctx.globalAlpha = 1;
+    ctx.beginPath();
+    ctx.arc(px + 6, y + 4, 3.5, 0, Math.PI * 2);
+    ctx.fill();
 
-    // Extinction marker
-    if (!sp.alive) {
-      ctx.fillStyle = '#ff4444';
-      ctx.fillRect(x1 - 1, y, 2, barH - 2);
-    }
-
-    // Branch line to parent
-    if (sp.parentId) {
-      const parentIdx = activeSpecies.findIndex(s => s.id === sp.parentId);
-      if (parentIdx >= 0) {
-        const parentY = ty + 4 + parentIdx * barH + barH / 2;
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(x0, y + barH / 2);
-        ctx.lineTo(x0 - 5, y + barH / 2);
-        ctx.lineTo(x0 - 5, parentY);
-        ctx.stroke();
+    // Dominant role name
+    let domRole = 0, domCount = 0;
+    for (let r = 0; r < 7; r++) {
+      if (sp.roleDistribution[r] > domCount) {
+        domCount = sp.roleDistribution[r];
+        domRole = r;
       }
     }
+    const roleName = ROLE_NAMES[domRole] ?? '?';
 
-    // Label
-    ctx.fillStyle = sp.alive ? '#bbc' : '#556';
-    ctx.font = '7px Consolas, monospace';
-    ctx.fillText(`#${sp.id} (${sp.currentPop})`, tx + 2, y + barH - 3);
+    // Role + id
+    ctx.fillStyle = '#ccd';
+    ctx.fillText(roleName, px + 14, y + 7);
+    ctx.fillStyle = '#667';
+    ctx.fillText(`#${sp.id}`, px + 86, y + 7);
+
+    // Population bar
+    const barX = px + 120;
+    const barMaxW = pw - 170;
+    const barW = barMaxW * (sp.currentPop / maxPop);
+    ctx.fillStyle = 'rgba(40,40,60,0.6)';
+    ctx.fillRect(barX, y, barMaxW, 10);
+    ctx.fillStyle = sp.color;
+    ctx.globalAlpha = 0.8;
+    ctx.fillRect(barX, y, barW, 10);
+    ctx.globalAlpha = 1;
+
+    // Count
+    ctx.fillStyle = '#ccd';
+    const countStr = `${sp.currentPop}`;
+    ctx.fillText(countStr, px + pw - 28, y + 7);
+
+    // Parent indicator (origin)
+    if (sp.parentId) {
+      ctx.fillStyle = '#446';
+      ctx.font = '8px Consolas, monospace';
+      ctx.fillText(`from #${sp.parentId}`, px + 14, y + 14);
+      ctx.font = '10px Consolas, monospace';
+    }
   }
+
+  // Truncation indicator
+  if (alive.length > maxRows) {
+    ctx.font = '8px Consolas, monospace';
+    ctx.fillStyle = '#556';
+    ctx.fillText(`+${alive.length - maxRows} more...`, px + 14, listStartY + maxRows * rowH + 4);
+  }
+
+  // Footer summary
+  ctx.font = '9px Consolas, monospace';
+  ctx.fillStyle = '#667';
+  ctx.fillText(`${alive.length} alive  •  ${extinct} extinct`, px, py + ph - 2);
 }

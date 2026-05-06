@@ -26,6 +26,17 @@ let followMode = false;
 let panelEl: HTMLElement | null = null;
 let energyHistory: number[] = [];
 
+// Clear tracking state on world reset (the tracked pixel is dead, its ID may collide
+// with a fresh-spawn ID = 1 in the new world)
+export function resetInspector(): void {
+  trackedId = null;
+  followMode = false;
+  energyHistory.length = 0;
+  _cachedPixel = null;
+  _cacheFrame = 0;
+  if (panelEl) panelEl.style.display = 'none';
+}
+
 export function initInspector(): void {
   panelEl = document.getElementById('inspector-panel');
   if (!panelEl) return;
@@ -63,7 +74,7 @@ let _cacheFrame = 0;
 export function getTrackedPixel(world: World): Pixel | null {
   if (trackedId === null) return null;
   // Cache for 1 frame — avoid O(n) scan at 60fps
-  const frame = (world as any).tick ?? 0;
+  const frame = world.tick;
   if (_cachedPixel && _cachedPixel.id === trackedId && _cacheFrame === frame) return _cachedPixel;
   _cacheFrame = frame;
 

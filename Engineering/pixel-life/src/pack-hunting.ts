@@ -15,15 +15,20 @@ export const PACK_HUNT_BONUS = 1.5;
 
 interface Pack {
   id: number;
-  leader: number;       // pixel ID with highest energy
-  leaderX: number;      // cached leader position
-  leaderY: number;
+  leader: Pixel;        // live reference — x/y always current while alive
   members: Set<number>; // pixel IDs
 }
 
 const packs = new Map<number, Pack>();
 let nextPackId = 1;
 let lastFormationTick = 0;
+
+// Clear per-run pack state so new-world pixel IDs don't collide with old packs
+export function resetPacks(): void {
+  packs.clear();
+  nextPackId = 1;
+  lastFormationTick = 0;
+}
 
 // Update pack formations periodically
 export function updatePacks(world: World): void {
@@ -81,31 +86,25 @@ export function updatePacks(world: World): void {
       }
       packs.set(packId, {
         id: packId,
-        leader: leader.id,
-        leaderX: leader.x,
-        leaderY: leader.y,
+        leader,
         members: new Set(cluster.map(c => c.id)),
       });
     }
   }
 }
 
-// Get movement bias for pack member: move toward pack leader
+// Get movement bias for pack member: move toward pack leader (live coords)
 export function getPackMoveBias(pixel: Pixel, world: World): [number, number] {
   if (pixel.packId === 0) return [0, 0];
   const pack = packs.get(pixel.packId);
   if (!pack) return [0, 0];
 
-  // Use cached leader position (updated every PACK_FORMATION_INTERVAL ticks)
-  const leaderX = pack.leaderX;
-  const leaderY = pack.leaderY;
-
   // If we ARE the leader, seek nearest prey instead
-  if (pixel.id === pack.leader) return [0, 0];
+  if (pixel === pack.leader) return [0, 0];
 
-  // Move toward leader (pack cohesion)
-  let dx = leaderX - pixel.x;
-  let dy = leaderY - pixel.y;
+  // Live leader coords — no more 50-tick staleness
+  let dx = pack.leader.x - pixel.x;
+  let dy = pack.leader.y - pixel.y;
   if (Math.abs(dx) > world.width / 2) dx -= Math.sign(dx) * world.width;
   if (Math.abs(dy) > world.height / 2) dy -= Math.sign(dy) * world.height;
 

@@ -1,21 +1,20 @@
 import type { Pixel, World, SimConfig, TickEvents } from './types';
 import { GENE } from './types';
 import { getEffectiveGene } from './pixel';
-import { removePixel, addFood, addPheromone } from './world';
+import { addFood, addPheromone, wrapX, wrapY, cellKey } from './world';
 import { weatherUpkeepMult } from './weather';
-import { addDeathEffect, addInteractionEffect, toCanvasCenter } from './effects';
+import { addInteractionEffect, toCanvasCenter } from './effects';
 import { locomotionUpkeepMult } from './locomotion';
 import {
   MAX_ENERGY, BASE_UPKEEP, SPEED_UPKEEP, SENSE_UPKEEP,
-  HARVEST_RATE, WASTE_RATE, DEATH_SUBSTRATE_SCALE,
+  HARVEST_RATE, WASTE_RATE,
   CATALYZE_BOOST, WINTER_UPKEEP_MULT,
   TROPHIC_INVERSE_FACTOR, ABSORB_SKILL_THRESHOLD,
-  CORPSE_ENERGY_MULT, CORPSE_HARVEST_RATE,
-  AGE_DECAY_START, AGE_DECAY_RATE,
+  CORPSE_HARVEST_RATE,
   PHEROMONE_DEPOSIT_RATE,
 } from './constants';
 
-export function metabolize(pixel: Pixel, world: World, config: SimConfig, events: TickEvents): boolean {
+export function metabolize(pixel: Pixel, world: World, config: SimConfig, _events: TickEvents): boolean {
   const { width: w } = world;
   const cellIdx = pixel.y * w + pixel.x;
 
@@ -73,21 +72,46 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
     addInteractionEffect(fx, fy, 'feed');
   }
 
-  // -- Upkeep --
+  // -- Upkeep -- (friction only; no longer lethal — energy clamped at 0)
   const speed = getEffectiveGene(pixel, GENE.SPEED) / 255;
   const sense = getEffectiveGene(pixel, GENE.SENSE_RANGE) / 255;
   let cost = BASE_UPKEEP + speed * SPEED_UPKEEP + sense * SENSE_UPKEEP;
   if (world.season === 'winter') cost *= WINTER_UPKEEP_MULT;
   cost *= config.upkeepMultiplier * weatherUpkeepMult(world.weather) * locomotionUpkeepMult(pixel);
 
-  // Age decay
-  if (pixel.age > AGE_DECAY_START) cost += (pixel.age - AGE_DECAY_START) * AGE_DECAY_RATE;
+  // Natural death (starvation, age) has been disabled by design.
+  // Creatures only die to predation (see reactions.ts resolveAbsorb).
+  // Energy floors at 0 instead.
+  pixel.energy = Math.max(0, Math.min(MAX_ENERGY, pixel.energy + gained - cost));
 
-  const prevEnergy = pixel.energy;
-  pixel.energy = Math.min(MAX_ENERGY, pixel.energy + gained - cost);
+  // Satiety gain from feeding — flat across roles.
+  // Ecology comes from spatial feedback below, not role-specific knobs.
+  if (gained > cost) {
+    pixel.state[1] = Math.min(255, pixel.state[1] + 40);
+  }
 
-  // Satiety state
-  if (gained > cost) pixel.state[1] = Math.min(255, pixel.state[1] + 30);
+  // Spatial feedback: crowding fatigue + pioneer vigor.
+  // 5×5 same-role scan: each neighbor past threshold subtracts 1 satiety.
+  // 3×3 emptiness: isolated pioneers gain +2 — colonizing empty niches pays.
+  const selfRole = pixel.role;
+  let crowd = 0;
+  let anyNear3 = false;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (dx === 0 && dy === 0) continue;
+      const nx = wrapX(pixel.x + dx, world.width);
+      const ny = wrapY(pixel.y + dy, world.height);
+      const other = world.pixels.get(cellKey(nx, ny, world.width));
+      if (!other || other.role !== selfRole) continue;
+      crowd++;
+      if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) anyNear3 = true;
+    }
+  }
+  if (crowd >= 3) {
+    pixel.state[1] = Math.max(0, pixel.state[1] - crowd);
+  } else if (!anyNear3) {
+    pixel.state[1] = Math.min(255, pixel.state[1] + 2);
+  }
 
   // Waste deposit (becomes food for ecosystem)
   const wasteEff = (pixel.dna[GENE.WASTE_R] + pixel.dna[GENE.WASTE_G] + pixel.dna[GENE.WASTE_B]) / (255 * 3);
@@ -97,44 +121,16 @@ export function metabolize(pixel: Pixel, world: World, config: SimConfig, events
   // Pheromone deposit
   addPheromone(world, pixel.x, pixel.y, (pixel.energy / MAX_ENERGY) * PHEROMONE_DEPOSIT_RATE);
 
-  // -- Death --
-  if (pixel.energy <= 0) {
-    world.corpses[cellIdx] = Math.min(255, world.corpses[cellIdx] + Math.floor(Math.max(5, prevEnergy) * CORPSE_ENERGY_MULT));
-    const release = Math.max(1, prevEnergy) * DEATH_SUBSTRATE_SCALE;
-    addFood(world, pixel.x, pixel.y, release * 0.3);
-    const [dx, dy] = toCanvasCenter(pixel.x, pixel.y, config.pixelScale);
-    addDeathEffect(dx, dy);
-    removePixel(world, pixel);
-    events.deaths++;
-    return false;
-  }
-
+  // Natural death removed — only predation kills (reactions.ts resolveAbsorb).
+  // Hungry creatures sit at low energy until they feed; they never die on their own.
   pixel.age++;
   return true;
 }
 
-// Creature roles: 0=plant, 1=hunter, 2=apex, 3=scavenger, 4=parasite, 5=swarm, 6=nomad
+// Role is precomputed at Pixel creation (pixel.ts:createPixel) since DNA is immutable
+// 0=plant, 1=hunter, 2=apex, 3=scavenger, 4=parasite, 5=swarm, 6=nomad
 export function getCreatureRole(pixel: Pixel): number {
-  const rt = pixel.dna[GENE.REACT_TYPE];
-  const speed = pixel.dna[GENE.SPEED];
-  const adhesion = pixel.dna[GENE.ADHESION];
-  const sense = pixel.dna[GENE.SENSE_TARGET];
-  const threshold = pixel.dna[GENE.REACT_THRESHOLD];
-
-  // Swarm: very high adhesion + sharer
-  if (adhesion > 180 && rt >= 64 && rt < 128) return 5;
-  // Parasite: catalyzer + pixel seeker
-  if (rt >= 128 && rt < 192 && sense >= 85 && sense < 170) return 4;
-  // Nomad: fast + food seeker + repeller
-  if (rt >= 192 && speed > 160 && sense < 60) return 6;
-  // Apex: max absorber
-  if (rt < 15) return 2;
-  // Scavenger: light absorber + pheromone follower + high threshold
-  if (rt >= 15 && rt < 64 && (sense >= 60 && sense < 85 || threshold > 80)) return 3;
-  // Hunter: absorber + pixel seeker
-  if (rt < 64 && sense >= 85) return 1;
-  // Default: plant
-  return 0;
+  return pixel.role;
 }
 
 // Simplified trophic level for energy balance (0=producer, 1=consumer, 2=apex)

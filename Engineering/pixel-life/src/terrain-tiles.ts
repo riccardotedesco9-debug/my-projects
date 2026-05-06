@@ -203,7 +203,7 @@ export function renderTerrainOverlays(
   }
 
   // Depletion tint on fertile terrain
-  if (world.terrain[ci] >= Terrain.GRASS && food < 0.1) {
+  if (false && world.terrain[ci] >= Terrain.GRASS && food < 0.1) {
     const deplete = (0.1 - food) / 0.1;
     ctx.globalAlpha = deplete * 0.3;
     ctx.fillStyle = '#6a4a20';
@@ -211,32 +211,11 @@ export function renderTerrainOverlays(
     ctx.globalAlpha = 1;
   }
 
-  // Pheromone trails: amber glow
-  const ph = world.pheromone[ci];
-  if (ph > 0.02) {
-    const dots = Math.min(3, Math.floor(ph * 5));
-    ctx.fillStyle = '#cc9944';
-    ctx.globalAlpha = Math.min(0.6, ph);
-    for (let i = 0; i < dots; i++) {
-      const dx = (hash(cellX, cellY, i * 5 + 50) % (cellSize - 2)) + 1;
-      const dy = (hash(cellX, cellY, i * 5 + 51) % (cellSize - 2)) + 1;
-      ctx.fillRect(wx + dx, wy + dy, 1, 1);
-    }
-    ctx.globalAlpha = 1;
-  }
+  // Pheromone / wear trail rendering removed (visual clutter). Data still drives
+  // gameplay (pack-hunting, movement cost bonus) but the ground stays clean.
 
-  // Wear: lighten center
-  const wear = world.wear[ci];
-  if (wear > 30) {
-    ctx.globalAlpha = (wear / 255) * 0.25;
-    ctx.fillStyle = '#ccaa88';
-    const inset = Math.floor(cellSize * 0.2);
-    ctx.fillRect(wx + inset, wy + inset, cellSize - inset * 2, cellSize - inset * 2);
-    ctx.globalAlpha = 1;
-  }
-
-  // Corpse stain: dark red
-  if (world.corpses[ci] > 0) {
+  // Corpse stain disabled (visual clutter). Gameplay still works — scavengers eat corpses.
+  if (false && world.corpses[ci] > 0) {
     ctx.globalAlpha = Math.min(0.4, world.corpses[ci] / 60);
     ctx.fillStyle = '#662222';
     ctx.fillRect(wx, wy, cellSize, cellSize);
