@@ -9,7 +9,11 @@
 import { execSync } from "node:child_process";
 
 const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
-const TAB = "monthly";
+// Each entry: [tab name, last column letter to clear up to (excluding header row)].
+const TARGETS = [
+  ["monthly", "Y"], // 25 cols (A..Y) since the v2 schema expanded
+  ["alerts", "C"],  // timestamp, label, message
+];
 
 function opRead(ref) {
   return execSync(`op read "${ref}"`, { encoding: "utf8" }).trim();
@@ -30,16 +34,20 @@ async function refreshAccessToken(clientId, clientSecret, refreshToken) {
   return (await res.json()).access_token;
 }
 
-async function clearRows(token, sheetId) {
-  // A2:O wipes from row 2 to the end of the data range, columns A..O.
-  const range = encodeURIComponent(`${TAB}!A2:O`);
+async function clearRows(token, sheetId, tab, lastCol) {
+  // A2:<lastCol> wipes from row 2 to the end of the data range. Header preserved.
+  const range = encodeURIComponent(`${tab}!A2:${lastCol}`);
   const url = `${SHEETS_BASE}/${sheetId}/values/${range}:clear`;
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: "{}",
   });
-  if (!res.ok) throw new Error(`Clear failed (${res.status}): ${await res.text()}`);
+  if (!res.ok) {
+    // 400 likely = tab doesn't exist (not yet upgraded). Skip silently.
+    if (res.status === 400) return { clearedRange: null, skipped: tab };
+    throw new Error(`Clear ${tab} failed (${res.status}): ${await res.text()}`);
+  }
   return res.json();
 }
 
@@ -53,10 +61,16 @@ async function main() {
   console.log("Refreshing access token…");
   const token = await refreshAccessToken(clientId, clientSecret, refreshToken);
 
-  console.log(`Clearing data rows from sheet ${sheetId} (tab "${TAB}")…`);
-  const result = await clearRows(token, sheetId);
-  console.log(`Cleared range: ${result.clearedRange ?? "(none)"}`);
-  console.log("Done. Header row preserved. Next billing-pulse run (or 2026-06-01 cron) writes the first new row.");
+  console.log(`Clearing data rows from sheet ${sheetId}…`);
+  for (const [tab, lastCol] of TARGETS) {
+    const result = await clearRows(token, sheetId, tab, lastCol);
+    if (result.skipped) {
+      console.log(`  [skip] ${tab}: tab does not exist (run upgrade-billing-sheet.mjs first)`);
+    } else {
+      console.log(`  [ok]   ${tab}: cleared ${result.clearedRange ?? "(none)"}`);
+    }
+  }
+  console.log("Done. Header rows preserved. Next billing-pulse run writes a fresh row.");
 }
 
 main().catch((e) => {
