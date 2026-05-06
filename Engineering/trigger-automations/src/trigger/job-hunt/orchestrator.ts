@@ -47,7 +47,7 @@ import {
 import { detectSilentSources } from "./source-monitor.js";
 import type { Job, RunStats, SheetRow, Source, Track, Reputation } from "./types.js";
 import { normCompany } from "./pipeline/normalize.js";
-import { notifyOwner, formatErrorAlert } from "../../lib/telegram-notify.js";
+import { notifyOwner } from "../../lib/telegram-notify.js";
 
 export interface OrchestratorOptions {
   dryRun?: boolean;              // skip sheet writes + email
@@ -375,24 +375,20 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
   } catch (err) {
     stats.finishedAt = new Date().toISOString();
     console.error(`[job-hunt] failure in phase=${phase}:`, err);
-    if (!dryRun) {
-      // Fire email + Telegram in parallel so the phone pings as fast as the
-      // email lands. notifyOwner never throws; sendEmail can, so guard it.
-      const tasks: Array<Promise<unknown>> = [
-        notifyOwner(formatErrorAlert(`job-hunt/${track}/${phase}`, err)),
-      ];
-      if (recipient) {
-        tasks.push(
-          sendEmail({
-            to: recipient,
-            subject: `⚠ job-hunt failed (${phase})`,
-            html: composeFailureAlert(err, stats, phase),
-          }).catch((mailErr) => {
-            console.error("[job-hunt] also failed to send failure email:", mailErr);
-          }),
-        );
+    // Telegram ping is handled by the global onFailure hook in
+    // trigger.config.ts so we don't double-notify here. Email is the
+    // daily-digest channel and stays — recipients see a rich failure
+    // summary in the same inbox they read the digest in.
+    if (!dryRun && recipient) {
+      try {
+        await sendEmail({
+          to: recipient,
+          subject: `⚠ job-hunt failed (${phase})`,
+          html: composeFailureAlert(err, stats, phase),
+        });
+      } catch (mailErr) {
+        console.error("[job-hunt] also failed to send failure email:", mailErr);
       }
-      await Promise.allSettled(tasks);
     }
     throw err;
   }

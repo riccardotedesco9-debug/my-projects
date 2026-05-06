@@ -24,7 +24,7 @@ import { fetchMeetsyncAppMetrics } from "../../lib/billing/meetsync-app.js";
 import { fetchJobhuntAppMetrics } from "../../lib/billing/jobhunt-app.js";
 import { countAlertsInMonth } from "../../lib/billing/alerts-log.js";
 import { appendSnapshot } from "../../lib/billing/sheet-writer.js";
-import { notifyOwner, formatErrorAlert } from "../../lib/telegram-notify.js";
+import { notifyOwner } from "../../lib/telegram-notify.js";
 import type { ProviderUsage } from "../../lib/billing/types.js";
 
 export const billingMonthlyPulse = schedules.task({
@@ -93,7 +93,8 @@ export const billingMonthlyPulse = schedules.task({
         erroredCount: errored.length,
       };
     } catch (err) {
-      void notifyOwner(formatErrorAlert(`billing-pulse/${monthLabel}`, err));
+      // Re-throw — the global onFailure hook in trigger.config.ts pings
+      // Telegram via /internal/alert. No need to call notifyOwner here too.
       throw err;
     }
   },
