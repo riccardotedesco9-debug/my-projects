@@ -463,28 +463,50 @@ function summarySeedValues() {
   const lastMinusOne = (col) =>
     `=IFERROR(INDEX(monthly!${col}2:${col}500,MATCH(2,1/(monthly!${col}2:${col}500<>""))-1),"")`;
 
+  // SPARKLINE renders inline mini-charts in a single cell. Wrapped in
+  // IFERROR so the cell stays blank when the source column is empty.
+  // `line` for time-series, `bar` for quota-fill (used vs used+remaining).
+  const trendLine = (col, color) =>
+    `=IFERROR(SPARKLINE(monthly!${col}2:${col}500,{"charttype","line";"color1","${color}";"linewidth",2;"empty","zero"}),"")`;
+  const quotaBar = (usedCol, remainCol, color) =>
+    `=IFERROR(SPARKLINE(IFERROR(INDEX(monthly!${usedCol}2:${usedCol}500,MATCH(2,1/(monthly!${usedCol}2:${usedCol}500<>""))),0),` +
+    `{"charttype","bar";"max",IFERROR(INDEX(monthly!${usedCol}2:${usedCol}500,MATCH(2,1/(monthly!${usedCol}2:${usedCol}500<>"")))+INDEX(monthly!${remainCol}2:${remainCol}500,MATCH(2,1/(monthly!${remainCol}2:${remainCol}500<>""))),100);` +
+    `"color1","${color}"}),"")`;
+
   return [
     [, , , , , , , , ,], // row 1 (blank padding)
     // row 2 — title
     [, "AI Spend Tracker — last month at a glance"],
     [, , , , , , , , ,], // row 3
-    // row 4 — labels
+    // row 4 — KPI labels
     [, "Total spend", , "vs prev month", , "3-month avg", , "Active users"],
-    // row 5 — values
+    // row 5 — KPI values
     [, last("L"), , last("N"), , last("O"), , last("P")],
     [, , , , , , , , ,], // row 6
-    // row 7 — labels
     [, "Turns processed", , "Reminders fired", , "Job-hunt runs", , "Alerts this month"],
-    // row 8 — values
     [, last("R"), , last("S"), , last("T"), , last("W")],
     [, , , , , , , , ,], // row 9
-    // row 10 — labels
     [, "ElevenLabs used", , "ElevenLabs left", , "Firecrawl used", , "Firecrawl left"],
-    // row 11 — values
     [, last("D"), , last("E"), , last("J"), , last("K")],
-    [, , , , , , , , ,],
+    [, , , , , , , , ,], // row 12
     [, "Latest month:", last("A")],
     [, "Previous month:", lastMinusOne("A")],
+    [, , , , , , , , ,], // row 15
+    // row 16 — Trends section header
+    [, "Trends (across all months on file)"],
+    [, , , , , , , , ,], // row 17
+    // row 18 — trend labels
+    [, "Spend over time", , "Active users", , "Turns", , "Alerts"],
+    // row 19 — sparklines (line)
+    [, trendLine("L", "#3b82f6"), , trendLine("P", "#10b981"), , trendLine("R", "#f59e0b"), , trendLine("W", "#ef4444")],
+    [, , , , , , , , ,], // row 20
+    // row 21 — Quotas section header
+    [, "Quotas (current month, used vs total)"],
+    [, , , , , , , , ,], // row 22
+    // row 23 — quota labels
+    [, "ElevenLabs", , "Firecrawl"],
+    // row 24 — quota progress bars
+    [, quotaBar("D", "E", "#3b82f6"), , quotaBar("J", "K", "#10b981")],
   ];
 }
 
@@ -495,9 +517,14 @@ function summaryFormatRequests(sheetId) {
   //   row 7  → labels                row 8  → values
   //   row 10 → labels                row 11 → values
   //   row 13/14 → "Latest month / Previous month" labels + dates
+  //   row 16 → Trends section header
+  //   row 18 → trend labels          row 19 → sparkline cells (line)
+  //   row 21 → Quotas section header
+  //   row 23 → quota labels          row 24 → quota bar cells
   //
-  // Tile values live at columns B, D, F, H — every other column.
+  // Tile/sparkline values live at columns B, D, F, H — every other column.
   const TITLE_FMT = { textFormat: { bold: true, fontSize: 18 }, horizontalAlignment: "LEFT" };
+  const SECTION_FMT = { textFormat: { bold: true, fontSize: 12, foregroundColor: { red: 0.2, green: 0.2, blue: 0.22 } }, horizontalAlignment: "LEFT" };
   const LABEL_FMT = {
     textFormat: { bold: true, fontSize: 9, foregroundColor: { red: 0.4, green: 0.4, blue: 0.42 } },
     horizontalAlignment: "LEFT",
@@ -562,6 +589,30 @@ function summaryFormatRequests(sheetId) {
       updateDimensionProperties: {
         range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 },
         properties: { pixelSize: 50 },
+        fields: "pixelSize",
+      },
+    })),
+    // Section headers (rows 16, 21).
+    ...[15, 20].map((rowIndex) => ({
+      repeatCell: {
+        range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 9 },
+        cell: { userEnteredFormat: SECTION_FMT },
+        fields: "userEnteredFormat(textFormat,horizontalAlignment)",
+      },
+    })),
+    // Trend / quota labels (rows 18, 23).
+    ...[17, 22].map((rowIndex) => ({
+      repeatCell: {
+        range: { sheetId, startRowIndex: rowIndex, endRowIndex: rowIndex + 1, startColumnIndex: 1, endColumnIndex: 9 },
+        cell: { userEnteredFormat: LABEL_FMT },
+        fields: "userEnteredFormat(textFormat,horizontalAlignment)",
+      },
+    })),
+    // Sparkline rows (rows 19, 24): tall enough to render meaningfully.
+    ...[18, 23].map((rowIndex) => ({
+      updateDimensionProperties: {
+        range: { sheetId, dimension: "ROWS", startIndex: rowIndex, endIndex: rowIndex + 1 },
+        properties: { pixelSize: 40 },
         fields: "pixelSize",
       },
     })),
@@ -707,9 +758,9 @@ async function main() {
   ];
   await batchUpdate(token, sheetId, fmtReqs);
 
-  // 4. Seed summary tab formulas.
+  // 4. Seed summary tab formulas (KPI tiles + sparkline trends + quota bars).
   console.log("Seeding summary tab formulas…");
-  await writeRange(token, sheetId, `${SUMMARY}!A1:I14`, summarySeedValues());
+  await writeRange(token, sheetId, `${SUMMARY}!A1:I24`, summarySeedValues());
 
   console.log(`\nDone. Open: https://docs.google.com/spreadsheets/d/${sheetId}/edit`);
 }
