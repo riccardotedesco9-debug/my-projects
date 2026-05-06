@@ -15,8 +15,11 @@ every step.
 3. **Clarify** — Ask the user targeted questions (see below). Do not assume anything.
 4. **Plan** — Write out what you will build in plain English. Get explicit approval before coding.
 5. **Build** — Create TypeScript task files following the conventions below.
-6. **Environment Setup** — Add all required env vars to `.env` (local) AND the Trigger.dev
-   dashboard (production). Walk the user through both.
+6. **Environment Setup** — Add the new secret to 1Password (`AI-Stack` vault), then to
+   `tools/secrets-manifest.json` and `.env.tpl` at workspace root, then run
+   `node tools/sync-secrets.mjs --target=trigger-prod` to push to Trigger.dev. See the
+   workspace root `CLAUDE.md` "Secrets" section for the full flow. Do NOT add secrets
+   to a per-project `.env` for new work.
 7. **Test Locally** — Start the dev server and trigger a test run. Confirm it works.
 8. **Deploy** — Use the Trigger.dev MCP deploy tool to push to production.
 9. **Verify** — Check run logs and confirm the automation is working end-to-end.
@@ -51,20 +54,26 @@ src/trigger/{automation-name}/
 
 ## Environment Variables — Security Rules
 
-- **Every secret lives in `.env`** — API keys, tokens, workspace IDs, channel IDs. No exceptions.
-- **Never log secret values** — `console.log("Key:", apiKey)` is a security violation
-- **Never hardcode credentials** — not even temporarily, not even in comments
+**Source of truth is 1Password (`AI-Stack` vault).** See workspace root `CLAUDE.md` →
+"Secrets" section for the full flow. Local `.env` files are legacy fallback only.
+
+- **Never log secret values** — `console.log("Key:", apiKey)` is a security violation.
+- **Never hardcode credentials** — not even temporarily, not even in comments.
 - **Always validate at the top of every task**:
   ```ts
   const apiKey = process.env.MY_API_KEY;
   if (!apiKey) throw new Error("MY_API_KEY is not set");
   ```
-- **IDs and tokens from third-party services** (workspace IDs, channel IDs, etc.) — always read from env vars, never hardcode or fetch dynamically when a static value will do
-- **Before deploying**: add ALL env vars to Trigger.dev dashboard → Project → Environment
-  Variables. Add to both staging and prod environments. This is the #1 cause of production failures.
-- **Verify `.gitignore` includes `.env`** before any commit. Never commit secrets.
-- **When adding a new env var**: add it to `.env` with a descriptive comment explaining where to
-  get it, then remind the user to also add it to the Trigger.dev dashboard
+- **IDs and tokens from third-party services** (workspace IDs, channel IDs, etc.) — always read from env vars, never hardcode or fetch dynamically when a static value will do.
+- **When adding a new secret**:
+  1. Create the item in 1Password (`op://AI-Stack/<item>/<field>`)
+  2. Add a row to workspace-root `tools/secrets-manifest.json` (`platforms: ["trigger-prod"]`)
+  3. Add a line to workspace-root `.env.tpl` (`NAME=op://AI-Stack/<item>/<field>`)
+  4. Run `node tools/sync-secrets.mjs --target=trigger-prod` from workspace root
+  5. Import the generated `.tmp/trigger-prod.env` via Trigger.dev dashboard → Environment Variables → Prod → Import .env
+  6. Delete `.tmp/trigger-prod.env` after import
+- **Before deploying**: confirm the secret resolves via `node tools/sync-secrets.mjs --dry-run`. The #1 cause of production failures used to be "key in `.env` locally but not on Trigger.dev"; now it's "key in 1P but no manifest row + sync wasn't run."
+- **Local dev**: `op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx trigger.dev@4.4.4 dev` injects secrets at runtime, no disk writes.
 
 ## Trigger.dev Critical Rules
 
@@ -119,12 +128,14 @@ Wait for the user to say "push it", "deploy", "ship it", or similar before touch
 
 **Checklist — complete this before every deploy:**
 
-- [ ] All env vars added to Trigger.dev dashboard (not just `.env`)
-  - Go to: cloud.trigger.dev → your project → Environment Variables
-  - Add every key to both staging and prod
-- [ ] Tested locally and at least one run succeeded
+- [ ] All required env vars exist in 1Password `AI-Stack` vault
+- [ ] `tools/secrets-manifest.json` has a row for each new secret with `trigger-prod` in `platforms`
+- [ ] `.env.tpl` mirrors the manifest (`name=op://AI-Stack/...`)
+- [ ] `node tools/sync-secrets.mjs --target=trigger-prod --dry-run` passes (no SKIP rows)
+- [ ] Generated `.tmp/trigger-prod.env` imported via Trigger.dev dashboard → Prod
+- [ ] Tested locally (`op run --env-file=.env.tpl -- npx trigger.dev@4.4.4 dev`) and at least one run succeeded
 - [ ] **User has explicitly confirmed** the automation works and approved the deploy
-- [ ] `.env` is in `.gitignore`
+- [ ] No `.env*` files committed (verify with `git status`)
 
 **Deploy**: push to `master` — GitHub Actions auto-deploys via `.github/workflows/deploy.yml`
 
@@ -137,9 +148,10 @@ Wait for the user to say "push it", "deploy", "ship it", or similar before touch
 
 1. Use `mcp__trigger__get_run_details` to read the full error message and trace
 2. Most common causes:
-   - **Missing env var in dashboard** — key is in `.env` locally but was never added to Trigger.dev
-   - **Import path** — TypeScript task imports need `.js` extension (e.g., `"./process-video.js"`)
-   - **API auth failure** — wrong key format, expired key, or wrong header name for that API
+   - **Missing env var on Trigger.dev** — secret is in 1P but `sync-secrets.mjs` was never run, or the generated `.tmp/trigger-prod.env` was never imported. Re-run + re-import.
+   - **Wrong env-var name on Trigger.dev** — manifest entry's `name` doesn't match what `process.env.X` reads. Audit and rename in dashboard.
+   - **Import path** — TypeScript task imports need `.js` extension (e.g., `"./process-video.js"`).
+   - **API auth failure** — wrong key format, expired key, or wrong header name for that API.
 3. Fix the issue, test locally again, then redeploy
 
 ## Adding npm Packages

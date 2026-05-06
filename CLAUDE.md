@@ -26,19 +26,46 @@ Projects may contain these common directories:
 | `tools/` | Python scripts for deterministic execution (API calls, transforms, file ops) | Persistent — tested and versioned |
 | `.tmp/` | Intermediate/scraped data, processing artifacts | Disposable — regenerated as needed |
 
-Credentials and API keys live in `.env` (gitignored). Final deliverables go to cloud services (Google Drive, Sheets, etc.), not local files.
+Final deliverables go to cloud services (Google Drive, Sheets, etc.), not local files.
 
-### Secrets — single source of truth at workspace root
+### Secrets — 1Password is the single source of truth (set up 2026-05-06)
 
-All secrets across every project are managed from this root, not per-project:
+All secrets across every project are managed from the **AI-Stack** 1Password vault. Per-project `.env` files still exist on disk as a **legacy fallback** — do NOT create new ones for new work; do NOT add new secrets to them.
 
-- **`.env.tpl`** (committed) — master template. Every secret used anywhere in the workspace, mapped to `op://AI-Stack/...` 1Password references. When you add a new secret, add it here AND to `tools/secrets-manifest.json`.
-- **`.env`** (gitignored, 0600) — real values, only when not using 1Password CLI. Mirrors `.env.tpl` keys.
-- **`tools/secrets-manifest.json`** — declares which secrets target which platform (Cloudflare Worker via wrangler, Trigger.dev via dashboard env vars).
-- **`tools/sync-secrets.mjs`** — pushes from 1P → Cloudflare + writes a Trigger.dev-importable env file. `--dry-run` and `--target=` flags supported. See `tools/README.md`.
-- Local dev pattern: `op run --env-file=.env.tpl -- <command>` from any directory.
+**The flow:**
 
-**No per-project `.env.tpl` files.** Per-project `.env` files (gitignored) may still exist for legacy/local-only values, but the canonical list lives at root.
+1. Real value lives in **1Password vault `AI-Stack`** (e.g. `op://AI-Stack/anthropic/api-key`).
+2. **`.env.tpl`** (committed at workspace root) maps each var name → `op://` reference. Every secret in the workspace is listed here.
+3. **`tools/secrets-manifest.json`** declares which platforms (Cloudflare Worker via wrangler, Trigger.dev via env-file import) each secret needs to reach.
+4. **`tools/sync-secrets.mjs`** reads from 1P and pushes:
+   - `--target=cloudflare-meetsync` → runs `wrangler secret put` for the MeetSync Worker
+   - `--target=trigger-prod` → writes `.tmp/trigger-prod.env` you import via the Trigger.dev dashboard
+   - No flag = both targets
+5. **Local dev**: `op run --env-file=".env.tpl" -- <command>` injects secrets at runtime — never written to disk.
+
+**When adding a new secret:**
+
+1. Create the item in 1Password (item title + field name, all lowercase-kebab).
+2. Add a row to `tools/secrets-manifest.json` with name, `opRef`, and target platforms.
+3. Add a line to `.env.tpl`: `NAME=op://AI-Stack/<item>/<field>`.
+4. Run `node tools/sync-secrets.mjs --target=<platform>` to push.
+5. Code reads it via `process.env.NAME` as usual.
+
+**Bootstrap helper** (one-time, populates the vault from existing `.env` files): `tools/bootstrap-1p-vault.mjs`.
+
+**Do NOT:**
+- Create per-project `.env.tpl` — single workspace template only.
+- Commit real secret values anywhere.
+- Add secrets to per-project `.env` for new work — go through 1P.
+- `wrangler secret put` directly in production — always go through `sync-secrets.mjs` so 1P stays canonical.
+- Tell users to "edit your `.env`" for new vars without also updating the manifest + `.env.tpl`.
+
+**Gotcha cheatsheet:**
+- `op item create ... id=<value>` silently drops the field (`id` is reserved). Use `password=<value>` or another name.
+- Cloudflare API token permissions are immutable — to add a scope you create a new token, not edit.
+- Anthropic Admin API keys are Team/Org-tier only — billing-pulse silent-skips on personal plans.
+
+**Related memory:** `~/.claude/projects/C--Users-Riccardo-Documents-My-Projects/memory/project_billing-pulse.md` documents the billing pulse, `/internal/alert` Worker route, and more op-CLI gotchas.
 
 ## Agent Operating Model
 
