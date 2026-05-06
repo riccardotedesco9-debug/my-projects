@@ -17,6 +17,7 @@ ANTHROPIC_ADMIN_API_KEY=op://AI-Stack/anthropic-admin/api-key
 # --- Cloudflare ---
 CLOUDFLARE_ACCOUNT_ID=op://AI-Stack/cloudflare/account-id
 CLOUDFLARE_API_TOKEN=op://AI-Stack/cloudflare/api-token
+CLOUDFLARE_BILLING_API_TOKEN=op://AI-Stack/cloudflare/billing-api-token
 CLOUDFLARE_D1_DATABASE_ID=op://AI-Stack/cloudflare/d1-meetsync-id
 
 # --- ElevenLabs ---
@@ -49,4 +50,4 @@ DASHBOARD_TOKEN=op://AI-Stack/meetsync-dashboard/token
 INTERNAL_ALERT_SECRET=op://AI-Stack/internal-alert/secret
 
 # --- Billing pulse (monthly cost tracker) ---
-BILLING_SHEET_ID=op://AI-Stack/billing-sheet/id
+BILLING_SHEET_ID=op://AI-Stack/billing-sheet/password
