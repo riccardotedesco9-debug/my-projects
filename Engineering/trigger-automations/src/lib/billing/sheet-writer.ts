@@ -155,7 +155,11 @@ export async function appendSnapshot(row: SnapshotRow): Promise<void> {
   ];
 
   const range = encodeURIComponent(`${BILLING_TAB}!A:${LAST_COLUMN}`);
-  const url = `${SHEETS_BASE}/${sheetId}/values/${range}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`;
+  // RAW (not USER_ENTERED) so a future provider error containing "=HYPERLINK(...)"
+  // lands as plain text in the `errors` column instead of executing as a formula.
+  // Cell-level number formatting (applied via tools/upgrade-billing-sheet.mjs)
+  // handles currency / percent / count rendering regardless of input mode.
+  const url = `${SHEETS_BASE}/${sheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
