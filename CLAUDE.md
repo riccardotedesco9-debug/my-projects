@@ -28,6 +28,18 @@ Projects may contain these common directories:
 
 Credentials and API keys live in `.env` (gitignored). Final deliverables go to cloud services (Google Drive, Sheets, etc.), not local files.
 
+### Secrets — single source of truth at workspace root
+
+All secrets across every project are managed from this root, not per-project:
+
+- **`.env.tpl`** (committed) — master template. Every secret used anywhere in the workspace, mapped to `op://AI-Stack/...` 1Password references. When you add a new secret, add it here AND to `tools/secrets-manifest.json`.
+- **`.env`** (gitignored, 0600) — real values, only when not using 1Password CLI. Mirrors `.env.tpl` keys.
+- **`tools/secrets-manifest.json`** — declares which secrets target which platform (Cloudflare Worker via wrangler, Trigger.dev via dashboard env vars).
+- **`tools/sync-secrets.mjs`** — pushes from 1P → Cloudflare + writes a Trigger.dev-importable env file. `--dry-run` and `--target=` flags supported. See `tools/README.md`.
+- Local dev pattern: `op run --env-file=.env.tpl -- <command>` from any directory.
+
+**No per-project `.env.tpl` files.** Per-project `.env` files (gitignored) may still exist for legacy/local-only values, but the canonical list lives at root.
+
 ## Agent Operating Model
 
 You operate in a **Workflows → Agent → Tools** architecture. Workflows are markdown SOPs (the instructions), you are the agent (reasoning and orchestration), and tools are deterministic scripts (execution). This separation matters: probabilistic AI handles decisions while deterministic code handles execution, keeping accuracy high across multi-step tasks.

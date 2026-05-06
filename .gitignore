@@ -6,4 +6,5 @@ release-manifest.json
 .env
 .env.*
 !**/.env.example
+!**/.env.tpl
 **/.tmp/
