@@ -9,6 +9,19 @@ import { handleAuthCallback } from "./google-oauth.js";
 import { handleTranscribe } from "./transcribe.js";
 import { notifyOwner, formatError } from "./notify-owner.js";
 
+/**
+ * Constant-time string comparison. Prevents timing-attack leakage of the
+ * `INTERNAL_ALERT_SECRET` via the /internal/alert auth check. CF Workers
+ * provide `crypto.subtle.timingSafeEqual` as a non-standard helper that
+ * runs in constant time over equal-length byte arrays.
+ */
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const aBytes = new TextEncoder().encode(a);
+  const bBytes = new TextEncoder().encode(b);
+  if (aBytes.byteLength !== bBytes.byteLength) return false;
+  return crypto.subtle.timingSafeEqual(aBytes, bBytes);
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -111,7 +124,7 @@ export default {
       }
       const auth = request.headers.get("authorization");
       const expected = env.INTERNAL_ALERT_SECRET;
-      if (!expected || auth !== `Bearer ${expected}`) {
+      if (!expected || !timingSafeStringEqual(auth ?? "", `Bearer ${expected}`)) {
         return new Response("Unauthorized", { status: 401 });
       }
       let body: { label?: unknown; message?: unknown };
