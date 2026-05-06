@@ -1,14 +1,15 @@
 // monthly-pulse.ts — Trigger.dev scheduled task. Fires 1st of each month
 // at 09:00 Europe/Malta. Fans out to each provider's billing fetcher,
-// appends one snapshot row to the AI Spend Tracker Google Sheet, and
-// pings the meetsync chat on failure.
+// collects MeetSync + job-hunt app metrics, counts alerts, then appends
+// one snapshot row to the AI Spend Tracker Google Sheet.
 //
 // One-time setup:
 //   1. Create a Google Sheet titled "AI Spend Tracker"
-//   2. Add a tab named "monthly" with the headers from SHEET_HEADERS
+//   2. Run `node tools/upgrade-billing-sheet.mjs` to provision the 3 tabs
+//      (summary, monthly, alerts) with formatting
 //   3. Set BILLING_SHEET_ID env var on Trigger.dev to the sheet's ID
-//   4. Set ANTHROPIC_ADMIN_API_KEY (separate from ANTHROPIC_API_KEY —
-//      generate at console.anthropic.com → Settings → Admin Keys)
+//   4. Set ANTHROPIC_ADMIN_API_KEY on Team-tier Anthropic accounts (silent
+//      skip otherwise)
 //
 // Manual run for testing:
 //   mcp__trigger__trigger_task with taskIdentifier: "billing-monthly-pulse"
@@ -19,6 +20,9 @@ import { fetchElevenLabsUsage } from "../../lib/billing/elevenlabs.js";
 import { fetchFirecrawlUsage } from "../../lib/billing/firecrawl.js";
 import { fetchCloudflareUsage } from "../../lib/billing/cloudflare.js";
 import { fetchTriggerUsage } from "../../lib/billing/trigger.js";
+import { fetchMeetsyncAppMetrics } from "../../lib/billing/meetsync-app.js";
+import { fetchJobhuntAppMetrics } from "../../lib/billing/jobhunt-app.js";
+import { countAlertsInMonth } from "../../lib/billing/alerts-log.js";
 import { appendSnapshot } from "../../lib/billing/sheet-writer.js";
 import { notifyOwner, formatErrorAlert } from "../../lib/telegram-notify.js";
 import type { ProviderUsage } from "../../lib/billing/types.js";
@@ -41,13 +45,17 @@ export const billingMonthlyPulse = schedules.task({
 
     try {
       // Fan out — one provider's failure shouldn't tank the rest.
-      const [anthropic, elevenlabs, trigger, cloudflare, firecrawl] = await Promise.all([
-        fetchAnthropicUsage(startISO, endISO),
-        fetchElevenLabsUsage(),
-        fetchTriggerUsage(startISO, endISO),
-        fetchCloudflareUsage(startISO, endISO),
-        fetchFirecrawlUsage(),
-      ]);
+      const [anthropic, elevenlabs, trigger, cloudflare, firecrawl, meetsync, jobhunt, alertCount] =
+        await Promise.all([
+          fetchAnthropicUsage(startISO, endISO),
+          fetchElevenLabsUsage(),
+          fetchTriggerUsage(startISO, endISO),
+          fetchCloudflareUsage(startISO, endISO),
+          fetchFirecrawlUsage(),
+          fetchMeetsyncAppMetrics(startISO),
+          fetchJobhuntAppMetrics(startISO),
+          countAlertsInMonth(startISO),
+        ]);
 
       const byProvider: Record<ProviderUsage["provider"], ProviderUsage> = {
         anthropic,
@@ -57,7 +65,13 @@ export const billingMonthlyPulse = schedules.task({
         firecrawl,
       };
 
-      await appendSnapshot({ month: monthLabel, byProvider });
+      await appendSnapshot({
+        month: monthLabel,
+        byProvider,
+        meetsync,
+        jobhunt,
+        alertCount,
+      });
 
       // Per-provider errors are logged into the sheet's `errors` column,
       // but we also surface them once aggregated so they're visible
@@ -73,6 +87,9 @@ export const billingMonthlyPulse = schedules.task({
       return {
         month: monthLabel,
         providers: byProvider,
+        meetsync,
+        jobhunt,
+        alertCount,
         erroredCount: errored.length,
       };
     } catch (err) {

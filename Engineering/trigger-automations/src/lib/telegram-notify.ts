@@ -1,17 +1,26 @@
 // Cross-task Telegram alerts via the MeetSync bot. Reuses the TELEGRAM_BOT_TOKEN
 // env var already configured for the meetsync tasks; reads ADMIN_CHAT_ID
 // (a.k.a. owner chat) so all alerts land in Riccardo's chat with the bot.
+// Also appends each alert to the AI Spend Tracker sheet's `alerts` tab so
+// there's a permanent searchable record beyond the Telegram scroll-back.
 //
 // Best-effort — never throws, since alerting must not break the caller's
 // main flow. Always log + swallow on failure.
 
+import { appendAlertRow } from "./billing/alerts-log.js";
+
 const TELEGRAM_MAX_LEN = 4096;
 
 export async function notifyOwner(message: string): Promise<void> {
+  // Best-effort sheet append in parallel with the Telegram send. A
+  // sheet-write hiccup must never delay or block the Telegram delivery.
+  const sheetTask = logToSheet(message);
+
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.ADMIN_CHAT_ID ?? process.env.OWNER_CHAT_ID;
   if (!token || !chatId) {
     console.warn("[telegram-notify] TELEGRAM_BOT_TOKEN or ADMIN_CHAT_ID missing — skipping alert");
+    await sheetTask;
     return;
   }
 
@@ -37,6 +46,18 @@ export async function notifyOwner(message: string): Promise<void> {
   } catch (err) {
     console.error("[telegram-notify] fetch failed:", err);
   }
+  await sheetTask;
+}
+
+/**
+ * Pull a label out of the leading `[label]` if formatErrorAlert produced
+ * the message, otherwise tag it as "alert". Body for the sheet is the rest.
+ */
+async function logToSheet(message: string): Promise<void> {
+  const labelMatch = message.match(/^[^[]*\[([^\]]+)\]\s*\n?/);
+  const label = labelMatch ? labelMatch[1] : "alert";
+  const body = labelMatch ? message.slice(labelMatch[0].length) : message;
+  await appendAlertRow(label, body.trim());
 }
 
 export function formatErrorAlert(label: string, err: unknown): string {
