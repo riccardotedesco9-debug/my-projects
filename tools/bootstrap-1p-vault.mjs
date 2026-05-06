@@ -41,7 +41,7 @@ const ITEMS = {
   "google-meetsync-oauth": { "client-id": "GOOGLE_CLIENT_ID", "client-secret": "GOOGLE_CLIENT_SECRET" },
   "google-jobhunt-oauth":  { "client-id": "OAuth_Client_ID_Desktop", "client-secret": "OAuth_Client_Secret_Desktop", "refresh-token": "Google_Refresh_Token" },
   "jobhunt-recipient":     { email: "Gmail_Recepient" },
-  "cloudflare":            { "account-id": "CLOUDFLARE_ACCOUNT_ID", "api-token": "CLOUDFLARE_API_TOKEN", "d1-meetsync-id": "CLOUDFLARE_D1_DATABASE_ID" },
+  "cloudflare":            { "account-id": "CLOUDFLARE_ACCOUNT_ID", "api-token": "CLOUDFLARE_API_TOKEN", "d1-meetsync-id": "CLOUDFLARE_D1_DATABASE_ID", "billing-api-token": "ASK" },
   "elevenlabs":            { "api-key": "ASK" },
   "firecrawl":             { "api-key": "FIRECRAWL_API_KEY_OR_FireCrawlAPI" },
   // billing-sheet/id intentionally omitted — populate after creating the Google Sheet

@@ -27,7 +27,7 @@ export interface ProviderUsage {
   error: string | null;
 }
 
-export function emptyUsage(provider: ProviderUsage["provider"], error: string): ProviderUsage {
+export function emptyUsage(provider: ProviderUsage["provider"], error: string | null): ProviderUsage {
   return {
     provider,
     used: null,
