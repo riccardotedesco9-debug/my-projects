@@ -7,6 +7,7 @@ import { handleMessage } from "./handle-message.js";
 import { renderDashboard } from "./dashboard.js";
 import { handleAuthCallback } from "./google-oauth.js";
 import { handleTranscribe } from "./transcribe.js";
+import { notifyOwner, formatError } from "./notify-owner.js";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -99,6 +100,32 @@ export default {
       return await handleTranscribe(request, env);
     }
 
+    // Generic internal alert relay. Any service that knows
+    // INTERNAL_ALERT_SECRET can POST {label, message} and the Worker
+    // forwards it to ADMIN_CHAT_ID via Telegram. Used by Trigger.dev
+    // failure webhooks and other cross-service alerts so they don't
+    // need their own bot credentials.
+    if (url.pathname === "/internal/alert") {
+      if (request.method !== "POST") {
+        return new Response("Method Not Allowed", { status: 405, headers: { Allow: "POST" } });
+      }
+      const auth = request.headers.get("authorization");
+      const expected = env.INTERNAL_ALERT_SECRET;
+      if (!expected || auth !== `Bearer ${expected}`) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+      let body: { label?: unknown; message?: unknown };
+      try {
+        body = await request.json();
+      } catch {
+        return new Response("Bad Request", { status: 400 });
+      }
+      const label = typeof body.label === "string" ? body.label : "alert";
+      const message = typeof body.message === "string" ? body.message : "(no message)";
+      ctx.waitUntil(notifyOwner(env, `⚠️ [${label}]\n${message}`));
+      return new Response("OK", { status: 200 });
+    }
+
     // Only handle /webhook path
     if (url.pathname !== "/webhook") {
       return new Response("Not Found", { status: 404 });
@@ -119,6 +146,9 @@ export default {
         ctx.waitUntil(handleMessage(update, env, url.origin));
       } catch (err) {
         console.error("Failed to parse Telegram update:", err);
+        ctx.waitUntil(
+          notifyOwner(env, formatError("meetsync/parse", err)),
+        );
       }
 
       return new Response("OK", { status: 200 });

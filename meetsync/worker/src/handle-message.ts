@@ -4,6 +4,7 @@ import type { Env, TelegramUpdate, TelegramMessage, TelegramCallbackQuery } from
 import type { MessageRouterPayload } from "../../shared/types.js";
 import { checkRateLimit, isBlocked } from "./rate-limit.js";
 import { buildAuthUrl } from "./google-oauth.js";
+import { notifyOwner, formatError } from "./notify-owner.js";
 
 /**
  * Callback-data string (sent with inline-keyboard buttons) → human-readable
@@ -179,6 +180,7 @@ async function routeExtractedPayload(
       if (typeof rawId === "number") logId = rawId;
     } catch (err) {
       console.error("Worker pre-log failed:", err);
+      void notifyOwner(env, formatError("meetsync/d1-pre-log", err));
       // Fall through — task will log inline as fallback
     }
   } else if (routerPayload.message_type !== "text") {
@@ -204,6 +206,7 @@ async function routeExtractedPayload(
       if (typeof rawId === "number") logId = rawId;
     } catch (err) {
       console.error("Worker media-log failed:", err);
+      void notifyOwner(env, formatError("meetsync/d1-media-log", err));
     }
   }
 
@@ -582,5 +585,9 @@ async function triggerMessageRouter(
   if (!response.ok) {
     const text = await response.text();
     console.error(`Trigger.dev API error: ${response.status} — ${text}`);
+    void notifyOwner(
+      env,
+      `⚠️ [meetsync/trigger-submit] ${response.status}\n${text.slice(0, 1500)}`,
+    );
   }
 }

@@ -162,4 +162,8 @@ export interface RunStats {
    * enforced in scrapers/firecrawl-search.ts. */
   firecrawlCalls?: number;
   firecrawlBudget?: number;
+  /** Per-job pipeline errors (normalize/filter/score throws) caught silently
+   * during the per-job loop. Used to fire a "degraded run" Telegram alert
+   * when error rate crosses a threshold (default 10%). */
+  pipelineErrors?: number;
 }

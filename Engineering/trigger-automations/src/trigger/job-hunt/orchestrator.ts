@@ -47,6 +47,7 @@ import {
 import { detectSilentSources } from "./source-monitor.js";
 import type { Job, RunStats, SheetRow, Source, Track, Reputation } from "./types.js";
 import { normCompany } from "./pipeline/normalize.js";
+import { notifyOwner, formatErrorAlert } from "../../lib/telegram-notify.js";
 
 export interface OrchestratorOptions {
   dryRun?: boolean;              // skip sheet writes + email
@@ -129,9 +130,21 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         processed.push(job);
       } catch (err) {
         console.warn(`pipeline skip ${raw.source}:${raw.sourceId}:`, err instanceof Error ? err.message : err);
+        stats.pipelineErrors = (stats.pipelineErrors ?? 0) + 1;
       }
     }
     stats.afterMetaFreshness = processed.length;
+    // Degraded-run alert: >10% of raw jobs threw in the per-job pipeline.
+    // Fired before any further phases so we hear about it even if the rest
+    // of the run later crashes.
+    if (stats.totalRaw > 0 && (stats.pipelineErrors ?? 0) / stats.totalRaw > 0.1) {
+      void notifyOwner(
+        `⚠️ [job-hunt/${track}] degraded run\n` +
+          `${stats.pipelineErrors}/${stats.totalRaw} jobs failed pipeline (` +
+          `${Math.round(((stats.pipelineErrors ?? 0) / stats.totalRaw) * 100)}%)\n` +
+          `Run continues — check Trigger.dev logs for stack traces.`,
+      );
+    }
     if (staleDroppedMeta > 0) console.log(`[freshness/meta] dropped ${staleDroppedMeta} stale postings`);
 
     // 3. Dedup vs sheet + intra-run
@@ -362,16 +375,24 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
   } catch (err) {
     stats.finishedAt = new Date().toISOString();
     console.error(`[job-hunt] failure in phase=${phase}:`, err);
-    if (!dryRun && recipient) {
-      try {
-        await sendEmail({
-          to: recipient,
-          subject: `⚠ job-hunt failed (${phase})`,
-          html: composeFailureAlert(err, stats, phase),
-        });
-      } catch (mailErr) {
-        console.error("[job-hunt] also failed to send failure email:", mailErr);
+    if (!dryRun) {
+      // Fire email + Telegram in parallel so the phone pings as fast as the
+      // email lands. notifyOwner never throws; sendEmail can, so guard it.
+      const tasks: Array<Promise<unknown>> = [
+        notifyOwner(formatErrorAlert(`job-hunt/${track}/${phase}`, err)),
+      ];
+      if (recipient) {
+        tasks.push(
+          sendEmail({
+            to: recipient,
+            subject: `⚠ job-hunt failed (${phase})`,
+            html: composeFailureAlert(err, stats, phase),
+          }).catch((mailErr) => {
+            console.error("[job-hunt] also failed to send failure email:", mailErr);
+          }),
+        );
       }
+      await Promise.allSettled(tasks);
     }
     throw err;
   }

@@ -23,6 +23,11 @@ export interface Env {
   // auto-add events to users' calendars) ---
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+  // Bearer token for /internal/alert relay. Any internal service that
+  // knows it can post {label, message} JSON and the Worker forwards via
+  // Telegram to ADMIN_CHAT_ID. Used by Trigger.dev failure webhooks and
+  // any future cross-service alerting.
+  INTERNAL_ALERT_SECRET?: string;
 }
 
 // --- Incoming Telegram update ---
