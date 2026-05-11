@@ -138,8 +138,17 @@ export interface RunStats {
   startedAt: string;
   finishedAt: string;
   /** Only populated for sources used by the current track (Malta or global) —
-   * not all 19 in the Source union. Use safe access. */
-  perSource: Partial<Record<Source, { fetched: number; passed: number; error: string | null }>>;
+   * not all 19 in the Source union. Use safe access. `metaDropped` and
+   * `urlDropped` track per-source losses to Layer A and Layer B freshness
+   * checks respectively, so the email footer can surface which scrapers feed
+   * the most dead listings. */
+  perSource: Partial<Record<Source, {
+    fetched: number;
+    passed: number;
+    error: string | null;
+    metaDropped?: number;
+    urlDropped?: number;
+  }>>;
   totalRaw: number;
   /** totalRaw − jobs dropped by track-appropriate geo gate (passesMaltaGate /
    * passesGlobalGate). Before the gate runs, listings default to the scraper's

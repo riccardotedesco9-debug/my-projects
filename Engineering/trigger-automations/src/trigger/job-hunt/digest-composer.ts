@@ -5,6 +5,7 @@
 
 import type { Job, RunStats, Reputation } from "./types.js";
 import type { SourceHealth } from "./source-monitor.js";
+import { MAX_AGE_DAYS } from "./pipeline/freshness.js";
 
 const STYLE = `
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1f2328; max-width: 720px; margin: 0 auto; padding: 20px 18px 28px; line-height: 1.55; background: #f3f5f8; }
@@ -170,12 +171,17 @@ export function composeDailyDigest(input: DigestInput): string {
   // "good fit" not "after LLM rank", etc. Geo-gate is only shown when it
   // actually dropped something (Malta track: it rarely does; global track:
   // rejects US-only remote + onsite-Ireland — visible signal).
+  // Pipeline order: raw → geoGate → filter → metaFreshness → dedup
+  // → urlVerify (Layer B) → llm-rank → autoReject → newJobs.
+  // Layer B now sits BETWEEN dedup and autoReject (moved upstream so jobs
+  // ranked outside the digest top-K still get live-checked before being
+  // written to the sheet — was previously only verifying top-100).
   const geoDrop = Math.max(0, stats.totalRaw - stats.afterGeoGate);
   const filterDrop = Math.max(0, stats.afterGeoGate - stats.afterFilter);
   const metaDrop = Math.max(0, stats.afterFilter - stats.afterMetaFreshness);
   const dedupDrop = Math.max(0, stats.afterMetaFreshness - stats.afterDedup);
-  const rejectDrop = Math.max(0, stats.afterDedup - stats.afterAutoReject);
-  const urlDrop = Math.max(0, stats.afterAutoReject - stats.afterUrlVerify);
+  const urlDrop = Math.max(0, stats.afterDedup - stats.afterUrlVerify);
+  const rejectDrop = Math.max(0, stats.afterUrlVerify - stats.afterAutoReject);
   const arrow = `<span class="arrow">→</span>`;
   const dropTag = (n: number, reason: string) =>
     n > 0 ? `<span class="drop">(−${n} ${reason})</span>` : `<span class="drop">(−0)</span>`;
@@ -190,10 +196,10 @@ export function composeDailyDigest(input: DigestInput): string {
     <span class="stage"><b>${stats.totalRaw}</b> found</span>${arrow}
     ${geoStage}
     <span class="stage"><b>${stats.afterFilter}</b> role-relevant ${dropTag(filterDrop, "non-analytical titles")}</span>${arrow}
-    <span class="stage"><b>${stats.afterMetaFreshness}</b> recent ${dropTag(metaDrop, "older than 60 days")}</span>${arrow}
+    <span class="stage"><b>${stats.afterMetaFreshness}</b> recent ${dropTag(metaDrop, `older than ${MAX_AGE_DAYS} days`)}</span>${arrow}
     <span class="stage"><b>${stats.afterDedup}</b> not seen before ${dropTag(dedupDrop, "already in sheet")}</span>${arrow}
-    <span class="stage"><b>${stats.afterAutoReject}</b> good fit ${dropTag(rejectDrop, "LLM flagged mismatch")}</span>${arrow}
-    <span class="stage"><b>${stats.newJobs}</b> matched ${dropTag(urlDrop, "listing closed")}</span>
+    <span class="stage"><b>${stats.afterUrlVerify}</b> still active ${dropTag(urlDrop, "listing closed")}</span>${arrow}
+    <span class="stage"><b>${stats.newJobs}</b> good fit ${dropTag(rejectDrop, "LLM flagged mismatch")}</span>
     <div class="meta-line">Shown in this email: <b>${jobs.length}</b>${cappedAt > 0 ? ` · rolled to tomorrow: <b>${cappedAt}</b>` : ""} · <b>${activeSourceCount}</b>/${enabledSourceCount} sources active${erroredSources.length > 0 ? ` · errors: ${erroredSources.slice(0, 3).join(", ")}` : ""}${fcLine}</div>
   </div>`;
 
@@ -458,11 +464,23 @@ function renderAlerts(cappedAt: number, unhealthy?: SourceHealth[]): string {
 }
 
 function renderFooter(stats: RunStats): string {
+  // Per-source breakdown — show fetched / passed / stale / dead-url so the
+  // user can spot which scrapers feed the most dead listings without opening
+  // the run log. Only show meta/url drop chips when non-zero (keeps the
+  // healthy-source line short).
   const perSource = Object.entries(stats.perSource)
     .filter(([, v]) => v.fetched > 0)
-    .map(([s, v]) => `${s}:${v.fetched}`)
-    .join(" · ");
-  return `<div class="footer">${formatDate(stats.startedAt)} → ${formatDate(stats.finishedAt)} · ${perSource || "(no active sources)"}</div>`;
+    .map(([s, v]) => {
+      const parts = [`<b>${s}</b>: ${v.fetched} fetched · ${v.passed} passed`];
+      if (v.metaDropped) parts.push(`${v.metaDropped} stale`);
+      if (v.urlDropped) parts.push(`${v.urlDropped} dead-url`);
+      return parts.join(" · ");
+    })
+    .join("<br>");
+  const sourceBlock = perSource
+    ? `<div style="margin-top:6px;line-height:1.7">${perSource}</div>`
+    : "(no active sources)";
+  return `<div class="footer">${formatDate(stats.startedAt)} → ${formatDate(stats.finishedAt)}${sourceBlock}</div>`;
 }
 
 function cleanDesc(md: string): string {

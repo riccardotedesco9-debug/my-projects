@@ -123,6 +123,8 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
         const meta = isFreshFromMetadata(job);
         if (!meta.fresh) {
           staleDroppedMeta++;
+          const src = stats.perSource[job.source];
+          if (src) src.metaDropped = (src.metaDropped ?? 0) + 1;
           continue;
         }
         // score is set by the LLM-rank stage below. Jobs that fail ranking
@@ -174,6 +176,35 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
       newJobs = out.newJobs;
     }
     stats.afterDedup = newJobs.length;
+
+    // 3b. URL liveness verify (Layer B) — runs on ALL dedup survivors so
+    //     jobs that won't make the digest top-K still get checked before
+    //     being written to the sheet (otherwise dedup would block them
+    //     from re-verification on every future run). Concurrency=5,
+    //     8s timeout each. Conservative: network errors → keep the job.
+    //     Bonus: dropping dead jobs here saves Haiku/Sonnet tokens later.
+    phase = "freshness-verify";
+    if (!dryRun && newJobs.length > 0) {
+      const verdicts = await verifyActiveBatch(newJobs, 5);
+      const stale: Job[] = [];
+      newJobs = newJobs.filter((j) => {
+        const v = verdicts.get(j.url);
+        if (v && !v.fresh) {
+          stale.push(j);
+          const src = stats.perSource[j.source];
+          if (src) src.urlDropped = (src.urlDropped ?? 0) + 1;
+          console.warn(`[freshness/url] drop ${j.source}:${j.sourceId} — ${v.reason}`);
+          return false;
+        }
+        // Enrich with JSON-LD posted date when scraper didn't supply one.
+        if (v?.postedAt && !j.postedAt) j.postedAt = v.postedAt;
+        return true;
+      });
+      if (stale.length > 0) {
+        console.log(`[freshness/url] verified ${verdicts.size} jobs, dropped ${stale.length} inactive`);
+      }
+    }
+    stats.afterUrlVerify = newJobs.length;
 
     // 4. Contact extraction
     phase = "contact";
@@ -291,37 +322,12 @@ export async function runJobHunt(opts: OrchestratorOptions = {}): Promise<RunSta
     const uncapOnce = process.env.JOBHUNT_UNCAP_ONCE === "true";
     const effectiveCap = uncapOnce ? Number.POSITIVE_INFINITY : digestCap;
     if (uncapOnce) console.warn(`[digest-cap] JOBHUNT_UNCAP_ONCE=true — uncapping (normal cap would have been ${digestCap}). Unset this env var after the run.`);
-    let candidateDigest = newJobs.slice(0, effectiveCap);
+    const candidateDigest = newJobs.slice(0, effectiveCap);
 
-    // Layer B freshness — network-verify URLs of digest-bound jobs. Drops
-    // 404/410/redirects-to-listing/closed-marker pages AND jobs whose JSON-LD
-    // validThrough has passed or datePosted is >60 days old. Parallelised with
-    // concurrency=5, 8s timeout each. Conservative: network errors → keep.
-    phase = "freshness-verify";
-    if (!dryRun && candidateDigest.length > 0) {
-      const verdicts = await verifyActiveBatch(candidateDigest, 5);
-      const stale: Job[] = [];
-      candidateDigest = candidateDigest.filter((j) => {
-        const v = verdicts.get(j.url);
-        if (v && !v.fresh) {
-          stale.push(j);
-          console.warn(`[freshness/url] drop ${j.source}:${j.sourceId} — ${v.reason}`);
-          return false;
-        }
-        // Enrich with JSON-LD posted date when the scraper didn't already
-        // populate one — lets the digest card show "Posted: …" honestly.
-        if (v?.postedAt && !j.postedAt) j.postedAt = v.postedAt;
-        return true;
-      });
-      // Also remove stale entries from the sheet-writes so we don't store dead rows
-      const staleUrls = new Set(stale.map((s) => s.url));
-      newJobs = newJobs.filter((j) => !staleUrls.has(j.url));
-      if (stale.length > 0) console.log(`[freshness/url] verified ${candidateDigest.length + stale.length} jobs, dropped ${stale.length} inactive`);
-    }
-
+    // Layer B (URL liveness) ran upstream of dedup — see stage 3b. Sort+cap
+    // is now purely a presentation step.
     const cappedAt = Math.max(0, newJobs.length - candidateDigest.length);
     const digestJobs = candidateDigest;
-    stats.afterUrlVerify = newJobs.length;
     stats.newJobs = newJobs.length;
 
     // 6. Write to sheet

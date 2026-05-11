@@ -39,7 +39,7 @@ export async function scrapeRemoteok(): Promise<Partial<Job>[]> {
         ? `$${item.salary_min}-${item.salary_max}`
         : null,
       contact: null,
-      postedAt: String(item.date ?? "") || null,
+      postedAt: parseRemoteOkDate(item.date),
     });
   }
   return jobs;
@@ -47,4 +47,19 @@ export async function scrapeRemoteok(): Promise<Partial<Job>[]> {
 
 function stripHtml(s: string): string {
   return s.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// RemoteOK returns `date` as either a Unix timestamp number or an ISO string
+// depending on endpoint version. Without conversion `Date.parse("1717891200")`
+// returns NaN → Layer A age check silently no-ops on every RemoteOK job.
+function parseRemoteOkDate(d: unknown): string | null {
+  if (d == null || d === "") return null;
+  const n = typeof d === "number" ? d : Number(d);
+  if (Number.isFinite(n) && n > 0) {
+    // RemoteOK uses seconds; >year-3000 in seconds means it's already ms.
+    const ms = n > 4_000_000_000 ? n : n * 1000;
+    return new Date(ms).toISOString();
+  }
+  const t = Date.parse(String(d));
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
 }

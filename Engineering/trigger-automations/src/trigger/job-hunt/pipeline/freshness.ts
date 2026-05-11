@@ -13,8 +13,14 @@
 
 import type { Job } from "../types.js";
 
-/** Reject postings older than this many days. */
-export const MAX_AGE_DAYS = 60;
+/** Reject postings older than this many days. Default 30 (analyst PT roles
+ * churn fast — a 60-day-old listing is almost always closed even when not
+ * marked). Override per-run via `JOBHUNT_MAX_AGE_DAYS` env var. */
+export const MAX_AGE_DAYS = (() => {
+  const raw = process.env.JOBHUNT_MAX_AGE_DAYS;
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 30;
+})();
 
 export interface FreshnessCheck {
   fresh: boolean;
@@ -104,12 +110,19 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
       const raw = (await resp.text()).slice(0, 60_000);
       const lower = raw.slice(0, 30_000).toLowerCase();
 
-      // LinkedIn: the "No longer accepting applications" banner is
-      // JS-rendered text, but LinkedIn server-renders a `<figure class="closed-job ...">`
-      // element into the initial HTML precisely when the job is closed. This
-      // is the most reliable LinkedIn signal and catches ~36% of LI URLs in
-      // our digests that had been slipping through text-regex detection.
-      if (/<figure\s+class="[^"]*\bclosed-job\b[^"]*"/i.test(raw)) {
+      // LinkedIn closed-job indicators — multiple variants seen in the wild.
+      // 1. Server-rendered `<figure class="closed-job">` block (the original
+      //    signal — caught ~36% of closed LI URLs on its own).
+      // 2. `data-test-id="closed-job"` / `="no-longer-accepting"` attributes
+      //    used by LinkedIn's React-rendered detail card.
+      // 3. Headline classes `jobs-details-top-card__no-longer-accepting` and
+      //    `closed-job-indicator` that LI server-renders alongside (1) on
+      //    closed posts.
+      if (
+        /<figure\s+class="[^"]*\bclosed-job\b[^"]*"/i.test(raw) ||
+        /data-test-id="(closed-job|no-longer-accepting)/i.test(raw) ||
+        /class="[^"]*\b(jobs-details-top-card__no-longer-accepting|closed-job-indicator)\b[^"]*"/i.test(raw)
+      ) {
         return { fresh: false, reason: "linkedin closed-job marker" };
       }
 
@@ -227,6 +240,16 @@ function looksLikeRemovalRedirect(original: string, final: string): boolean {
   try {
     const a = new URL(original);
     const b = new URL(final);
+    // LinkedIn-specific: closed jobs frequently 302 to /login or /uas/login
+    // (with session_redirect back to the dead URL). Treat any such redirect
+    // as removal regardless of the original hostname (covers all LI subdomains
+    // including www., mt., uk., etc.).
+    if (
+      /(^|\.)linkedin\.com$/i.test(b.hostname) &&
+      /^\/(login|uas\/login|checkpoint)/i.test(b.pathname)
+    ) {
+      return true;
+    }
     if (a.hostname !== b.hostname) return false;  // cross-site redirect — keep
     const origPath = a.pathname.replace(/\/$/, "");
     const finalPath = b.pathname.replace(/\/$/, "");
