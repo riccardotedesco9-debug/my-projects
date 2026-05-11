@@ -90,9 +90,20 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
       signal: controller.signal,
     });
 
-    // Hard HTTP failures → inactive
-    if (resp.status === 404 || resp.status === 410) {
+    // Hard HTTP failures → inactive.
+    // - 404/410 = removed.
+    // - 403 = blocked (often LinkedIn for closed jobs after some accesses; treating
+    //   as "fresh" lets dead listings through, so treat as inactive).
+    // - 451 = legal-removed.
+    if (resp.status === 404 || resp.status === 410 || resp.status === 403 || resp.status === 451) {
       return { fresh: false, reason: `http ${resp.status}` };
+    }
+    // Rate-limited / bot-detected → can't verify reliably. Drop conservatively
+    // for sites known to gate closed jobs behind 429 (LinkedIn) — the cost of
+    // a false rejection (one good listing skipped) is small vs. emailing a
+    // dead listing. For all other 4xx/5xx we keep the job (network noise).
+    if (resp.status === 429) {
+      return { fresh: false, reason: `http 429 (rate-limited; treating as inactive)` };
     }
 
     // Redirect-followed final URL may indicate removal — e.g. LinkedIn closed
@@ -105,10 +116,14 @@ export async function verifyActive(url: string): Promise<FreshnessCheck> {
     // Only check body text if we actually got HTML
     const ct = resp.headers.get("content-type") ?? "";
     if (resp.ok && ct.includes("text/html")) {
-      // Read up to 60KB — JSON-LD schema blocks often sit past the 30KB mark.
-      // The text-regex pass still only looks at the first 30KB.
+      // Read up to 60KB — JSON-LD schema blocks AND LinkedIn's closed-job
+      // figure (~byte 37K on Malta subdomain) often sit past 30KB. Lowercase
+      // the FULL 60KB window so CLOSED_PATTERNS see the same content as the
+      // LinkedIn-specific marker regex (previously `lower` was 30KB which
+      // silently truncated all closed-marker text past that, including the
+      // visible "No longer accepting applications" caption).
       const raw = (await resp.text()).slice(0, 60_000);
-      const lower = raw.slice(0, 30_000).toLowerCase();
+      const lower = raw.toLowerCase();
 
       // LinkedIn closed-job indicators — multiple variants seen in the wild.
       // 1. Server-rendered `<figure class="closed-job">` block (the original
@@ -274,24 +289,58 @@ function shortUrl(u: string): string {
   }
 }
 
-/** Concurrency-limited `Promise.all` — verify K jobs at ≤5 parallel fetches. */
+/**
+ * Concurrency-limited URL verification with per-host serialization. Some hosts
+ * (LinkedIn most notably) bot-block on parallel hits and return 200+bot-wall
+ * HTML instead of the real page — which has no closed-job markers, so the
+ * caller would treat the dead listing as live. We serialize per-host AND
+ * leave a small inter-request delay between same-host hits to stay below
+ * the rate-limit threshold. Cross-host parallelism is preserved (other
+ * scrapers' URLs don't wait on LinkedIn).
+ */
 export async function verifyActiveBatch(
   jobs: Job[],
-  concurrency = 5,
+  concurrency = 4,
 ): Promise<Map<string, FreshnessCheck>> {
   const results = new Map<string, FreshnessCheck>();
-  let cursor = 0;
-  async function worker() {
-    while (cursor < jobs.length) {
-      const i = cursor++;
-      const job = jobs[i];
+  // Group by hostname so workers can grab from any queue.
+  const queues = new Map<string, Job[]>();
+  for (const job of jobs) {
+    const host = safeHost(job.url);
+    if (!queues.has(host)) queues.set(host, []);
+    queues.get(host)!.push(job);
+  }
+  // Each host gets its own serial worker. Concurrency is across hosts.
+  const hostList = [...queues.keys()];
+  const inflight = new Set<Promise<void>>();
+  let idx = 0;
+  async function processHost(host: string): Promise<void> {
+    const queue = queues.get(host)!;
+    for (const job of queue) {
       try {
         results.set(job.url, await verifyActive(job.url));
       } catch (err) {
         results.set(job.url, { fresh: true, reason: `err ${err instanceof Error ? err.message : err}` });
       }
+      // Brief gap between same-host hits so we don't accidentally burst even
+      // when verifyActive returns fast (cached DNS / connection pooling).
+      // 350ms is enough to keep LinkedIn happy; total adds ~8s per 24-job batch
+      // when one host dominates — acceptable for a daily cron.
+      if (queue.length > 1) await sleep(350);
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, worker));
+  while (idx < hostList.length || inflight.size > 0) {
+    while (idx < hostList.length && inflight.size < concurrency) {
+      const host = hostList[idx++];
+      const p = processHost(host).finally(() => inflight.delete(p));
+      inflight.add(p);
+    }
+    if (inflight.size > 0) await Promise.race(inflight);
+  }
   return results;
 }
+
+function safeHost(url: string): string {
+  try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
+}
+function sleep(ms: number): Promise<void> { return new Promise((r) => setTimeout(r, ms)); }
