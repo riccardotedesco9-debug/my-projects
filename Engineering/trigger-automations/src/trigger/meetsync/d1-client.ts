@@ -18,11 +18,33 @@ function getConfig() {
 
 // Transient HTTP statuses worth retrying. 429 covers both D1's rate-limit
 // code 971 and its storage-timeout code 7429 — both transient. 5xx covers
-// service-side blips. Everything else (400/401/403/404/422) is a caller bug
-// a retry won't fix, so we fail fast on those.
+// service-side blips. 400 is normally a caller bug, but D1 also wraps a
+// handful of transient INTERNAL conditions in 400 (e.g. code 7500
+// "Internal error while starting up D1 DB storage caused object to be
+// reset"); for those we retry by sniffing the body in shouldRetryBody().
 const RETRIABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
-const MAX_RETRIES = 3;
-const RETRY_BACKOFFS_MS = [250, 500, 1000];
+// D1 error codes (in the JSON body) that are transient infra hiccups even
+// when wrapped in a 400 response. Code 7500 is "storage object reset",
+// which we've observed firing in fire-reminders cron. These are server-side
+// and clear themselves within a second or two.
+const RETRIABLE_D1_CODES = new Set([7500, 7429, 971]);
+// Bumped 3 → 5 retries with longer tail. The fire-reminders cron only
+// gets one shot per 5-min tick and a missed tick = delayed reminders +
+// a Telegram alert to the owner. A few extra seconds of backoff is cheap
+// insurance against D1 burst rate-limits.
+const MAX_RETRIES = 5;
+const RETRY_BACKOFFS_MS = [250, 500, 1000, 2500, 5000];
+
+function shouldRetryBody(body: string): boolean {
+  // Cheap substring check first — full JSON parse only if there's a hint.
+  if (!body.includes('"code":')) return false;
+  try {
+    const parsed = JSON.parse(body) as { errors?: Array<{ code?: number }> };
+    return !!parsed.errors?.some((e) => e.code !== undefined && RETRIABLE_D1_CODES.has(e.code));
+  } catch {
+    return false;
+  }
+}
 
 function jitter(ms: number): number {
   return ms + Math.floor((Math.random() - 0.5) * 100);
@@ -76,7 +98,9 @@ export async function query<T = Record<string, unknown>>(
     }
 
     const errBody = await response.text();
-    const shouldRetry = RETRIABLE_STATUSES.has(response.status) && attempt < MAX_RETRIES;
+    const transientStatus = RETRIABLE_STATUSES.has(response.status);
+    const transientCode = !transientStatus && shouldRetryBody(errBody);
+    const shouldRetry = (transientStatus || transientCode) && attempt < MAX_RETRIES;
     if (!shouldRetry) {
       throw new Error(`D1 query failed (${response.status}): ${errBody}`);
     }

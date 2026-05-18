@@ -102,7 +102,7 @@ function formatUserSection(user: UserProfile, timezone: string): string[] {
   if (user.latest_schedule_json) {
     const coverage = scheduleCoverageLabel(user.latest_schedule_json, timezone);
     lines.push(`  Their own schedule: ✓ UPLOADED ${coverage}`);
-    lines.push(...renderShiftListCompact(user.latest_schedule_json, "    "));
+    lines.push(...renderShiftListCompact(user.latest_schedule_json, "    ", timezone));
   } else {
     lines.push("  Their own schedule: ✗ not uploaded yet");
   }
@@ -128,7 +128,7 @@ function formatPersonNotesSection(notes: PersonNote[], timezone: string): string
     }
     lines.push(`  - ${parts.join(" — ")}`);
     if (n.schedule_json) {
-      const shiftLines = renderShiftListCompact(n.schedule_json, "      ");
+      const shiftLines = renderShiftListCompact(n.schedule_json, "      ", timezone);
       lines.push(...shiftLines);
     }
   }
@@ -192,7 +192,7 @@ function isoDateWithOffset(daysOffset: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function renderShiftListCompact(scheduleJson: string, indent: string): string[] {
+function renderShiftListCompact(scheduleJson: string, indent: string, timezone: string): string[] {
   const shifts = parseScheduleBlob(scheduleJson);
   if (!shifts) return [`${indent}(schedule data unparseable)`];
   if (shifts.length === 0) return [];
@@ -260,7 +260,8 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
     const dayNum = d.getUTCDate();
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
     const entries = byDate.get(date)!;
-    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries)}`);
+    const holiday = timezone === "Europe/Malta" ? maltaHolidayName(date) : null;
+    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries, holiday)}`);
   }
   // Edge case: all dates within the window are in the past — emit the
   // divider at the bottom so Claude sees that nothing upcoming is on file.
@@ -287,7 +288,10 @@ function renderShiftListCompact(scheduleJson: string, indent: string): string[] 
  * semantic, the partials preserve the actual blocked time. Two split
  * shifts on a busy day render comma-separated: "12:00–14:00 (HK), 14:00–17:00 (Deliveries)".
  */
-function formatDayEntries(entries: Array<{ start_time: string; end_time: string; label?: string }>): string {
+function formatDayEntries(
+  entries: Array<{ start_time: string; end_time: string; label?: string }>,
+  holidayName: string | null = null,
+): string {
   const isOff = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "00:00";
   const isAllDayBusy = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "23:59";
 
@@ -295,11 +299,15 @@ function formatDayEntries(entries: Array<{ start_time: string; end_time: string;
   const allDayBusy = entries.find(isAllDayBusy);
   const partials = entries.filter((s) => !isOff(s) && !isAllDayBusy(s));
 
+  // Holiday annotation is a SUFFIX. Always wins for OFF/no-data days, but
+  // never replaces existing partials. Format: "OFF (Sette Giugno 🎆) + 13:30–17:00 (cook)".
+  const holidaySuffix = holidayName ? ` [${holidayName}]` : "";
+
   // All-day-busy dominates everything else on the same date — if both an
   // OFF and a hectic-all-day are stored, the all-day-busy wins (it's the
   // stronger signal). Should be rare; happens if a stale upload conflicts.
   if (allDayBusy) {
-    return (allDayBusy.label ?? "busy all day").toUpperCase();
+    return (allDayBusy.label ?? "busy all day").toUpperCase() + holidaySuffix;
   }
 
   const renderPartial = (s: { start_time: string; end_time: string; label?: string }) =>
@@ -307,20 +315,81 @@ function formatDayEntries(entries: Array<{ start_time: string; end_time: string;
 
   // OFF + activities → "OFF + 18:00–19:00 (gym)" on one line.
   if (offEntries.length > 0 && partials.length > 0) {
-    const offLabel = offEntries[0].label && offEntries[0].label.toLowerCase() !== "off"
-      ? `OFF (${offEntries[0].label})`
+    const rawOffLabel = offEntries[0].label;
+    const offLabel = rawOffLabel && rawOffLabel.toLowerCase() !== "off"
+      ? `OFF (${rawOffLabel})`
       : "OFF";
-    return `${offLabel} + ${partials.map(renderPartial).join(", ")}`;
+    return `${offLabel}${holidaySuffix} + ${partials.map(renderPartial).join(", ")}`;
   }
 
   // OFF only.
   if (offEntries.length > 0) {
     const label = offEntries[0].label;
-    return label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
+    const base = label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
+    return `${base}${holidaySuffix}`;
   }
 
-  // Partials only — comma-separate split shifts.
-  return partials.map(renderPartial).join(", ");
+  // Partials only — comma-separate split shifts. Holiday annotation goes at
+  // the end so it's clear it's a meta tag, not another shift.
+  return partials.map(renderPartial).join(", ") + holidaySuffix;
+}
+
+/**
+ * Maltese public holiday lookup. Fixed-date holidays + Good Friday (computed).
+ * Returns null for non-holiday dates. Used to annotate [STATE] schedule lines
+ * for Malta-timezone callers so Claude doesn't have to recall the holiday
+ * calendar from training data (which led to it replacing existing entries
+ * with the holiday name).
+ */
+function maltaHolidayName(isoDate: string): string | null {
+  const md = isoDate.slice(5); // "MM-DD"
+  const FIXED: Record<string, string> = {
+    "01-01": "New Year's Day",
+    "02-10": "Feast of St Paul 🕯️",
+    "03-19": "St Joseph 🕯️",
+    "03-31": "Freedom Day 🇲🇹",
+    "05-01": "Workers' Day",
+    "06-07": "Sette Giugno 🎆",
+    "06-29": "St Peter & St Paul 🕯️",
+    "08-15": "Assumption 🕯️",
+    "09-08": "Our Lady of Victories 🕯️",
+    "09-21": "Independence Day 🇲🇹",
+    "12-08": "Immaculate Conception 🕯️",
+    "12-13": "Republic Day 🇲🇹",
+    "12-25": "Christmas 🎄",
+  };
+  if (FIXED[md]) return FIXED[md];
+  // Good Friday (Western, Gregorian) — computed via Anonymous Gregorian.
+  const year = Number(isoDate.slice(0, 4));
+  if (Number.isFinite(year) && isoDate === goodFridayIso(year)) {
+    return "Good Friday";
+  }
+  return null;
+}
+
+function goodFridayIso(year: number): string {
+  // Anonymous Gregorian algorithm → Easter Sunday, then -2 days for Good Friday.
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const easterMonth = Math.floor((h + l - 7 * m + 114) / 31);
+  const easterDay = ((h + l - 7 * m + 114) % 31) + 1;
+  // Subtract 2 days. Day arithmetic via UTC Date is safe here.
+  const easter = new Date(Date.UTC(year, easterMonth - 1, easterDay));
+  easter.setUTCDate(easter.getUTCDate() - 2);
+  const y = easter.getUTCFullYear();
+  const mo = String(easter.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(easter.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
 }
 
 

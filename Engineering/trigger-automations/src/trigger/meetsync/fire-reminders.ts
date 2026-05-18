@@ -31,7 +31,21 @@ export const fireReminders = schedules.task({
   cron: "*/5 * * * *", // every 5 minutes — D1 REST API rate-limits tighter runs
   run: async () => {
     const nowEpoch = Math.floor(Date.now() / 1000);
-    const due: Reminder[] = await getDueReminders(nowEpoch, MAX_PER_RUN);
+    // If D1 is mid-rate-limit or briefly returning storage-reset errors AND
+    // exhausts the retry budget inside query(), don't surface as a run-level
+    // failure. The cron ticks again in 5 min and any due reminders are still
+    // PENDING — no work is lost. Failing the run instead would ping the
+    // owner via onFailure for what's a transient infra blip.
+    let due: Reminder[];
+    try {
+      due = await getDueReminders(nowEpoch, MAX_PER_RUN);
+    } catch (err) {
+      console.warn(
+        "fire-reminders: getDueReminders failed after retries; skipping tick. Next */5 cron will catch up. Err:",
+        err instanceof Error ? err.message : err,
+      );
+      return { fired: 0, skipped_d1_transient: true };
+    }
     if (due.length === 0) return { fired: 0 };
 
     let fired = 0;
