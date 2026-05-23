@@ -288,6 +288,149 @@ function renderShiftListCompact(scheduleJson: string, indent: string, timezone: 
  * semantic, the partials preserve the actual blocked time. Two split
  * shifts on a busy day render comma-separated: "12:00–14:00 (HK), 14:00–17:00 (Deliveries)".
  */
+// Sensitive label patterns — when an entry's label matches one of these,
+// the rendered [STATE] line shows "(appointment)" instead of the real
+// label so the caller can safely share a schedule screenshot without
+// revealing private medical / mental-health / recovery / legal / job-
+// hunting info to a colleague. The original label remains untouched in
+// D1 and Google Calendar — only the rendered output is abstracted.
+// Everyday things (gym, mobility, yoga, dinner, drinks, dentist, hair,
+// optometrist, work shifts, named meetups) stay visible.
+const SENSITIVE_LABEL_PATTERNS: RegExp[] = [
+  // Mental health & talk therapy
+  /therap(y|ist)/i,                        // therapy, therapist, psychotherapy
+  /\bpsych/i,                              // psychiatrist, psychologist, psychiatric, psychotherapy
+  /counsel(l)?(or|ling|ing)/i,             // counsellor, counselling, counseling
+  /\bdepress(ion|ed)?\b/i,
+  /\banxiety\b/i,
+  /\bPTSD\b|\bOCD\b|\bADHD\b|\bADD\b/i,
+  /bipolar/i,
+  /mental\s*health/i,
+  /breakdown/i,
+  /support\s*group/i,
+
+  // Medical specialists (specialist visit usually implies a specific concern)
+  /gastro(enterolog)?/i,                   // gastro, gastroenterology
+  /cardiolog/i,
+  /neurolog/i,
+  /dermatolog/i,
+  /oncolog/i,                              // cancer
+  /urolog/i,
+  /gyna?ecolog/i,                          // gynaecologist, gynecologist
+  /\bOB[-\s]?GYN\b|\bOBGYN\b/i,
+  /endocrinolog/i,
+  /rheumatolog/i,
+  /pulmonolog/i,
+  /\bENT\b/,                               // ear-nose-throat
+  /podiatr/i,
+  /allergist/i,
+  /immunolog/i,
+  /hematolog|haematolog/i,
+  /nephrolog/i,
+  /physio(therap)?/i,
+  /chiropract/i,
+  /osteopath/i,
+  /\bdoctor\b|\bdr\.?\b/i,                 // generic doctor visits
+  /\bGP\b/,                                // general practitioner
+
+  // Medical — diagnostics / imaging
+  /blood\s*(test|work|panel)/i,
+  /urine\s*(test|sample)/i,
+  /\bMRI\b|\bCT\s*scan\b|\bX-?ray\b/i,
+  /ultrasound|biopsy|mammogram|colonoscopy|endoscopy|gastroscopy/i,
+  /\bscan\b/i,                             // medical scan
+  /screening/i,
+  /diagnosis/i,
+  /check-?up\b/i,
+  /\bswab\b/i,
+
+  // Medical — venues / general care
+  /hospital/i,
+  /\bclinic\b/i,
+  /\bER\b|\bA&E\b/,                        // emergency
+  /surgery|operation|procedure/i,
+  /pharmac(y|ist)/i,
+  /prescription/i,
+  /\binfusion\b/i,
+  /chemo(therapy)?/i,
+  /radiation\s*therapy/i,
+  /dialysis/i,
+
+  // Medication
+  /\bmed(ication|s)\b/i,
+  /\binsulin\b/i,
+  /methadone/i,
+  /antidepressant/i,
+  /\bSSRIs?\b/,
+
+  // Addiction & recovery
+  /\bAA\b|\bNA\b/,                         // anonymous groups (case-sensitive)
+  /\brehab\b/i,
+  /\bsobriety\b|\bsober\b/i,
+  /detox/i,
+  /recovery\s*(meeting|group)/i,
+  /\bsponsor\b.*\bmeeting\b/i,
+
+  // Sexual & reproductive health
+  /\bHIV\b|\bSTD\b|\bSTI\b/,
+  /herpes|\bHPV\b/i,
+  /abortion|\bIVF\b|miscarriage|fertility/i,
+  /pregnan/i,
+  /prenatal|antenatal|postnatal|postpartum/i,
+  /contracepti|birth\s*control/i,
+  /\bIUD\b|plan\s*B/i,
+  /vasectomy|tubal/i,
+  /sexual\s*health/i,
+
+  // Legal — typically signals trouble
+  /\blawyer\b|attorney|solicitor/i,
+  /\bcourt\b/i,
+  /\bhearing\b/i,                          // court hearing
+  /divorce|custody|mediation/i,
+  /probation|parole|\bbail\b/i,
+  /bankruptcy|creditor/i,
+  /restraining\s*order/i,
+
+  // Job hunting — DON'T want current employer to see
+  /job\s*interview/i,
+  /\binterview\b/i,
+  /recruiter|head\s*hunter/i,
+  /\boffer\s*call\b/i,
+
+  // Cosmetic / body procedures
+  /cosmetic\s*surgery|plastic\s*surgery/i,
+  /botox|filler\b/i,
+  /hair\s*transplant/i,
+
+  // Grief / heavy personal
+  /funeral|memorial/i,
+  /\bestate\b|\bwill\s*reading\b/i,
+
+  // Couples / relationship counselling
+  /couples?\s*(counsel|therap)/i,
+  /marriage\s*(counsel|therap)/i,
+
+  // Spiritual / confession-style
+  /confession/i,
+];
+
+function isSensitiveLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  return SENSITIVE_LABEL_PATTERNS.some((p) => p.test(label));
+}
+
+/**
+ * Return a label safe to render in shareable schedule output. If the
+ * label matches a sensitive pattern, the rendered text becomes the
+ * generic word "appointment". Caller's underlying D1 row and Google
+ * Calendar event title remain unchanged — this is purely a render-time
+ * abstraction.
+ */
+function redactLabelForRender(label: string | undefined): string | undefined {
+  if (!label) return label;
+  return isSensitiveLabel(label) ? "appointment" : label;
+}
+
 function formatDayEntries(
   entries: Array<{ start_time: string; end_time: string; label?: string }>,
   holidayName: string | null = null,
@@ -307,15 +450,18 @@ function formatDayEntries(
   // OFF and a hectic-all-day are stored, the all-day-busy wins (it's the
   // stronger signal). Should be rare; happens if a stale upload conflicts.
   if (allDayBusy) {
-    return (allDayBusy.label ?? "busy all day").toUpperCase() + holidaySuffix;
+    const safeLabel = redactLabelForRender(allDayBusy.label) ?? "busy all day";
+    return safeLabel.toUpperCase() + holidaySuffix;
   }
 
-  const renderPartial = (s: { start_time: string; end_time: string; label?: string }) =>
-    s.label ? `${s.start_time}–${s.end_time} (${s.label})` : `${s.start_time}–${s.end_time}`;
+  const renderPartial = (s: { start_time: string; end_time: string; label?: string }) => {
+    const safeLabel = redactLabelForRender(s.label);
+    return safeLabel ? `${s.start_time}–${s.end_time} (${safeLabel})` : `${s.start_time}–${s.end_time}`;
+  };
 
   // OFF + activities → "OFF + 18:00–19:00 (gym)" on one line.
   if (offEntries.length > 0 && partials.length > 0) {
-    const rawOffLabel = offEntries[0].label;
+    const rawOffLabel = redactLabelForRender(offEntries[0].label);
     const offLabel = rawOffLabel && rawOffLabel.toLowerCase() !== "off"
       ? `OFF (${rawOffLabel})`
       : "OFF";
@@ -324,7 +470,7 @@ function formatDayEntries(
 
   // OFF only.
   if (offEntries.length > 0) {
-    const label = offEntries[0].label;
+    const label = redactLabelForRender(offEntries[0].label);
     const base = label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
     return `${base}${holidaySuffix}`;
   }

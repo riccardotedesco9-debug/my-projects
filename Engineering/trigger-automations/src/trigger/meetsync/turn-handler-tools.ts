@@ -209,6 +209,164 @@ function shiftDateISO(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// --- Sleep / commute window check ---
+//
+// Hard rule from the user: at least 8h sleep + 1h commute on either side of
+// a work shift. The system prompt asked Claude to enforce this in its head,
+// which empirically didn't hold — the bot kept booking yoga at 08:00 after a
+// 02:00 finish. So we compute the math in code and feed warnings back to
+// Claude as a tool-result field. book_meetup hard-blocks unless the caller
+// explicitly overrides; add_personal_event surfaces the warnings but still
+// saves (the user is asserting reality, not asking the bot to choose).
+
+const SLEEP_BUFFER_MIN = 8 * 60;     // 8h sleep
+const COMMUTE_BUFFER_MIN = 60;       // 1h commute
+const TOTAL_BUFFER_MIN = SLEEP_BUFFER_MIN + COMMUTE_BUFFER_MIN; // 9h
+
+// Typical sleep window — broad to cover both regular and late-shift
+// sleep patterns: "in bed by 22:00" through "up by 10:00". Used to gate
+// sleep_warnings: a gap between two events is only a SLEEP concern if it
+// actually contains a meaningful chunk of these hours. Daytime gaps
+// (yoga 09:00 → work 15:00, work 07:00–16:00 → yoga 18:30) are NOT sleep
+// concerns even when shorter than the 9h buffer — the user is awake.
+const SLEEP_ZONE_START_MIN = 22 * 60;          // 22:00 (relative to day N)
+const SLEEP_ZONE_END_MIN = 24 * 60 + 10 * 60;  // 10:00 next day = 34:00
+// Minimum overlap required for a gap to count as a "sleep gap". A tiny
+// sliver (gym 07:00 → work 09:00, only the 09:00–10:00 tail of the sleep
+// zone intersects) is NOT a sleep concern — the user was awake in that
+// short gap. Real sleep gaps cover at least 4 hours of the sleep window.
+const MIN_SLEEP_OVERLAP_MIN = 4 * 60;
+
+/**
+ * Does the gap [gapStartAbs, gapEndAbs] contain a meaningful chunk of the
+ * caller's sleep zone (≥ MIN_SLEEP_OVERLAP_MIN minutes)? Sweeps the days
+ * adjacent to the gap so overnight gaps and multi-day gaps both work.
+ */
+function gapOverlapsSleepZone(gapStartAbs: number, gapEndAbs: number): boolean {
+  if (gapEndAbs <= gapStartAbs) return false;
+  const startDay = Math.floor(gapStartAbs / 1440);
+  const endDay = Math.floor(gapEndAbs / 1440);
+  for (let day = startDay - 1; day <= endDay + 1; day++) {
+    const zoneStart = day * 1440 + SLEEP_ZONE_START_MIN;
+    const zoneEnd = day * 1440 + SLEEP_ZONE_END_MIN;
+    const overlap = Math.min(gapEndAbs, zoneEnd) - Math.max(gapStartAbs, zoneStart);
+    if (overlap >= MIN_SLEEP_OVERLAP_MIN) return true;
+  }
+  return false;
+}
+
+/** Days between two YYYY-MM-DD strings (b - a). UTC-anchored. */
+function daysBetween(aISO: string, bISO: string): number {
+  const a = Date.UTC(
+    Number(aISO.slice(0, 4)), Number(aISO.slice(5, 7)) - 1, Number(aISO.slice(8, 10)),
+  );
+  const b = Date.UTC(
+    Number(bISO.slice(0, 4)), Number(bISO.slice(5, 7)) - 1, Number(bISO.slice(8, 10)),
+  );
+  return Math.round((b - a) / 86400000);
+}
+
+/** Format a minute count as "Xh" or "XhYm". */
+function formatGap(mins: number): string {
+  if (mins < 0) mins = 0;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}m`;
+}
+
+/**
+ * Identify a "work" shift by label. Conservative: looks for work-ish words
+ * in the label. OFF markers (00:00–00:00) are never work. All-day-busy is
+ * not treated as work either (it's "hectic" — covers other commitments).
+ */
+function isWorkShift(s: { start_time: string; end_time: string; label?: string }): boolean {
+  if (s.start_time === "00:00" && s.end_time === "00:00") return false;
+  if (s.start_time === "00:00" && s.end_time === "23:59") return false;
+  if (!s.label) return false;
+  return /\b(work|shift|office|job)\b/i.test(s.label);
+}
+
+/**
+ * Detect sleep-window violations between a proposed event and the caller's
+ * adjacent work shifts. Returns human-readable warning strings — empty if
+ * everything fits. The math is absolute-minutes-from-event-date so overnight
+ * shifts (end < start) and cross-day comparisons work uniformly.
+ *
+ * Returns warnings for BOTH sides: a shift ending too close before the event
+ * (insufficient post-work sleep), and a shift starting too close after the
+ * event (insufficient pre-work sleep).
+ */
+function computeSleepWarnings(
+  scheduleJson: string | null,
+  date: string,
+  startTime: string,
+  endTime: string,
+): string[] {
+  if (!scheduleJson) return [];
+  const shifts = parseScheduleBlob(scheduleJson);
+  if (!shifts) return [];
+
+  // Anchor all minutes against the event date's UTC midnight.
+  const eventStartRaw = timeToMinutes(startTime);
+  const eventEndRaw = timeToMinutes(endTime);
+  const eventOvernight = eventEndRaw < eventStartRaw;
+  const eventStartAbs = eventStartRaw; // event date day 0
+  const eventEndAbs = eventOvernight ? eventEndRaw + 1440 : eventEndRaw;
+
+  let prevWorkEndAbs = -Infinity;
+  let prevWorkShift: { date: string; start_time: string; end_time: string; label?: string } | null = null;
+  let nextWorkStartAbs = Infinity;
+  let nextWorkShift: { date: string; start_time: string; end_time: string; label?: string } | null = null;
+
+  for (const s of shifts) {
+    if (!isWorkShift(s)) continue;
+    const dayOffset = daysBetween(date, s.date) * 1440;
+    const sStartRaw = timeToMinutes(s.start_time);
+    const sEndRaw = timeToMinutes(s.end_time);
+    const overnight = sEndRaw < sStartRaw;
+    const sStartAbs = dayOffset + sStartRaw;
+    const sEndAbs = overnight ? dayOffset + sEndRaw + 1440 : dayOffset + sEndRaw;
+    // Skip shifts that finished more than 36h before the event or start
+    // more than 36h after — they can't violate a 9h buffer anyway.
+    if (sEndAbs < eventStartAbs - 36 * 60) continue;
+    if (sStartAbs > eventEndAbs + 36 * 60) continue;
+
+    if (sEndAbs <= eventStartAbs && sEndAbs > prevWorkEndAbs) {
+      prevWorkEndAbs = sEndAbs;
+      prevWorkShift = s;
+    }
+    if (sStartAbs >= eventEndAbs && sStartAbs < nextWorkStartAbs) {
+      nextWorkStartAbs = sStartAbs;
+      nextWorkShift = s;
+    }
+  }
+
+  const warnings: string[] = [];
+  // Only push a warning when the short gap actually overlaps typical
+  // sleep hours. A daytime 6h gap (yoga 09:00 → work 15:00 same day)
+  // is NOT a sleep concern — you're awake. The user explicitly called
+  // this out: never warn in the wrong direction.
+  if (prevWorkShift && prevWorkEndAbs > -Infinity) {
+    const gap = eventStartAbs - prevWorkEndAbs;
+    if (gap < TOTAL_BUFFER_MIN && gapOverlapsSleepZone(prevWorkEndAbs, eventStartAbs)) {
+      const prevOvernight = timeToMinutes(prevWorkShift.end_time) < timeToMinutes(prevWorkShift.start_time);
+      const realEndDate = prevOvernight ? shiftDateISO(prevWorkShift.date, 1) : prevWorkShift.date;
+      warnings.push(
+        `Work ends at ${prevWorkShift.end_time} on ${realEndDate} and this event starts at ${startTime} on ${date} — gap is only ${formatGap(gap)} (crosses sleep hours), below the 9h sleep + commute buffer (8h sleep + 1h commute home from the office).`,
+      );
+    }
+  }
+  if (nextWorkShift && nextWorkStartAbs < Infinity) {
+    const gap = nextWorkStartAbs - eventEndAbs;
+    if (gap < TOTAL_BUFFER_MIN && gapOverlapsSleepZone(eventEndAbs, nextWorkStartAbs)) {
+      warnings.push(
+        `Event ends ${endTime} on ${date} and next work starts ${nextWorkShift.start_time} on ${nextWorkShift.date} — gap is only ${formatGap(gap)} (crosses sleep hours), below the 9h sleep + commute buffer (8h sleep + 1h commute to the office).`,
+      );
+    }
+  }
+  return warnings;
+}
+
 /**
  * Notify each owner whose shadow-tracked contact just got linked to a newly-
  * known chat_id. Sends a Telegram message per owner in the owner's language,
@@ -434,18 +592,29 @@ const parseScheduleTool: ToolDefinition = {
 };
 
 /**
- * Per-date merge: union prior shifts with newly-parsed ones, replacing
- * only the dates the new parse covers. Rationale: rotas come in piecemeal
- * (week 1 today, week 2 next week). A REPLACE-everything strategy silently
- * loses earlier weeks the moment the user uploads a partial follow-up —
- * which was the bug behind the recurring "schedule got mixed up" reports.
+ * Per-date merge with overlap-driven augment semantics. Rationale:
+ * rotas come in piecemeal (week 1 today, week 2 next week), users add
+ * personal blocks on top of existing shifts ("gym Fri 6–7"), and
+ * vacation declarations should sit alongside booked appointments. A
+ * blanket per-date REPLACE silently wipes prior entries each time —
+ * the bug behind multiple "the bot forgot my X" reports.
  *
- * Semantics: any date present in `newShifts` has its existing entries
- * dropped and is fully owned by `newShifts`. Dates NOT present in
- * `newShifts` keep their existing entries verbatim. So a re-upload of
- * Wed (with changes) updates Wed only; Mon/Tue/Thu/Fri stay put.
+ * Behaviour:
+ *  - Dates NOT in `newShifts`: existing entries preserved verbatim.
+ *  - Dates in `newShifts`: existing entries are kept UNLESS they
+ *    overlap in time with any new entry on the same date (correction
+ *    semantics — "actually my Wed shift is 12–20, not 09–17" replaces
+ *    the overlapping prior entry).
+ *  - OFF markers (00:00–00:00) treated as inert: they don't overlap
+ *    with anything and don't get overlapped. Re-uploading a date as
+ *    OFF de-dups any existing OFF on that date (no duplicate markers)
+ *    but preserves all partial-busy entries (vacation Mon–Fri keeps
+ *    Wed doctor 14–15 as "OFF + 14:00–15:00 (doctor)" in [STATE]).
+ *  - All-day-busy (00:00–23:59) DOES overlap with everything on the
+ *    date — uploading "Fri hectic all day" replaces a prior
+ *    partial-busy on Fri. Correction semantics, deliberate.
  */
-function mergeShiftsByDate<T extends { date: string }>(
+function mergeShiftsByDate<T extends { date: string; start_time: string; end_time: string }>(
   existingJson: string | null,
   newShifts: T[],
 ): T[] {
@@ -458,8 +627,45 @@ function mergeShiftsByDate<T extends { date: string }>(
     console.warn("[persistShifts] existing schedule_json was unparseable — treating as empty");
   }
   const existing = (parsed ?? []) as unknown as T[];
-  const coveredDates = new Set(newShifts.map((s) => s.date));
-  const kept = existing.filter((s) => !coveredDates.has(s.date));
+
+  const newByDate = new Map<string, T[]>();
+  for (const s of newShifts) {
+    const list = newByDate.get(s.date);
+    if (list) list.push(s);
+    else newByDate.set(s.date, [s]);
+  }
+
+  const isOff = (s: { start_time: string; end_time: string }) =>
+    s.start_time === "00:00" && s.end_time === "00:00";
+  const toMin = (t: string) => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  };
+  // Half-open overlap (a.start < b.end && b.start < a.end). OFF is
+  // inert — it never overlaps with anything (its time-tuple is a
+  // marker, not a real busy window).
+  const overlaps = (a: { start_time: string; end_time: string }, b: { start_time: string; end_time: string }) => {
+    if (isOff(a) || isOff(b)) return false;
+    return toMin(a.start_time) < toMin(b.end_time) && toMin(b.start_time) < toMin(a.end_time);
+  };
+
+  const kept: T[] = [];
+  for (const e of existing) {
+    const newOnDate = newByDate.get(e.date);
+    if (!newOnDate) {
+      kept.push(e); // date untouched by upload
+      continue;
+    }
+    // De-dup: drop existing OFF when the new upload also brings an OFF
+    // for that date (re-upload of a vacation declaration). Prevents
+    // accumulating duplicate 00:00–00:00 markers across re-uploads.
+    if (isOff(e) && newOnDate.some(isOff)) continue;
+    // Drop existing entry only if its time window overlaps with a new
+    // entry on the same date — that's the correction case. Otherwise
+    // augment (new and existing coexist, e.g. work 09–17 + gym 18–19).
+    if (newOnDate.some((n) => overlaps(e, n))) continue;
+    kept.push(e);
+  }
   return [...kept, ...newShifts];
 }
 
@@ -1161,6 +1367,408 @@ const upsertKnowledgeTool: ToolDefinition = {
   },
 };
 
+// --- Tool 6c: add_personal_event ---
+//
+// Append-only persistence for one-off future occasions the caller
+// mentions in chat ("doctor Wed 3pm", "dad's birthday Sat 7pm",
+// "flight to Rome Friday 6am"). Without this tool, such mentions live
+// only in conversation_log — pruned to 50 rows nightly — and the bot
+// genuinely forgets them after a day or two. Routes through
+// appendBusyBlockToUser so the entry lands in latest_schedule_json
+// and auto-renders under that date in [STATE]; never replaces existing
+// entries on the same date (vs parse_schedule, which is a per-date
+// replace for shift-rota uploads).
+
+const addPersonalEventTool: ToolDefinition = {
+  name: "add_personal_event",
+  description:
+    "Persist a single one-off future personal occasion the caller mentions verbally ('doctor appt Wed 3pm', 'dad's 60th Sat 7pm', 'flying to Rome Fri 6am'). The event becomes a busy block on the caller's stored schedule — auto-renders under the date in [STATE], blocks overlap calculations, and SURVIVES the nightly conversation-log prune. Always APPEND-only: never wipes other entries on that date. **Also auto-mirrors to the caller's Google Calendar when /connect'd** (best-effort — result reports calendar_mirrored: 'created' | 'token_expired' | 'failed' | 'skipped_not_connected'). The Calendar mirror means even far-future events (beyond the [STATE] +60d window) are durably stored on the user's real calendar, and the user can verify the bot remembered. Use this whenever the caller mentions a specific dated future commitment that is NOT (a) a recurring shift rota or schedule upload (use parse_schedule for those — it's a per-date replace), (b) a meetup with named attendees you're booking (use book_meetup — it handles attendees + invites), or (c) a recurring lifestyle pattern like 'gym every Tuesday' (use parse_schedule with multiple dates, or upsert_knowledge for purely descriptive 'lives in Gozo' style facts). Single date, single occurrence.",
+  input_schema: {
+    type: "object",
+    required: ["date", "start_time", "end_time", "label"],
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD." },
+      start_time: { type: "string", description: "HH:MM (24h). Pick the realistic start of the busy window — when the user actually becomes unavailable." },
+      end_time: { type: "string", description: "HH:MM (24h). Pick a sensible-length window for the event: a 1-hour appointment is start..start+1h; a party is ~3h; a wedding-all-day is wide-partial like 09:00–22:00 (NOT 00:00–23:59 — that's reserved for shift-rota all-day-busy entries and would override OFF markers in [STATE]); a flight day is the morning block 06:00–12:00. The user is BUSY during this window." },
+      label: { type: "string", description: "Short human-readable description that will surface in [STATE], e.g. 'doctor', 'dad's 60th', 'flight to Rome', 'wedding'. Keep it under ~40 chars." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const date = typeof input.date === "string" ? input.date.trim() : "";
+    const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
+    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const label = typeof input.label === "string" ? input.label.trim() : "";
+
+    const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+    const timeRe = /^\d{2}:\d{2}$/;
+    if (!dateRe.test(date)) return { error: `Invalid date '${date}'. Use YYYY-MM-DD.` };
+    if (!timeRe.test(startTime)) return { error: `Invalid start_time '${startTime}'. Use HH:MM (24h).` };
+    if (!timeRe.test(endTime)) return { error: `Invalid end_time '${endTime}'. Use HH:MM (24h).` };
+    if (!label) return { error: "label is required — describe the occasion in a few words." };
+    if (label.length > 80) return { error: "label too long — keep under 80 chars." };
+
+    try {
+      await appendBusyBlockToUser(ctx.callerChatId, date, startTime, endTime, label);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { error: `Failed to persist personal event: ${msg.slice(0, 200)}` };
+    }
+
+    // Refresh the in-memory snapshot so subsequent tool calls in the
+    // same turn see the new entry. Mirrors what persistShifts does after
+    // a parse_schedule write — without this, a follow-up compute_overlap
+    // in the same turn could miss the just-added busy block.
+    const fresh = await getLatestScheduleForUser(ctx.callerChatId);
+    if (fresh != null) {
+      ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: fresh };
+    }
+
+    // Mirror the event to Google Calendar when connected, so:
+    //   (a) far-future events (outside the today+60d snapshot window)
+    //       are surfaced back via calendar enrichment in their date range,
+    //   (b) the user trusts the bot's memory because they can SEE the
+    //       event on Calendar — the user's stated source of truth,
+    //   (c) the event survives even if D1's schedule_json is wiped.
+    // Best-effort: failures don't block the D1 save — we just flag the
+    // outcome in the tool result so Claude can mention it honestly.
+    let calendarMirrored: "created" | "skipped_not_connected" | "token_expired" | "failed" = "skipped_not_connected";
+    if (
+      ctx.snapshot.callerCalendarConnected
+      && !ctx.snapshot.callerCalendarTokenInvalid
+      && !ctx.snapshot.callerCalendarRefreshFailing
+    ) {
+      try {
+        const tz = resolveCallerTimezone(ctx);
+        const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, label, tz);
+        if (r === true) calendarMirrored = "created";
+        else if (r === "token_expired") calendarMirrored = "token_expired";
+        else calendarMirrored = "failed";
+      } catch (err) {
+        console.warn(`[add_personal_event] GCal mirror failed:`, err);
+        calendarMirrored = "failed";
+      }
+    }
+
+    // Sleep-window warnings — computed against the freshly persisted
+    // schedule so we see this entry alongside any adjacent work shift.
+    // add_personal_event does NOT block on warnings (the user is asserting
+    // an external commitment, not asking the bot to pick), but the
+    // warnings MUST be surfaced to the caller. Claude reads them from the
+    // tool result and quotes them in its reply per the system prompt.
+    const sleepWarnings = computeSleepWarnings(
+      ctx.snapshot.user.latest_schedule_json,
+      date,
+      startTime,
+      endTime,
+    );
+
+    return {
+      saved: true,
+      date,
+      start_time: startTime,
+      end_time: endTime,
+      label,
+      calendar_mirrored: calendarMirrored,
+      sleep_warnings: sleepWarnings,
+    };
+  },
+};
+
+// --- Tool 6d: remove_schedule_entry ---
+//
+// Symmetric counterpart to add_personal_event + parse_schedule. The user
+// can SAY "delete yoga on the 13th" and have the entry removed from the
+// bot's stored schedule AND from Google Calendar in one shot. Before this,
+// the only deletion path was cancel_meetup (booked meetups only) — random
+// schedule entries (yoga, doctor, OFF markers, gym blocks) had no clean
+// way out, which led to stale data accumulating in [STATE].
+
+const removeScheduleEntryTool: ToolDefinition = {
+  name: "remove_schedule_entry",
+  description:
+    "Delete entries from the caller's stored schedule (latest_schedule_json) AND/OR remove matching Google Calendar events. Handles both: (1) entries living in D1 (with or without a GCal mirror), (2) entries living ONLY on Google Calendar (events the caller created directly in their calendar, surfaced via [STATE]'s calendar enrichment — these have NO D1 row but the tool deletes them via the Calendar API). Use whenever the caller asks to drop, cancel, remove, undo, dedupe, or tidy up a scheduled item that is NOT a booked meetup with attendees (for those, use cancel_meetup — it handles attendee notifications). Examples: 'cancel my yoga Tuesday morning', 'I'm not going to the doctor Friday anymore', 'remove the gym block from Wed', 'remove the duplicate work entries on Sat 30', 'tidy up the Yin duplicates', 'clear all yoga sessions'. Match by date + start_time + end_time (and label_hint when needed). BEHAVIOUR with multiple D1 matches: (a) if every match is bit-for-bit identical (same date+start+end+label) the tool AUTO-DEDUPES — keeps one, drops the rest, returns mode='deduped'. (b) if matches DIFFER (different labels or times under the same date filter), returns error='ambiguous' with candidates[] for you to pick from. (c) Set delete_all_matching=true to drop EVERY entry matching the filter regardless — useful for 'remove all my yoga blocks for May' style bulk asks. If D1 has no match BUT the caller's Calendar has an event at that date+time, the tool falls back to Calendar-only delete (returns mode='calendar_only'). After delete, surface mode + removed_count + the GCal outcome (calendar_event_deleted: 'deleted' | 'not_found' | 'skipped_not_connected' | 'failed').",
+  input_schema: {
+    type: "object",
+    required: ["date"],
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD of the entry to delete, in the caller's timezone." },
+      start_time: { type: "string", description: "Optional HH:MM (24h). If given, narrows the match to entries with this exact start_time on the date. Omit to match by date alone (will return candidates[] if more than one and they differ)." },
+      end_time: { type: "string", description: "Optional HH:MM (24h). If given, narrows further to this exact end_time. Use together with start_time when there are split shifts (e.g. two work blocks on the same day)." },
+      label_hint: { type: "string", description: "Optional case-insensitive substring to disambiguate when multiple entries share the same time slot (rare). Example: 'gym' to pick the 18:00–19:00 gym block over a same-time block." },
+      delete_all_matching: { type: "boolean", description: "When true, deletes EVERY entry matching the filter (date + optional start/end/label_hint) rather than picking one. Use for explicit bulk-delete asks ('remove all yoga from May', 'wipe my June exercise classes'). When false/omitted, identical duplicates are auto-deduped (keep one) and genuinely ambiguous matches return as candidates[]." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const date = typeof input.date === "string" ? input.date.trim() : "";
+    const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
+    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const labelHint = typeof input.label_hint === "string" ? input.label_hint.trim().toLowerCase() : "";
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: `Invalid date '${date}'. Use YYYY-MM-DD.` };
+    if (startTime && !/^\d{2}:\d{2}$/.test(startTime)) return { error: `Invalid start_time '${startTime}'.` };
+    if (endTime && !/^\d{2}:\d{2}$/.test(endTime)) return { error: `Invalid end_time '${endTime}'.` };
+
+    const existingJson = await getLatestScheduleForUser(ctx.callerChatId);
+    if (!existingJson) {
+      return { error: "no_schedule", message: "Caller has no stored schedule — nothing to delete." };
+    }
+    const shifts = parseScheduleBlob(existingJson);
+    if (!shifts) {
+      return { error: "corrupt_schedule", message: "Caller's schedule_json is unparseable. Aborting delete." };
+    }
+
+    // Match candidates: same date, optionally same start/end, optionally
+    // label_hint substring match. Keep ordering stable for transparency.
+    const candidates = shifts
+      .map((s, idx) => ({ shift: s, idx }))
+      .filter(({ shift: s }) => s.date === date)
+      .filter(({ shift: s }) => !startTime || s.start_time === startTime)
+      .filter(({ shift: s }) => !endTime || s.end_time === endTime)
+      .filter(({ shift: s }) => !labelHint || (s.label ?? "").toLowerCase().includes(labelHint));
+
+    // CALENDAR-ONLY FALLBACK — when D1 has no match, the entry the caller
+    // referenced may live ONLY on Google Calendar (e.g. surfaced via the
+    // per-turn calendar enrichment, never persisted to schedule_json).
+    // Search Calendar directly and offer to delete from there.
+    if (candidates.length === 0) {
+      if (
+        ctx.snapshot.callerCalendarConnected
+        && !ctx.snapshot.callerCalendarTokenInvalid
+        && !ctx.snapshot.callerCalendarRefreshFailing
+        && startTime
+      ) {
+        try {
+          const tz = resolveCallerTimezone(ctx);
+          const calendarHits = await findCalendarEventsOnDate(ctx.callerChatId, date, labelHint || "", tz);
+          // Narrow by exact time match when provided.
+          const exact = calendarHits.filter((e) => e.start_time === startTime && (!endTime || e.end_time === endTime));
+          if (exact.length > 0) {
+            // ALWAYS delete every exact-tuple match. Identical events at
+            // the same date+start+end+title ARE duplicates by definition —
+            // there's no semantic reason to keep N−1 copies when the user
+            // asked to drop "the yoga at 18:30". Gating this behind
+            // delete_all_matching=true was the bug: when the user asked
+            // to "remove all yoga sessions" and GCal had 2 copies of each,
+            // only the first copy of each was deleted and the rest came
+            // back via [STATE] enrichment on the next turn.
+            const deletedSummaries: string[] = [];
+            let failures = 0;
+            for (const ev of exact) {
+              const r = await deleteCalendarEvent(ctx.callerChatId, ev.id, ev.calendar_id);
+              if (r === true) deletedSummaries.push(ev.summary);
+              else failures++;
+            }
+            return {
+              removed: true,
+              removed_count: deletedSummaries.length,
+              mode: "calendar_only",
+              calendar_event_deleted: deletedSummaries.length > 0 ? (failures === 0 ? "deleted" : "partial") : "failed",
+              calendar_events_deleted_count: deletedSummaries.length,
+              calendar_events_failed_count: failures,
+              entry: {
+                date,
+                start_time: startTime,
+                end_time: endTime || exact[0].end_time,
+                label: deletedSummaries[0] ?? null,
+              },
+              failures,
+              notes: `Entry was on Google Calendar only (not in the bot's D1 schedule). Deleted ${deletedSummaries.length} calendar event(s).${failures > 0 ? ` ${failures} failed.` : ""}${exact.length > 1 ? ` (Cleared ${exact.length} duplicate copies.)` : ""}`,
+            };
+          }
+          // No exact-time match BUT calendarHits has non-exact-time entries
+          // matching the labelHint. Honour delete_all_matching for that case.
+          if (input.delete_all_matching === true && calendarHits.length > 0) {
+            const deletedSummaries: string[] = [];
+            let failures = 0;
+            for (const ev of calendarHits) {
+              const r = await deleteCalendarEvent(ctx.callerChatId, ev.id, ev.calendar_id);
+              if (r === true) deletedSummaries.push(ev.summary);
+              else failures++;
+            }
+            return {
+              removed: true,
+              removed_count: deletedSummaries.length,
+              mode: "calendar_only_bulk_label",
+              calendar_event_deleted: deletedSummaries.length > 0 ? (failures === 0 ? "deleted" : "partial") : "failed",
+              calendar_events_deleted_count: deletedSummaries.length,
+              calendar_events_failed_count: failures,
+              entry: { date, start_time: startTime, end_time: endTime || "", label: deletedSummaries[0] ?? null },
+              notes: `Calendar-only bulk delete by label_hint='${labelHint}'. Deleted ${deletedSummaries.length} event(s).${failures > 0 ? ` ${failures} failed.` : ""}`,
+            };
+          }
+        } catch (err) {
+          console.warn(`[remove_schedule_entry] calendar fallback failed:`, err);
+        }
+      }
+      return {
+        error: "not_found",
+        message: `No matching entry on ${date}${startTime ? ` at ${startTime}` : ""}${endTime ? `–${endTime}` : ""}${labelHint ? ` matching '${labelHint}'` : ""}. Check the [STATE] block for the exact stored values and try again.`,
+      };
+    }
+
+    const deleteAll = input.delete_all_matching === true;
+    // Identical-duplicate detection: all candidates share the same
+    // (start, end, label) tuple. This is the dedupe case — there's no
+    // narrower filter that could disambiguate, so refusing as "ambiguous"
+    // is a deadlock. Auto-keep the first, drop the rest.
+    const allIdentical = candidates.length > 1 && candidates.every(({ shift: s }) => (
+      s.start_time === candidates[0].shift.start_time
+      && s.end_time === candidates[0].shift.end_time
+      && (s.label ?? "") === (candidates[0].shift.label ?? "")
+    ));
+
+    if (candidates.length > 1 && !allIdentical && !deleteAll) {
+      return {
+        error: "ambiguous",
+        candidates: candidates.map(({ shift: s }) => ({
+          start_time: s.start_time,
+          end_time: s.end_time,
+          label: s.label ?? null,
+        })),
+        message: `Multiple DIFFERENT entries on ${date} matched. Show these to the caller and ask which one to delete, then call again with narrower start_time/end_time/label_hint — or set delete_all_matching=true to drop every one of them.`,
+      };
+    }
+
+    // Build the list of indices to remove.
+    //  - deleteAll: every candidate
+    //  - allIdentical (dedupe): every candidate EXCEPT the first (keep one)
+    //  - single candidate: that one
+    const idxToRemove = new Set<number>(
+      deleteAll
+        ? candidates.map((c) => c.idx)
+        : allIdentical
+          ? candidates.slice(1).map((c) => c.idx)
+          : [candidates[0].idx],
+    );
+    const removedShifts = candidates.filter((c) => idxToRemove.has(c.idx)).map((c) => c.shift);
+    const target = removedShifts[0]; // representative for GCal lookup
+    const remaining = shifts.filter((_, i) => !idxToRemove.has(i));
+    await updateUserLatestSchedule(ctx.callerChatId, JSON.stringify(remaining));
+    ctx.snapshot.user = { ...ctx.snapshot.user, latest_schedule_json: JSON.stringify(remaining) };
+
+    // Best-effort: find and delete EVERY matching GCal event. Search by
+    // label substring (the title we wrote when add_personal_event mirrored
+    // to GCal), then narrow by matching start/end time. Identical-tuple
+    // matches (same start+end+title) ARE duplicates by definition — delete
+    // them all, not just the first. Picking only exactHits[0] was the
+    // root cause of "I deleted yoga but it's still on my calendar" reports:
+    // when the user had 2+ copies of the same GCal event, only one was
+    // removed, the rest stayed and resurfaced in [STATE] via enrichment.
+    let calendarOutcome: "deleted" | "not_found" | "skipped_not_connected" | "failed" | "partial" = "skipped_not_connected";
+    let calendarEventsDeleted = 0;
+    let calendarEventsFailed = 0;
+    if (
+      ctx.snapshot.callerCalendarConnected
+      && !ctx.snapshot.callerCalendarTokenInvalid
+      && !ctx.snapshot.callerCalendarRefreshFailing
+    ) {
+      try {
+        const tz = resolveCallerTimezone(ctx);
+        const titleHint = (target.label ?? "").trim();
+        const calendarHits = await findCalendarEventsOnDate(ctx.callerChatId, date, titleHint, tz);
+        // Narrow to events with matching start/end (HH:MM). Don't delete
+        // a 10:00 event when the user asked to drop their 08:00 entry.
+        const exactHits = calendarHits.filter(
+          (e) => e.start_time === target.start_time && e.end_time === target.end_time,
+        );
+        // toDelete is now the FULL set of exact matches (covers duplicates),
+        // OR the single non-exact hit when there's only one candidate and
+        // no exact match (titleHint matched but times differ slightly).
+        const toDelete = exactHits.length > 0
+          ? exactHits
+          : calendarHits.length === 1 ? calendarHits : [];
+        if (toDelete.length === 0) {
+          calendarOutcome = "not_found";
+        } else {
+          for (const ev of toDelete) {
+            const r = await deleteCalendarEvent(ctx.callerChatId, ev.id, ev.calendar_id);
+            if (r === true) calendarEventsDeleted++;
+            else calendarEventsFailed++;
+          }
+          calendarOutcome = calendarEventsFailed === 0
+            ? "deleted"
+            : calendarEventsDeleted > 0 ? "partial" : "failed";
+        }
+      } catch (err) {
+        console.warn(`[remove_schedule_entry] GCal cleanup failed:`, err);
+        calendarOutcome = "failed";
+      }
+    }
+
+    return {
+      removed: true,
+      removed_count: removedShifts.length,
+      mode: deleteAll ? "delete_all_matching" : allIdentical ? "deduped" : "single",
+      entry: {
+        date: target.date,
+        start_time: target.start_time,
+        end_time: target.end_time,
+        label: target.label ?? null,
+      },
+      calendar_event_deleted: calendarOutcome,
+      calendar_events_deleted_count: calendarEventsDeleted,
+      calendar_events_failed_count: calendarEventsFailed,
+    };
+  },
+};
+
+// --- Tool 6e: mirror_to_calendar ---
+//
+// Sync-gap closer. add_personal_event now mirrors to GCal on create, but
+// entries that pre-date that change live ONLY on the bot. When the caller
+// asks "ensure everything is synced to my calendar" or "the calendar is
+// missing my mobility class on Sat 6 Jun — put it there", this tool
+// creates a Google Calendar event from given coordinates WITHOUT touching
+// D1. No-op when not /connect'd.
+
+const mirrorToCalendarTool: ToolDefinition = {
+  name: "mirror_to_calendar",
+  description:
+    "Create a Google Calendar event from given date+times+title WITHOUT writing to the bot's D1 schedule. Use this ONLY to close sync gaps — i.e. an entry already exists in the bot's schedule (visible in [STATE]) but is missing from Google Calendar, and the caller wants the two sides in sync. Do NOT use this for new commitments (use add_personal_event — that writes both sides). Do NOT use this for meetups with attendees (use book_meetup). Best-effort: returns calendar_event_created: true | 'token_expired' | 'skipped_not_connected' | 'failed'. When the caller asks 'ensure everything is synced' / 'push my gym/mobility/etc to calendar', look at each personal entry in [STATE] (non-work non-meetup busy blocks), check whether a same-time event already appears in the date's calendar enrichment, and call mirror_to_calendar for each missing one. Be conservative — never mirror work shifts (those are bot-side only by design).",
+  input_schema: {
+    type: "object",
+    required: ["date", "start_time", "end_time", "title"],
+    properties: {
+      date: { type: "string", description: "YYYY-MM-DD in caller's timezone." },
+      start_time: { type: "string", description: "HH:MM (24h)." },
+      end_time: { type: "string", description: "HH:MM (24h)." },
+      title: { type: "string", description: "Event title for Calendar (typically the same label as the D1 entry, e.g. 'Mobility', 'Yin', 'doctor')." },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const date = typeof input.date === "string" ? input.date.trim() : "";
+    const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
+    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const title = typeof input.title === "string" ? input.title.trim().slice(0, 120) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: `Invalid date '${date}'.` };
+    if (!/^\d{2}:\d{2}$/.test(startTime)) return { error: `Invalid start_time '${startTime}'.` };
+    if (!/^\d{2}:\d{2}$/.test(endTime)) return { error: `Invalid end_time '${endTime}'.` };
+    if (!title) return { error: "title required." };
+
+    if (
+      !ctx.snapshot.callerCalendarConnected
+      || ctx.snapshot.callerCalendarTokenInvalid
+      || ctx.snapshot.callerCalendarRefreshFailing
+    ) {
+      return {
+        calendar_event_created: "skipped_not_connected",
+        message: "Caller's Google Calendar isn't connected (or token is invalid). Tell them honestly — nothing was written. They need to run /connect.",
+      };
+    }
+    try {
+      const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, resolveCallerTimezone(ctx));
+      if (r === true) {
+        return { calendar_event_created: true, event: { date, start_time: startTime, end_time: endTime, title } };
+      }
+      if (r === "token_expired") return { calendar_event_created: "token_expired", message: "Token expired — caller must re-run /connect." };
+      return { calendar_event_created: "failed", message: "Google rejected the create — try again or check the dashboard." };
+    } catch (err) {
+      console.warn(`[mirror_to_calendar] failed:`, err);
+      return { calendar_event_created: "failed", message: `Calendar API error: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  },
+};
+
 // --- Tool 6b: set_person_hidden ---
 
 const setPersonHiddenTool: ToolDefinition = {
@@ -1595,6 +2203,10 @@ const bookMeetupTool: ToolDefinition = {
         type: "boolean",
         description: "When false/omitted, the tool refuses to book if any participant is busy at the requested time, returning conflicts[]. When true, books anyway. Only set true if the caller has explicitly acknowledged the conflict and asked to proceed.",
       },
+      override_sleep_warning: {
+        type: "boolean",
+        description: "When false/omitted, the tool refuses to book if the proposed slot leaves <9h between the caller's adjacent work shift and the event (8h sleep + 1h commute). Returns sleep_warnings[]. When true, books anyway. Set true only after surfacing the sleep_warnings verbatim to the caller and getting their explicit yes.",
+      },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
@@ -1635,9 +2247,9 @@ const bookMeetupTool: ToolDefinition = {
     const reqEnd = timeToMinutes(endTime);
     for (const t of conflictTargets) {
       // Sanitise calendar labels for non-caller targets so a conflict
-      // reason like "busy 📩 awaiting RSVP — calendar: Therapy with Dr X
-      // (15:00–16:00)" never makes it into the caller-facing reply.
-      // Caller's own events stay as full labels.
+      // reason like "busy calendar: Therapy with Dr X (15:00–16:00)"
+      // never makes it into the caller-facing reply. Caller's own
+      // events stay as full labels.
       const sanitiseCal = t.chat_id !== ctx.callerChatId;
       const busy = await gatherBusyBlocksForDate(t.chat_id, date, tz, sanitiseCal);
       const hit = busy.find((b) => reqStart < b.end && reqEnd > b.start);
@@ -1654,6 +2266,26 @@ const bookMeetupTool: ToolDefinition = {
         error: "conflict",
         conflicts,
         message: `At least one participant is busy at ${date} ${startTime}–${endTime}. Either pick a different time, or call book_meetup again with override_conflicts=true if the caller explicitly wants to book over the conflict.`,
+      };
+    }
+
+    // Sleep + commute buffer check for the CALLER only — we don't impose
+    // the caller's sleep buffer on attendees (their notes drive their own
+    // logistics, per the system prompt). Hard-block by default so the
+    // user can't accidentally end up with a 5h-sleep morning slot; allow
+    // override after explicit acknowledgement.
+    const sleepWarnings = computeSleepWarnings(
+      ctx.snapshot.user.latest_schedule_json,
+      date,
+      startTime,
+      endTime,
+    );
+    const sleepOverride = input.override_sleep_warning === true;
+    if (sleepWarnings.length > 0 && !sleepOverride) {
+      return {
+        error: "sleep_window_violation",
+        sleep_warnings: sleepWarnings,
+        message: `This slot breaks the caller's 8h-sleep + 1h-commute buffer around work. Surface the sleep_warnings to the caller verbatim, ask explicitly whether to book anyway, and re-call with override_sleep_warning=true only if they say yes. Don't silently re-attempt.`,
       };
     }
 
@@ -1895,6 +2527,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   removePartnerTool,
   computeAndDeliverMatchTool,
   upsertKnowledgeTool,
+  addPersonalEventTool,
+  removeScheduleEntryTool,
+  mirrorToCalendarTool,
   setPersonHiddenTool,
   queryScheduleHistoryTool,
   sessionActionTool,

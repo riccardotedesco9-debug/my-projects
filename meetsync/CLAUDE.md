@@ -34,24 +34,33 @@ Engineering/trigger-automations/src/trigger/meetsync/
 └── nudge-stale-schedules.ts — Cron task (daily 09:00 UTC)
 ```
 
-## Tools the agentic turn-handler exposes (15)
+## Tools the agentic turn-handler exposes (19)
 
 | Tool | Purpose |
 |---|---|
-| `parse_schedule` | Save the caller's own schedule, or an on-behalf one |
+| `parse_schedule` | Save the caller's own schedule, or an on-behalf one. Overlap-aware merge: replaces overlapping prior entries on a date, preserves non-overlapping ones |
+| `add_personal_event` | Append a one-off future occasion ("doctor Wed 3pm") to caller's schedule. Pure append, survives nightly chat-log prune. Auto-mirrors to Google Calendar when /connect'd |
+| `remove_schedule_entry` | Delete a stored entry (and its GCal mirror) by date+time. Auto-dedupes identical duplicates; falls back to Calendar-only delete when D1 has no match; bulk delete via `delete_all_matching` |
+| `mirror_to_calendar` | Push an existing D1 entry to Google Calendar without writing to D1 — closes sync gaps for entries that pre-date the auto-mirror |
 | `add_contact` | Link a contact by name+phone (shadow-tracks unmatched phones) |
 | `forget_contact` | Hard-delete a person_note |
 | `set_person_hidden` | Soft-hide a contact from overlap |
 | `compute_overlap` | Find free time across caller + non-hidden contacts (reads live calendars) |
-| `book_meetup` | Create one Google Calendar event with attendees + busy-block memory |
+| `book_meetup` | Create one Google Calendar event with attendees + busy-block memory. Hard-blocks on 9h sleep+commute window unless `override_sleep_warning=true` |
 | `cancel_meetup` | Two-stage delete from caller's calendar (preview → confirm) |
 | `upsert_knowledge` | Update caller profile (target='user') or freeform fact about contact (target='person') |
+| `query_schedule_history` | Look up dates outside the active 14d-back / 60d-forward [STATE] window |
 | `schedule_reminder` | One-shot or recurring (daily/weekly/monthly) ping |
 | `list_reminders` / `cancel_reminder` | Manage active reminders |
 | `relay_message` | Ghostwrite a message from caller to a contact (confirmation-gated) |
 | `watch_schedule_upload` | Auto-ping caller when a contact next uploads a schedule |
 | `reset_conversation` | Clear chat history; contacts and schedules survive |
 | `reply` | Terminal — send the user's reply (text + optional buttons) |
+
+## Privacy & sleep guardrails (added 2026-05-23)
+
+- **Sleep + commute buffer**: `book_meetup` and `add_personal_event` compute a 9h window (8h sleep + 1h commute) around adjacent work shifts. Only flags gaps that overlap typical sleep hours (22:00–10:00) with ≥4h overlap, so same-day daytime gaps don't false-positive. Overrideable on book_meetup with explicit caller consent.
+- **Sensitive label redaction**: rendered [STATE] schedule lines abstract sensitive labels (therapy, psychiatrist, medical specialists, addiction recovery, reproductive health, legal trouble, job interviews, etc.) to `(appointment)`. Underlying D1 row + Google Calendar event keep the real label — only the bot's rendered output is generic, so schedule screenshots are safe to share.
 
 ## Database tables (current)
 

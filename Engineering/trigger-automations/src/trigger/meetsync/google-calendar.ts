@@ -40,31 +40,24 @@ function isoOffsetForDate(dateIso: string, timezone: string): string {
 /**
  * Strip the personally-identifying parts of a calendar event before it
  * reaches Claude. Drops the literal title (e.g. "Therapy with Dr X") and
- * `@ location`, keeps the time geometry plus any RSVP / all-day prefix
- * emitted by `listCalendarEventsInWindow`. Used wherever a CONTACT's
- * calendar (i.e. someone other than the caller) is being merged into the
- * snapshot or fed into a tool result. The privacy rule in the system
- * prompt asks Claude to abstract sensitive cross-person titles, but
- * that's prompt-only — sanitising at the data boundary makes the
- * boundary real.
+ * `@ location`, keeps the time geometry plus the all-day marker emitted
+ * by `listCalendarEventsInWindow`. Used wherever a CONTACT's calendar
+ * (i.e. someone other than the caller) is being merged into the snapshot
+ * or fed into a tool result. The privacy rule in the system prompt asks
+ * Claude to abstract sensitive cross-person titles, but that's prompt-
+ * only — sanitising at the data boundary makes the boundary real.
  *
- * Conventions preserved (match prefixes used elsewhere in this file):
- *   "📩 awaiting RSVP — calendar: …"  → "📩 awaiting RSVP — calendar (busy)"
- *   "❓ tentative RSVP — calendar: …" → "❓ tentative RSVP — calendar (busy)"
- *   "all-day calendar: …"             → "all-day calendar (busy)"
- *   "calendar: …"                     → "calendar (busy)"
+ * Conventions preserved:
+ *   "all-day calendar: …" → "all-day calendar (busy)"
+ *   "calendar: …"         → "calendar (busy)"
  */
 export function sanitiseContactCalendarEvent(
   ev: { date: string; start_time: string; end_time: string; label?: string },
 ): { date: string; start_time: string; end_time: string; label?: string } {
   const label = ev.label ?? "";
-  let prefix = "";
-  if (label.startsWith("📩 awaiting RSVP — ")) prefix = "📩 awaiting RSVP — ";
-  else if (label.startsWith("❓ tentative RSVP — ")) prefix = "❓ tentative RSVP — ";
-  const rest = label.slice(prefix.length);
-  const isAllDay = rest.startsWith("all-day ");
+  const isAllDay = label.startsWith("all-day ");
   const opaque = isAllDay ? "all-day calendar (busy)" : "calendar (busy)";
-  return { ...ev, label: `${prefix}${opaque}` };
+  return { ...ev, label: opaque };
 }
 
 interface CalendarEvent {
@@ -214,21 +207,15 @@ export async function listCalendarEventsInWindow(
         const selfAttendee = e.attendees?.find((a) => a.self === true);
         if (selfAttendee?.responseStatus === "declined") continue;
 
-        // Tag pending RSVPs so Claude can surface them to the caller. Both
-        // 'needsAction' (no response yet) and 'tentative' (maybe) are still
-        // treated as busy for conflict checks (better to preserve the slot
-        // than double-book), but the label tells Claude they're not locked
-        // in — so the bot can say "you have 3 invites awaiting RSVP next
-        // week" instead of treating them as confirmed commitments.
-        const rsvp = selfAttendee?.responseStatus;
-        const pendingTag =
-          rsvp === "needsAction" ? "📩 awaiting RSVP — " :
-          rsvp === "tentative" ? "❓ tentative RSVP — " :
-          "";
-
+        // Treat any non-declined event as plain busy. We used to surface
+        // "📩 awaiting RSVP" / "❓ tentative" prefixes so Claude could nag
+        // the user about un-answered invites, but the user explicitly
+        // asked us to assume-accepted — events on the calendar count as
+        // busy whether or not the RSVP is filled in. selfAttendee is
+        // still inspected above for the declined skip.
         const summary = e.summary?.slice(0, 40) ?? "busy";
         const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
-        const label = `${pendingTag}calendar: ${summary}${locPart}`;
+        const label = `calendar: ${summary}${locPart}`;
 
         // Timed event (standard meeting).
         const startDT = e.start?.dateTime;
@@ -280,8 +267,10 @@ export async function listCalendarEventsInWindow(
         const startDate = e.start?.date;
         const endDate = e.end?.date;
         if (startDate && endDate) {
-          // Match the 21-day snapshot window (with slack) so multi-week
-          // vacations don't appear free on days 15-21.
+          // Cap multi-day all-day events (long vacations, multi-week
+          // conferences) at 28 days of expansion to bound output size.
+          // Snapshot window is 60d — anything past that is windowed off
+          // by the renderer anyway.
           const MAX_DAYS = 28;
           for (let i = 0, cursor = startDate; cursor < endDate && i < MAX_DAYS; i++) {
             calOut.push({
