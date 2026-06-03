@@ -51,3 +51,4 @@ INTERNAL_ALERT_SECRET=op://AI-Stack/internal-alert/secret
 
 # --- Billing pulse (monthly cost tracker) ---
 BILLING_SHEET_ID=op://AI-Stack/billing-sheet/password
+FAL_KEY=op://AI-Stack/fal/password
