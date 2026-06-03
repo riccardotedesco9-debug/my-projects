@@ -1,5 +1,7 @@
 # CLAUDE.md — job-hunt
 
+Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+
 Daily 7am Malta digest of part-time analytical roles. Aggregates 7 sources, dedupes, emails.
 
 ## Architecture

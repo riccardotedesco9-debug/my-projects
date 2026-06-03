@@ -1,5 +1,7 @@
 # MeetSync — Telegram Scheduling Bot
 
+Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+
 Conversational Telegram bot that helps people find time to meet. **Shared-hub model**: every user is a node in one global graph, each user has a private contacts list, schedules live on the user, Google Calendar is the source of truth for actual bookings.
 
 ## Architecture
