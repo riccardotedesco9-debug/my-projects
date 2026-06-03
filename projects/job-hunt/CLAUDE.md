@@ -4,7 +4,7 @@ Daily 7am Malta digest of part-time analytical roles. Aggregates 7 sources, dedu
 
 ## Architecture
 
-Production code lives in `Engineering/trigger-automations/src/trigger/job-hunt/` (Trigger.dev task).
+Production code lives in `projects/trigger-automations/src/trigger/job-hunt/` (Trigger.dev task).
 This folder holds:
 - `docs/` — source quirks, dedup strategy, Malta localities reference
 - `plans/` — implementation plans and phase notes
@@ -62,7 +62,7 @@ node --env-file=.env tools/reset-dedup.mjs             # clear fingerprint colum
 ## Deploy
 
 ```bash
-cd Engineering/trigger-automations
+cd projects/trigger-automations
 npx trigger.dev@latest dev        # local testing
 npx trigger.dev@latest deploy     # push to production
 ```

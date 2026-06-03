@@ -6,7 +6,7 @@ Conversational Telegram bot that helps people find time to meet. **Shared-hub mo
 
 - **Interface**: Telegram Bot API (single bot, one token)
 - **Webhook gateway**: Cloudflare Worker (`worker/`)
-- **Processing**: Trigger.dev v4 task per turn (`Engineering/trigger-automations/src/trigger/meetsync/`)
+- **Processing**: Trigger.dev v4 task per turn (`projects/trigger-automations/src/trigger/meetsync/`)
 - **Database**: Cloudflare D1 (SQLite)
 - **AI**: Claude Sonnet for the agentic turn handler; Claude Opus 4.7 + extended thinking for image/PDF schedule parsing, Claude Sonnet for text schedule parsing
 - **Calendar**: Google OAuth per user (read primary calendar, write events with attendees)
@@ -21,7 +21,7 @@ meetsync/
 ├── tools/           — Synthetic webhook test scripts
 └── CLAUDE.md        — This file
 
-Engineering/trigger-automations/src/trigger/meetsync/
+projects/trigger-automations/src/trigger/meetsync/
 ├── turn-handler.ts          — Main entry: loadSnapshot → enrich → Claude → tools → reply
 ├── turn-handler-tools.ts    — 15 tool definitions Claude can call
 ├── turn-handler-snapshot.ts — Renders [STATE] block from Snapshot
@@ -115,8 +115,8 @@ curl -X POST "https://api.telegram.org/bot{TOKEN}/setWebhook" \
 
 # Deploy Trigger.dev (workaround for spaces in path)
 rm -rf /c/tmp/trigger-deploy && mkdir -p /c/tmp/trigger-deploy
-cp -r ../Engineering/trigger-automations/* /c/tmp/trigger-deploy/
-cp -r ../Engineering/trigger-automations/.* /c/tmp/trigger-deploy/ 2>/dev/null
+cp -r ../trigger-automations/* /c/tmp/trigger-deploy/
+cp -r ../trigger-automations/.* /c/tmp/trigger-deploy/ 2>/dev/null
 cp -r shared /c/tmp/trigger-deploy/shared
 cd /c/tmp/trigger-deploy && npx trigger.dev@4.4.3 deploy
 

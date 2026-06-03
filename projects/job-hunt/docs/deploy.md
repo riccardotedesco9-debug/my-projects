@@ -84,7 +84,7 @@ JOBHUNT_DIGEST_CAP           # defaults to 20
 ### 8. Local dev trigger
 
 ```bash
-cd "C:/Users/Riccardo/Documents/My Projects/Engineering/trigger-automations"
+cd "C:/Users/Riccardo/Documents/My Projects/projects/trigger-automations"
 npx trigger.dev@latest dev
 # → dashboard opens → Tasks → job-hunt-daily-scan → "Test"
 # → Run completes in < 2 min
