@@ -1,6 +1,6 @@
 # CLAUDE.md -- WebDesign Workspace
 
-Frontend web design domain — holds web design **skills, agents, and workflow rules** (plus shared tooling like `serve.mjs`/`screenshot.mjs`), not project folders. Build polished, production-grade websites from reference designs, screenshots, or from scratch. Actual design projects live one level up in the workspace-level `../projects/` folder, each with its own `CLAUDE.md`.
+Frontend web design domain — holds web design **skills, agents, and workflow rules** (plus shared tooling like `serve.mjs`/`screenshot.mjs`), not project folders. This workspace lives under `agents/`. Build polished, production-grade websites from reference designs, screenshots, or from scratch. Actual design projects live in the workspace-root `../../projects/` folder, each with its own `CLAUDE.md`.
 
 ## Always Do First
 
@@ -95,8 +95,8 @@ Inherited automatically:
 
 ## Structure Rules
 
-- **New design projects go in the workspace-level `../projects/` folder** -- one self-contained folder each, never inside `WebDesign/`. This workspace holds skills/agents/rules + shared tooling only.
-- Folder name: descriptive, kebab-case (e.g., `../projects/client-landing-page/`).
+- **New design projects go in the workspace-level `../../projects/` folder** -- one self-contained folder each, never inside `WebDesign/`. This workspace holds skills/agents/rules + shared tooling only.
+- Folder name: descriptive, kebab-case (e.g., `../../projects/client-landing-page/`).
 - Each folder is self-contained (HTML, CSS, JS, assets, screenshots) and gets its own `CLAUDE.md` noting `Domain: WebDesign` so these web design skills/agents are the obvious choice when working inside it.
 
 ## Documentation

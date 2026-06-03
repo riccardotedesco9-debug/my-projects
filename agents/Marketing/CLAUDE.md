@@ -1,6 +1,6 @@
 # CLAUDE.md — Marketing Workspace
 
-Riccardo's marketing domain — holds marketing **skills, agents, and workflow rules**, not project folders. Actual campaigns, initiatives, and content projects live one level up in the workspace-level `../projects/` folder, each with its own `CLAUDE.md`.
+Riccardo's marketing domain — holds marketing **skills, agents, and workflow rules**, not project folders. This workspace lives under `agents/`; actual campaigns, initiatives, and content projects live in the workspace-root `../../projects/` folder, each with its own `CLAUDE.md`.
 
 ## Role & Responsibilities
 
@@ -60,8 +60,8 @@ Grandfathered Gemini pipelines keep their lane **when explicitly invoked**: bran
 
 ## Structure Rules
 
-- **New campaigns/initiatives go in the workspace-level `../projects/` folder** — one self-contained folder each, never inside `Marketing/`. This workspace holds skills/agents/rules only.
-- Folder name: descriptive, kebab-case (e.g. `../projects/q2-email-campaign/`)
+- **New campaigns/initiatives go in the workspace-level `../../projects/` folder** — one self-contained folder each, never inside `Marketing/`. This workspace holds skills/agents/rules only.
+- Folder name: descriptive, kebab-case (e.g. `../../projects/q2-email-campaign/`)
 - Each folder is self-contained (copy, assets, analytics) and gets its own `CLAUDE.md` noting `Domain: Marketing` so these marketing skills/agents are the obvious choice when working inside it
 
 ## Documentation

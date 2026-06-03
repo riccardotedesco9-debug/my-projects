@@ -19,7 +19,7 @@ Single source of truth for secrets is the **AI-Stack** vault in 1Password. This 
    - Recommended item names mirror the `opRef` field in `secrets-manifest.json`. Adjust the manifest if you've already named items differently.
 
 3. **Populate from your existing `.env` files** (one-time, ~30 min)
-   - Open each `.env` referenced in the audit (meetsync/, Engineering/trigger-automations/, job-hunt/)
+   - Open each `.env` referenced in the audit (projects/meetsync/, projects/trigger-automations/, projects/job-hunt/)
    - For each variable, create or update the matching 1P item
 
 4. **Verify**
@@ -53,7 +53,7 @@ Migrate one platform at a time so a mistake never tanks both halves of the stack
 
 1. **Cloudflare first** (meetsync Worker)
    - `node tools/sync-secrets.mjs --target=cloudflare-meetsync --dry-run`
-   - Apply, then deploy: `cd meetsync/worker && npx wrangler deploy`
+   - Apply, then deploy: `cd projects/meetsync/worker && npx wrangler deploy`
    - Confirm bot replies to a Telegram message
    - Confirm `/dashboard?token=...` still works
 2. **Trigger.dev second**
@@ -71,10 +71,10 @@ Migrate one platform at a time so a mistake never tanks both halves of the stack
 A single `.env.tpl` lives at workspace root with every `op://` reference. Run any command with secrets injected at runtime, never written to disk. Use the absolute path so the same template works from any subdirectory:
 
 ```powershell
-# Worker dev (from meetsync/worker)
+# Worker dev (from projects/meetsync/worker)
 op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx wrangler dev
 
-# Trigger.dev dev (from Engineering/trigger-automations)
+# Trigger.dev dev (from projects/trigger-automations)
 op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx trigger.dev@4.4.3 dev
 
 # Or simpler: stay at workspace root and chain

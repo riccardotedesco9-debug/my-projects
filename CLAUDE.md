@@ -6,24 +6,26 @@ This is the parent workspace containing all of Riccardo's projects.
 
 ```
 My Projects/
-│   #  AGENTS — Claude Code skill/agent workspaces (stay at root)
-├── Engineering/    — Domain workspace: engineering skills + agents + rules
-├── Marketing/      — Domain workspace: marketing skills + agents + rules
-├── WebDesign/      — Domain workspace: web design skills + agents + rules
-├── WebScraper/     — Domain workspace: scraping skills + agents + rules (Firecrawl MCP)
-│   #  DEPLOYED APPS — live products, infra-coupled (stay at root, not in projects/)
-├── meetsync/       — Deployed product: WhatsApp/Telegram scheduling bot (Worker + D1)
-│   #  PROJECTS — deliverable work (one self-contained folder each)
-├── projects/       — All work projects live here (flat, kebab-case, each with its own CLAUDE.md)
-│   ├── <project>/              — e.g. a website, campaign, simulator, or strategy doc
-│   └── …                       — contents are transient (created/deleted freely); every NEW project goes here, any domain
-│   #  SHARED — config & tooling
-├── tools/          — Shared workspace tooling (secrets sync, billing, etc.)
+│   #  AGENTS — Claude Code skill/agent workspaces (the tooling that does the work)
+├── agents/
+│   ├── Engineering/   — engineering skills + agents + rules
+│   ├── Marketing/     — marketing skills + agents + rules
+│   ├── WebDesign/     — web design skills + agents + rules
+│   └── WebScraper/    — scraping skills + agents + rules (Firecrawl MCP)
+│   #  PROJECTS — all built/deployed work (one self-contained folder each; transient)
+├── projects/
+│   ├── meetsync/             — deployed Telegram scheduling bot (Cloudflare Worker + D1)
+│   ├── trigger-automations/  — deployed Trigger.dev platform (meetsync / job-hunt / billing tasks)
+│   ├── job-hunt/             — local arm of the job-digest automation
+│   ├── <project>/            — websites, campaigns, simulators, docs … created/deleted freely
+│   └── …                     — every NEW project goes here, any domain, each with its own CLAUDE.md
+│   #  SHARED — config & tooling (stay at root)
+├── tools/          — Shared scripts (secrets sync, billing) — resolve paths from repo root
 ├── plans/  docs/   — Shared workspace-level plans & docs
-└── CLAUDE.md       — This file (global context)
+└── CLAUDE.md  .gitignore  .env.tpl   — root config
 ```
 
-Root holds three kinds of things. **Agents** — the four domain workspaces (`Engineering/`, `Marketing/`, `WebDesign/`, `WebScraper/`) — are Claude Code skill/agent/rule environments that reshape how I work when you enter them; they stay at root. **Deployed apps** — live, infra-coupled products like `meetsync/` (Cloudflare Worker + D1) — also stay at root, because moving them would break their deploy wiring. **Projects** — all bounded deliverable work — live in `projects/`, one self-contained folder each with its own `CLAUDE.md`. Global rules/skills are the baseline everywhere; a project's own `CLAUDE.md` adds the specifics when you work inside it. (A few existing projects are still grandfathered at root or inside `Engineering/` — see Cross-Project Rules.)
+Two buckets, plus shared config. **`agents/`** holds the four Claude Code domain workspaces (`Engineering`, `Marketing`, `WebDesign`, `WebScraper`) — skill/agent/rule environments that reshape how I work when you enter them (the tooling). **`projects/`** holds **all built and deployed work**, one self-contained folder each with its own `CLAUDE.md` — including deployed apps like `meetsync/` and `trigger-automations/`. Shared tooling (`tools/`), `plans/`, `docs/`, and root config stay at the top level. Global rules/skills are the baseline everywhere; a project's own `CLAUDE.md` adds the specifics when you work inside it.
 
 ### Shared Directories
 
@@ -90,11 +92,11 @@ You operate in a **Workflows → Agent → Tools** architecture. Workflows are m
 
 Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
 - **Root directory** → global skills only
-- **Engineering/** → global + engineering local skills
-- **Marketing/** → global + marketing local skills
-- **WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines)
-- **WebScraper/** → global skills + Firecrawl MCP
-- **meetsync/** → global skills + Cloudflare MCP + Trigger.dev MCP (bot gateway + DB)
+- **agents/Engineering/** → global + engineering local skills
+- **agents/Marketing/** → global + marketing local skills
+- **agents/WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines)
+- **agents/WebScraper/** → global skills + Firecrawl MCP
+- **projects/** → global skills; each project notes its `Domain:` for which agent workspace's local skills apply. (e.g. `projects/meetsync/` uses Cloudflare + Trigger.dev MCP; for `mkt:*`/engineering locals, work from the matching `agents/<Domain>/`.)
 
 ## Available MCP Integrations (Global)
 
@@ -129,10 +131,10 @@ These tools are available across ALL projects. Use them autonomously when the ta
   - Use as **primary tool for all sound design** — covers SFX, music, voices, and audio processing
 
 ### Web Scraping
-- **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in `WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
+- **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in the `agents/WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
 
 ### Automation
-- **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `Engineering/trigger-automations/`. **Before building or changing any automation, follow the conventions in `Engineering/trigger-automations/CLAUDE.md`** — the canonical builder guide (workflow order, `schedules.task` cron patterns, the 1Password secrets flow, deploy + failure-handling rules). All automations live in that one project, regardless of which `projects/` project they serve.
+- **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `projects/trigger-automations/`. **Before building or changing any automation, follow the conventions in `projects/trigger-automations/CLAUDE.md`** — the canonical builder guide (workflow order, `schedules.task` cron patterns, the 1Password secrets flow, deploy + failure-handling rules). All automations live in that one project, regardless of which other `projects/` project they serve.
 
 ### Infrastructure
 - **Cloudflare** (`mcp__cloudflare__*`) — Query D1 databases, manage Workers, KV, R2, and 2500+ Cloudflare API endpoints. Use for ad-hoc D1 queries, Worker log inspection, and infrastructure management. MeetSync's database and webhook gateway run on Cloudflare.
@@ -157,7 +159,7 @@ Always use available MCP tools before improvising code-based alternatives:
 - **Visual Content (templated/decks)** → Canva (templated brand graphics, resizes) or Gamma (decks/pages), not code-based HTML/CSS designs
 - **Dynamic visual generation** (custom images, pixel/indie game art, vectors/SVG, video, 3D, niche/anime/trained styles) → fal.ai via the **`creative-router`** skill — NOT Canva/Gamma (those keep their lanes). See "Visual / Creative Routing" below.
 - **File Storage** → Google Drive, not local temp files for shared assets
-- **Web Scraping** → Firecrawl MCP (in WebScraper/), not manual fetch loops or custom scrapers
+- **Web Scraping** → Firecrawl MCP (in agents/WebScraper/), not manual fetch loops or custom scrapers
 - **Infrastructure** → Cloudflare MCP for D1 queries, Worker management; not raw HTTP API calls
 - **Deterministic tasks** → `tools/` scripts, not inline AI reasoning for API calls, transforms, or file ops
 
@@ -179,12 +181,10 @@ For any **dynamic visual generation** — custom images, pixel/indie game art, v
 
 ## Cross-Project Rules
 
-- **All work projects live in `projects/`** — one self-contained, kebab-case folder each (e.g. `projects/pet-centre-mellieha/`). This applies to **every** project regardless of domain — engineering, marketing, web design, scraping, or cross-cutting. Do **not** create project folders at the workspace root or inside the domain workspaces.
-- **Agents & deployed apps stay at root, not in `projects/`.** The four domain workspaces (`Engineering/`, `Marketing/`, `WebDesign/`, `WebScraper/`) are Claude Code skill/agent/rule environments (the "agents"). Deployed apps like `meetsync/` (live Worker + D1) are infra-coupled running products. Both stay at root and are **not** subject to the `projects/` rule — `projects/` is for bounded deliverable work only.
-- **Each project has its own `CLAUDE.md`** — global rules/skills are the baseline; the project's `CLAUDE.md` carries its stack, conventions, and specifics. Record the project's domain at the top, e.g. `Domain: Engineering` (or `Marketing` / `WebDesign` / `WebScraper` / `cross-cutting`), so the right local skills/agents are obvious when working inside it.
-- **Skills**: global skills are available everywhere. Domain-specific local skills (`mkt:*`, engineering/web-design locals) load when you work *from* that domain workspace — invoke them explicitly, or open the workspace, when a project needs them.
+- **Two buckets.** `agents/` holds the four Claude Code domain workspaces (`Engineering`, `Marketing`, `WebDesign`, `WebScraper`) — skill/agent/rule tooling only, no project folders inside. `projects/` holds **all built and deployed work** — one self-contained, kebab-case folder each (e.g. `projects/meetsync/`, `projects/pet-centre-mellieha/`), regardless of domain (engineering, marketing, web design, scraping, deployed apps, or cross-cutting). Don't create project folders at the workspace root or inside an `agents/` workspace.
+- **Each project has its own `CLAUDE.md`** — global rules/skills are the baseline; the project's `CLAUDE.md` carries its stack, conventions, and specifics. Record the project's domain at the top, e.g. `Domain: Engineering` (or `Marketing` / `WebDesign` / `WebScraper` / `cross-cutting`), so the right agent workspace's local skills are obvious.
+- **Skills**: global skills are available everywhere. Domain-specific local skills (`mkt:*`, engineering/web-design locals) load when you work *from* that agent workspace (`agents/<Domain>/`) — invoke them explicitly, or open the workspace, when a project needs them.
 - Plans go in `projects/{name}/plans/`, docs in `projects/{name}/docs/`. The session hook runs in subdirectory mode and creates these in the current directory automatically — just work from inside the project folder.
-- Only shared config (CLAUDE.md, .gitignore), shared tooling (`tools/`, `plans/`, `docs/`), the agents (four domain workspaces), deployed apps (`meetsync/`), and `projects/` live at root — no loose files.
-- **Workspace rules location**: `{project}/.claude/rules/` is the canonical directory for per-project workflow SOPs (matches Engineering pattern). Marketing's `.claude/workflows/` is grandfathered in but new projects should use `rules/`.
-- **`projects/` contents are transient** — projects are created and deleted freely; **never hardcode a project's name or path** elsewhere (code, config, scripts, docs). The convention is stable, the contents are not. Projects are self-contained (relative paths), so deleting one breaks nothing.
-- **Structurally stable, outside `projects/`**: `meetsync/` is the long-term keeper — a **deployed app** at root, never moved. `job-hunt/` (root) and `Engineering/trigger-automations/` stay put *while they exist* — they're the local/deploy arms of Trigger.dev automations (`tools/bootstrap-1p-vault.mjs` reads `job-hunt/.env`; `trigger-automations/` hosts the deployed tasks), so relocate them only if you also rewire those references. All **new** projects start in `projects/`.
+- Only shared config (`CLAUDE.md`, `.gitignore`, `.env.tpl`), shared tooling (`tools/`, `plans/`, `docs/`), `agents/`, and `projects/` live at root — no loose files.
+- **Workspace rules location**: `agents/{workspace}/.claude/rules/` is the canonical directory for per-workspace SOPs. Marketing's `.claude/workflows/` is grandfathered in but new ones should use `rules/`.
+- **`projects/` contents are transient** — projects are created and deleted freely; **never hardcode a project's name or path** in new code/config. Projects are self-contained (relative paths), so deleting one breaks nothing. **Exception — the deploy-coupled trio** (`projects/meetsync/`, `projects/trigger-automations/`, `projects/job-hunt/`) IS referenced by shared tooling: `tools/secrets-manifest.json` points `cwd` at `projects/meetsync/worker`, and `tools/bootstrap-1p-vault.mjs` reads each one's `.env`. If you ever rename or move those three, update those two files (and the meetsync deploy commands in `projects/meetsync/CLAUDE.md`).

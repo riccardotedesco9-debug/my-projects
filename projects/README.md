@@ -2,7 +2,7 @@
 
 Home for **all deliverable work projects** in this workspace. One self-contained folder per project — flat, kebab-case.
 
-This is deliberately separate from two things that stay at the workspace root: the **agents** (the `Engineering/`, `Marketing/`, `WebDesign/`, `WebScraper/` Claude Code skill/agent workspaces) and **deployed apps** (live, infra-coupled products like `meetsync/`). Projects = bounded deliverable work; agents = the tooling that does the work; deployed apps = running products you can't relocate without breaking their deploy wiring.
+This is deliberately separate from **`agents/`** — the sibling folder holding the four Claude Code skill/agent workspaces (`Engineering`, `Marketing`, `WebDesign`, `WebScraper`). Projects = the built and deployed work (including deployed apps like `meetsync/` and `trigger-automations/`); agents = the tooling that does the work.
 
 ## Conventions
 
@@ -23,7 +23,11 @@ This is deliberately separate from two things that stay at the workspace root: t
 
 Projects here are created and deleted freely. **Don't hardcode any project's name or path** anywhere (code, config, scripts, docs) — whatever sits here today may be gone tomorrow. Each project is self-contained (relative paths), so deleting one breaks nothing else. The *convention* is stable; the *contents* are not.
 
-## Staying outside `projects/`
+## Deploy-coupled projects (don't rename without rewiring)
 
-- `meetsync/` — the long-term keeper. A **deployed app** (live Worker + D1) at root, never moved.
-- `job-hunt/` (root) and `Engineering/trigger-automations/` — the local/deploy arms of Trigger.dev automations (`bootstrap-1p-vault.mjs` reads `job-hunt/.env`; trigger-automations hosts the deployed tasks). They stay put *while they exist*; relocate only if you also rewire those references.
+Most projects here come and go freely. **Three are referenced by shared tooling**, so renaming/moving them means updating those refs too:
+- `meetsync/` — `tools/secrets-manifest.json` points wrangler at `projects/meetsync/worker`; deploy commands live in `meetsync/CLAUDE.md`.
+- `trigger-automations/` — the deployed Trigger.dev platform (runs the meetsync / job-hunt / billing tasks). meetsync's deploy copies it from the sibling `../trigger-automations`.
+- `job-hunt/` — `tools/bootstrap-1p-vault.mjs` reads `projects/job-hunt/.env`.
+
+Everything else in `projects/` is transient (see above).

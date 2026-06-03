@@ -22,9 +22,9 @@ const VAULT = "AI-Stack";
 
 // Files to scan for values, in priority order (later wins).
 const ENV_FILES = [
-  "Engineering/trigger-automations/.env",
-  "job-hunt/.env",
-  "meetsync/.env",
+  "projects/trigger-automations/.env",
+  "projects/job-hunt/.env",
+  "projects/meetsync/.env",
 ];
 
 // Mapping: 1P item title -> { fieldName: envKey | (() => string) | "ASK" | "GENERATE" }
