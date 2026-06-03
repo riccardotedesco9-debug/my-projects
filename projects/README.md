@@ -19,10 +19,11 @@ This is deliberately separate from two things that stay at the workspace root: t
 
 - **Domain skills**: global skills work everywhere. Domain-specific local skills (`mkt:*`, engineering/web-design locals) load when you work *from* that domain workspace — invoke them explicitly, or open the workspace, when a project needs them.
 
-## Already moved here (2026-06-03)
+## Contents are transient
 
-`pixel-life/` (from `Engineering/`), `pet-centre-mellieha/`, `job-application/` (from root).
+Projects here are created and deleted freely. **Don't hardcode any project's name or path** anywhere (code, config, scripts, docs) — whatever sits here today may be gone tomorrow. Each project is self-contained (relative paths), so deleting one breaks nothing else. The *convention* is stable; the *contents* are not.
 
 ## Staying outside `projects/`
 
-Coupled to live infra, so they stay put: `job-hunt/` (root) and `Engineering/trigger-automations/` are the local/deploy arms of Trigger.dev automations (`bootstrap-1p-vault.mjs` reads `job-hunt/.env`; trigger-automations hosts the deployed tasks). `meetsync/` stays at root permanently — it's a **deployed app** (live Worker + D1), not a bounded project.
+- `meetsync/` — the long-term keeper. A **deployed app** (live Worker + D1) at root, never moved.
+- `job-hunt/` (root) and `Engineering/trigger-automations/` — the local/deploy arms of Trigger.dev automations (`bootstrap-1p-vault.mjs` reads `job-hunt/.env`; trigger-automations hosts the deployed tasks). They stay put *while they exist*; relocate only if you also rewire those references.

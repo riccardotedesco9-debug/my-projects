@@ -15,10 +15,8 @@ My Projects/
 ├── meetsync/       — Deployed product: WhatsApp/Telegram scheduling bot (Worker + D1)
 │   #  PROJECTS — deliverable work (one self-contained folder each)
 ├── projects/       — All work projects live here (flat, kebab-case, each with its own CLAUDE.md)
-│   ├── pixel-life/             — OOZE artificial-life simulator (Vite + TS)
-│   ├── pet-centre-mellieha/    — pet store strategy / competition docs
-│   ├── job-application/        — CV + cover-letter renderer
-│   └── …                       — every NEW project goes here, regardless of domain
+│   ├── <project>/              — e.g. a website, campaign, simulator, or strategy doc
+│   └── …                       — contents are transient (created/deleted freely); every NEW project goes here, any domain
 │   #  SHARED — config & tooling
 ├── tools/          — Shared workspace tooling (secrets sync, billing, etc.)
 ├── plans/  docs/   — Shared workspace-level plans & docs
@@ -188,5 +186,5 @@ For any **dynamic visual generation** — custom images, pixel/indie game art, v
 - Plans go in `projects/{name}/plans/`, docs in `projects/{name}/docs/`. The session hook runs in subdirectory mode and creates these in the current directory automatically — just work from inside the project folder.
 - Only shared config (CLAUDE.md, .gitignore), shared tooling (`tools/`, `plans/`, `docs/`), the agents (four domain workspaces), deployed apps (`meetsync/`), and `projects/` live at root — no loose files.
 - **Workspace rules location**: `{project}/.claude/rules/` is the canonical directory for per-project workflow SOPs (matches Engineering pattern). Marketing's `.claude/workflows/` is grandfathered in but new projects should use `rules/`.
-- **Moved into `projects/`** (2026-06-03): `pixel-life/` (from `Engineering/`), `pet-centre-mellieha/` and `job-application/` (from root).
-- **Still outside `projects/` — coupled to live infra, leave put**: `job-hunt/` (root) and `Engineering/trigger-automations/` are the local/deploy arms of Trigger.dev automations (`tools/bootstrap-1p-vault.mjs` reads `job-hunt/.env`; `trigger-automations/` hosts the deployed tasks) — relocate only if you also rewire their references. `meetsync/` is a **deployed app** — stays at root for good. All **new** projects start in `projects/`.
+- **`projects/` contents are transient** — projects are created and deleted freely; **never hardcode a project's name or path** elsewhere (code, config, scripts, docs). The convention is stable, the contents are not. Projects are self-contained (relative paths), so deleting one breaks nothing.
+- **Structurally stable, outside `projects/`**: `meetsync/` is the long-term keeper — a **deployed app** at root, never moved. `job-hunt/` (root) and `Engineering/trigger-automations/` stay put *while they exist* — they're the local/deploy arms of Trigger.dev automations (`tools/bootstrap-1p-vault.mjs` reads `job-hunt/.env`; `trigger-automations/` hosts the deployed tasks), so relocate them only if you also rewire those references. All **new** projects start in `projects/`.

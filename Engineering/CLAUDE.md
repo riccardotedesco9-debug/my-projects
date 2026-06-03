@@ -46,7 +46,7 @@ Trigger.dev automation platform — TypeScript background tasks, scheduled jobs,
 - **New projects go in the workspace-level `../projects/` folder** — one self-contained folder each, never inside `Engineering/`. This workspace holds skills/agents/rules only.
 - Folder name: descriptive, kebab-case (e.g. `../projects/my-new-idea/`)
 - Each project folder is self-contained (code, assets, notes) and gets its own `CLAUDE.md` noting `Domain: Engineering` so these engineering skills/agents are the obvious choice when working inside it
-- Nested `trigger-automations/` is **deploy-coupled automation infra** (hosts the live Trigger.dev tasks for meetsync / job-hunt / billing) — it stays in `Engineering/`, not a project to migrate. (`pixel-life/` already moved to `../projects/pixel-life/`.)
+- Nested `trigger-automations/` is **deploy-coupled automation infra** (hosts the live Trigger.dev tasks for meetsync / job-hunt / billing) — it stays in `Engineering/`, not a project to migrate. Other engineering projects go in `../projects/`.
 
 ## Documentation
 
