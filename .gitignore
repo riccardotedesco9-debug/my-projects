@@ -11,3 +11,13 @@ release-manifest.json
 
 # Personal — kept OUT of this public repo; lives in its own private repo
 projects/job-application/
+
+# Dependencies — never track (was missing; caused thousands of untracked files)
+node_modules/
+
+# Kept local (your "keep local" choice) — not published. Move to a private repo if you want them versioned.
+/docs/TECH_STACK_DISCOVERY.md
+/plans/260517-1834-cv-cover-letter-redesign/
+/plans/260527-1234-mookie-pitch/
+/plans/reports/research-260602-1138-pet-centre-market.md
+/projects/pet-centre-mellieha/
