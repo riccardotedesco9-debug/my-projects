@@ -132,7 +132,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
 - **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in `WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
 
 ### Automation
-- **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `Engineering/trigger-automations/`.
+- **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `Engineering/trigger-automations/`. **Before building or changing any automation, follow the conventions in `Engineering/trigger-automations/CLAUDE.md`** — the canonical builder guide (workflow order, `schedules.task` cron patterns, the 1Password secrets flow, deploy + failure-handling rules). All automations live in that one project, regardless of which `projects/` project they serve.
 
 ### Infrastructure
 - **Cloudflare** (`mcp__cloudflare__*`) — Query D1 databases, manage Workers, KV, R2, and 2500+ Cloudflare API endpoints. Use for ad-hoc D1 queries, Worker log inspection, and infrastructure management. MeetSync's database and webhook gateway run on Cloudflare.
