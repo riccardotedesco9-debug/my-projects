@@ -15,9 +15,12 @@ import { runJobHunt } from "./orchestrator.js";
 
 export const jobHuntDailyScan = schedules.task({
   id: "job-hunt-daily-scan",
-  // Weekly: Monday 07:00 Europe/Malta. Daily was too much noise for the user
-  // while job-hunting in parallel with a full-time role.
-  cron: { pattern: "0 7 * * 1", timezone: "Europe/Malta" },
+  // DISABLED 2026-06-03 — user paused the job-hunt email digests. The auto-run
+  // cron is commented out so this task no longer fires on a schedule (it can
+  // still be triggered manually). To fully stop it in production, also toggle
+  // the "job-hunt-daily-scan" schedule off in the Trigger.dev dashboard
+  // (Schedules tab) and/or redeploy. Re-enable by uncommenting the cron below.
+  // cron: { pattern: "0 7 * * 1", timezone: "Europe/Malta" }, // Weekly Mon 07:00 Europe/Malta
   maxDuration: 900, // 15 minutes — covers 9 Malta sources + LLM ranking + sheet + email
   run: async () => runJobHunt(),
 });

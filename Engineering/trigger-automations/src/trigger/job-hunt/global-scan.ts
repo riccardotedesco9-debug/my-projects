@@ -7,7 +7,12 @@ import { runJobHunt } from "./orchestrator.js";
 
 export const jobHuntGlobalScan = schedules.task({
   id: "job-hunt-global-scan",
-  cron: { pattern: "5 7 * * 1", timezone: "Europe/Malta" },
+  // DISABLED 2026-06-03 — user paused the job-hunt email digests. Auto-run cron
+  // commented out (task can still be triggered manually). To fully stop it in
+  // production, also toggle the "job-hunt-global-scan" schedule off in the
+  // Trigger.dev dashboard (Schedules tab) and/or redeploy. Re-enable by
+  // uncommenting the cron below.
+  // cron: { pattern: "5 7 * * 1", timezone: "Europe/Malta" }, // Weekly Mon 07:05 Europe/Malta
   maxDuration: 900,
   run: async () => runJobHunt({ track: "global" }),
 });
