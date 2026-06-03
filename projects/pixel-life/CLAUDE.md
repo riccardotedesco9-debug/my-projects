@@ -1,5 +1,7 @@
 # CLAUDE.md — OOZE: Pixel Alchemy Evolution Simulator
 
+Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+
 Browser-based autonomous artificial life simulation. Pixels carry 16-gene DNA controlling chemical reactions (not physics forces). Evolution is fully self-sustaining — watch or play god.
 
 ## Quick Start
@@ -38,3 +40,6 @@ All numeric constants are in `constants.ts`. Key levers:
 
 ## Audio
 Audio files go in `public/audio/`. The audio module (`audio.ts`) loads them on first click and gracefully degrades if missing. Generate assets with ElevenLabs MCP when available.
+
+## Visual Assets
+Generate pixel sprites, tile textures, and UI art with the global **`creative-router`** skill (fal.ai). For the pixel aesthetic use `fal-ai/flux-lora` with a FLUX pixel LoRA (e.g. `ume_modern_pixelart.safetensors`, trigger `umempart`). The skill states cost before running and saves output to `.tmp/creative/`.

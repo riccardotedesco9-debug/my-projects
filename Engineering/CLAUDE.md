@@ -1,6 +1,6 @@
 # CLAUDE.md — Engineering Sandbox
 
-Personal testing ground for project ideas. Each project lives in its own folder.
+Personal engineering domain — holds engineering **skills, agents, and workflow rules**, not project folders. Actual projects live one level up in the workspace-level `../projects/` folder, each with its own `CLAUDE.md`.
 
 ## Workflows
 
@@ -14,6 +14,10 @@ Personal testing ground for project ideas. Each project lives in its own folder.
 
 Engineering-specific (global skills inherited automatically):
 backend-development, frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth
+
+## Visual Asset Generation
+
+To **generate** new images, sprites, textures, vector/SVG, video, or 3D assets → activate the global **`creative-router`** skill (fal.ai). It selects the model and states cost before running, saving output to `.tmp/creative/`. The `ai-multimodal` / `imagemagick` line in `development-rules.md` applies to *analyzing, describing, OCR-ing, or editing existing* media — not to generating new assets.
 
 ## Projects
 
@@ -39,9 +43,10 @@ Trigger.dev automation platform — TypeScript background tasks, scheduled jobs,
 
 ## Structure Rules
 
-- **Every new project gets its own folder** — no loose files at the root
-- Folder name: descriptive, kebab-case (e.g. `my-new-idea/`)
-- Each project folder is self-contained (code, assets, notes)
+- **New projects go in the workspace-level `../projects/` folder** — one self-contained folder each, never inside `Engineering/`. This workspace holds skills/agents/rules only.
+- Folder name: descriptive, kebab-case (e.g. `../projects/my-new-idea/`)
+- Each project folder is self-contained (code, assets, notes) and gets its own `CLAUDE.md` noting `Domain: Engineering` so these engineering skills/agents are the obvious choice when working inside it
+- Nested `trigger-automations/` is **deploy-coupled automation infra** (hosts the live Trigger.dev tasks for meetsync / job-hunt / billing) — it stays in `Engineering/`, not a project to migrate. (`pixel-life/` already moved to `../projects/pixel-life/`.)
 
 ## Documentation
 

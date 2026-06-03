@@ -60,13 +60,13 @@ If a method fails, follow `docs/escalation-ladder.md` rung-by-rung — don't jum
 - **deal-hunter** — multi-retailer price comparison with trust signals
 - **review-aggregator** — cross-source review synthesis with balanced verdict
 
-Add new recipes only when a job repeats. One-off jobs go straight into their own project folder.
+Add new recipes only when a job repeats. One-off jobs go straight into their own folder under the workspace-level `../projects/`.
 
 ## Structure Rules
 
-- **Every scraping project gets its own folder** — no loose files at root
-- Folder name: descriptive, kebab-case (e.g. `competitor-blog-audit/`)
-- Each folder is self-contained (scraped content, analysis, reports)
+- **New scraping projects go in the workspace-level `../projects/` folder** — one self-contained folder each, never inside `WebScraper/`. This workspace holds skills/agents/rules + reusable recipes only.
+- Folder name: descriptive, kebab-case (e.g. `../projects/competitor-blog-audit/`)
+- Each folder is self-contained (scraped content, analysis, reports) and gets its own `CLAUDE.md` noting `Domain: WebScraper` so these scraping skills/tools are the obvious choice when working inside it
 
 ## Documentation
 

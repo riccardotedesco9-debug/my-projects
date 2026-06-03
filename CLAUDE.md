@@ -6,15 +6,26 @@ This is the parent workspace containing all of Riccardo's projects.
 
 ```
 My Projects/
-├── Engineering/    — Personal engineering sandbox (experiments, prototypes, tools)
-├── Marketing/      — Marketing workspace (campaigns, content, SEO, funnels)
-├── WebDesign/      — Frontend web design workspace (websites, landing pages, UI)
-├── WebScraper/     — Web scraping workspace (Firecrawl MCP, crawling, extraction)
-├── meetsync/       — WhatsApp scheduling bot (Worker gateway + D1 database + shared types)
+│   #  AGENTS — Claude Code skill/agent workspaces (stay at root)
+├── Engineering/    — Domain workspace: engineering skills + agents + rules
+├── Marketing/      — Domain workspace: marketing skills + agents + rules
+├── WebDesign/      — Domain workspace: web design skills + agents + rules
+├── WebScraper/     — Domain workspace: scraping skills + agents + rules (Firecrawl MCP)
+│   #  DEPLOYED APPS — live products, infra-coupled (stay at root, not in projects/)
+├── meetsync/       — Deployed product: WhatsApp/Telegram scheduling bot (Worker + D1)
+│   #  PROJECTS — deliverable work (one self-contained folder each)
+├── projects/       — All work projects live here (flat, kebab-case, each with its own CLAUDE.md)
+│   ├── pixel-life/             — OOZE artificial-life simulator (Vite + TS)
+│   ├── pet-centre-mellieha/    — pet store strategy / competition docs
+│   ├── job-application/        — CV + cover-letter renderer
+│   └── …                       — every NEW project goes here, regardless of domain
+│   #  SHARED — config & tooling
+├── tools/          — Shared workspace tooling (secrets sync, billing, etc.)
+├── plans/  docs/   — Shared workspace-level plans & docs
 └── CLAUDE.md       — This file (global context)
 ```
 
-Each subdirectory is an independent project with its own `.claude/` config, agents, skills, and workflows. When working in a subdirectory, follow that project's `CLAUDE.md` and rules.
+Root holds three kinds of things. **Agents** — the four domain workspaces (`Engineering/`, `Marketing/`, `WebDesign/`, `WebScraper/`) — are Claude Code skill/agent/rule environments that reshape how I work when you enter them; they stay at root. **Deployed apps** — live, infra-coupled products like `meetsync/` (Cloudflare Worker + D1) — also stay at root, because moving them would break their deploy wiring. **Projects** — all bounded deliverable work — live in `projects/`, one self-contained folder each with its own `CLAUDE.md`. Global rules/skills are the baseline everywhere; a project's own `CLAUDE.md` adds the specifics when you work inside it. (A few existing projects are still grandfathered at root or inside `Engineering/` — see Cross-Project Rules.)
 
 ### Shared Directories
 
@@ -103,6 +114,9 @@ These tools are available across ALL projects. Use them autonomously when the ta
 - **Canva** (`mcp__claude_ai_Canva__*`) — Generate designs (AI-powered), create from candidates, edit via transactions (start → perform operations → commit), export in multiple formats, manage folders/assets, comment on designs, resize, search designs/folders, manage brand kits, import from URL. Use for visual content, social graphics, presentations.
 - **Gamma** (`mcp__claude_ai_Gamma__*`) — Generate AI-powered presentations, documents, webpages, and social posts. Browse themes and folders. Note: can only create new content, cannot edit existing Gammas. Use for pitch decks, reports, landing pages.
 
+### Visual Generation
+- **fal.ai** (`mcp__fal-ai__*`) — Live catalog of 1000+ image, vector/SVG, video, and 3D generation models (FLUX, Recraft, Ideogram, Nano Banana, Kling/Veo/Wan, Trellis/Hunyuan3D, flux-lora, etc.). Use `recommend_model` / `search_models` / `get_pricing` to discover the best current model, `run_model` / `submit_job` / `check_job` to execute. **Do not call fal tools directly — activate the global `creative-router` skill first**, which decomposes intent, picks the live best-fit model, declares cost, and gates spend. Use for custom images, pixel/game art, vectors/SVG, video clips, 3D assets, niche/anime/LoRA styles.
+
 ### Voice, Audio & Sound Design
 - **ElevenLabs** (`mcp__elevenlabs__*`) — Comprehensive audio platform:
   - **TTS**: Text-to-speech with 5+ models (multilingual, flash, turbo), voice selection, stability/style controls, speed adjustment, multiple output formats (MP3, PCM, WAV, Opus)
@@ -142,7 +156,8 @@ Always use available MCP tools before improvising code-based alternatives:
 - **Scheduling** → Google Calendar, not manual tracking
 - **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters
 - **Communication** → Slack, not ad-hoc notification scripts
-- **Visual Content** → Canva or Gamma, not code-based HTML/CSS designs
+- **Visual Content (templated/decks)** → Canva (templated brand graphics, resizes) or Gamma (decks/pages), not code-based HTML/CSS designs
+- **Dynamic visual generation** (custom images, pixel/indie game art, vectors/SVG, video, 3D, niche/anime/trained styles) → fal.ai via the **`creative-router`** skill — NOT Canva/Gamma (those keep their lanes). See "Visual / Creative Routing" below.
 - **File Storage** → Google Drive, not local temp files for shared assets
 - **Web Scraping** → Firecrawl MCP (in WebScraper/), not manual fetch loops or custom scrapers
 - **Infrastructure** → Cloudflare MCP for D1 queries, Worker management; not raw HTTP API calls
@@ -156,11 +171,22 @@ Only fall back to new code when: MCP tool lacks a required capability, no existi
 - **Ask when ambiguous**: Briefly confirm before executing external actions (sending emails, posting messages, creating events).
 - **Deliverables to cloud**: Final outputs go to cloud services where the user can access them directly. Local files (`.tmp/`) are just for processing.
 
+### Visual / Creative Routing
+
+For any **dynamic visual generation** — custom images, pixel/indie game art, vectors/SVG, video, 3D assets, niche/anime/trained styles — fal.ai supplies the generation models and the global **`creative-router`** skill (`~/.claude/skills/creative-router/`) decides which model to use. It activates before any such request and runs a general procedure: decompose intent → search fal's **live** catalog (`fal-ai` MCP: `recommend_model` / `search_models` / `get_pricing`) for the best CURRENT model → **declare the model + estimated cost** → gate on spend → run → download to `.tmp/creative/` + log to a cost ledger. There is no frozen model list; selection happens live so new models are used automatically.
+
+- **Keep existing lanes / precedence:** decks → Gamma, templated brand graphics/resizes → Canva, audio → ElevenLabs, analyze/OCR existing media → ai-multimodal, structured diagrams → Mermaid. `creative-router` defers to those first. **This block is the single source of truth for dynamic visual generation and supersedes** any older "generate via ai-multimodal / Imagen / Nano-Banana" wording found in skill descriptions or `development-rules` — those tools are for *analysis*, *curated specialty*, or **grandfathered Gemini pipelines invoked explicitly** (`logo-design`, `cip-design`, `video-production`, `ai-artist`). Any generic "make me a …" visual request routes through `creative-router`.
+- **Cost discipline:** single images under $0.10 auto-fire; video, batches >4, 3D, LoRA training, or any ≥$0.10 image require a one-line OK first. fal is **prepaid** — keep a low balance as the spend cap.
+- **Secret:** `FAL_KEY` canonical in 1Password (`op://AI-Stack/fal/password`, item title `fal`). For zero-prompt MCP auth it's also materialized once into the Windows user env (`setx FAL_KEY` sourced from 1P); the fal-ai MCP header uses `${FAL_KEY}`. A scoped, conscious exception to never-on-disk — acceptable because fal is prepaid (capped blast radius). Re-run the `setx` if the key rotates.
+
 ## Cross-Project Rules
 
-- **Single-domain projects** belong in their subdirectory: `Engineering/`, `Marketing/`, `WebDesign/`, or `WebScraper/`.
-- **Cross-cutting projects** that use multiple global MCP integrations (e.g., Canva + Gmail + Slack + Calendar) or span multiple workspaces belong at **root level** in their own folder (e.g., `weekly-pulse/`). If a project doesn't clearly fit one subdirectory, it goes at root.
-- Only shared config (CLAUDE.md, .gitignore) and cross-cutting project folders live at root level — no loose files.
-- Each project has its own `CLAUDE.md` — always read it when entering a subdirectory.
-- Plans go in `{project}/plans/`, docs in `{project}/docs/`.
+- **All work projects live in `projects/`** — one self-contained, kebab-case folder each (e.g. `projects/pet-centre-mellieha/`). This applies to **every** project regardless of domain — engineering, marketing, web design, scraping, or cross-cutting. Do **not** create project folders at the workspace root or inside the domain workspaces.
+- **Agents & deployed apps stay at root, not in `projects/`.** The four domain workspaces (`Engineering/`, `Marketing/`, `WebDesign/`, `WebScraper/`) are Claude Code skill/agent/rule environments (the "agents"). Deployed apps like `meetsync/` (live Worker + D1) are infra-coupled running products. Both stay at root and are **not** subject to the `projects/` rule — `projects/` is for bounded deliverable work only.
+- **Each project has its own `CLAUDE.md`** — global rules/skills are the baseline; the project's `CLAUDE.md` carries its stack, conventions, and specifics. Record the project's domain at the top, e.g. `Domain: Engineering` (or `Marketing` / `WebDesign` / `WebScraper` / `cross-cutting`), so the right local skills/agents are obvious when working inside it.
+- **Skills**: global skills are available everywhere. Domain-specific local skills (`mkt:*`, engineering/web-design locals) load when you work *from* that domain workspace — invoke them explicitly, or open the workspace, when a project needs them.
+- Plans go in `projects/{name}/plans/`, docs in `projects/{name}/docs/`. The session hook runs in subdirectory mode and creates these in the current directory automatically — just work from inside the project folder.
+- Only shared config (CLAUDE.md, .gitignore), shared tooling (`tools/`, `plans/`, `docs/`), the agents (four domain workspaces), deployed apps (`meetsync/`), and `projects/` live at root — no loose files.
 - **Workspace rules location**: `{project}/.claude/rules/` is the canonical directory for per-project workflow SOPs (matches Engineering pattern). Marketing's `.claude/workflows/` is grandfathered in but new projects should use `rules/`.
+- **Moved into `projects/`** (2026-06-03): `pixel-life/` (from `Engineering/`), `pet-centre-mellieha/` and `job-application/` (from root).
+- **Still outside `projects/` — coupled to live infra, leave put**: `job-hunt/` (root) and `Engineering/trigger-automations/` are the local/deploy arms of Trigger.dev automations (`tools/bootstrap-1p-vault.mjs` reads `job-hunt/.env`; `trigger-automations/` hosts the deployed tasks) — relocate only if you also rewire their references. `meetsync/` is a **deployed app** — stays at root for good. All **new** projects start in `projects/`.

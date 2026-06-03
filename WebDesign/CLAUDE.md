@@ -1,6 +1,6 @@
 # CLAUDE.md -- WebDesign Workspace
 
-Frontend web design workspace. Build polished, production-grade websites from reference designs, screenshots, or from scratch. Each design project lives in its own folder.
+Frontend web design domain — holds web design **skills, agents, and workflow rules** (plus shared tooling like `serve.mjs`/`screenshot.mjs`), not project folders. Build polished, production-grade websites from reference designs, screenshots, or from scratch. Actual design projects live one level up in the workspace-level `../projects/` folder, each with its own `CLAUDE.md`.
 
 ## Always Do First
 
@@ -82,20 +82,22 @@ frontend-design, ui-ux-pro-max, web-design-guidelines
 
 Inherited automatically:
 - **chrome-devtools** -- Screenshots, browser automation, performance analysis
-- **ai-multimodal** -- Analyze reference images, verify implementations, generate assets
+- **ai-multimodal** -- Analyze reference images, verify implementations, describe/OCR existing media (analysis only — NOT generation)
 - **media-processing** -- Image manipulation, background removal, format conversion
+- **creative-router** -- Dynamic image / vector-SVG / video / 3D generation via fal.ai (custom hero images, icons, illustrations). Activate before any "generate an image/visual" request that isn't analyzing an existing asset.
 
 ## Available Global Integrations
 
 - **Google Drive** -- Save completed designs, share with clients
 - **Canva** -- Generate design assets, brand materials, social graphics
 - **Gamma** -- Quick AI-generated presentations, landing pages, mockups
+- **fal.ai** (via `creative-router` skill) -- Generate custom raster images, vector/SVG icons & illustrations, short video clips, and 3D assets when no Canva template fits. The skill selects the model and states cost before running.
 
 ## Structure Rules
 
-- **Every design project gets its own folder** -- no loose files at root.
-- Folder name: descriptive, kebab-case (e.g., `client-landing-page/`).
-- Each folder is self-contained (HTML, CSS, JS, assets, screenshots).
+- **New design projects go in the workspace-level `../projects/` folder** -- one self-contained folder each, never inside `WebDesign/`. This workspace holds skills/agents/rules + shared tooling only.
+- Folder name: descriptive, kebab-case (e.g., `../projects/client-landing-page/`).
+- Each folder is self-contained (HTML, CSS, JS, assets, screenshots) and gets its own `CLAUDE.md` noting `Domain: WebDesign` so these web design skills/agents are the obvious choice when working inside it.
 
 ## Documentation
 

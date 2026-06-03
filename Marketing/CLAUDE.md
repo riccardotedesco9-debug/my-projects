@@ -1,6 +1,6 @@
 # CLAUDE.md — Marketing Workspace
 
-Riccardo's marketing workspace. Each campaign, initiative, or content project lives in its own folder.
+Riccardo's marketing domain — holds marketing **skills, agents, and workflow rules**, not project folders. Actual campaigns, initiatives, and content projects live one level up in the workspace-level `../projects/` folder, each with its own `CLAUDE.md`.
 
 ## Role & Responsibilities
 
@@ -48,17 +48,21 @@ Specialized agents in `.claude/agents/` (31 total):
 
 ## Visual Content Priority
 
-For presentations, decks, visual reports — use Canva or Gamma FIRST:
-- **Canva** → Editable designs, social graphics, brand assets, multi-format export
+For **templated/brand graphics, decks, and visual reports** — use Canva or Gamma FIRST:
+- **Canva** → Editable templated designs, brand-kit social graphics, resizing, multi-format export
 - **Gamma** → Quick AI-generated presentations, documents, webpages
 - **Google Slides** → When collaborative editing or template compliance needed
 - Fall back to code-based slides only when task specifically requires code output
 
+For **dynamic generation** — custom ad creative, illustrations, pixel/game art, vector/SVG, short video clips, 3D assets, niche/LoRA styles — use the **`creative-router`** skill (fal.ai). It selects the model and states cost before running.
+
+Grandfathered Gemini pipelines keep their lane **when explicitly invoked**: brand logos → `logo-design`; corporate-identity mockups → `cip-design`; full multi-scene video → `video-production` / `mkt:video:create`. `creative-router` handles standalone clips and generic generation.
+
 ## Structure Rules
 
-- **Every campaign/initiative gets its own folder** — no loose files at root
-- Folder name: descriptive, kebab-case (e.g. `q2-email-campaign/`)
-- Each folder is self-contained (copy, assets, analytics)
+- **New campaigns/initiatives go in the workspace-level `../projects/` folder** — one self-contained folder each, never inside `Marketing/`. This workspace holds skills/agents/rules only.
+- Folder name: descriptive, kebab-case (e.g. `../projects/q2-email-campaign/`)
+- Each folder is self-contained (copy, assets, analytics) and gets its own `CLAUDE.md` noting `Domain: Marketing` so these marketing skills/agents are the obvious choice when working inside it
 
 ## Documentation
 
