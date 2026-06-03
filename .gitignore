@@ -8,3 +8,6 @@ release-manifest.json
 !**/.env.example
 !**/.env.tpl
 **/.tmp/
+
+# Personal — kept OUT of this public repo; lives in its own private repo
+projects/job-application/
