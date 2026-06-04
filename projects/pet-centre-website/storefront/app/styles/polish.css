@@ -1,11 +1,11 @@
-/* Pet Centre — subtle on-brand polish: gentle entrance + interactive micro-motion.
-   Loaded site-wide (root.tsx), so it applies to Builder-rendered pages and the
-   native Hydrogen commerce pages alike. All motion respects reduced-motion. */
+/* Pet Centre — gentle, on-brand motion. Loaded site-wide; reduced-motion safe.
+   Hover/transition for interactive elements lives in app.css (scoped); this file
+   is just the page-entrance + image-zoom delight. */
 
 @keyframes pc-fade-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -14,36 +14,21 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  body {
-    animation: pc-fade-up 0.5s ease both;
+  main {
+    animation: pc-fade-up 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
 
-  a,
-  button {
-    transition:
-      transform 0.2s ease,
-      box-shadow 0.25s ease,
-      filter 0.2s ease;
+  /* Imagery breathes on hover (product cards, category tiles, featured) */
+  .product-item img,
+  .featured-collection img,
+  .pc-cat-card img,
+  .pc-feature-card img {
+    transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1);
   }
-  a:hover,
-  button:hover {
-    transform: translateY(-2px);
-    filter: brightness(1.05);
+  .product-item:hover img,
+  .featured-collection:hover img,
+  .pc-cat-card:hover img,
+  .pc-feature-card:hover img {
+    transform: scale(1.06);
   }
-
-  img {
-    transition: transform 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
-  }
-
-  /* Commerce surfaces lift gently on hover */
-  .product-item:hover,
-  .recommended-products-grid > *:hover,
-  .featured-collection:hover {
-    transform: translateY(-3px);
-  }
-}
-
-/* Smooth in-page anchor scrolling (e.g. Book / nav jumps) */
-html {
-  scroll-behavior: smooth;
 }

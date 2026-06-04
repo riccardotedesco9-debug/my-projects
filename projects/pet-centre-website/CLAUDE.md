@@ -30,17 +30,27 @@ Green `#00975a` + gold `#e0b136` + navy `#243673`; display *Fredoka*, body *Mont
 two gold paws + green "Pet Centre". Tokens:
 `../../agents/WebDesign/brand_assets/pet-centre/brand-tokens.md`.
 
-## Status — built, deployed & stocked (June 2026)
-- **Storefront** (`storefront/`) — Oxygen-linked, **deployed to Production**
+## Status — flagship build complete (June 2026)
+- **Storefront** (`storefront/`) — Oxygen-linked, deployed to Production
   (`my-store-bc19f2075e1627c3f983.o2.myshopify.dev`, currently **Private** — flip Production to
-  Public to share). Builds green (client + SSR); renders the Builder homepage + native commerce.
-- **Real store:** `dsgncm-nw.myshopify.com`. **15 starter products** seeded across all 6 categories
-  (priced EUR, published to every channel) via `tools/seed-catalog.mjs` (client-credentials Admin token).
-- **Builder pages:** Home (`/`), Contact, Vet & Grooming — published, served through the catch-all route.
+  Public to share). typecheck + build green (client + SSR).
+- **Brand design system:** Fredoka/Montserrat loaded; Tailwind v4 `@theme` tokens (green/gold/navy +
+  warm neutrals); commerce pages (header, footer, product, collection, cart, search) fully rebranded;
+  hand-coded two-gold-paws SVG logo (`app/components/Logo.tsx`).
+- **Imagery:** all **15 products imaged** (warm-premium fal.ai shots via `tools/add-product-images.mjs`),
+  **7 optimized heroes** in `storefront/public/heroes/`, **6 category banners**.
+- **Builder pages (5):** Home (`/`), About, Pet Club, Vet & Grooming, Contact — premium scoped-HTML,
+  authored via `tools/build-pages.mjs` (Write API). **6 live smart collections** with hero banners
+  (`tools/create-collections.mjs`).
+- **Commerce + features:** product page (stock badge In/Low/Sold-out, trust badges, Details,
+  related-products row), collection heroes, `/newsletter` route, LocalBusiness JSON-LD, GDPR consent
+  banner + chatbot bubble wired in `root.tsx`.
+- **Verified:** screenshot QA across home/collection/product/about/pet-club/vet-grooming — all on-brand.
 
-**Remaining / placeholders:** product images (none yet — the next visual upgrade); real Crisp website
-ID (`app/components/Chatbot.tsx`); Cal.com/Calendly URL (`app/routes/book.tsx`); make Production
-Public to go live; push commits to GitHub.
+**Remaining / owner actions:** run `pnpm shopify hydrogen deploy --force` (non-TTY → owner terminal);
+flip Production **Public** + attach `petcentremalta.com`; drop real Crisp ID
+(`app/components/Chatbot.tsx`) + Cal.com URL (`app/routes/book.tsx`); wire `/newsletter` to Shopify
+Email/Klaviyo; push commits to GitHub.
 
 ## Malta
 18% VAT + EU OSS (needs Malta VAT no.); Shopify Payments early-access (confirm or use Stripe);

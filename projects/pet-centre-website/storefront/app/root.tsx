@@ -57,13 +57,13 @@ export const shouldRevalidate: ShouldRevalidateFunction = ({
  */
 export function links() {
   return [
+    {rel: 'preconnect', href: 'https://cdn.shopify.com'},
+    {rel: 'preconnect', href: 'https://shop.app'},
+    {rel: 'preconnect', href: 'https://fonts.googleapis.com'},
     {
       rel: 'preconnect',
-      href: 'https://cdn.shopify.com',
-    },
-    {
-      rel: 'preconnect',
-      href: 'https://shop.app',
+      href: 'https://fonts.gstatic.com',
+      crossOrigin: 'anonymous',
     },
     {rel: 'icon', type: 'image/svg+xml', href: favicon},
   ];
@@ -145,6 +145,32 @@ function loadDeferredData({context}: Route.LoaderArgs) {
   };
 }
 
+const PET_CENTRE_JSONLD = JSON.stringify({
+  '@context': 'https://schema.org',
+  '@type': 'PetStore',
+  name: 'Pet Centre',
+  description:
+    'Neighbourhood pet shop and vet in Mellieħa, Malta — premium food, expert advice, grooming and in-house veterinary care under one roof.',
+  url: 'https://petcentremalta.com',
+  address: {
+    '@type': 'PostalAddress',
+    streetAddress: 'Triq il-Kbira',
+    addressLocality: 'Il-Mellieħa',
+    addressCountry: 'MT',
+  },
+  areaServed: 'Mellieħa, Malta',
+  openingHoursSpecification: {
+    '@type': 'OpeningHoursSpecification',
+    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    opens: '09:00',
+    closes: '19:00',
+  },
+  makesOffer: [
+    {'@type': 'Offer', itemOffered: {'@type': 'Service', name: 'Veterinary care'}},
+    {'@type': 'Offer', itemOffered: {'@type': 'Service', name: 'Pet grooming'}},
+  ],
+});
+
 export function Layout({children}: {children?: React.ReactNode}) {
   const nonce = useNonce();
 
@@ -153,12 +179,21 @@ export function Layout({children}: {children?: React.ReactNode}) {
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width,initial-scale=1" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Montserrat:wght@400;500;600;700&display=swap"
+        />
         <link rel="stylesheet" href={tailwindCss}></link>
         <link rel="stylesheet" href={resetStyles}></link>
         <link rel="stylesheet" href={appStyles}></link>
         <link rel="stylesheet" href={polishStyles}></link>
         <Meta />
         <Links />
+        <script
+          type="application/ld+json"
+          nonce={nonce}
+          dangerouslySetInnerHTML={{__html: PET_CENTRE_JSONLD}}
+        />
       </head>
       <body>
         {children}

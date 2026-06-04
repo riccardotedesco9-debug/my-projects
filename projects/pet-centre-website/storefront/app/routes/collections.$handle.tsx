@@ -1,6 +1,6 @@
 import {redirect, useLoaderData} from 'react-router';
 import type {Route} from './+types/collections.$handle';
-import {getPaginationVariables, Analytics} from '@shopify/hydrogen';
+import {getPaginationVariables, Analytics, Image} from '@shopify/hydrogen';
 import {PaginatedResourceSection} from '~/components/PaginatedResourceSection';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 import {ProductItem} from '~/components/ProductItem';
@@ -70,8 +70,26 @@ export default function Collection() {
 
   return (
     <div className="collection">
-      <h1>{collection.title}</h1>
-      <p className="collection-description">{collection.description}</p>
+      {collection.image ? (
+        <div className="collection-hero">
+          <Image
+            data={collection.image}
+            sizes="(min-width: 1200px) 1200px, 100vw"
+            alt={collection.image.altText || collection.title}
+          />
+          <div className="collection-hero-overlay">
+            <h1>{collection.title}</h1>
+            {collection.description ? <p>{collection.description}</p> : null}
+          </div>
+        </div>
+      ) : (
+        <>
+          <h1>{collection.title}</h1>
+          {collection.description ? (
+            <p className="collection-description">{collection.description}</p>
+          ) : null}
+        </>
+      )}
       <PaginatedResourceSection<ProductItemFragment>
         connection={collection.products}
         resourcesClassName="products-grid"
@@ -140,6 +158,13 @@ const COLLECTION_QUERY = `#graphql
       handle
       title
       description
+      image {
+        id
+        url
+        altText
+        width
+        height
+      }
       products(
         first: $first,
         last: $last,

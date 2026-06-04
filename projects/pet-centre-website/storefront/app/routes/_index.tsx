@@ -64,11 +64,14 @@ export default function Homepage() {
   // home if no Builder entry targets "/".
   if (data.builderHome) {
     return (
-      <Content
-        model={BUILDER_MODEL}
-        content={data.builderHome}
-        apiKey={BUILDER_PUBLIC_API_KEY}
-      />
+      <>
+        <Content
+          model={BUILDER_MODEL}
+          content={data.builderHome}
+          apiKey={BUILDER_PUBLIC_API_KEY}
+        />
+        <RecommendedProducts products={data.recommendedProducts} />
+      </>
     );
   }
 
@@ -117,7 +120,12 @@ function RecommendedProducts({
       className="recommended-products"
       aria-labelledby="recommended-products"
     >
-      <h2 id="recommended-products">Recommended Products</h2>
+      <div className="section-head">
+        <h2 id="recommended-products">Popular at Pet Centre</h2>
+        <Link to="/collections" className="section-link">
+          Shop all →
+        </Link>
+      </div>
       <Suspense fallback={<div>Loading...</div>}>
         <Await resolve={products}>
           {(response) => (
@@ -180,7 +188,7 @@ const RECOMMENDED_PRODUCTS_QUERY = `#graphql
   }
   query RecommendedProducts ($country: CountryCode, $language: LanguageCode)
     @inContext(country: $country, language: $language) {
-    products(first: 4, sortKey: UPDATED_AT, reverse: true) {
+    products(first: 8, sortKey: UPDATED_AT, reverse: true) {
       nodes {
         ...RecommendedProduct
       }

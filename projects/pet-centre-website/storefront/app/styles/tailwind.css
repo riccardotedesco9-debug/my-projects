@@ -1,6 +1,39 @@
 /**
- * Configure Tailwind v4 in this file using CSS variables and directives:
- * https://tailwindcss.com/docs/v4-beta#css-first-configuration
+ * Tailwind v4 — CSS-first config.
+ * Pet Centre brand design system (warm & local premium). Tokens defined in
+ * @theme are emitted as :root CSS variables, so they're usable both as Tailwind
+ * utilities (bg-brand, text-navy, font-display) AND as var(--color-brand) across
+ * reset.css / app.css for the native Hydrogen commerce pages.
  */
-
 @import 'tailwindcss';
+
+@theme {
+  /* Palette */
+  --color-brand: #00975a; /* Pet Centre green */
+  --color-brand-dark: #007a48;
+  --color-brand-soft: #e7f4ed;
+  --color-gold: #e0b136; /* accent gold */
+  --color-gold-dark: #c2901f;
+  --color-gold-soft: #faf2d6;
+  --color-navy: #243673; /* depth / headings */
+  --color-navy-soft: #eceff8;
+  --color-cream: #fbf8f2; /* warm page background */
+  --color-sand: #f3ecdd;
+  --color-ink: #23315a; /* body text (warm navy) */
+  --color-muted: #6b748a;
+  --color-line: #ece4d6; /* warm hairline */
+  --color-card: #ffffff;
+
+  /* Type */
+  --font-display: 'Fredoka', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Montserrat', ui-sans-serif, system-ui, sans-serif;
+
+  /* Radius */
+  --radius-md: 12px;
+  --radius-card: 18px;
+  --radius-pill: 999px;
+
+  /* Shadow */
+  --shadow-soft: 0 6px 20px rgba(36, 54, 115, 0.07);
+  --shadow-lift: 0 18px 40px rgba(36, 54, 115, 0.13);
+}
