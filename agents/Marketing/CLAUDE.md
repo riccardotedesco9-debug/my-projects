@@ -14,14 +14,13 @@ Help plan, create, and optimize marketing assets — content, campaigns, SEO, em
 - Documentation management: `./.claude/workflows/documentation-management.md`
 - And other workflows: `./.claude/workflows/*`
 
-## Local Skills (`./.claude/skills/`)
+## Skills
 
-Marketing-specific (global skills inherited automatically):
-seo-optimization, ads-management, campaign-management, email-marketing, brand-guidelines, social-media, content-marketing, analytics, paid-ads, slides-design, creativity, design, design-system, marketing-planning, marketing-research, marketing-psychology, marketing-ideas, marketing-dashboard, competitor-alternatives, affiliate-marketing, gamification-marketing, pricing-strategy, referral-program-building, launch-strategy, form-cro, onboarding-cro, free-tool-strategy, ab-test-setup, cip-design, logo-design, content-hub, assets-organizing, kit-builder, storage, test-orchestrator, video-production, youtube-handling
+All marketing skills are **global** (`~/.claude/skills/`, ~135 total library) — reachable from any `projects/` folder, not just this workspace. The marketing-specific ones (seo-optimization, ads-management, campaign-management, email-marketing, brand-guidelines, social-media, content-marketing, analytics, paid-ads, slides-design, creativity, design, design-system, marketing-planning, marketing-research, marketing-psychology, marketing-ideas, marketing-dashboard, competitor-alternatives, affiliate-marketing, gamification-marketing, pricing-strategy, referral-program-building, launch-strategy, form-cro, onboarding-cro, free-tool-strategy, ab-test-setup, cip-design, logo-design, content-hub, assets-organizing, video-production, youtube-handling …) were promoted into global on 2026-06-04. The local copies under `./.claude/skills/` still exist but are **harmlessly overridden by global** (personal beats project). Canonical source is `~/.claude/skills/`; re-promote after a marketing-kit update with `node ../../tools/promote-marketing-skills.mjs --force`.
 
 ## Marketing Agents
 
-Specialized agents in `.claude/agents/` (31 total):
+All agents are **global** (`~/.claude/agents/`, 32 total) — any project can spawn any of them. The marketing-specific subset:
 
 **Marketing-specific:**
 - **Content**: content-creator, copywriter, content-reviewer
@@ -35,7 +34,7 @@ Specialized agents in `.claude/agents/` (31 total):
 - **Planning & coordination**: planner, project-manager, researcher, docs-manager
 - **Engineering**: fullstack-developer, database-admin, ui-ux-designer
 - **Quality**: code-reviewer, tester, debugger
-- **Utilities**: scout, scout-external, git-manager, mcp-manager, journal-writer
+- **Utilities**: git-manager, mcp-manager, journal-writer, brainstormer, code-simplifier
 
 ## Recommended Skills (auto-invoke when relevant)
 

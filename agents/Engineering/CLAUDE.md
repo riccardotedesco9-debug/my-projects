@@ -10,10 +10,9 @@ Personal engineering domain — holds engineering **skills, agents, and workflow
 - Documentation management: `./.claude/rules/documentation-management.md`
 - And other workflows: `./.claude/rules/*`
 
-## Local Skills (`./.claude/skills/`)
+## Skills
 
-Engineering-specific (global skills inherited automatically):
-backend-development, frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth
+All skills are **global** (`~/.claude/skills/`, ~135 total) — inherited automatically here, no local overrides. The engineering-specific ones (backend-development, frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth) live in the global library alongside everything else, so they're equally reachable from any `projects/` folder. The local `./.claude/skills/` dir holds no skill overrides (engineering's local kit was removed 2026-06-04).
 
 ## Visual Asset Generation
 

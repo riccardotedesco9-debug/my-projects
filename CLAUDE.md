@@ -91,12 +91,12 @@ You operate in a **Workflows → Agent → Tools** architecture. Workflows are m
 ## Skill Visibility
 
 Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
-- **Root directory** → global skills only
-- **agents/Engineering/** → global + engineering local skills
-- **agents/Marketing/** → global + marketing local skills
-- **agents/WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines)
-- **agents/WebScraper/** → global skills + Firecrawl MCP
-- **projects/** → global skills; each project notes its `Domain:` for which agent workspace's local skills apply. (e.g. `projects/meetsync/` uses Cloudflare + Trigger.dev MCP; for `mkt:*`/engineering locals, work from the matching `agents/<Domain>/`.)
+Global is the **complete** at-reach library — engineer + marketing skills live in `~/.claude/skills` **and** every domain's subagents live in `~/.claude/agents` (campaign-manager, seo-specialist, funnel-architect, code-reviewer, planner…). So **every directory (root, projects/, any agents/ workspace) can use any tool *and* spawn any agent** (engineering *and* marketing). Progressive disclosure keeps it cheap: only one-line metadata is ever in context; skill/agent bodies load on demand.
+- **Root / `projects/` / anywhere** → full global library (engineering + marketing skills, ~135).
+- **agents/Engineering/** → global only (engineer kit lives globally; local kit removed 2026-06-04).
+- **agents/Marketing/** → global skills (its local copies are overridden by global). Its marketing **subagents are global too** (`~/.claude/agents/`, reachable from anywhere); only its **`mkt:` commands** stay local to this folder.
+- **agents/WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines — also present in global).
+- **agents/WebScraper/** → global skills + Firecrawl MCP.
 
 ## Available MCP Integrations (Global)
 

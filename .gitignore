@@ -12,6 +12,9 @@ release-manifest.json
 # Personal — kept OUT of this public repo; lives in its own private repo
 projects/job-application/
 
+# Shopify app scaffold — has its own .git (own repo), not tracked here
+projects/my-site/
+
 # Dependencies — never track (was missing; caused thousands of untracked files)
 node_modules/
 
