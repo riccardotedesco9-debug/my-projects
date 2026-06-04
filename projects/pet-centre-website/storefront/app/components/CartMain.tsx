@@ -1,4 +1,4 @@
-import {useOptimisticCart} from '@shopify/hydrogen';
+import {useOptimisticCart, type OptimisticCartLine} from '@shopify/hydrogen';
 import {Link} from 'react-router';
 import type {CartApiQueryFragment} from 'storefrontapi.generated';
 import {useAside} from '~/components/Aside';
@@ -50,10 +50,7 @@ export function CartMain({layout, cart: originalCart}: CartMainProps) {
   const childrenMap = getLineItemChildrenMap(cart?.lines?.nodes ?? []);
 
   return (
-    <section
-      className={className}
-      aria-label={layout === 'page' ? 'Cart page' : 'Cart drawer'}
-    >
+    <div className={className}>
       <CartEmpty hidden={linesCount} layout={layout} />
       <div className="cart-details">
         <p id="cart-lines" className="sr-only">
@@ -82,7 +79,7 @@ export function CartMain({layout, cart: originalCart}: CartMainProps) {
         </div>
         {cartHasItems && <CartSummary cart={cart} layout={layout} />}
       </div>
-    </section>
+    </div>
   );
 }
 

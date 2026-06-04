@@ -136,7 +136,7 @@ function SearchToggle() {
   );
 }
 
-function CartBadge({count}: {count: number}) {
+function CartBadge({count}: {count: number | null}) {
   const {open} = useAside();
   const {publish, shop, cart, prevCart} = useAnalytics();
 
@@ -154,14 +154,14 @@ function CartBadge({count}: {count: number}) {
         } as CartViewPayload);
       }}
     >
-      Cart <span aria-label={`(items: ${count})`}>{count}</span>
+      Cart {count === null ? <span>&nbsp;</span> : count}
     </a>
   );
 }
 
 function CartToggle({cart}: Pick<HeaderProps, 'cart'>) {
   return (
-    <Suspense fallback={<CartBadge count={0} />}>
+    <Suspense fallback={<CartBadge count={null} />}>
       <Await resolve={cart}>
         <CartBanner />
       </Await>

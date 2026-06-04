@@ -32,7 +32,7 @@ export const meta: Route.MetaFunction = () => {
 };
 
 export async function loader({context}: Route.LoaderArgs) {
-  await context.customerAccount.handleAuthStatus();
+  context.customerAccount.handleAuthStatus();
 
   return {};
 }
@@ -468,7 +468,7 @@ export function AddressForm({
         />
         <label htmlFor="territoryCode">Country Code*</label>
         <input
-          aria-label="Country code"
+          aria-label="territoryCode"
           autoComplete="country"
           defaultValue={address?.territoryCode ?? ''}
           id="territoryCode"
