@@ -2,6 +2,15 @@
 
 Frontend web design domain — holds web design **skills, agents, and workflow rules** (plus shared tooling like `serve.mjs`/`screenshot.mjs`), not project folders. This workspace lives under `agents/`. Build polished, production-grade websites from reference designs, screenshots, or from scratch. Actual design projects live in the workspace-root `../../projects/` folder, each with its own `CLAUDE.md`.
 
+## Build Modes
+
+This workspace runs in **two modes** — pick by the task:
+
+1. **Quick Design Mode (default):** a single polished `index.html` + Tailwind CDN — landing pages, mockups, one-pagers, reference replication. **Every rule below** (Output Defaults, Anti-Generic Guardrails, single-file, "no frameworks beyond Tailwind") applies to THIS mode.
+2. **Web Studio Mode:** composable builds for **any production site or web-app** — marketing site, blog, content site, web-app, or storefront — that the owner visually tweaks, AI-agent-driven, with managed add-on modules (chatbot, email, booking, reviews, and **commerce only when the project sells**). **Universal spine = Builder.io**; storefronts add the commerce branch (**Shopify headless + Hydrogen/Oxygen**); non-commerce sites publish Builder.io to Cloudflare Pages / Vercel. NOT single-file HTML. See **[`.claude/rules/web-studio-recipe.md`](.claude/rules/web-studio-recipe.md)** for the stack, the repeatable new-site procedure, MCP/secrets wiring, and the security model. The single-file Output Defaults below **do NOT apply** in this mode.
+
+**Security invariant (BOTH modes, non-negotiable):** never hand-build or AI-build anything security-critical — payments, checkout, card data, account auth. Route each to a certified managed service (Shopify PCI L1, Stripe, vendor DPAs). AI owns only the presentation layer.
+
 ## Always Do First
 
 **Invoke the `frontend-design` skill** before writing any frontend code, every session, no exceptions.
