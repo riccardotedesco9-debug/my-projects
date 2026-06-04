@@ -57,6 +57,8 @@ For **dynamic generation** — custom ad creative, illustrations, pixel/game art
 
 Grandfathered Gemini pipelines keep their lane **when explicitly invoked**: brand logos → `logo-design`; corporate-identity mockups → `cip-design`; full multi-scene video → `video-production` / `mkt:video:create`. `creative-router` handles standalone clips and generic generation.
 
+For **built web pages** (not a Gamma one-pager) — a real landing page, funnel page, or owner-editable site — use the WebDesign capabilities (all global): `frontend-design` for a polished single-page build, and for a full owner-editable site/storefront the Web Studio recipe at `../WebDesign/.claude/rules/web-studio-recipe.md`. Gamma stays the lane for quick AI-generated one-pagers; this is for production pages.
+
 ## Structure Rules
 
 - **New campaigns/initiatives go in the workspace-level `../../projects/` folder** — one self-contained folder each, never inside `Marketing/`. This workspace holds skills/agents/rules only.

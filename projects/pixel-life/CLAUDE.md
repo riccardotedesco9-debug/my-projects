@@ -43,3 +43,6 @@ Audio files go in `public/audio/`. The audio module (`audio.ts`) loads them on f
 
 ## Visual Assets
 Generate pixel sprites, tile textures, and UI art with the global **`creative-router`** skill (fal.ai). For the pixel aesthetic use `fal-ai/flux-lora` with a FLUX pixel LoRA (e.g. `ume_modern_pixelart.safetensors`, trigger `umempart`). The skill states cost before running and saves output to `.tmp/creative/`.
+
+## Control-panel UI
+The sim's HUD/controls are a real web UI — for layout, color, typography, and interaction polish reach for the global WebDesign skills `ui-ux-pro-max` (design-system decisions) and `frontend-design` (non-generic, polished build); run `web-design-guidelines` to audit a11y/UX. (Engineering domain, but these complement it — see `../../agents/Engineering/CLAUDE.md` → Recommended Skills.)

@@ -32,6 +32,12 @@ The projects this workspace's skills build live under `../../projects/`. Notably
 - `code-reviewer` agent — once before shipping, not after every change
 - `/docs-seeker` — when using external libraries or frameworks you haven't used before
 
+**Visual craft (WebDesign's trio, all global — reach for them, they complement engineering's frontend skills):**
+- `frontend-design` — when building UI that must look non-generic or replicate a mockup/screenshot (pairs with `frontend-development`, which covers *how* to build React well — this covers *how it looks*)
+- `ui-ux-pro-max` — for design-system decisions: color palettes, typography, spacing, layout
+- `web-design-guidelines` — to audit existing UI for accessibility/UX before shipping
+- For a full owner-editable site/storefront build, see the Web Studio recipe: `../WebDesign/.claude/rules/web-studio-recipe.md`
+
 ## Structure Rules
 
 - **New projects go in the workspace-level `../../projects/` folder** — one self-contained folder each, never inside `Engineering/`. This workspace holds skills/agents/rules only.
