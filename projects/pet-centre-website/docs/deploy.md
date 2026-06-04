@@ -1,38 +1,32 @@
-# Pet Centre storefront — go live (deploy to Oxygen)
+# Pet Centre storefront — deploy & go-live
 
-The storefront (`storefront/`) is built and verified on mock data. Two things take it live:
-**connect the real store**, then **deploy**. Both go through the **Hydrogen sales channel** — the
-cleanest path, because it provisions a valid **Storefront token** AND free **Oxygen** hosting in one
-step (this also replaces the earlier manual custom-app token that returned 401).
+The storefront (`../storefront/`) is **built, Oxygen-linked, and already deployed to Production**.
+This is how to redeploy and how to make it publicly viewable.
 
-> These three commands are interactive (browser sign-in) and must be run in **your own terminal** —
-> they can't be driven headlessly by the agent.
+## Current state
+- **Production URL:** `https://my-store-bc19f2075e1627c3f983.o2.myshopify.dev` — **Private** (403 to the
+  public) until you flip it to Public.
+- Linked store: `dsgncm-nw.myshopify.com`. Env is injected **from Oxygen** at dev/deploy (no local
+  `.env` needed).
+- 15 products live; Builder homepage + content pages (`/contact`, `/vet-grooming`, `/book`) render.
 
-## 1. Add the Hydrogen channel (one-time, in Shopify admin)
-- Shopify admin → **Sales channels** → **＋** → add **Hydrogen** (a.k.a. Headless).
-- **Create a storefront** → it generates a **Storefront API token** + an **Oxygen** deploy target.
+## Redeploy (after any change)
+The Shopify CLI keeps a cached session — no login needed. From `../storefront/`, in **your own terminal**:
+```
+pnpm shopify hydrogen deploy --force
+```
+Answer **yes** to "Continue?" — it builds + ships to Production and prints the URL. `--force` skips the
+git-clean check. (The agent can't answer that prompt headlessly, so this step stays owner-run; a CI/headless
+deploy needs `CI=true … --token <oxygen-deploy-token>` from the Hydrogen dashboard.)
 
-## 2. Link the local project (one browser sign-in)
-From `projects/pet-centre-website/storefront/`:
-```
-shopify hydrogen link
-```
-- A browser opens → **Authorize** → pick the storefront you just created.
-- This writes the real `PUBLIC_STORE_DOMAIN` + `PUBLIC_STOREFRONT_API_TOKEN` into `.env`
-  (swaps mock.shop → your real `dsgncm-nw` store automatically). Then:
-```
-npm run dev    # now renders your REAL products/cart
-```
+## Make it public (go live)
+Hydrogen sales channel → **My Store** → **Production** environment → set to **Public**. Then the URL above
+loads for anyone. Attach the custom domain **petcentremalta.com** in the same area when ready.
 
-## 3. Deploy
-```
-shopify hydrogen deploy
-```
-- Returns a live Oxygen URL. For auto-deploy on every change, connect the GitHub repo in the
-  Hydrogen channel (**Deployments → connect repository**) — after that, `git push` ships it.
+## View locally (full site, no gate)
+From `../storefront/`: `pnpm dev` → http://localhost:3000/ (renders the Builder home + real products).
 
-## After go-live — swap the remaining placeholders (no rebuild)
-- **Chatbot:** set the real Crisp website ID in `app/components/Chatbot.tsx`.
-- **Booking:** paste your Cal.com / Calendly inline URL into `app/routes/book.tsx`.
-- **Homepage** stays your Builder design; product/collection/cart pages show real Shopify data;
-  "Shop" buttons already point to `/collections/all`.
+## Swap the remaining placeholders (redeploy after)
+- **Chatbot:** real Crisp website ID in `app/components/Chatbot.tsx`.
+- **Booking:** Cal.com / Calendly inline URL in `app/routes/book.tsx`.
+- **Products:** add images / refine via `tools/seed-catalog.mjs` (re-runnable) or the Shopify admin.

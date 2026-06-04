@@ -1,34 +1,22 @@
-# Account & Key Setup — what only Riccardo can do
+# Accounts & keys — current state (set up, June 2026)
 
-These are external, account-creating / paid steps. Claude cannot (and should not) create accounts,
-generate API keys, or spend on your behalf. Do these, then tell Claude — it will wire the keys into
-1Password + the project `.mcp.json` and start Phase 1 (the build).
+Everything needed for the build is set up. Kept as a reference of what exists + the few optional items left.
 
-## 1. Shopify  (commerce backbone — ~€33/mo Basic; 3-day free trial + 3mo @ €1)
-- [ ] Create the store (start the free trial). Plan: **Basic**.
-- [ ] **Settings → Payments:** check whether **Shopify Payments is approved** for your Malta account.
-      If not, we'll wire **Stripe** instead (note it).
-- [ ] Create a **custom app** (Settings → Apps → Develop apps) → generate:
-      - **Admin API access token** (least-privilege scopes: products, inventory, orders, content).
-      - **Storefront API access token**.
-- [ ] Have your **Malta VAT number** ready (for Shopify Tax + EU OSS).
-- [ ] Enable **2FA** on the Shopify admin.
+## Done
+- **Shopify store** `dsgncm-nw.myshopify.com` (Basic) — created; **Hydrogen sales channel** added;
+  storefront deployed to Oxygen Production.
+- **Custom app (Admin API)** — created in the Dev Dashboard with broad write scopes (`write_products`,
+  `write_publications`, `write_inventory`, `write_content`, …). Provisioning uses the **client-credentials
+  grant** (Client ID + Secret → 24h Admin token) — see recipe §8 + `tools/seed-catalog.mjs`.
+- **Storefront / Headless token** — auto-provisioned by the Hydrogen channel (read-only `unauthenticated_*`).
+- **Builder.io** space "Riccardo Tedesco" — public API key wired in `storefront/app/lib/builder.ts`.
+- **1Password (AI-Stack):** Shopify Client ID + Secret in *"Shopify ID & Secret"*; Storefront token in
+  *"Hydrogen API"*; Builder keys in *"builder-io"*.
 
-## 2. Builder.io  (visual / AI build spine — Free to start; Pro ~$30/user/mo when ready)
-- [ ] Create an account → create a **Space** for Pet Centre.
-- [ ] Copy the **Public API key** (Space settings).
-- [ ] Enable **2FA**.
-
-## 3. Stripe  (ONLY if Shopify Payments isn't approved for you)
-- [ ] Create a Stripe account (Malta) → copy **Publishable** + **Secret** keys (test mode first).
-
-## 4. Hand the keys to Claude
-Don't paste secrets into chat files. Tell Claude you've created them; it will guide you to store each
-in **1Password (AI-Stack vault)** and reference them via `op://` in `.env.tpl` — never on disk.
-
-## What Claude does next (once keys exist)
-1. Wire secrets: 1Password items → `.env.tpl` + `tools/secrets-manifest.json`.
-2. Register MCPs (Shopify Dev/Storefront + Builder.io) in a project `.mcp.json`; install the Shopify
-   AI Toolkit Claude Code plugin.
-3. Phase 1 build: products/inventory → Hydrogen on Oxygen → Builder.io homepage → payments → legal +
-   consent → POS Lite. Then you tweak a section by hand to confirm the loop.
+## Optional / when ready
+- [ ] **Shopify Payments** — confirm Malta approval (else wire Stripe) before taking real orders.
+- [ ] **Malta VAT number** — for Shopify Tax + EU OSS.
+- [ ] **2FA** on Shopify admin + Builder.io — the real security boundary; do this.
+- [ ] Make the Production storefront **Public** + attach **petcentremalta.com**.
+- [ ] Real **Crisp** website ID + **Cal.com/Calendly** booking URL (swap the placeholders).
+- [ ] Product **images** (the catalog is text-only so far).
