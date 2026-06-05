@@ -540,15 +540,18 @@ function isSensitiveLabel(label: string | undefined): boolean {
 }
 
 /**
- * Return a label safe to render in shareable schedule output. If the
- * label matches a sensitive pattern, the rendered text becomes the
- * generic word "appointment". Caller's underlying D1 row and Google
- * Calendar event title remain unchanged — this is purely a render-time
- * abstraction.
+ * Return a label safe to render in shareable schedule output. If the label
+ * matches a sensitive pattern, it becomes "<first letter> appointment" — e.g.
+ * "G appointment" for "Gastro …", "T appointment" for "Therapy". That lets the
+ * caller recognise their OWN entry at a glance while a shared screenshot still
+ * doesn't spell out what it is. Caller's underlying D1 row and Google Calendar
+ * event title remain unchanged — this is purely a render-time abstraction.
  */
 function redactLabelForRender(label: string | undefined): string | undefined {
   if (!label) return label;
-  return isSensitiveLabel(label) ? "appointment" : label;
+  if (!isSensitiveLabel(label)) return label;
+  const initial = (label.match(/[a-z0-9]/i)?.[0] ?? "").toUpperCase();
+  return initial ? `${initial} appointment` : "appointment";
 }
 
 /** A work shift, by label. Work entries render as a 💼 marker in display

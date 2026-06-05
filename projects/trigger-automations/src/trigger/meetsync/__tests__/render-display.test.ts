@@ -83,7 +83,7 @@ check("sensitive label redacted", () => {
     json([{ date: d(4), start_time: "16:00", end_time: "17:00", label: "Psychiatrist - St James Hospital" }]),
     TZ,
   ).join("\n");
-  assert.match(out, /\(appointment\)/, "sensitive → (appointment)");
+  assert.match(out, /\(P appointment\)/, "sensitive → '<first letter> appointment'");
   assert.doesNotMatch(out, /Psychiatrist/i, "raw sensitive label not leaked");
 });
 
@@ -145,7 +145,7 @@ check("blood test shown by name; psychiatrist still redacted", () => {
     TZ,
   ).join("\n");
   assert.match(out, /\(Blood test\)/, "blood test shown by name");
-  assert.match(out, /\(appointment\)/, "psychiatrist still redacted");
+  assert.match(out, /\(P appointment\)/, "psychiatrist still redacted as 'P appointment'");
   assert.doesNotMatch(out, /Psychiatrist/i, "sensitive label not leaked");
 });
 
