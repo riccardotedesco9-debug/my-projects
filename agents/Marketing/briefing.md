@@ -38,10 +38,10 @@ dedupes by its first `backticked` / **bold** token (don't backtick the [CONVENTI
 
 ## Your Agents
 
-All agents are global (`~/.claude/agents/`) — any project can spawn any of them. Marketing-relevant:
-**Content** content-creator, copywriter, content-reviewer · **Campaigns** campaign-manager,
-campaign-debugger, email-wizard · **SEO & Growth** seo-specialist, attraction-specialist,
-funnel-architect · **Social** social-media-manager, community-manager · **Analytics**
-analytics-analyst, lead-qualifier · **Sales** sale-enabler, upsell-maximizer, continuity-specialist ·
-**Shared** planner, project-manager, researcher, docs-manager, code-reviewer, tester, git-manager,
-brainstormer.
+All agents are global (`~/.claude/agents/`) — spawn the specialist, don't generalize the work. Hand
+content to **content-creator** / **copywriter** / **content-reviewer**; campaigns to **campaign-manager**
+/ **campaign-debugger** / **email-wizard**; growth to **seo-specialist** / **attraction-specialist** /
+**funnel-architect**; social to **social-media-manager** / **community-manager**; analytics to
+**analytics-analyst** / **lead-qualifier**; sales to **sale-enabler** / **upsell-maximizer** /
+**continuity-specialist**; and **planner** / **project-manager** / **researcher** / **docs-manager** /
+**code-reviewer** / **tester** / **git-manager** / **brainstormer** for shared support.

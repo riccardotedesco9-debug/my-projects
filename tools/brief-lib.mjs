@@ -212,7 +212,8 @@ export function buildBrief(root, domains, projectName, inferred) {
   const note = inferred ? ` — inferred, add \`Domain: ${domains.join(', ')}\` to ${projectName}/CLAUDE.md to lock it` : '';
 
   let brief = `## Domain briefing — ${projectName} (${label}${note})\n\n`;
-  brief += `Toolkit: ${links.join(' · ')}. Pulled live below:\n`;
+  brief += `Consult this toolkit before choosing an approach — whether it's the first prompt or a new path later. `;
+  brief += `These are the right tools for this context; reach for them, then decide. ${links.join(' · ')}:\n`;
   if (gateBullets.length) brief += `\n### Mandatory gates\n${gateBullets.join('\n')}\n`;
   if (skillBullets.length) brief += `\n### Skills to reach for\n${skillBullets.join('\n')}\n`;
   if (mcpItems.length) brief += `\n### MCP tools for this work\n${mcpItems.join('\n')}\n`;

@@ -35,7 +35,7 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Your Agents
 
-All agents are global (`~/.claude/agents/`). Scraping-relevant: **researcher** (source discovery +
-synthesis), **debugger** (when Firecrawl/selectors fail), **planner** (multi-stage scrape pipelines),
-**database-admin** (if results land in a DB). The [ENFORCED] gate above applies whenever a scrape job
-ships code/automation.
+All agents are global (`~/.claude/agents/`) — spawn the specialist for the job: **researcher** for source
+discovery + synthesis, **debugger** when Firecrawl/selectors fail, **planner** for multi-stage scrape
+pipelines, **database-admin** when results land in a DB. The [ENFORCED] gate above applies whenever a
+scrape job ships code/automation.

@@ -19,10 +19,10 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Recommended Skills
 
+- **The moment there's a UI, reach for `frontend-design` + `ui-ux-pro-max`** — they're what keep a frontend from looking generic; don't hand-roll the visual layer.
 - Build: `backend-development` · `frontend-development` · `databases` · `web-frameworks` · `better-auth` · `payment-integration` (stack-specific: `tanstack`, `shopify`, `mobile-development`, `react-best-practices`).
 - Ship & ops: `deploy` · `devops` · `security-scan` / `ck-security`.
-- Work & quality: `/scout` · `/brainstorm` · `/ck:debug` · `/test` · `/fix` · `docs-seeker`.
-- UI craft (when there's a frontend): `frontend-design` · `ui-ux-pro-max`.
+- Work & quality: open unfamiliar code with `/scout`, weigh options with `/brainstorm`, root-cause with `/ck:debug`, verify with `/test`, fix concretely with `/fix`; pull current library docs via `docs-seeker` instead of guessing.
 - Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
@@ -35,7 +35,8 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Your Agents
 
-All agents are global (`~/.claude/agents/`) — any project can spawn any of them. Engineering-relevant:
-**Plan & build** planner, researcher, fullstack-developer, frontend-developer, database-admin ·
-**Quality & ship** code-reviewer (the gate), tester, debugger, code-simplifier · **Support**
-docs-manager, git-manager, mcp-manager, brainstormer, journal-writer.
+All agents are global (`~/.claude/agents/`) — spawn them, don't carry a big build solo. Hand planning &
+construction to **planner** / **researcher** / **fullstack-developer** / **frontend-developer** /
+**database-admin**; route quality & shipping through **code-reviewer** (the gate) / **tester** /
+**debugger** / **code-simplifier**; lean on **docs-manager** / **git-manager** / **mcp-manager** /
+**brainstormer** / **journal-writer** for support.

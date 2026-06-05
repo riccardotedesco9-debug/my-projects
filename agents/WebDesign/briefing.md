@@ -18,22 +18,24 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Recommended Skills
 
-- Craft & review: `frontend-design` (visual-craft pass, replicate mockups) · `ui-ux-pro-max` (color/type/layout/design systems) · `web-design-guidelines` (a11y/UX audit) · `ui-styling` (shadcn/Tailwind).
-- Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL) · `remotion` (programmatic video).
-- Visual gen vs analysis: `creative-router` (generate via fal.ai) · `ai-multimodal` (analyze reference images) · `banner-design`.
-- Tooling & ship: `chrome-devtools` (screenshot→compare→fix loop) · `deploy` · `security-scan` (Web Studio builds).
+- **Start any UI with `frontend-design`** — the visual-craft pass that keeps output from looking generic — then reach for `ui-ux-pro-max` to lock color/type/layout/design-system decisions. Audit with `web-design-guidelines` (a11y/UX) before you ship; `ui-styling` for shadcn/Tailwind.
+- Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL & canvas effects) · `remotion` (programmatic video).
+- **Generate, don't placeholder:** `creative-router` makes custom art/sprites via fal.ai (beats emoji); `ai-multimodal` analyzes reference images; `banner-design` for banners.
+- Prove it in a real browser: `chrome-devtools` (screenshot→compare→fix loop) · ship with `deploy` · `security-scan` (Web Studio builds).
 - Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
 
+- Experience layer (sound / custom art / video): reach for the managed tool first — **ElevenLabs** for sound, **creative-router** for art — hand-rolled code (oscillators, emoji-as-art) is the fallback, not the default.
+- **ElevenLabs** — real SFX & music for interactive / game UI (`text_to_sound_effects`, `compose_music`); the sound tool, not Web Audio oscillators.
+- **fal.ai** (via `creative-router`) — generate custom raster/vector/video/3D assets instead of placeholders when no template fits.
 - **Chrome DevTools** — screenshots, visual diff, Core Web Vitals.
-- **fal.ai** (via `creative-router`) — custom raster/vector/video/3D assets when no template fits.
 - **Canva** — templated brand graphics, resizes, multi-format export.
 - **Gamma** — quick AI-generated one-pagers / decks.
 - **Google Drive** — save completed designs, share with clients.
 
 ## Your Agents
 
-All agents are global (`~/.claude/agents/`). Web-relevant: **ui-ux-designer**, **frontend-developer**,
-**fullstack-developer** (build); **code-reviewer**, **tester** (gate/quality); **planner**,
-**researcher**, **docs-manager** (support).
+All agents are global (`~/.claude/agents/`) — spawn them, don't go solo on a big build. Hand the build to
+**ui-ux-designer** / **frontend-developer** / **fullstack-developer**; route quality through
+**code-reviewer** (the gate) + **tester**; lean on **planner** / **researcher** / **docs-manager** for support.
