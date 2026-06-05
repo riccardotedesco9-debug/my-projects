@@ -27,7 +27,7 @@ All agents are **global** (`~/.claude/agents/`). Web-relevant: **ui-ux-designer*
 
 ## Recommended Skills (auto-invoke when relevant)
 
-- `frontend-design` — mandatory before any frontend code (already above)
+- `frontend-design` — convention before any frontend code (see Mandatory Gates above); the visual-craft pass, never hook-blocked
 - `ui-ux-pro-max` — for design system decisions, color palettes, typography
 - `chrome-devtools` — for screenshots, visual comparison, performance testing
 - `/fix` — when CSS/layout breaks or behaves unexpectedly
