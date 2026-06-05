@@ -30,6 +30,7 @@ import {
   findUserByPhone,
   setPersonNoteHidden,
   getLatestScheduleForUser,
+  getPersonNotesForOwner,
   updateUserLatestSchedule,
   appendBusyBlockToUser,
   removeBusyBlockFromUser,
@@ -1963,10 +1964,15 @@ const showScheduleTool: ToolDefinition = {
   },
   async execute(input, ctx): Promise<ToolResult> {
     const tz = resolveCallerTimezone(ctx);
-    // Snapshot schedule is calendar-enriched AND kept current by same-turn
-    // writes (add_personal_event / parse_schedule refresh it), so it's the
-    // right source — never a stale or un-enriched copy.
-    const lines = renderScheduleForDisplay(ctx.snapshot.user.latest_schedule_json ?? null, tz);
+    // Read the RAW canonical schedule straight from D1 — NOT the snapshot's
+    // copy, which is calendar-ENRICHED in memory. Because the bot mirrors its
+    // own entries to Google Calendar, the enriched copy duplicates every
+    // entry (2-4×, some with a "calendar:" prefix) and pulls in all-day
+    // holiday events that would dominate and hide a day's real entries. The
+    // raw store is the bot's canonical schedule and is current (writes land
+    // in D1 first), so it renders cleanly with nothing dropped.
+    const scheduleJson = await getLatestScheduleForUser(ctx.callerChatId);
+    const lines = renderScheduleForDisplay(scheduleJson, tz);
     const messages: string[] = [];
     const intro = typeof input.intro === "string" ? input.intro.trim() : "";
     if (intro) messages.push(intro);
@@ -2010,14 +2016,21 @@ const showAvailabilityTool: ToolDefinition = {
       ? (input.only_contacts as unknown[]).filter((v): v is string => typeof v === "string").map((s) => s.toLowerCase())
       : null;
 
+    // Raw canonical schedules (see show_schedule) — read straight from D1 so
+    // the grid isn't polluted by the enriched snapshot's calendar-mirror
+    // duplicates or all-day-holiday domination.
+    const callerSchedule = await getLatestScheduleForUser(ctx.callerChatId);
     const people: Array<{ name: string; scheduleJson: string | null }> = [
-      { name: ctx.snapshot.user.name ?? "You", scheduleJson: ctx.snapshot.user.latest_schedule_json ?? null },
+      { name: ctx.snapshot.user.name ?? "You", scheduleJson: callerSchedule },
     ];
-    for (const n of ctx.snapshot.personNotes) {
-      if (n.hidden) continue;
-      if (!n.schedule_json) continue;
+    const notes = await getPersonNotesForOwner(ctx.callerChatId); // excludes hidden
+    for (const n of notes) {
       if (onlyFilter && !onlyFilter.includes(n.name.toLowerCase())) continue;
-      people.push({ name: n.name, scheduleJson: n.schedule_json });
+      // Prefer the on-behalf schedule; else the linked user's canonical one.
+      let sched = n.schedule_json;
+      if (!sched && n.linked_chat_id) sched = await getLatestScheduleForUser(n.linked_chat_id);
+      if (!sched) continue;
+      people.push({ name: n.name, scheduleJson: sched });
     }
 
     const intro = typeof input.intro === "string" ? input.intro.trim() : "";
