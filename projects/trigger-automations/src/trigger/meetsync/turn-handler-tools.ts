@@ -71,7 +71,12 @@ import {
   deleteCalendarEvent,
   sanitiseContactCalendarEvent,
 } from "./google-calendar.js";
-import { todayIsoInTimezone, isoDateOffset } from "./turn-handler-snapshot.js";
+import {
+  todayIsoInTimezone,
+  isoDateOffset,
+  renderScheduleForDisplay,
+  renderAvailabilityBlock,
+} from "./turn-handler-snapshot.js";
 
 // --- Types ---
 
@@ -1895,6 +1900,153 @@ const queryScheduleHistoryTool: ToolDefinition = {
   },
 };
 
+// --- Tools 7b/7c: show_schedule / show_availability (deterministic display) ---
+//
+// The schedule the user sees used to be hand-typed by Claude into its reply
+// — a ~30-line transcription that could silently drop a line (the reported
+// "where's the cooking with fran" bug, where an OFF-day activity vanished
+// from one render). These tools render the block in CODE (group-by-date,
+// OFF+activity merge, work→💼, sensitive-label redaction) and deliver it
+// verbatim, so an entry can never go missing in display. Both are terminal
+// like reply.
+
+// Telegram caps a message at 4096 chars; stay under to leave room for the
+// ``` fences. Split only on whole lines so a date is never cut in half.
+const SCHEDULE_MSG_CHAR_BUDGET = 3500;
+
+function chunkLinesToCodeBlocks(lines: string[], budget: number): string[] {
+  // Defensive: a single line longer than the budget can't fit in a message
+  // on its own. Hard-split it (last resort) so a pathologically long line is
+  // never silently dropped by Telegram's 4096-char limit — the whole point
+  // of this path is "no entry goes missing".
+  const safeLines: string[] = [];
+  for (const line of lines) {
+    if (line.length <= budget) {
+      safeLines.push(line);
+    } else {
+      for (let i = 0; i < line.length; i += budget) safeLines.push(line.slice(i, i + budget));
+    }
+  }
+
+  const messages: string[] = [];
+  let current: string[] = [];
+  let len = 0;
+  const flush = () => {
+    if (current.length > 0) {
+      messages.push("```\n" + current.join("\n") + "\n```");
+      current = [];
+      len = 0;
+    }
+  };
+  for (const line of safeLines) {
+    const add = line.length + 1; // +1 for the joining newline
+    if (current.length > 0 && len + add > budget) flush();
+    current.push(line);
+    len += add;
+  }
+  flush();
+  return messages;
+}
+
+const showScheduleTool: ToolDefinition = {
+  name: "show_schedule",
+  description:
+    "Display the CALLER'S OWN schedule to them, rendered deterministically by the system. Use for ANY request to see/show/display/list their schedule — 'schedule', 'show my schedule', 'what's my week', 'what have I got coming up', 'the full thing'. The block is built from storage (every entry from ~2 weeks ago through the last stored date — NOT truncated; work shown as 💼; sensitive items shown as '(appointment)') and sent to the user verbatim. You MUST NOT hand-type, summarise, or re-list the schedule yourself — that risks silently dropping an entry. TERMINAL tool like reply: once you call it your turn is done; do NOT also call reply with the schedule. Pass an optional one-line `intro` for a friendly lead-in ('Here's your full schedule 🙂') — keep schedule data OUT of it. For a specific past/far-future date, or a CONTACT'S schedule, use query_schedule_history and answer in prose instead.",
+  input_schema: {
+    type: "object",
+    properties: {
+      intro: {
+        type: "string",
+        description: "Optional one-line conversational lead-in, sent as its own bubble before the schedule. Keep it short; do NOT put any schedule data in it.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const tz = resolveCallerTimezone(ctx);
+    // Snapshot schedule is calendar-enriched AND kept current by same-turn
+    // writes (add_personal_event / parse_schedule refresh it), so it's the
+    // right source — never a stale or un-enriched copy.
+    const lines = renderScheduleForDisplay(ctx.snapshot.user.latest_schedule_json ?? null, tz);
+    const messages: string[] = [];
+    const intro = typeof input.intro === "string" ? input.intro.trim() : "";
+    if (intro) messages.push(intro);
+    if (lines.length === 0) {
+      messages.push("Your schedule's empty right now — send me your shifts or any plans and I'll save them. 🙂");
+    } else {
+      messages.push(...chunkLinesToCodeBlocks(lines, SCHEDULE_MSG_CHAR_BUDGET));
+    }
+    ctx.pendingReply = { messages };
+    ctx.replySent = true;
+    const dateCount = lines.filter((l) => !l.startsWith("──")).length;
+    return {
+      delivered: true,
+      date_count: dateCount,
+      notes: "Schedule rendered and sent to the user verbatim. Do NOT repeat or re-type it in another message — your turn is complete.",
+    };
+  },
+};
+
+const showAvailabilityTool: ToolDefinition = {
+  name: "show_availability",
+  description:
+    "Display a WHO'S-FREE availability grid (caller + their non-hidden contacts) to the caller, rendered deterministically by the system. Use when the caller wants to SEE everyone's availability — 'who's free this week', 'show me everyone's schedule', 'when's everyone around'. The grid is built from each person's stored + calendar-enriched schedule (grouped by day; work as 💼; OTHER people's sensitive items abstracted) and sent verbatim — you MUST NOT hand-type or summarise the grid yourself. TERMINAL tool like reply. Pass an optional one-line `intro`. To FIND/PROPOSE a specific meeting slot (not just show the grid) use compute_overlap and answer in prose; to BOOK use book_meetup.",
+  input_schema: {
+    type: "object",
+    properties: {
+      intro: {
+        type: "string",
+        description: "Optional one-line lead-in bubble before the grid. No schedule data in it.",
+      },
+      only_contacts: {
+        type: "array",
+        items: { type: "string" },
+        description: "Optional. Limit the grid to these named contacts (case-insensitive) plus the caller. Omit for all non-hidden contacts.",
+      },
+    },
+  },
+  async execute(input, ctx): Promise<ToolResult> {
+    const tz = resolveCallerTimezone(ctx);
+    const onlyFilter = Array.isArray(input.only_contacts)
+      ? (input.only_contacts as unknown[]).filter((v): v is string => typeof v === "string").map((s) => s.toLowerCase())
+      : null;
+
+    const people: Array<{ name: string; scheduleJson: string | null }> = [
+      { name: ctx.snapshot.user.name ?? "You", scheduleJson: ctx.snapshot.user.latest_schedule_json ?? null },
+    ];
+    for (const n of ctx.snapshot.personNotes) {
+      if (n.hidden) continue;
+      if (!n.schedule_json) continue;
+      if (onlyFilter && !onlyFilter.includes(n.name.toLowerCase())) continue;
+      people.push({ name: n.name, scheduleJson: n.schedule_json });
+    }
+
+    const intro = typeof input.intro === "string" ? input.intro.trim() : "";
+    if (people.length < 2) {
+      ctx.pendingReply = {
+        messages: [intro, "I don't have any contacts with a schedule saved yet — add someone and upload their schedule, then I can show everyone's availability together."].filter((m): m is string => !!m),
+      };
+      ctx.replySent = true;
+      return { delivered: true, people: people.length, notes: "No contacts with schedules to compare — nudged the caller to add one." };
+    }
+
+    const lines = renderAvailabilityBlock(people, tz);
+    const messages: string[] = [];
+    if (intro) messages.push(intro);
+    if (lines.length === 0) {
+      messages.push("Nobody's got anything on file for the next few weeks.");
+    } else {
+      messages.push(...chunkLinesToCodeBlocks(lines, SCHEDULE_MSG_CHAR_BUDGET));
+    }
+    ctx.pendingReply = { messages };
+    ctx.replySent = true;
+    return {
+      delivered: true,
+      people: people.length,
+      notes: "Availability grid rendered and sent to the user verbatim. Do NOT repeat or re-type it — your turn is complete.",
+    };
+  },
+};
+
 // --- Tool 7: reset_conversation ---
 
 const sessionActionTool: ToolDefinition = {
@@ -2334,11 +2486,9 @@ const bookMeetupTool: ToolDefinition = {
     // empty booked[], and Claude misread it as "booked!" and lied to the user.
     // We also skip the bot-side busy-memory write below so the stored
     // schedule doesn't show phantom events that don't exist on the calendar.
-    let callerEventCreated = false;
     try {
       const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, tz, attendeeEmails);
       if (r === true) {
-        callerEventCreated = true;
         booked.push(ctx.snapshot.user.name ?? "you");
         // Mark email-attendees as booked too — Google sent them the invite.
         // Reuse the batched emailByChatId map; no extra D1 round-trips.
@@ -2532,6 +2682,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   mirrorToCalendarTool,
   setPersonHiddenTool,
   queryScheduleHistoryTool,
+  showScheduleTool,
+  showAvailabilityTool,
   sessionActionTool,
   scheduleReminderTool,
   listRemindersTool,

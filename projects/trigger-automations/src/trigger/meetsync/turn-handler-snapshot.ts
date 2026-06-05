@@ -192,36 +192,83 @@ function isoDateWithOffset(daysOffset: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function renderShiftListCompact(scheduleJson: string, indent: string, timezone: string): string[] {
-  const shifts = parseScheduleBlob(scheduleJson);
-  if (!shifts) return [`${indent}(schedule data unparseable)`];
-  if (shifts.length === 0) return [];
-
-  // Group all entries by date so a date with OFF + activity (or a split
-  // shift across two windows) renders on one line, not two contradictory
-  // ones. Preserve insertion order within each date so labels stay stable.
-  const byDate = new Map<string, typeof shifts>();
+// Group all entries by date so a date with OFF + activity (or a split
+// shift across two windows) renders on one line, not two contradictory
+// ones. Preserve insertion order within each date so labels stay stable.
+function groupShiftsByDate<T extends { date: string }>(shifts: T[]): Map<string, T[]> {
+  const byDate = new Map<string, T[]>();
   for (const s of shifts) {
     const list = byDate.get(s.date);
     if (list) list.push(s);
     else byDate.set(s.date, [s]);
   }
+  return byDate;
+}
+
+// Build the per-date schedule lines (with a "today" divider) shared by the
+// internal [STATE] block and the user-facing display. The divider lets
+// the reader distinguish past vs upcoming dates at a glance. `dates` is
+// already filtered to the desired range (and, for [STATE], already capped);
+// this just formats each one. Returns lines WITHOUT indent — callers add
+// their own prefix.
+function buildScheduleDateLines<T extends { start_time: string; end_time: string; label?: string }>(
+  byDate: Map<string, T[]>,
+  dates: string[],
+  todayIso: string,
+  timezone: string,
+  display: boolean,
+): string[] {
+  const out: string[] = [];
+  if (dates.length === 0) {
+    out.push(`── today (${todayIso}) — nothing in the active window ──`);
+    return out;
+  }
+  let dividerInserted = false;
+  for (const date of dates) {
+    if (!dividerInserted && date >= todayIso) {
+      out.push(`── today (${todayIso}) ──`);
+      dividerInserted = true;
+    }
+    const d = new Date(date + "T12:00:00Z");
+    const dayName = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+    const dayNum = d.getUTCDate();
+    const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+    const entries = byDate.get(date)!;
+    const holiday = timezone === "Europe/Malta" ? maltaHolidayName(date) : null;
+    out.push(`${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries, holiday, { display })}`);
+  }
+  // Edge case: every rendered date is in the past — emit the divider at the
+  // bottom so the reader sees that nothing upcoming is on file.
+  if (!dividerInserted) {
+    out.push(`── today (${todayIso}) — nothing upcoming on file ──`);
+  }
+  return out;
+}
+
+// [STATE] schedule view: windowed (today−14d → today+60d) and capped at 35
+// dates to keep routine turns cheap. Out-of-window / over-cap dates are
+// still in D1 and reachable via query_schedule_history (prose Q&A) or the
+// deterministic show_schedule path (full display). The hidden-date hint
+// lines tell Claude what exists beyond the window.
+function renderShiftListCompact(scheduleJson: string, indent: string, timezone: string): string[] {
+  const shifts = parseScheduleBlob(scheduleJson);
+  if (!shifts) return [`${indent}(schedule data unparseable)`];
+  if (shifts.length === 0) return [];
+
+  const byDate = groupShiftsByDate(shifts);
   const allDates = Array.from(byDate.keys()).sort();
 
-  // Today anchor — UTC ISO. Used to insert a "── today ──" divider so
-  // Claude can distinguish past vs upcoming dates at a glance and won't
-  // count past off days when answering "how many off days do I have left
-  // this week". Computed in UTC for stable comparison against ISO date
-  // strings; the +/-1 day fuzz from timezone is acceptable here (the
-  // divider is a visual hint, not a strict cutoff).
+  // Today anchor — UTC ISO, stable for comparison against ISO date strings;
+  // the +/-1 day fuzz from timezone is acceptable here (the divider is a
+  // visual hint, not a strict cutoff).
   const todayIso = new Date().toISOString().slice(0, 10);
   const windowStart = isoDateWithOffset(-WINDOW_DAYS_BACK);
   const windowEnd = isoDateWithOffset(WINDOW_DAYS_FORWARD);
 
-  // Window the render to the active range. Out-of-window dates are still
-  // in D1 and reachable via query_schedule_history; we just don't pay the
-  // tokens to inline them every turn. Count what's hidden so Claude can
-  // tell the user "I have N older / M further dates on file too".
+  // Window the render to the active range. Out-of-window dates are still in
+  // D1 and reachable via query_schedule_history / show_schedule; we just
+  // don't pay the tokens to inline them every turn. Count what's hidden so
+  // Claude can tell the user "I have N older / M further dates on file too".
   const dates = allDates.filter((d) => d >= windowStart && d <= windowEnd);
   const hiddenBefore = allDates.filter((d) => d < windowStart).length;
   const hiddenAfter = allDates.filter((d) => d > windowEnd).length;
@@ -240,36 +287,95 @@ function renderShiftListCompact(scheduleJson: string, indent: string, timezone: 
     out.push(`${indent}  …${hiddenAfter} further-future date(s) on file (latest ${latestStored}) — call query_schedule_history if asked`);
   }
 
-  if (dates.length === 0) {
-    // All entries are outside the window. Still emit the today divider so
-    // Claude sees the orientation and knows nothing upcoming-soon is on file.
-    out.push(`${indent}  ── today (${todayIso}) — nothing in the active window ──`);
-    return out;
-  }
-
   const MAX = 35;
   const displayDates = dates.slice(0, MAX);
-  let dividerInserted = false;
-  for (const date of displayDates) {
-    if (!dividerInserted && date >= todayIso) {
-      out.push(`${indent}  ── today (${todayIso}) ──`);
-      dividerInserted = true;
+  for (const line of buildScheduleDateLines(byDate, displayDates, todayIso, timezone, false)) {
+    out.push(`${indent}  ${line}`);
+  }
+  if (dates.length > MAX) {
+    out.push(`${indent}  …and ${dates.length - MAX} more dates inside the window`);
+  }
+  return out;
+}
+
+/**
+ * Render the caller's schedule for USER-FACING display (the "Schedule"
+ * command). Unlike the [STATE] view this is NOT capped and has no forward
+ * window: it shows the last 14 days through the LAST stored date, so the
+ * user always sees their whole upcoming schedule. The lines are produced
+ * deterministically here (group-by-date, OFF+activity merge, holiday tags,
+ * sensitive-label redaction) so the user-facing schedule is never a lossy
+ * LLM transcription — the failure mode where an entry silently vanished
+ * from one render. Returns un-indented lines; the caller wraps them in a
+ * code block. Empty array = no schedule on file.
+ */
+export function renderScheduleForDisplay(scheduleJson: string | null, timezone: string): string[] {
+  if (!scheduleJson) return [];
+  const shifts = parseScheduleBlob(scheduleJson);
+  if (!shifts) return ["(schedule data unparseable)"];
+  if (shifts.length === 0) return [];
+
+  const byDate = groupShiftsByDate(shifts);
+  const allDates = Array.from(byDate.keys()).sort();
+  // Anchor on the caller's real local "today" (tz-correct, no UTC drift).
+  const todayIso = todayIsoInTimezone(timezone);
+  const windowStart = isoDateOffset(todayIso, -WINDOW_DAYS_BACK);
+  // Forward: through the latest stored date — no 60-day cap, no 35-date cap.
+  const dates = allDates.filter((d) => d >= windowStart);
+  return buildScheduleDateLines(byDate, dates, todayIso, timezone, true);
+}
+
+/**
+ * Render a multi-person availability grid for USER-FACING display (the
+ * "who's free" / "show everyone's availability" command). Groups by DATE
+ * with ━━━ dividers; each person's day-shape is rendered deterministically
+ * via the same formatter as the personal schedule (work → 💼, OFF+activity
+ * merge, sensitive-label redaction), so the grid can never silently drop a
+ * person or an entry the way an LLM transcription could. Names are left-
+ * padded to align. People with no entry on a date show "—". `people`
+ * schedules should already be calendar-enriched by the snapshot. Returns
+ * un-indented lines; the caller wraps them in a code block. Empty array =
+ * nobody has anything in the window.
+ */
+export function renderAvailabilityBlock(
+  people: Array<{ name: string; scheduleJson: string | null }>,
+  timezone: string,
+  windowDaysForward = 21,
+): string[] {
+  const todayIso = todayIsoInTimezone(timezone);
+  const windowEnd = isoDateOffset(todayIso, windowDaysForward);
+
+  const perPerson = people.map((p) => ({
+    name: p.name,
+    byDate: groupShiftsByDate(parseScheduleBlob(p.scheduleJson) ?? []),
+  }));
+
+  // Union of all dates anyone has inside [today, windowEnd].
+  const dateSet = new Set<string>();
+  for (const p of perPerson) {
+    for (const d of p.byDate.keys()) {
+      if (d >= todayIso && d <= windowEnd) dateSet.add(d);
     }
+  }
+  const dates = Array.from(dateSet).sort();
+  if (dates.length === 0) return [];
+
+  const nameWidth = Math.max(...perPerson.map((p) => p.name.length));
+  const out: string[] = [];
+  for (const date of dates) {
     const d = new Date(date + "T12:00:00Z");
     const dayName = d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
     const dayNum = d.getUTCDate();
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
-    const entries = byDate.get(date)!;
+    out.push(`━━━ ${dayName} ${dayNum} ${monthName} ━━━`);
     const holiday = timezone === "Europe/Malta" ? maltaHolidayName(date) : null;
-    out.push(`${indent}  ${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries, holiday)}`);
-  }
-  // Edge case: all dates within the window are in the past — emit the
-  // divider at the bottom so Claude sees that nothing upcoming is on file.
-  if (!dividerInserted) {
-    out.push(`${indent}  ── today (${todayIso}) — nothing upcoming on file ──`);
-  }
-  if (dates.length > MAX) {
-    out.push(`${indent}  …and ${dates.length - MAX} more dates inside the window`);
+    for (const p of perPerson) {
+      const entries = p.byDate.get(date);
+      const shape = entries && entries.length > 0
+        ? formatDayEntries(entries, holiday, { display: true })
+        : "—";
+      out.push(` ${p.name.padEnd(nameWidth)}  ${shape}`);
+    }
   }
   return out;
 }
@@ -431,37 +537,84 @@ function redactLabelForRender(label: string | undefined): string | undefined {
   return isSensitiveLabel(label) ? "appointment" : label;
 }
 
+/** A work shift, by label. Work entries render as a 💼 marker in display
+ *  mode (the label — e.g. "work (office, St Julian's)" — is dropped, the
+ *  marker carries the meaning). \bwork\b deliberately does NOT match
+ *  "homework"/"workout" (no word boundary inside those). */
+function isWorkLabel(label: string | undefined): boolean {
+  if (!label) return false;
+  return /\b(work|shift)\b/i.test(label);
+}
+
+/**
+ * Format the entries for a single date into one line.
+ *
+ * `display` toggles user-facing polish (the "Schedule" / availability
+ * commands) vs. the raw [STATE] view Claude reads:
+ *   - display: work shifts collapse to "💼 07:00–16:00" (label dropped),
+ *     a leading "meetup: " prefix is stripped, exact-duplicate entries are
+ *     collapsed. This reproduces the cleanup the LLM used to do by hand —
+ *     deterministically, so nothing is ever silently dropped.
+ *   - [STATE] (display=false): raw redacted labels, so Claude can still
+ *     reason over "(work …)" / "(meetup: …)" when answering.
+ * Sensitive-label redaction applies in BOTH modes.
+ */
 function formatDayEntries(
   entries: Array<{ start_time: string; end_time: string; label?: string }>,
   holidayName: string | null = null,
+  opts: { display?: boolean } = {},
 ): string {
+  const display = opts.display === true;
   const isOff = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "00:00";
   const isAllDayBusy = (s: { start_time: string; end_time: string }) => s.start_time === "00:00" && s.end_time === "23:59";
 
-  const offEntries = entries.filter(isOff);
-  const allDayBusy = entries.find(isAllDayBusy);
-  const partials = entries.filter((s) => !isOff(s) && !isAllDayBusy(s));
+  // Collapse exact-duplicate entries (same start/end/label) so a row that
+  // got saved twice — e.g. a meetup busy-block plus an identical personal
+  // event — renders once. Near-duplicates (different times OR labels) are
+  // PRESERVED: silently merging those would be the same drop-an-entry bug
+  // we're fixing, and a genuine double-booking is worth seeing.
+  const seen = new Set<string>();
+  const deduped = entries.filter((s) => {
+    const key = `${s.start_time}|${s.end_time}|${s.label ?? ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const offEntries = deduped.filter(isOff);
+  const allDayBusy = deduped.find(isAllDayBusy);
+  const partials = deduped.filter((s) => !isOff(s) && !isAllDayBusy(s));
 
   // Holiday annotation is a SUFFIX. Always wins for OFF/no-data days, but
   // never replaces existing partials. Format: "OFF (Sette Giugno 🎆) + 13:30–17:00 (cook)".
   const holidaySuffix = holidayName ? ` [${holidayName}]` : "";
 
+  // Display-safe label: redact sensitive, then (display only) strip the
+  // "meetup: " prefix book_meetup writes so it reads cleanly to the user.
+  const cleanLabel = (label: string | undefined): string | undefined => {
+    let safe = redactLabelForRender(label);
+    if (display && safe) safe = safe.replace(/^meetup:\s*/i, "");
+    return safe;
+  };
+
   // All-day-busy dominates everything else on the same date — if both an
   // OFF and a hectic-all-day are stored, the all-day-busy wins (it's the
   // stronger signal). Should be rare; happens if a stale upload conflicts.
   if (allDayBusy) {
-    const safeLabel = redactLabelForRender(allDayBusy.label) ?? "busy all day";
+    if (display && isWorkLabel(allDayBusy.label)) return "💼 all day" + holidaySuffix;
+    const safeLabel = cleanLabel(allDayBusy.label) ?? "busy all day";
     return safeLabel.toUpperCase() + holidaySuffix;
   }
 
   const renderPartial = (s: { start_time: string; end_time: string; label?: string }) => {
-    const safeLabel = redactLabelForRender(s.label);
+    if (display && isWorkLabel(s.label)) return `💼 ${s.start_time}–${s.end_time}`;
+    const safeLabel = cleanLabel(s.label);
     return safeLabel ? `${s.start_time}–${s.end_time} (${safeLabel})` : `${s.start_time}–${s.end_time}`;
   };
 
   // OFF + activities → "OFF + 18:00–19:00 (gym)" on one line.
   if (offEntries.length > 0 && partials.length > 0) {
-    const rawOffLabel = redactLabelForRender(offEntries[0].label);
+    const rawOffLabel = cleanLabel(offEntries[0].label);
     const offLabel = rawOffLabel && rawOffLabel.toLowerCase() !== "off"
       ? `OFF (${rawOffLabel})`
       : "OFF";
@@ -470,7 +623,7 @@ function formatDayEntries(
 
   // OFF only.
   if (offEntries.length > 0) {
-    const label = redactLabelForRender(offEntries[0].label);
+    const label = cleanLabel(offEntries[0].label);
     const base = label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
     return `${base}${holidaySuffix}`;
   }

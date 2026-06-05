@@ -1,6 +1,7 @@
 # MeetSync — Telegram Scheduling Bot
 
 Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+> Toolkit + mandatory gates: [agents/Engineering/CLAUDE.md](../../agents/Engineering/CLAUDE.md) — your agents, skills, and the code-reviewer-before-deploy/push gate.
 
 Conversational Telegram bot that helps people find time to meet. **Shared-hub model**: every user is a node in one global graph, each user has a private contacts list, schedules live on the user, Google Calendar is the source of truth for actual bookings.
 
@@ -36,7 +37,7 @@ projects/trigger-automations/src/trigger/meetsync/
 └── nudge-stale-schedules.ts — Cron task (daily 09:00 UTC)
 ```
 
-## Tools the agentic turn-handler exposes (19)
+## Tools the agentic turn-handler exposes (21)
 
 | Tool | Purpose |
 |---|---|
@@ -51,7 +52,9 @@ projects/trigger-automations/src/trigger/meetsync/
 | `book_meetup` | Create one Google Calendar event with attendees + busy-block memory. Hard-blocks on 9h sleep+commute window unless `override_sleep_warning=true` |
 | `cancel_meetup` | Two-stage delete from caller's calendar (preview → confirm) |
 | `upsert_knowledge` | Update caller profile (target='user') or freeform fact about contact (target='person') |
-| `query_schedule_history` | Look up dates outside the active 14d-back / 60d-forward [STATE] window |
+| `query_schedule_history` | Look up dates outside the active 14d-back / 60d-forward [STATE] window (prose Q&A about a specific date) |
+| `show_schedule` | Deterministically render + send the caller's WHOLE upcoming schedule (today→last stored date, no cap). Terminal. Replaces LLM hand-typing the schedule so an entry can't be silently dropped |
+| `show_availability` | Deterministically render + send the who's-free grid (caller + non-hidden contacts, grouped by day). Terminal. Same anti-drop guarantee as show_schedule |
 | `schedule_reminder` | One-shot or recurring (daily/weekly/monthly) ping |
 | `list_reminders` / `cancel_reminder` | Manage active reminders |
 | `relay_message` | Ghostwrite a message from caller to a contact (confirmation-gated) |
