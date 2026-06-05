@@ -46,6 +46,20 @@ function sectionBody(md, heading) {
   return s ? s.replace(/^##[^\n]*\n?/, '').trim() : '';
 }
 
+// Push bullet lines from a section into `out`, deduped across domains by the first
+// `backticked` or **bold** token (so a skill/tool shared by two domains shows once).
+function collectDeduped(sectionText, out, seen) {
+  for (const line of sectionText.split('\n')) {
+    if (!/^\s*[-*]/.test(line)) continue; // bullet lines only
+    const tok = line.match(/`([^`]+)`/) || line.match(/\*\*([^*]+)\*\*/);
+    const key = (tok ? tok[1] : line.replace(/[`*_>\s-]/g, '').slice(0, 40)).toLowerCase();
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      out.push(line.trim());
+    }
+  }
+}
+
 // Best-effort domain guess from a project's contents, used only when no explicit `Domain:` line
 // exists. ADDITIVE by design: signals are UNIONed, never early-returned, because a project is
 // routinely more than one domain (the philosophy — never lock a project to a single tool). A
@@ -158,6 +172,10 @@ export function buildBrief(root, domains, projectName, inferred) {
   const enforcedTok = ENFORCED_GATE.match(/`([^`]+)`/);
   if (enforcedTok) seenGate.add(enforcedTok[1].toLowerCase());
   const agentBlocks = [];
+  const skillBullets = [];
+  const seenSkill = new Set();
+  const mcpItems = [];
+  const seenMcp = new Set();
   const links = [];
 
   for (const domain of domains) {
@@ -181,6 +199,11 @@ export function buildBrief(root, domains, projectName, inferred) {
 
     const agents = sectionBody(wmd, 'Your Agents');
     if (agents) agentBlocks.push(`**${domain}:** ${agents.replace(/\n+/g, ' ').trim()}`);
+
+    // Curated skills/MCP to reach for — the focusing layer so Claude needn't scan the whole
+    // catalog (the user's explicit intent). Deduped across domains.
+    collectDeduped(sectionBody(wmd, 'Recommended Skills'), skillBullets, seenSkill);
+    collectDeduped(sectionBody(wmd, 'MCP Tools'), mcpItems, seenMcp);
   }
 
   if (!links.length) return '';
@@ -191,6 +214,8 @@ export function buildBrief(root, domains, projectName, inferred) {
   let brief = `## Domain briefing — ${projectName} (${label}${note})\n\n`;
   brief += `Toolkit: ${links.join(' · ')}. Pulled live below:\n`;
   if (gateBullets.length) brief += `\n### Mandatory gates\n${gateBullets.join('\n')}\n`;
+  if (skillBullets.length) brief += `\n### Skills to reach for\n${skillBullets.join('\n')}\n`;
+  if (mcpItems.length) brief += `\n### MCP tools for this work\n${mcpItems.join('\n')}\n`;
   if (agentBlocks.length) brief += `\n### Agents to spawn when relevant\n${agentBlocks.join('\n')}\n`;
 
   // Surface the project's OWN CLAUDE.md (stack, brand, compliance) — the brief only knows the domain,
