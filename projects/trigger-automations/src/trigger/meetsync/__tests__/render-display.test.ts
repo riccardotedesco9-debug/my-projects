@@ -106,7 +106,24 @@ check("today divider emitted", () => {
   assert.match(out, /── today \(/, "divider present");
 });
 
-// 7. Empty / null schedule yields no lines (caller shows a friendly note).
+// 7. Display starts from TODAY — past days are excluded, today + future shown.
+check("past dates excluded; today onward included", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(-3), start_time: "08:00", end_time: "17:00", label: "work" },   // 3 days ago
+      { date: d(0), start_time: "10:00", end_time: "11:00", label: "Gym" },     // today
+      { date: d(5), start_time: "09:00", end_time: "10:00", label: "Dentist" }, // future
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /\(Gym\)/, "today's entry shown");
+  assert.match(out, /\(Dentist\)/, "future entry shown");
+  // The only work entry is the past one (d-3); work renders as 💼, so its
+  // absence proves the past day was dropped.
+  assert.doesNotMatch(out, /💼/, "past work day excluded");
+});
+
+// 8. Empty / null schedule yields no lines (caller shows a friendly note).
 check("empty schedule → no lines", () => {
   assert.deepEqual(renderScheduleForDisplay(null, TZ), []);
   assert.deepEqual(renderScheduleForDisplay(json([]), TZ), []);

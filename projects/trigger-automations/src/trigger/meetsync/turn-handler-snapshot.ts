@@ -301,8 +301,8 @@ function renderShiftListCompact(scheduleJson: string, indent: string, timezone: 
 /**
  * Render the caller's schedule for USER-FACING display (the "Schedule"
  * command). Unlike the [STATE] view this is NOT capped and has no forward
- * window: it shows the last 14 days through the LAST stored date, so the
- * user always sees their whole upcoming schedule. The lines are produced
+ * window: it shows from TODAY through the LAST stored date, so the user
+ * sees their whole upcoming schedule (no past days). The lines are produced
  * deterministically here (group-by-date, OFF+activity merge, holiday tags,
  * sensitive-label redaction) so the user-facing schedule is never a lossy
  * LLM transcription — the failure mode where an entry silently vanished
@@ -319,9 +319,9 @@ export function renderScheduleForDisplay(scheduleJson: string | null, timezone: 
   const allDates = Array.from(byDate.keys()).sort();
   // Anchor on the caller's real local "today" (tz-correct, no UTC drift).
   const todayIso = todayIsoInTimezone(timezone);
-  const windowStart = isoDateOffset(todayIso, -WINDOW_DAYS_BACK);
-  // Forward: through the latest stored date — no 60-day cap, no 35-date cap.
-  const dates = allDates.filter((d) => d >= windowStart);
+  // Start from TODAY (no past days) through the latest stored date — no
+  // 60-day cap, no 35-date cap. The caller wants what's coming up, not history.
+  const dates = allDates.filter((d) => d >= todayIso);
   return buildScheduleDateLines(byDate, dates, todayIso, timezone, true);
 }
 
