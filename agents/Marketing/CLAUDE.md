@@ -6,6 +6,15 @@ Riccardo's marketing domain — holds marketing **skills, agents, and workflow r
 
 Help plan, create, and optimize marketing assets — content, campaigns, SEO, email sequences, funnels, social media, and analytics. Delegate to specialized marketing sub-agents when appropriate and use available MCP tools autonomously.
 
+## Mandatory Gates
+
+Briefed dynamically — the canonical machine-read lists live in **`briefing.md`** (this folder). The
+single **[ENFORCED]** gate (code-review before any push/deploy) is defined once in
+`../../tools/brief-lib.mjs` (behavior: `../../tools/gate-deploy.mjs`; full prose: root `../../CLAUDE.md`)
+and fires on **any** push/deploy — not only when shipping a web page. It is the *only* hard rule.
+Marketing **[CONVENTION]**s: `content-reviewer` before publishing any content piece, `frontend-design`
+before building/editing any web-page UI (see WebDesign capabilities below).
+
 ## Workflows
 
 - Primary workflow: `./.claude/workflows/primary-workflow.md`
@@ -18,9 +27,9 @@ Help plan, create, and optimize marketing assets — content, campaigns, SEO, em
 
 All marketing skills are **global** (`~/.claude/skills/`, ~135 total library) — reachable from any `projects/` folder, not just this workspace. The marketing-specific ones (seo-optimization, ads-management, campaign-management, email-marketing, brand-guidelines, social-media, content-marketing, analytics, paid-ads, slides-design, creativity, design, design-system, marketing-planning, marketing-research, marketing-psychology, marketing-ideas, marketing-dashboard, competitor-alternatives, affiliate-marketing, gamification-marketing, pricing-strategy, referral-program-building, launch-strategy, form-cro, onboarding-cro, free-tool-strategy, ab-test-setup, cip-design, logo-design, content-hub, assets-organizing, video-production, youtube-handling …) were promoted into global on 2026-06-04. The local copies under `./.claude/skills/` still exist but are **harmlessly overridden by global** (personal beats project). Canonical source is `~/.claude/skills/`; re-promote after a marketing-kit update with `node ../../tools/promote-marketing-skills.mjs --force`.
 
-## Marketing Agents
+## Your Agents (spawn when relevant)
 
-All agents are **global** (`~/.claude/agents/`, 32 total) — any project can spawn any of them. The marketing-specific subset:
+All agents are **global** (`~/.claude/agents/`, ~32 total) — any project can spawn any of them. The marketing-specific subset:
 
 **Marketing-specific:**
 - **Content**: content-creator, copywriter, content-reviewer

@@ -11,9 +11,19 @@ This workspace runs in **two modes** — pick by the task:
 
 **Security invariant (BOTH modes, non-negotiable):** never hand-build or AI-build anything security-critical — payments, checkout, card data, account auth. Route each to a certified managed service (Shopify PCI L1, Stripe, vendor DPAs). AI owns only the presentation layer.
 
-## Always Do First
+## Mandatory Gates
 
-**Invoke the `frontend-design` skill** before writing any frontend code, every session, no exceptions.
+Briefed dynamically — the canonical machine-read lists live in **`briefing.md`** (this folder). The
+single **[ENFORCED]** gate (code-review before any push/deploy) is defined once in
+`../../tools/brief-lib.mjs` (behavior: `../../tools/gate-deploy.mjs`; full prose: root `../../CLAUDE.md`)
+and is the *only* hard rule. WebDesign **[CONVENTION]**s: `frontend-design` before writing ANY frontend
+code (expected every session, never hook-blocked — your judgment), `web-design-guidelines` to audit
+a11y/UX before shipping. Web Studio builds: also run `/ck:security` + `security-scan` on the front-end
+before deploy (see the recipe §2/§7).
+
+## Your Agents (spawn when relevant)
+
+All agents are **global** (`~/.claude/agents/`). Web-relevant: **ui-ux-designer**, **frontend-developer**, **fullstack-developer** (build); **code-reviewer**, **tester** (gate/quality); **planner**, **researcher**, **docs-manager** (support).
 
 ## Recommended Skills (auto-invoke when relevant)
 

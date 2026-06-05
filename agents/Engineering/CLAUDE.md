@@ -2,17 +2,27 @@
 
 Personal engineering domain — holds engineering **skills, agents, and workflow rules**, not project folders. This workspace lives under `agents/`; actual engineering projects live in the workspace-root `../../projects/` folder, each with its own `CLAUDE.md`.
 
+## Mandatory Gates
+
+Briefed dynamically — the canonical machine-read lists live in **`briefing.md`** (this folder). The
+single **[ENFORCED]** gate (code-review before any push/deploy) is defined once in
+`../../tools/brief-lib.mjs` (behavior: `../../tools/gate-deploy.mjs`; full prose: root `../../CLAUDE.md`)
+and is injected into every domain's brief — it is the *only* hard rule. Engineering **[CONVENTION]**s:
+`/test` before shipping, `/fix` for concrete bugs (not blind edits), `frontend-design` before UI code.
+
 ## Workflows
 
-- Primary workflow: `./.claude/rules/primary-workflow.md`
-- Development rules: `./.claude/rules/development-rules.md`
-- Orchestration protocols: `./.claude/rules/orchestration-protocol.md`
-- Documentation management: `./.claude/rules/documentation-management.md`
-- And other workflows: `./.claude/rules/*`
+The canonical workflow rules live **globally** at `~/.claude/rules/` (this workspace has no local `.claude/rules/` — global is the single source):
+
+- Primary workflow: `~/.claude/rules/primary-workflow.md`
+- Development rules: `~/.claude/rules/development-rules.md`
+- Orchestration protocols: `~/.claude/rules/orchestration-protocol.md`
+- Documentation management: `~/.claude/rules/documentation-management.md`
+- And the rest: `~/.claude/rules/*`
 
 ## Skills
 
-All skills are **global** (`~/.claude/skills/`, ~135 total) — inherited automatically here, no local overrides. The engineering-specific ones (backend-development, frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, google-adk-python, mintlify, mobile-development, remotion, gkg, agent-browser, better-auth) live in the global library alongside everything else, so they're equally reachable from any `projects/` folder. The local `./.claude/skills/` dir holds no skill overrides (engineering's local kit was removed 2026-06-04).
+All skills are **global** (`~/.claude/skills/`) — inherited automatically here, no local overrides. The skill/agent architecture (what's global, why, how progressive disclosure keeps it cheap) is documented once in root `../../CLAUDE.md` → "Skill Visibility"; don't restate it here. The engineering-specific skills (backend/frontend-development, databases, devops, web-frameworks, web-testing, ui-styling, threejs, shader, shopify, tanstack, react-best-practices, payment-integration, mcp-builder, mobile-development, better-auth …) live in that global library and are reachable from any `projects/` folder.
 
 ## Visual Asset Generation
 
@@ -21,6 +31,13 @@ To **generate** new images, sprites, textures, vector/SVG, video, or 3D assets �
 ## Related projects
 
 The projects this workspace's skills build live under `../../projects/`. Notably **`trigger-automations/`** — the deployed Trigger.dev platform (background tasks + scheduled jobs; runs the meetsync / job-hunt / billing tasks, project ref `proj_njxprjwjwpnxifasacvr`) — was moved out of this workspace to `../../projects/trigger-automations/` on 2026-06-03 and has its own builder `CLAUDE.md` there. Deploy still stages to `/c/tmp/trigger-deploy/` first (spaces in "My Projects" break the Docker build).
+
+## Your Agents (spawn when relevant)
+
+All agents are **global** (`~/.claude/agents/`) — spawnable from any project. The engineering-relevant ones:
+- **Plan & build**: planner, researcher, fullstack-developer, frontend-developer, database-admin
+- **Quality & ship**: code-reviewer (gate — see above), tester, debugger, code-simplifier
+- **Support**: docs-manager, git-manager, mcp-manager, brainstormer, journal-writer
 
 ## Recommended Skills (auto-invoke when relevant)
 

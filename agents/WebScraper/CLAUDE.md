@@ -32,6 +32,10 @@ Inherited automatically (no local skills needed):
 - **sequential-thinking** — plan multi-step scraping strategies
 - **ai-multimodal** — analyze scraped images/screenshots
 
+## Your Agents (spawn when relevant)
+
+All agents are **global** (`~/.claude/agents/`). Scraping-relevant: **researcher** (source discovery + synthesis), **debugger** (when Firecrawl/selectors fail), **planner** (multi-stage scrape pipelines), **database-admin** (if results land in a DB). If a scrape job ever ships code/automation, the single **[ENFORCED]** code-review gate applies — see `briefing.md` (defined once in `../../tools/brief-lib.mjs`, behavior in `../../tools/gate-deploy.mjs`).
+
 ## Starting a scrape job (especially unknown use cases)
 
 Before running, make 3 quick decisions — confirm with Riccardo in one line, then execute:
