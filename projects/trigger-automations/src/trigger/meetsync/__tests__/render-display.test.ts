@@ -60,7 +60,7 @@ check("work shift renders as 💼 with label dropped", () => {
     json([{ date: d(1), start_time: "08:00", end_time: "17:00", label: "work (office, St Julian's)" }]),
     TZ,
   ).join("\n");
-  assert.match(out, /💼 08:00–17:00/, "work → 💼 HH:MM–HH:MM");
+  assert.match(out, /💼\s08:00–17:00/, "work → 💼 HH:MM–HH:MM");
   assert.doesNotMatch(out, /\(work/i, "work label not shown as a parenthetical");
 });
 
@@ -73,7 +73,7 @@ check("exact-duplicate entry collapses to one", () => {
     ]),
     TZ,
   ).join("\n");
-  const occurrences = (out.match(/🌙 Yin/g) ?? []).length;
+  const occurrences = (out.match(/🌙\sYin/g) ?? []).length;
   assert.equal(occurrences, 1, "identical rows render once");
 });
 
@@ -107,7 +107,17 @@ check("chronological order, + separator, │ date column", () => {
     TZ,
   ).join("\n");
   // yoga (09:30) must precede work (15:00) despite storage order; joined by " + "; date separated by "│"
-  assert.match(out, /│ 09:30–10:30 \(🧘 yoga\) \+ 💼 15:00–00:00/, "chronological + plus + column separator");
+  assert.match(out, /│ 09:30–10:30 \(🧘\syoga\) \+ 💼\s15:00–00:00/, "chronological + plus + column separator");
+});
+
+// Emoji is glued to its text with a non-breaking space so a wrap can't orphan it.
+check("emoji glued to text with non-breaking space", () => {
+  const out = renderScheduleForDisplay(
+    json([{ date: d(1), start_time: "09:30", end_time: "10:30", label: "🧘 yoga" }]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /🧘 yoga/u, "space after emoji is non-breaking (U+00A0)");
+  assert.doesNotMatch(out, /🧘 yoga/u, "no regular space after emoji");
 });
 
 // 6. Today divider present.
@@ -200,7 +210,7 @@ check("availability grid keeps all people, no row dropped", () => {
   const out = lines.join("\n");
   assert.match(out, /━━━ /, "day divider present");
   // d(1): You works, Marco has nothing → Marco shows —
-  assert.match(out, /You .*💼 08:00–17:00/, "You's work row present");
+  assert.match(out, /You .*💼\s08:00–17:00/, "You's work row present");
   assert.match(out, /Marco .*—/, "Marco shows — on a day with no entry");
   // d(2): Marco OFF present
   assert.match(out, /Marco .*OFF/, "Marco OFF row present");

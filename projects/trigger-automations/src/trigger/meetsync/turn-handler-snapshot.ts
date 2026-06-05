@@ -250,7 +250,9 @@ function buildScheduleDateLines<T extends { start_time: string; end_time: string
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
     const entries = byDate.get(date)!;
     const holiday = timezone === "Europe/Malta" ? maltaHolidayName(date) : null;
-    const entriesStr = formatDayEntries(entries, holiday, { display });
+    const rawEntries = formatDayEntries(entries, holiday, { display });
+    // Glue emojis to their text (display only) so a Telegram wrap can't orphan them.
+    const entriesStr = display ? glueEmojiToText(rawEntries) : rawEntries;
     if (display) {
       // Fixed-width date + a "│" column separates the day from its entries so
       // the schedule scans cleanly. padStart(2) on the day number keeps the
@@ -396,7 +398,7 @@ export function renderAvailabilityBlock(
     for (const p of perPerson) {
       const entries = p.byDate.get(date);
       const shape = entries && entries.length > 0
-        ? formatDayEntries(entries, holiday, { display: true })
+        ? glueEmojiToText(formatDayEntries(entries, holiday, { display: true }))
         : "—";
       out.push(` ${p.name.padEnd(nameWidth)}  ${shape}`);
     }
@@ -570,6 +572,13 @@ function redactLabelForRender(label: string | undefined): string | undefined {
 function isWorkLabel(label: string | undefined): boolean {
   if (!label) return false;
   return /\b(work|shift)\b/i.test(label);
+}
+
+/** Glue an emoji to the text right after it with a non-breaking space, so a
+ *  Telegram line-wrap can never strand the emoji alone on its own line
+ *  (e.g. "💼 15:00…" / "(🧘 yoga)"). Handles a trailing variation selector. */
+function glueEmojiToText(s: string): string {
+  return s.replace(/(\p{Extended_Pictographic}️?) /gu, "$1 ");
 }
 
 /**
