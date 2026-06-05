@@ -19,8 +19,10 @@ export default async function handleRequest(
       checkoutDomain: context.env.PUBLIC_CHECKOUT_DOMAIN,
       storeDomain: context.env.PUBLIC_STORE_DOMAIN,
     },
-    // Allow the Crisp live-chat widget (script, styles, websocket, assets).
-    scriptSrc: ["'self'", 'https://client.crisp.chat'],
+    // Allow the Crisp live-chat widget + Cal.com booking embed. Note: explicit
+    // script/img/font directives shadow default-src, so Shopify's CDN must be
+    // re-listed here or product/collection images (cdn.shopify.com) get blocked.
+    scriptSrc: ["'self'", 'https://cdn.shopify.com', 'https://client.crisp.chat'],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://client.crisp.chat'],
     connectSrc: [
       "'self'",
@@ -30,10 +32,11 @@ export default async function handleRequest(
     imgSrc: [
       "'self'",
       'data:',
+      'https://cdn.shopify.com',
       'https://client.crisp.chat',
       'https://image.crisp.chat',
     ],
-    fontSrc: ["'self'", 'https://client.crisp.chat'],
+    fontSrc: ["'self'", 'https://cdn.shopify.com', 'https://client.crisp.chat'],
     frameSrc: ['https://client.crisp.chat', 'https://cal.com', 'https://app.cal.com'],
   });
 
