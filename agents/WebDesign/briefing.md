@@ -19,7 +19,7 @@ dedupes by its first `backticked` / **bold** token.
 ## Recommended Skills
 
 - **Start any UI with `frontend-design`** — the visual-craft pass that keeps output from looking generic — then reach for `ui-ux-pro-max` to lock color/type/layout/design-system decisions. Audit with `web-design-guidelines` (a11y/UX) before you ship; `ui-styling` for shadcn/Tailwind.
-- Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL & canvas effects) · `remotion` (programmatic video).
+- Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL & canvas effects) · `remotion` (programmatic video) · `show-off` (self-contained HTML showcase / demo pages).
 - **Generate, don't placeholder:** `creative-router` makes custom art/sprites via fal.ai (beats emoji); `ai-multimodal` analyzes reference images; `banner-design` for banners.
 - Prove it in a real browser: `chrome-devtools` (screenshot→compare→fix loop) · ship with `deploy` · `security-scan` (Web Studio builds).
 - Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.

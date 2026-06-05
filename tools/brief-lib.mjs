@@ -212,8 +212,9 @@ export function buildBrief(root, domains, projectName, inferred) {
   const note = inferred ? ` — inferred, add \`Domain: ${domains.join(', ')}\` to ${projectName}/CLAUDE.md to lock it` : '';
 
   let brief = `## Domain briefing — ${projectName} (${label}${note})\n\n`;
-  brief += `Consult this toolkit before choosing an approach — whether it's the first prompt or a new path later. `;
-  brief += `These are the right tools for this context; reach for them, then decide. ${links.join(' · ')}:\n`;
+  brief += `> **Use the real tools — don't hand-roll what a managed tool already does.**\n`;
+  brief += `> **If you skip a clearly-fitting recommended tool / skill / agent, say why in one line — don't default silently.**\n\n`;
+  brief += `Consult this toolkit before choosing an approach — first prompt or a new path later; reach for them, then decide. ${links.join(' · ')}:\n`;
   if (gateBullets.length) brief += `\n### Mandatory gates\n${gateBullets.join('\n')}\n`;
   if (skillBullets.length) brief += `\n### Skills to reach for\n${skillBullets.join('\n')}\n`;
   if (mcpItems.length) brief += `\n### MCP tools for this work\n${mcpItems.join('\n')}\n`;
@@ -300,11 +301,13 @@ export function genericNudge() {
   return [
     '## Orientation — My Projects workspace',
     '',
-    "Before building, identify the project's domain (Engineering / Marketing / WebDesign / WebScraper).",
-    'Each domain carries a full toolkit — **skills, subagents, MCP tools, and the mandatory gates** —',
-    'briefed automatically once a project is known. Creating a NEW project? Add a `Domain:` line to its',
-    '`projects/<name>/CLAUDE.md` and the matching toolkit surfaces. The root `CLAUDE.md` holds the',
-    'structure + cross-cutting rules (1Password secrets, tools-first, creative-router visual routing).',
+    "Anything you'll keep — a site, app, game, campaign, scraper, automation, or a one-off toy/showcase —",
+    'is a **project**: build it in `projects/<name>/` with a `Domain:` line, so the full domain toolkit',
+    '(**skills, subagents, MCP tools, gates**) briefs you *before* you build. `plans/visuals/` is only for',
+    'throwaway preview/diagram outputs — never a standalone build.',
+    '',
+    "Not sure of the domain yet? It's one of Engineering / Marketing / WebDesign / WebScraper; the root",
+    '`CLAUDE.md` holds the structure + cross-cutting rules (1Password secrets, tools-first, creative-router).',
   ].join('\n');
 }
 
