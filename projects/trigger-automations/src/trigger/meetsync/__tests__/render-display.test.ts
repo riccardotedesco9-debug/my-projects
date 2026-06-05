@@ -134,6 +134,21 @@ check("interviews shown by name, not redacted", () => {
   assert.doesNotMatch(out, /appointment/, "interview NOT turned into (appointment)");
 });
 
+// Blood tests are also shown by name (removed from the sensitive catalog);
+// genuinely sensitive items still redact.
+check("blood test shown by name; psychiatrist still redacted", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(1), start_time: "11:00", end_time: "12:00", label: "Blood test" },
+      { date: d(2), start_time: "16:00", end_time: "17:00", label: "Psychiatrist" },
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /\(Blood test\)/, "blood test shown by name");
+  assert.match(out, /\(appointment\)/, "psychiatrist still redacted");
+  assert.doesNotMatch(out, /Psychiatrist/i, "sensitive label not leaked");
+});
+
 // A labelled month band separates months in the display.
 check("month band separates months", () => {
   const far = d(45); // ~1.5 months out → always a different month than d(1)

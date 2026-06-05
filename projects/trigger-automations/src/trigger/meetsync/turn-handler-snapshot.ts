@@ -455,7 +455,8 @@ const SENSITIVE_LABEL_PATTERNS: RegExp[] = [
   /\bGP\b/,                                // general practitioner
 
   // Medical — diagnostics / imaging
-  /blood\s*(test|work|panel)/i,
+  // (blood test/work/panel deliberately NOT redacted — caller considers a
+  // routine blood test fine to show by name.)
   /urine\s*(test|sample)/i,
   /\bMRI\b|\bCT\s*scan\b|\bX-?ray\b/i,
   /ultrasound|biopsy|mammogram|colonoscopy|endoscopy|gastroscopy/i,
