@@ -19,6 +19,22 @@ export default async function handleRequest(
       checkoutDomain: context.env.PUBLIC_CHECKOUT_DOMAIN,
       storeDomain: context.env.PUBLIC_STORE_DOMAIN,
     },
+    // Allow the Crisp live-chat widget (script, styles, websocket, assets).
+    scriptSrc: ["'self'", 'https://client.crisp.chat'],
+    styleSrc: ["'self'", "'unsafe-inline'", 'https://client.crisp.chat'],
+    connectSrc: [
+      "'self'",
+      'https://client.crisp.chat',
+      'wss://client.relay.crisp.chat',
+    ],
+    imgSrc: [
+      "'self'",
+      'data:',
+      'https://client.crisp.chat',
+      'https://image.crisp.chat',
+    ],
+    fontSrc: ["'self'", 'https://client.crisp.chat'],
+    frameSrc: ['https://client.crisp.chat'],
   });
 
   const body = await renderToReadableStream(

@@ -84,8 +84,11 @@ export async function loader(args: Route.LoaderArgs) {
     ...deferredData,
     ...criticalData,
     publicStoreDomain: env.PUBLIC_STORE_DOMAIN,
+    // Public Crisp website ID (safe to commit — it ships in client JS anyway).
+    // Override per-environment with PUBLIC_CRISP_WEBSITE_ID if ever needed.
     crispWebsiteId:
-      (env as {PUBLIC_CRISP_WEBSITE_ID?: string}).PUBLIC_CRISP_WEBSITE_ID || '',
+      (env as {PUBLIC_CRISP_WEBSITE_ID?: string}).PUBLIC_CRISP_WEBSITE_ID ||
+      '64add798-5580-4245-8153-b223714a2cc5',
     shop: getShopAnalytics({
       storefront,
       publicStorefrontId: env.PUBLIC_STOREFRONT_ID,
