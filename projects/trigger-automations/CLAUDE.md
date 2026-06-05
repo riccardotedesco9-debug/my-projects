@@ -1,6 +1,7 @@
 # Claude Workflow Builder
 
 Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+> Toolkit + mandatory gates: [agents/Engineering/CLAUDE.md](../../agents/Engineering/CLAUDE.md) — your agents, skills, and the code-reviewer-before-deploy/push gate (this project deploys — the gate blocks `trigger.dev deploy` until a review is recorded).
 
 ## Role
 

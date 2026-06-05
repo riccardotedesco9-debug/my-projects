@@ -1,6 +1,7 @@
 # CLAUDE.md — job-hunt
 
 Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+> Toolkit + mandatory gates: [agents/Engineering/CLAUDE.md](../../agents/Engineering/CLAUDE.md) — your agents, skills, and the code-reviewer-before-deploy/push gate.
 
 Daily 7am Malta digest of part-time analytical roles. Aggregates 7 sources, dedupes, emails.
 

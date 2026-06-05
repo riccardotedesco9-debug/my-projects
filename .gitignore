@@ -18,6 +18,9 @@ projects/my-site/
 # Dependencies — never track (was missing; caused thousands of untracked files)
 node_modules/
 
+# Scratch — WebDesign screenshot/compare output, regenerated on demand
+temporary-screenshots/
+
 # Kept local (your "keep local" choice) — not published. Move to a private repo if you want them versioned.
 /docs/TECH_STACK_DISCOVERY.md
 /plans/260517-1834-cv-cover-letter-redesign/

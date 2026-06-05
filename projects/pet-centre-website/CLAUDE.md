@@ -1,6 +1,7 @@
 # CLAUDE.md — pet-centre-website
 
 Domain: **WebDesign — Web Studio Mode** (lives in `projects/`; uses global + WebDesign skills).
+> Toolkit + mandatory gates: [agents/WebDesign/CLAUDE.md](../../agents/WebDesign/CLAUDE.md) — frontend-design before UI, code-reviewer + `/ck:security` before deploy. The Oxygen/Shopify deploy is hard-blocked by `tools/gate-deploy.mjs` until a review is recorded for the current commit.
 
 The **build** of the Pet Centre online store for Riccardo's real pet shop in Mellieħa, Malta
 (petcentremalta.com — vet + retail under one roof, Pet Club loyalty, 6 animal categories). The

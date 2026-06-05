@@ -1,6 +1,7 @@
 # CLAUDE.md — OOZE: Pixel Alchemy Evolution Simulator
 
 Domain: Engineering — lives in `projects/` (uses global + Engineering skills/agents).
+> Toolkit + mandatory gates: [agents/Engineering/CLAUDE.md](../../agents/Engineering/CLAUDE.md) — your agents, skills, and the code-reviewer-before-deploy/push gate.
 
 Browser-based autonomous artificial life simulation. Pixels carry 16-gene DNA controlling chemical reactions (not physics forces). Evolution is fully self-sustaining — watch or play god.
 
