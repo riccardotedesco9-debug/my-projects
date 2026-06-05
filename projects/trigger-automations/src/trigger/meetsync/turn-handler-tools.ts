@@ -1396,7 +1396,7 @@ const addPersonalEventTool: ToolDefinition = {
       date: { type: "string", description: "YYYY-MM-DD." },
       start_time: { type: "string", description: "HH:MM (24h). Pick the realistic start of the busy window — when the user actually becomes unavailable." },
       end_time: { type: "string", description: "HH:MM (24h). Pick a sensible-length window for the event: a 1-hour appointment is start..start+1h; a party is ~3h; a wedding-all-day is wide-partial like 09:00–22:00 (NOT 00:00–23:59 — that's reserved for shift-rota all-day-busy entries and would override OFF markers in [STATE]); a flight day is the morning block 06:00–12:00. The user is BUSY during this window." },
-      label: { type: "string", description: "Short human-readable description that will surface in [STATE], e.g. 'doctor', 'dad's 60th', 'flight to Rome', 'wedding'. Keep it under ~40 chars." },
+      label: { type: "string", description: "Short human-readable description, STARTING with one fitting emoji where it makes sense, e.g. '🤝 interview at Solana', '🎉 dad's 60th', '✈️ flight to Rome', '💒 wedding'. Skip the emoji for anything private/sensitive (keep it plain so redaction works). Keep it under ~40 chars." },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {

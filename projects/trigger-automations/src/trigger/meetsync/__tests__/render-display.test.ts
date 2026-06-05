@@ -123,7 +123,35 @@ check("past dates excluded; today onward included", () => {
   assert.doesNotMatch(out, /💼/, "past work day excluded");
 });
 
-// 8. Empty / null schedule yields no lines (caller shows a friendly note).
+// Interviews are NOT redacted — job-hunting terms were removed from the
+// sensitive catalog per the caller's rule (only truly sensitive data hides).
+check("interviews shown by name, not redacted", () => {
+  const out = renderScheduleForDisplay(
+    json([{ date: d(1), start_time: "11:00", end_time: "12:00", label: "Pet Centre interview" }]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /\(Pet Centre interview\)/, "interview shown by name");
+  assert.doesNotMatch(out, /appointment/, "interview NOT turned into (appointment)");
+});
+
+// A labelled month band separates months in the display.
+check("month band separates months", () => {
+  const far = d(45); // ~1.5 months out → always a different month than d(1)
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(1), start_time: "10:00", end_time: "11:00", label: "A" },
+      { date: far, start_time: "10:00", end_time: "11:00", label: "B" },
+    ]),
+    TZ,
+  ).join("\n");
+  const farMonth = new Date(far + "T12:00:00Z").toLocaleDateString("en-US", { month: "long", timeZone: "UTC" });
+  assert.ok(
+    out.split("\n").some((l) => l.includes(farMonth) && /────/.test(l)),
+    `month band for ${farMonth} present`,
+  );
+});
+
+// Empty / null schedule yields no lines (caller shows a friendly note).
 check("empty schedule → no lines", () => {
   assert.deepEqual(renderScheduleForDisplay(null, TZ), []);
   assert.deepEqual(renderScheduleForDisplay(json([]), TZ), []);

@@ -224,7 +224,22 @@ function buildScheduleDateLines<T extends { start_time: string; end_time: string
     return out;
   }
   let dividerInserted = false;
+  let lastMonth = "";
   for (const date of dates) {
+    // Month band (display only) before each new month's first date, so the
+    // caller can tell months apart at a glance. Not emitted in [STATE].
+    if (display) {
+      const ym = date.slice(0, 7);
+      if (ym !== lastMonth) {
+        const monthLong = new Date(date + "T12:00:00Z").toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+          timeZone: "UTC",
+        });
+        out.push(`──────── ${monthLong} ────────`);
+        lastMonth = ym;
+      }
+    }
     if (!dividerInserted && date >= todayIso) {
       out.push(`── today (${todayIso}) ──`);
       dividerInserted = true;
@@ -497,11 +512,9 @@ const SENSITIVE_LABEL_PATTERNS: RegExp[] = [
   /bankruptcy|creditor/i,
   /restraining\s*order/i,
 
-  // Job hunting — DON'T want current employer to see
-  /job\s*interview/i,
-  /\binterview\b/i,
-  /recruiter|head\s*hunter/i,
-  /\boffer\s*call\b/i,
+  // (Job-hunting terms — interview / recruiter / offer call — are deliberately
+  // NOT redacted: per the caller's rule, interviews are fine to show by name.
+  // Redaction is reserved for genuinely sensitive categories only.)
 
   // Cosmetic / body procedures
   /cosmetic\s*surgery|plastic\s*surgery/i,
@@ -608,6 +621,9 @@ function formatDayEntries(
 
   const renderPartial = (s: { start_time: string; end_time: string; label?: string }) => {
     if (display && isWorkLabel(s.label)) return `💼 ${s.start_time}–${s.end_time}`;
+    // The label already carries any emoji Claude chose at save time — render
+    // it verbatim (redacted + "meetup:"-stripped). Work is the one exception
+    // above: it's bulk rota data, marked with a fixed 💼.
     const safeLabel = cleanLabel(s.label);
     return safeLabel ? `${s.start_time}–${s.end_time} (${safeLabel})` : `${s.start_time}–${s.end_time}`;
   };
