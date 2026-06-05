@@ -4,8 +4,8 @@ export const meta: Route.MetaFunction = () => [
   {title: 'Book a visit | Pet Centre'},
 ];
 
-// Placeholder — paste your Cal.com / Calendly inline embed URL here to go live.
-const SCHEDULER_EMBED_URL = '';
+// Cal.com booking page (embedded inline). Swap the slug to change the event.
+const SCHEDULER_EMBED_URL = 'https://cal.com/riccardo-tedesco-tilt5l/test';
 
 export default function BookPage() {
   return (

@@ -34,7 +34,7 @@ export default async function handleRequest(
       'https://image.crisp.chat',
     ],
     fontSrc: ["'self'", 'https://client.crisp.chat'],
-    frameSrc: ['https://client.crisp.chat'],
+    frameSrc: ['https://client.crisp.chat', 'https://cal.com', 'https://app.cal.com'],
   });
 
   const body = await renderToReadableStream(
