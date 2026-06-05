@@ -20,9 +20,11 @@ dedupes by its first `backticked` / **bold** token.
 
 - `research` — pre-scrape source discovery & synthesis.
 - `docs-seeker` — pull current Firecrawl capabilities instead of guessing.
-- `chrome-devtools` — fallback automation for sites Firecrawl can't handle.
+- `chrome-devtools` / `agent-browser` — fallback automation for sites Firecrawl can't handle.
 - `sequential-thinking` — plan multi-step / multi-source scrape pipelines.
 - `ai-multimodal` — analyze scraped images/screenshots.
+- `repomix` — pack large scraped corpora / a codebase into LLM-ready context.
+- Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
 

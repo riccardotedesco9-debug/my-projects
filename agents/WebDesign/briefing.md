@@ -18,12 +18,11 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Recommended Skills
 
-- `frontend-design` — the visual-craft pass before any UI build (avoid AI-slop, replicate mockups).
-- `ui-ux-pro-max` — color systems, typography, spacing, layout, design-system decisions.
-- `web-design-guidelines` — accessibility/UX audit before shipping.
-- `chrome-devtools` — screenshot → compare-to-reference → fix loop.
-- `ai-multimodal` — analyze reference images/screenshots in detail.
-- `creative-router` — generate custom hero images, icons, illustrations, SVG (fal.ai).
+- Craft & review: `frontend-design` (visual-craft pass, replicate mockups) · `ui-ux-pro-max` (color/type/layout/design systems) · `web-design-guidelines` (a11y/UX audit) · `ui-styling` (shadcn/Tailwind).
+- Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL) · `remotion` (programmatic video).
+- Visual gen vs analysis: `creative-router` (generate via fal.ai) · `ai-multimodal` (analyze reference images) · `banner-design`.
+- Tooling & ship: `chrome-devtools` (screenshot→compare→fix loop) · `deploy` · `security-scan` (Web Studio builds).
+- Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
 

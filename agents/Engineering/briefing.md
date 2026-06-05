@@ -19,13 +19,11 @@ dedupes by its first `backticked` / **bold** token.
 
 ## Recommended Skills
 
-- `/scout` — orient in unfamiliar code before changing it.
-- `/brainstorm` — before any 3+-option design or architecture decision.
-- `/debug` — prove the root cause before a fix (CI failures, server errors, flaky tests).
-- `/test` — validate behavior and coverage before shipping.
-- `docs-seeker` — pull current docs for a library/framework you haven't used recently.
-- `frontend-design` — visual-craft pass when the work has a UI surface.
-- `ui-ux-pro-max` — design-system decisions: color, typography, spacing, layout.
+- Build: `backend-development` · `frontend-development` · `databases` · `web-frameworks` · `better-auth` · `payment-integration` (stack-specific: `tanstack`, `shopify`, `mobile-development`, `react-best-practices`).
+- Ship & ops: `deploy` · `devops` · `security-scan` / `ck-security`.
+- Work & quality: `/scout` · `/brainstorm` · `/ck:debug` · `/test` · `/fix` · `docs-seeker`.
+- UI craft (when there's a frontend): `frontend-design` · `ui-ux-pro-max`.
+- Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
 

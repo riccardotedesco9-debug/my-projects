@@ -19,12 +19,13 @@ dedupes by its first `backticked` / **bold** token (don't backtick the [CONVENTI
 
 ## Recommended Skills
 
-- `/research` — market trends, competitor analysis, audience insight (before planning).
-- `/brainstorm` — campaign & content strategy with multiple angles.
-- `copywriting` — conversion copy, headlines, landing pages, email.
-- `campaign` / `email` / `social` — channel-specific production.
-- `/seo` — search optimization for any web content.
-- `/analytics` — campaign performance & reporting.
+- Strategy & research: `marketing-planning` · `marketing-research` · `marketing-psychology` · `marketing-ideas` · `/brainstorm`.
+- Content & copy: `copywriting` · `content-marketing` (blog/editorial); review with the `content-reviewer` agent before publishing.
+- SEO: `seo` · `competitor-alternatives`.
+- Channels: `email` · `social` · `paid-ads` · `campaign`.
+- Funnel & CRO: `funnel` · `form-cro` · `onboarding-cro` · `pricing-strategy` · `ab-test-setup` · `launch-strategy` · `referral-program-building` · `affiliate-marketing`.
+- Brand & visual: `brand-guidelines` · `logo-design` · `cip-design` · `banner-design` · `slides-design` · `creative-router`.
+- Analytics: `analytics`. Full map: `~/.claude/rules/skill-domain-routing.md` (+ the local `mkt:*` commands).
 
 ## MCP Tools
 
