@@ -250,7 +250,16 @@ function buildScheduleDateLines<T extends { start_time: string; end_time: string
     const monthName = d.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
     const entries = byDate.get(date)!;
     const holiday = timezone === "Europe/Malta" ? maltaHolidayName(date) : null;
-    out.push(`${dayName} ${dayNum} ${monthName}  ${formatDayEntries(entries, holiday, { display })}`);
+    const entriesStr = formatDayEntries(entries, holiday, { display });
+    if (display) {
+      // Fixed-width date + a "│" column separates the day from its entries so
+      // the schedule scans cleanly. padStart(2) on the day number keeps the
+      // "│" aligned across single- and double-digit dates.
+      const dateLabel = `${dayName} ${String(dayNum).padStart(2)} ${monthName}`;
+      out.push(`${dateLabel} │ ${entriesStr}`);
+    } else {
+      out.push(`${dayName} ${dayNum} ${monthName}  ${entriesStr}`);
+    }
   }
   // Edge case: every rendered date is in the past — emit the divider at the
   // bottom so the reader sees that nothing upcoming is on file.
@@ -632,25 +641,26 @@ function formatDayEntries(
     return safeLabel ? `${s.start_time}–${s.end_time} (${safeLabel})` : `${s.start_time}–${s.end_time}`;
   };
 
-  // OFF + activities → "OFF + 18:00–19:00 (gym)" on one line.
-  if (offEntries.length > 0 && partials.length > 0) {
+  // Render timed entries in CHRONOLOGICAL order (by start time) and join the
+  // whole day with " + " — e.g. "09:30–10:30 (🧘 yoga) + 💼 15:00–00:00".
+  // Times are zero-padded "HH:MM", so a lexicographic sort is chronological.
+  const sortedPartials = [...partials].sort((a, b) => a.start_time.localeCompare(b.start_time));
+  const partialTokens = sortedPartials.map(renderPartial);
+
+  // OFF leads (it's the day's character) and carries the holiday tag; the
+  // timed entries follow in order.
+  if (offEntries.length > 0) {
     const rawOffLabel = cleanLabel(offEntries[0].label);
     const offLabel = rawOffLabel && rawOffLabel.toLowerCase() !== "off"
       ? `OFF (${rawOffLabel})`
       : "OFF";
-    return `${offLabel}${holidaySuffix} + ${partials.map(renderPartial).join(", ")}`;
+    return [`${offLabel}${holidaySuffix}`, ...partialTokens].join(" + ");
   }
 
-  // OFF only.
-  if (offEntries.length > 0) {
-    const label = cleanLabel(offEntries[0].label);
-    const base = label && label.toLowerCase() !== "off" ? `OFF (${label})` : "OFF";
-    return `${base}${holidaySuffix}`;
-  }
-
-  // Partials only — comma-separate split shifts. Holiday annotation goes at
-  // the end so it's clear it's a meta tag, not another shift.
-  return partials.map(renderPartial).join(", ") + holidaySuffix;
+  // No OFF: just the chronological entries joined with " + ", holiday tag at
+  // the end so it's clearly a meta tag, not another entry.
+  if (partialTokens.length === 0) return holidaySuffix.trim();
+  return partialTokens.join(" + ") + holidaySuffix;
 }
 
 /**

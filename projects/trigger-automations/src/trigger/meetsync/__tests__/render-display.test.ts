@@ -97,6 +97,19 @@ check("far-future entry not truncated (no 60d / 35-date cap)", () => {
   assert.match(out, /\(Dentist\)/, "far-future entry present");
 });
 
+// Same-day entries: chronological order, joined with " + ", date split off by "│".
+check("chronological order, + separator, │ date column", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(1), start_time: "15:00", end_time: "00:00", label: "work" },        // stored first
+      { date: d(1), start_time: "09:30", end_time: "10:30", label: "🧘 yoga" },     // earlier in day
+    ]),
+    TZ,
+  ).join("\n");
+  // yoga (09:30) must precede work (15:00) despite storage order; joined by " + "; date separated by "│"
+  assert.match(out, /│ 09:30–10:30 \(🧘 yoga\) \+ 💼 15:00–00:00/, "chronological + plus + column separator");
+});
+
 // 6. Today divider present.
 check("today divider emitted", () => {
   const out = renderScheduleForDisplay(
