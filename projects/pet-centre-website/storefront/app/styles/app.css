@@ -126,7 +126,9 @@ a.button:hover {
   cursor: not-allowed;
   transform: none;
 }
-.button--gold {
+.button--gold,
+a.button--gold,
+button.button--gold {
   background: var(--color-gold);
   color: var(--color-navy);
   box-shadow: 0 8px 20px rgba(224, 177, 54, 0.28);
@@ -135,7 +137,9 @@ a.button:hover {
   background: var(--color-gold-dark);
   color: var(--color-navy);
 }
-.button--ghost {
+.button--ghost,
+a.button--ghost,
+button.button--ghost {
   background: transparent;
   color: var(--color-navy);
   border: 1.5px solid var(--color-line);
@@ -883,10 +887,57 @@ button.reset > * {
 }
 
 .route-error {
-  max-width: 640px;
-  margin: 4rem auto;
+  max-width: 620px;
+  margin: 0 auto;
   text-align: center;
-  padding: 0 1.25rem;
+  padding: 5.5rem 1.25rem 7rem;
+}
+.route-error-paw {
+  width: 60px;
+  height: 60px;
+  color: var(--color-gold);
+  margin: 0 auto 0.4rem;
+  display: block;
+}
+.route-error-code {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  color: var(--color-brand);
+  margin: 0;
+}
+.route-error h1 {
+  margin: 0.3rem 0 0.75rem;
+}
+.route-error-lead {
+  color: var(--color-ink);
+  line-height: 1.7;
+  margin: 0 auto 1.6rem;
+  max-width: 44ch;
+}
+.route-error-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.route-error-details {
+  margin-top: 1.8rem;
+  text-align: left;
+}
+.route-error-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-navy);
+}
+.route-error-details pre {
+  white-space: pre-wrap;
+  background: var(--color-sand);
+  border-radius: var(--radius-card);
+  padding: 0.9rem;
+  font-size: 0.82rem;
+  margin-top: 0.6rem;
+  overflow-x: auto;
 }
 
 /* Trust badges (used on product page / home) */

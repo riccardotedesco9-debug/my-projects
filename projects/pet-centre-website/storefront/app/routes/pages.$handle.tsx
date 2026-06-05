@@ -3,7 +3,7 @@ import type {Route} from './+types/pages.$handle';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 
 export const meta: Route.MetaFunction = ({data}) => {
-  return [{title: `Hydrogen | ${data?.page.title ?? ''}`}];
+  return [{title: `${data?.page.title ?? 'Page'} | Pet Centre`}];
 };
 
 export async function loader(args: Route.LoaderArgs) {

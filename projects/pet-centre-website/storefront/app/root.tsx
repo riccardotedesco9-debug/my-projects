@@ -1,6 +1,7 @@
 import {Analytics, getShopAnalytics, useNonce} from '@shopify/hydrogen';
 import {
   Outlet,
+  Link,
   useRouteError,
   isRouteErrorResponse,
   type ShouldRevalidateFunction,
@@ -20,6 +21,7 @@ import polishStyles from '~/styles/polish.css?url';
 import {PageLayout} from './components/PageLayout';
 import {Chatbot} from './components/Chatbot';
 import {ConsentBanner} from './components/ConsentBanner';
+import {PawMark} from './components/Logo';
 
 export type RootLoader = typeof loader;
 
@@ -82,6 +84,8 @@ export async function loader(args: Route.LoaderArgs) {
     ...deferredData,
     ...criticalData,
     publicStoreDomain: env.PUBLIC_STORE_DOMAIN,
+    crispWebsiteId:
+      (env as {PUBLIC_CRISP_WEBSITE_ID?: string}).PUBLIC_CRISP_WEBSITE_ID || '',
     shop: getShopAnalytics({
       storefront,
       publicStorefrontId: env.PUBLIC_STOREFRONT_ID,
@@ -173,6 +177,7 @@ const PET_CENTRE_JSONLD = JSON.stringify({
 
 export function Layout({children}: {children?: React.ReactNode}) {
   const nonce = useNonce();
+  const rootData = useRouteLoaderData<RootLoader>('root');
 
   return (
     <html lang="en">
@@ -197,7 +202,7 @@ export function Layout({children}: {children?: React.ReactNode}) {
       </head>
       <body>
         {children}
-        <Chatbot />
+        <Chatbot websiteId={rootData?.crispWebsiteId} />
         <ConsentBanner />
         <ScrollRestoration nonce={nonce} />
         <Scripts nonce={nonce} />
@@ -238,15 +243,32 @@ export function ErrorBoundary() {
     errorMessage = error.message;
   }
 
+  const is404 = errorStatus === 404;
+
   return (
     <div className="route-error">
-      <h1>Oops</h1>
-      <h2>{errorStatus}</h2>
-      {errorMessage && (
-        <fieldset>
+      <PawMark className="route-error-paw" />
+      <p className="route-error-code">{errorStatus}</p>
+      <h1>{is404 ? 'This page wandered off' : 'Something went wrong'}</h1>
+      <p className="route-error-lead">
+        {is404
+          ? 'We couldn’t fetch that page — it may have moved, or never existed. Let’s get you back on the trail.'
+          : 'Sorry — something went wrong on our end. Please try again in a moment.'}
+      </p>
+      <div className="route-error-actions">
+        <Link to="/" className="button">
+          Back home
+        </Link>
+        <Link to="/collections" className="button button--ghost">
+          Shop all pets
+        </Link>
+      </div>
+      {!is404 && errorMessage ? (
+        <details className="route-error-details">
+          <summary>Technical details</summary>
           <pre>{errorMessage}</pre>
-        </fieldset>
-      )}
+        </details>
+      ) : null}
     </div>
   );
 }

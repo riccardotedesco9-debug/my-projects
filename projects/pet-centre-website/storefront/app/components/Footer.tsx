@@ -26,10 +26,10 @@ const COMPANY_LINKS = [
 ];
 
 const LEGAL_LINKS = [
-  {title: 'Privacy', url: '/policies/privacy-policy'},
-  {title: 'Refunds', url: '/policies/refund-policy'},
-  {title: 'Shipping', url: '/policies/shipping-policy'},
-  {title: 'Terms', url: '/policies/terms-of-service'},
+  {title: 'Privacy', url: '/privacy-policy'},
+  {title: 'Refunds', url: '/refund-policy'},
+  {title: 'Shipping', url: '/shipping-policy'},
+  {title: 'Terms', url: '/terms-of-service'},
 ];
 
 export function Footer(_props: FooterProps) {

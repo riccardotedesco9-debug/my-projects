@@ -29,7 +29,7 @@ export function ConsentBanner() {
     <div role="dialog" aria-label="Cookie consent" style={wrap}>
       <span style={{flex: '1 1 280px', fontSize: 13}}>
         We use cookies to improve your experience. See our{' '}
-        <a href="/policies/privacy-policy" style={{color: '#e0b136'}}>
+        <a href="/privacy-policy" style={{color: '#e0b136'}}>
           privacy policy
         </a>
         .

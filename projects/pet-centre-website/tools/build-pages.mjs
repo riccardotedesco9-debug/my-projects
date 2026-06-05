@@ -80,6 +80,12 @@ const S = `<style>
 .pc-tier .step{width:40px;height:40px;border-radius:50%;background:#e7f4ed;color:#00975a;font-family:'Fredoka';font-weight:700;display:flex;align-items:center;justify-content:center;margin:0 auto 14px}
 .pc-info{display:grid;gap:20px;grid-template-columns:1fr;margin-top:34px}
 @media(min-width:760px){.pc-info{grid-template-columns:repeat(3,1fr)}}
+.pc-legal h3{margin:28px 0 10px;font-size:1.2rem}
+.pc-legal p{margin:0 0 14px;color:#51607a}
+.pc-legal ul{margin:0 0 16px;padding-left:20px;color:#51607a}
+.pc-legal li{margin:0 0 8px}
+.pc-legal a{color:#00975a;font-weight:600}
+.pc-legal .updated{font-size:.85rem;color:#8a93a6;margin-top:26px;border-top:1px solid #ece4d6;padding-top:18px}
 </style>`;
 
 const hero = (img, eyebrow, h1, lead, ctas) => `<section class="pc-hero"><div class="pc-hero-bg" style="background-image:url('${img}')"></div><div class="pc-wrap"><span class="pc-eyebrow">${eyebrow}</span><h1>${h1}</h1><p class="pc-lead">${lead}</p><div class="pc-hero-cta">${ctas}</div></div></section>`;
@@ -115,9 +121,9 @@ ${hero('/heroes/homepage.jpg', 'Our story', 'A neighbourhood shop, built on care
 </div>`;
 
 const PETCLUB = `<div class="pc">${S}
-${hero('/heroes/dogs.jpg', 'Pet Club', 'Loyal pets deserve loyal perks', 'Join free and earn on every visit — plus member-only offers, early access to new stock, and a welcome gift for new pets.', `<a class="pc-btn pc-btn-gold" href="/account/register">Join free</a>`)}
+${hero('/heroes/dogs.jpg', 'Pet Club', 'Loyal pets deserve loyal perks', 'Join free and earn on every visit — plus member-only offers, early access to new stock, and a welcome gift for new pets.', `<a class="pc-btn pc-btn-gold" href="/account/login">Join free</a>`)}
 <section class="pc-section"><div class="pc-wrap pc-center"><span class="pc-eyebrow">How it works</span><h2>Three easy steps</h2><div class="pc-tiers"><div class="pc-tier"><div class="step">1</div><h3>Sign up free</h3><p style="color:#51607a;margin-top:8px">Create an account in-store or online — it takes a minute.</p></div><div class="pc-tier"><div class="step">2</div><h3>Earn points</h3><p style="color:#51607a;margin-top:8px">Collect points on every purchase and vet or grooming visit.</p></div><div class="pc-tier"><div class="step">3</div><h3>Enjoy perks</h3><p style="color:#51607a;margin-top:8px">Redeem for discounts, treats and member-only offers.</p></div></div></div></section>
-<section class="pc-section" style="background:#fff"><div class="pc-wrap"><div class="pc-split"><img src="/heroes/small-animals.jpg" alt="Pet Club"/><div><span class="pc-eyebrow">Member benefits</span><h2>More than points</h2><ul class="pc-list"><li>Points on every purchase, vet visit and groom</li><li>Member-only monthly offers &amp; bundle deals</li><li>Free new-pet starter pack when you join</li><li>Early access to new stock and events</li><li>Discounted routine vet check-ups</li></ul><div style="margin-top:24px"><a class="pc-btn" href="/account/register">Become a member</a></div></div></div></div></section>
+<section class="pc-section" style="background:#fff"><div class="pc-wrap"><div class="pc-split"><img src="/heroes/small-animals.jpg" alt="Pet Club"/><div><span class="pc-eyebrow">Member benefits</span><h2>More than points</h2><ul class="pc-list"><li>Points on every purchase, vet visit and groom</li><li>Member-only monthly offers &amp; bundle deals</li><li>Free new-pet starter pack when you join</li><li>Early access to new stock and events</li><li>Discounted routine vet check-ups</li></ul><div style="margin-top:24px"><a class="pc-btn" href="/account/login">Become a member</a></div></div></div></div></section>
 </div>`;
 
 const VETGROOM = `<div class="pc">${S}
@@ -129,8 +135,62 @@ ${hero('/heroes/dogs.jpg', 'Vet &amp; Grooming', 'Healthcare &amp; pampering, un
 const CONTACT = `<div class="pc">${S}
 ${hero('/heroes/homepage.jpg', 'Visit us', 'Pop in and say hello', 'Come in for advice, collect a click-&amp;-collect order, or book the vet — we love meeting the pets of Mellieħa.', `<a class="pc-btn" href="https://maps.google.com/?q=Triq+il-Kbira+Mellieha+Malta" target="_blank" rel="noopener">Get directions</a>`)}
 <section class="pc-section"><div class="pc-wrap"><div class="pc-info"><div class="pc-card"><div class="ic">📍</div><h3>Find us</h3><p>Triq il-Kbira,<br/>Il-Mellieħa, Malta</p></div><div class="pc-card"><div class="ic">🕒</div><h3>Opening hours</h3><p>Mon–Sat: 9:00–19:00<br/>Sunday: closed</p></div><div class="pc-card"><div class="ic">💬</div><h3>Get in touch</h3><p>Call or message us in-store,<br/>or chat with us online anytime.</p></div></div></div></section>
-<section class="pc-section" style="background:#fff"><div class="pc-wrap"><div class="pc-band"><h2>Need a vet or groom?</h2><p>Book an appointment online in under a minute and we'll confirm by email.</p><a class="pc-btn pc-btn-gold" href="/book">Book now</a></div></div></section>
+<section class="pc-section" style="background:#fff"><div class="pc-wrap"><div class="pc-band"><h2>Need a vet or groom?</h2><p>Pop in, call, or message us and we'll find the perfect time for your pet.</p><a class="pc-btn pc-btn-gold" href="/book">Book a visit</a></div></div></section>
 </div>`;
+
+// ---- legal pages (brand-styled; review with your own details/VAT before launch) ----
+const legal = (title, intro, body) => `<div class="pc">${S}
+<section class="pc-section" style="padding-bottom:0"><div class="pc-wrap" style="max-width:840px"><span class="pc-eyebrow">Legal</span><h1 style="font-size:clamp(1.9rem,1.4rem+1.8vw,2.6rem)">${title}</h1><p class="pc-sub">${intro}</p></div></section>
+<section class="pc-section" style="padding-top:30px"><div class="pc-wrap pc-legal" style="max-width:840px">${body}<p class="updated">Last updated June 2026. Questions? Visit us at Triq il-Kbira, Il-Mellieħa, or message us through the site.</p></div></section>
+</div>`;
+
+const PRIVACY = legal(
+  'Privacy Policy',
+  'How Pet Centre collects, uses and protects your personal data — in line with the GDPR and Maltese law.',
+  `<p>Pet Centre (“we”, “us”) runs this store from Triq il-Kbira, Il-Mellieħa, Malta, and is the data controller for the information you share with us. We only use your data to run the shop, the vet and grooming services, and the Pet Club.</p>
+<h3>What we collect</h3><ul><li>Contact and order details (name, email, address, phone, order history)</li><li>Payment information — processed securely by our payment provider; we never see or store full card numbers</li><li>Pet Club activity, if you join</li><li>Site usage and cookie data to keep the site working and improve it</li></ul>
+<h3>How we use it</h3><ul><li>To process orders, deliveries and click-&amp;-collect</li><li>To provide vet and grooming bookings and customer support</li><li>To run the Pet Club and, with your consent, send offers and news</li><li>To meet our legal and tax obligations</li></ul>
+<h3>Legal bases (GDPR)</h3><p>We rely on performance of a contract (your orders), your consent (marketing and non-essential cookies), our legitimate interests (improving and securing the store), and legal obligations (accounting and tax).</p>
+<h3>Sharing your data</h3><p>We share data only with trusted providers who help us operate — our e-commerce platform (Shopify), payment processors, delivery partners and email tools — each under a data-processing agreement. We never sell your personal data.</p>
+<h3>Cookies</h3><p>We use essential cookies to run the store and, with your consent, analytics cookies to understand usage. You can accept or decline non-essential cookies via the banner at any time.</p>
+<h3>Your rights</h3><p>You can access, correct, delete, restrict or port your data, object to processing, and withdraw consent at any time. To exercise these rights, contact us. You may also complain to the Maltese Information and Data Protection Commissioner (IDPC).</p>
+<h3>Keeping your data</h3><p>We keep personal data only as long as needed for the purposes above or as required by law (for example, tax records).</p>`,
+);
+
+const REFUND = legal(
+  'Refunds & Returns',
+  'Your return and refund rights when you shop with Pet Centre online.',
+  `<p>We want you and your pet to be happy. This policy covers online orders placed through this store, in line with EU and Maltese consumer law. It does not affect your statutory rights.</p>
+<h3>14-day right of withdrawal</h3><p>For online purchases you may cancel and return most items within 14 days of receiving them, for any reason. Items should be unused and in their original condition and packaging.</p>
+<h3>How to return</h3><p>Contact us first and we’ll guide you. You can return items by post or bring them into the shop in Mellieħa.</p>
+<h3>Exceptions</h3><ul><li>Opened or perishable pet food and treats, for hygiene and safety</li><li>Items custom-made or personalised for you</li><li>Sealed health or hygiene products once opened</li></ul>
+<h3>Refunds</h3><p>Once we receive and check your return, we’ll refund the item to your original payment method, usually within 14 days. Standard delivery charges are refunded for full cancellations made under the withdrawal right.</p>
+<h3>Faulty or incorrect items</h3><p>If something arrives damaged, faulty or not as ordered, contact us and we’ll repair, replace or refund it at no cost to you.</p>
+<h3>In-store purchases</h3><p>Returns for items bought in the shop are handled in-store — bring your receipt and we’ll help.</p>`,
+);
+
+const SHIPPING = legal(
+  'Shipping & Delivery',
+  'How we get your order to you — local delivery and free click-&amp;-collect in Mellieħa.',
+  `<p>We deliver locally and offer free click-&amp;-collect from the shop in Mellieħa.</p>
+<h3>Local delivery</h3><p>We offer same-day local delivery around Mellieħa and the north of Malta for orders placed before the daily cut-off. Delivery areas, fees and any free-delivery threshold are shown at checkout.</p>
+<h3>Click &amp; collect</h3><p>Order online and pick up in store, usually the same day — we’ll let you know when it’s ready.</p>
+<h3>Delivery times</h3><p>Most local orders arrive the same or next day. We’ll contact you if anything affects your delivery.</p>
+<h3>Questions</h3><p>For anything about a delivery or collection, just get in touch and we’ll sort it.</p>`,
+);
+
+const TERMS = legal(
+  'Terms of Service',
+  'The terms for using this website and buying from Pet Centre.',
+  `<p>These terms apply when you use this website and buy from Pet Centre, Il-Mellieħa, Malta. By placing an order you agree to them.</p>
+<h3>Products &amp; prices</h3><p>Prices are in euro (€) and include VAT where applicable. We try to keep product information and stock accurate, but availability can change. If a pricing error occurs we’ll let you know before processing your order.</p>
+<h3>Orders</h3><p>Your order is an offer to buy; a contract is formed when we confirm it. We may decline or cancel an order (for example, if an item is out of stock) and will refund any payment.</p>
+<h3>Payments</h3><p>Payments are handled securely by our payment provider. We do not store full card details.</p>
+<h3>Pet Club</h3><p>Pet Club membership is free. Points and rewards are subject to availability and may change; we’ll give reasonable notice of any material changes.</p>
+<h3>Vet &amp; grooming</h3><p>Vet and grooming services are provided by appointment and may have their own booking terms, which we’ll share when you book.</p>
+<h3>Liability</h3><p>Nothing in these terms limits your statutory rights. To the extent permitted by law, our liability is limited to the value of your order.</p>
+<h3>Governing law</h3><p>These terms are governed by the laws of Malta, and disputes are subject to the Maltese courts.</p>`,
+);
 
 const PAGES = [
   {name: 'Home', url: '/', title: 'Pet Centre — pet shop & vet in Mellieħa, Malta', html: HOME},
@@ -138,6 +198,10 @@ const PAGES = [
   {name: 'Pet Club', url: '/pet-club', title: 'Pet Club rewards | Pet Centre', html: PETCLUB},
   {name: 'Vet & Grooming', url: '/vet-grooming', title: 'Vet & Grooming | Pet Centre', html: VETGROOM},
   {name: 'Contact', url: '/contact', title: 'Visit us in Mellieħa | Pet Centre', html: CONTACT},
+  {name: 'Privacy Policy', url: '/privacy-policy', title: 'Privacy Policy | Pet Centre', html: PRIVACY},
+  {name: 'Refunds & Returns', url: '/refund-policy', title: 'Refunds & Returns | Pet Centre', html: REFUND},
+  {name: 'Shipping & Delivery', url: '/shipping-policy', title: 'Shipping & Delivery | Pet Centre', html: SHIPPING},
+  {name: 'Terms of Service', url: '/terms-of-service', title: 'Terms of Service | Pet Centre', html: TERMS},
 ];
 
 async function loadPageMap() {

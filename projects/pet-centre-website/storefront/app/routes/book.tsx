@@ -48,20 +48,19 @@ export default function BookPage() {
             textAlign: 'center',
           }}
         >
-          <div style={{fontSize: 34}}>📅</div>
+          <div style={{fontSize: 34}}>🐾</div>
           <strong style={{display: 'block', margin: '8px 0', fontSize: 18}}>
-            Booking calendar
+            Online booking is coming soon
           </strong>
           <p style={{color: '#51607a', maxWidth: 460, margin: '0 auto'}}>
-            Your scheduling tool (Cal.com / Calendly) embeds here — connect an
-            account and paste its inline link to go live.
+            We’re putting the finishing touches on instant online booking. In the
+            meantime, pop into the shop in Mellieħa or send us a message and we’ll
+            find a time that suits you and your pet.
           </p>
           <p style={{marginTop: 14}}>
-            In the meantime,{' '}
             <a href="/contact" style={{color: '#00975a', fontWeight: 700}}>
-              contact us
-            </a>{' '}
-            to book.
+              Get in touch to book →
+            </a>
           </p>
         </div>
       )}

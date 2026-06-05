@@ -4,7 +4,7 @@ import {Image} from '@shopify/hydrogen';
 import {redirectIfHandleIsLocalized} from '~/lib/redirect';
 
 export const meta: Route.MetaFunction = ({data}) => {
-  return [{title: `Hydrogen | ${data?.article.title ?? ''} article`}];
+  return [{title: `${data?.article.title ?? 'Article'} | Pet Centre`}];
 };
 
 export async function loader(args: Route.LoaderArgs) {
