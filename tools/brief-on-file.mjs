@@ -8,9 +8,9 @@
 //
 // Fail-open: any error → emit nothing (never disrupt a tool result).
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveDomains, buildBrief, gitRoot } from './brief-lib.mjs';
+import { resolveDomains, buildBrief, gitRoot, alreadyBriefed, markBriefed } from './brief-lib.mjs';
 
 function emit(context) {
   if (context) {
@@ -45,18 +45,15 @@ try {
   const projectDir = join(root, 'projects', projectName);
   if (!existsSync(projectDir)) emit('');
 
-  // Dedup: brief each project once per session.
-  const sessionId = (payload?.session_id || 'nosession').replace(/[^\w.-]/g, '_');
-  const tmpDir = join(root, '.claude', '.tmp');
-  const marker = join(tmpDir, `briefed-${sessionId}-${projectName}.flag`);
-  if (existsSync(marker)) emit(''); // already briefed this project this session
+  // Dedup: brief each project once per session, via the marker shared with the prompt &
+  // session-start hooks (whichever fired first already briefed it → stay silent).
+  const sessionId = payload?.session_id || 'nosession';
+  if (alreadyBriefed(root, sessionId, projectName)) emit('');
 
   const { domains, inferred } = resolveDomains(projectDir);
-  if (!domains.length) emit(''); // undeterminable → stay silent (don't write marker; allow a later retry)
+  if (!domains.length) emit(''); // undeterminable → stay silent (don't mark; allow a later retry)
 
-  mkdirSync(tmpDir, { recursive: true });
-  writeFileSync(marker, `${new Date().toISOString()} ${domains.join(',')}\n`, 'utf8');
-
+  markBriefed(root, sessionId, projectName, domains);
   emit(buildBrief(root, domains, projectName, inferred));
 } catch {
   emit('');

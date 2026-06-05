@@ -7,7 +7,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveDomains, buildBrief, gitRoot } from './brief-lib.mjs';
+import { resolveDomains, buildBrief, gitRoot, alreadyBriefed, markBriefed } from './brief-lib.mjs';
 
 function emit(context) {
   if (context) {
@@ -37,6 +37,11 @@ try {
 
   const { domains, inferred } = resolveDomains(projectDir);
   if (!domains.length) emit('');
+
+  // Coordinate with the prompt & file-touch hooks: brief once per session+project.
+  const sessionId = payload?.session_id || 'nosession';
+  if (alreadyBriefed(root, sessionId, projectName)) emit('');
+  markBriefed(root, sessionId, projectName, domains);
 
   emit(buildBrief(root, domains, projectName, inferred));
 } catch {

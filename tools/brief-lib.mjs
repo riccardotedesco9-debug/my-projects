@@ -11,7 +11,7 @@
 // adding/removing a domain on the line, re-briefs automatically with no per-project wiring.
 
 import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const DOMAINS = ['Engineering', 'Marketing', 'WebDesign', 'WebScraper'];
@@ -225,6 +225,86 @@ export function buildBrief(root, domains, projectName, inferred) {
     brief += `\n→ This project's stack & conventions: read \`projects/${projectName}/CLAUDE.md\`.\n`;
   }
   return brief.trim();
+}
+
+// ---- Session+project dedup, shared by all three briefing entry points ----
+// A project is briefed at most ONCE per session; whichever hook fires first (prompt > session-start >
+// file-touch) wins, the rest stay silent. A separate per-session marker tracks the generic
+// orientation nudge so it shows once, not on every prompt. Markers live in <root>/.claude/.tmp.
+
+function tmpDir(root) {
+  return join(root, '.claude', '.tmp');
+}
+function safe(s) {
+  return String(s || 'nosession').replace(/[^\w.-]/g, '_');
+}
+
+export function alreadyBriefed(root, sessionId, projectName) {
+  return existsSync(join(tmpDir(root), `briefed-${safe(sessionId)}-${safe(projectName)}.flag`));
+}
+export function markBriefed(root, sessionId, projectName, domains) {
+  const dir = tmpDir(root);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, `briefed-${safe(sessionId)}-${safe(projectName)}.flag`),
+    `${new Date().toISOString()} ${(domains || []).join(',')}\n`,
+    'utf8',
+  );
+}
+export function alreadyNudged(root, sessionId) {
+  return existsSync(join(tmpDir(root), `oriented-${safe(sessionId)}.flag`));
+}
+export function markNudged(root, sessionId) {
+  const dir = tmpDir(root);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `oriented-${safe(sessionId)}.flag`), `${new Date().toISOString()}\n`, 'utf8');
+}
+
+// Project name if a path/cwd sits inside projects/<name>/...  Else ''.
+export function projectFromPath(p) {
+  if (!p) return '';
+  const parts = String(p).split(/[\\/]/);
+  const i = parts.lastIndexOf('projects');
+  return i !== -1 && i + 1 < parts.length ? parts[i + 1] : '';
+}
+
+// Best-effort: does the prompt reference an EXISTING project under projects/? A `projects/<name>`
+// path wins; else a bare folder name matched as a whole word (longest first, so a longer slug beats
+// an overlapping shorter one). Conservative by design — returns '' when unsure, so the caller falls
+// back to the generic nudge rather than briefing the wrong project.
+export function findProjectInPrompt(root, prompt) {
+  if (!prompt) return '';
+  const text = String(prompt);
+  const pathM = /projects[\\/]+([\w.-]+)/i.exec(text);
+  if (pathM) return pathM[1];
+  let dirs;
+  try {
+    dirs = readdirSync(join(root, 'projects'), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
+  } catch {
+    return '';
+  }
+  for (const name of dirs.sort((a, b) => b.length - a.length)) {
+    const re = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
+    if (re.test(text)) return name;
+  }
+  return '';
+}
+
+// Short orientation injected BEFORE the first action when no project is resolvable (cold/new work).
+// Points at the FULL toolkit (skills + subagents + MCP + gates), not skills alone — the brief is
+// toolkit-wide, and that completeness is the whole point.
+export function genericNudge() {
+  return [
+    '## Orientation — My Projects workspace',
+    '',
+    "Before building, identify the project's domain (Engineering / Marketing / WebDesign / WebScraper).",
+    'Each domain carries a full toolkit — **skills, subagents, MCP tools, and the mandatory gates** —',
+    'briefed automatically once a project is known. Creating a NEW project? Add a `Domain:` line to its',
+    '`projects/<name>/CLAUDE.md` and the matching toolkit surfaces. The root `CLAUDE.md` holds the',
+    'structure + cross-cutting rules (1Password secrets, tools-first, creative-router visual routing).',
+  ].join('\n');
 }
 
 // Resolve workspace root (git toplevel) from a starting dir. Null on failure.
