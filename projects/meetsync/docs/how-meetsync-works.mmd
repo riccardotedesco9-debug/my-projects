@@ -1,0 +1,21 @@
+flowchart TD
+    U["📱 You &amp; your friends<br/><i>chat with the bot in Telegram</i>"]
+    G["🛡️ Security gate<br/><i>confirms it's really you, blocks spam</i>"]
+    B["🧠 The assistant (AI)<br/><i>understands your message,<br/>decides what to do</i>"]
+    M[("🗂️ Memory<br/><i>your schedule, contacts, reminders</i>")]
+    C["📅 Google Calendar<br/><i>your real calendar</i>"]
+    F["📋 Schedule builder<br/><i>plain code, not the AI —<br/>lists every entry exactly,<br/>never drops one</i>"]
+
+    U == "your message" ==> G
+    G ==> B
+    B <-- "look up / save" --> M
+    B <-- "read &amp; book events" --> C
+    B -- "to SHOW your schedule" --> F
+    F -- "exact, complete list" --> B
+    B == "reply" ==> G
+    G == "answer" ==> U
+
+    style F fill:#e6ffe6,stroke:#2e8b57,stroke-width:3px
+    style B fill:#fff3cd,stroke:#d4a017,stroke-width:3px
+    style M fill:#e6f0ff,stroke:#4169e1,stroke-width:2px
+    style C fill:#f0e6ff,stroke:#7b4fc0,stroke-width:2px
