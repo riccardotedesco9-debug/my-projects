@@ -25,7 +25,7 @@ const filename = label ? `screenshot-${next}-${label}.png` : `screenshot-${next}
 const outputPath = join(SCREENSHOTS_DIR, filename);
 
 try {
-  execSync(`node "${CHROME_DEVTOOLS_SCREENSHOT}" "${url}" --output "${outputPath}" --full-page`, {
+  execSync(`node "${CHROME_DEVTOOLS_SCREENSHOT}" --url "${url}" --output "${outputPath}" --full-page true`, {
     stdio: 'inherit',
   });
   console.log(`Screenshot saved: ${outputPath}`);
