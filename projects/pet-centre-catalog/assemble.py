@@ -59,12 +59,19 @@ def img_url(rec):
     return rec.get("url", "") if rec else ""
 
 
+# Human-readable col-G labels: every verified tier says HOW it was confirmed.
+VERIFIED_LABELS = {
+    "verified-official": "verified (official site)",  # barcode confirmed on the brand's own site
+    "verified-cross": "verified (2+ sources)",        # barcode confirmed on 2+ independent sites
+    "verified": "verified (barcode)",                 # barcode confirmed on a trusted page
+    "verified-visual": "verified (image)",            # AI confirmed the photo is the product
+}
+
+
 def confidence(rec):
     c = rec.get("confidence") if rec else None
-    if c == "verified-visual":
-        return "verified (image)"  # image-AI confirmed — trusted, but not barcode-confirmed
-    if c and c.startswith("verified"):
-        return c  # verified-official / verified-cross / verified
+    if c in VERIFIED_LABELS:
+        return VERIFIED_LABELS[c]
     if c == "likely":
         return "likely (check)"
     return "blank: " + ((rec or {}).get("reason") or "no-data")
