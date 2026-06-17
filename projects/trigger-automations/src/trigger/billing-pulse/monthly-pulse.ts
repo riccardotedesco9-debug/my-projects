@@ -1,6 +1,6 @@
 // monthly-pulse.ts — Trigger.dev scheduled task. Fires 1st of each month
 // at 09:00 Europe/Malta. Fans out to each provider's billing fetcher,
-// collects MeetSync + job-hunt app metrics, counts alerts, then appends
+// collects MeetSync app metrics, counts alerts, then appends
 // one snapshot row to the AI Spend Tracker Google Sheet.
 //
 // One-time setup:
@@ -21,7 +21,6 @@ import { fetchFirecrawlUsage } from "../../lib/billing/firecrawl.js";
 import { fetchCloudflareUsage } from "../../lib/billing/cloudflare.js";
 import { fetchTriggerUsage } from "../../lib/billing/trigger.js";
 import { fetchMeetsyncAppMetrics } from "../../lib/billing/meetsync-app.js";
-import { fetchJobhuntAppMetrics } from "../../lib/billing/jobhunt-app.js";
 import { countAlertsInMonth } from "../../lib/billing/alerts-log.js";
 import { appendSnapshot } from "../../lib/billing/sheet-writer.js";
 import { notifyOwner } from "../../lib/telegram-notify.js";
@@ -29,8 +28,7 @@ import type { ProviderUsage } from "../../lib/billing/types.js";
 
 export const billingMonthlyPulse = schedules.task({
   id: "billing-monthly-pulse",
-  // 1st of each month, 09:00 Europe/Malta. After job-hunt's Mon 07:00 cron
-  // so we never overlap, and at a time when the previous month is closed.
+  // 1st of each month, 09:00 Europe/Malta — a time when the previous month is closed.
   cron: { pattern: "0 9 1 * *", timezone: "Europe/Malta" },
   maxDuration: 300, // 5 min — providers respond in seconds; pagination is the slow part
   run: async () => {
@@ -45,7 +43,7 @@ export const billingMonthlyPulse = schedules.task({
 
     try {
       // Fan out — one provider's failure shouldn't tank the rest.
-      const [anthropic, elevenlabs, trigger, cloudflare, firecrawl, meetsync, jobhunt, alertCount] =
+      const [anthropic, elevenlabs, trigger, cloudflare, firecrawl, meetsync, alertCount] =
         await Promise.all([
           fetchAnthropicUsage(startISO, endISO),
           fetchElevenLabsUsage(),
@@ -53,7 +51,6 @@ export const billingMonthlyPulse = schedules.task({
           fetchCloudflareUsage(startISO, endISO),
           fetchFirecrawlUsage(),
           fetchMeetsyncAppMetrics(startISO),
-          fetchJobhuntAppMetrics(startISO),
           countAlertsInMonth(startISO),
         ]);
 
@@ -69,7 +66,6 @@ export const billingMonthlyPulse = schedules.task({
         month: monthLabel,
         byProvider,
         meetsync,
-        jobhunt,
         alertCount,
       });
 
@@ -88,7 +84,6 @@ export const billingMonthlyPulse = schedules.task({
         month: monthLabel,
         providers: byProvider,
         meetsync,
-        jobhunt,
         alertCount,
         erroredCount: errored.length,
       };

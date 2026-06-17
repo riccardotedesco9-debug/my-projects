@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hostinger vs SumUp vs Shopify vs WooCommerce — 2026</title>
+<style>
+  :root{
+    --bg:#0c0f17; --bg2:#11151f; --card:#161b27; --card2:#1c2333;
+    --line:#262e40; --txt:#e8edf6; --mut:#97a3b8; --dim:#6b7689;
+    --grn:#3ddc84; --grn-bg:rgba(61,220,132,.12);
+    --red:#ff6b6b; --red-bg:rgba(255,107,107,.12);
+    --amb:#ffc14d; --amb-bg:rgba(255,193,77,.12);
+    --blu:#5aa7ff; --acc:#7c8cff; --acc2:#c08bff;
+    /* brand-ish accents per tool */
+    --host:#9b7bff; --sum:#3ddc84; --shop:#95bf47; --woo:#7f54b3;
+    --rad:15px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#1a2140 0%,transparent 55%),var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:var(--blu);text-decoration:none}
+  .wrap{max-width:1160px;margin:0 auto;padding:0 22px}
+
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(12,15,23,.82);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:5px;align-items:center;height:54px;overflow-x:auto;scrollbar-width:none}
+  nav .wrap::-webkit-scrollbar{display:none}
+  nav b{font-size:13.5px;letter-spacing:.3px;margin-right:12px;white-space:nowrap;color:var(--acc)}
+  nav a{color:var(--mut);font-size:12.5px;padding:7px 10px;border-radius:9px;white-space:nowrap;transition:.18s}
+  nav a:hover{color:#fff;background:var(--card2)}
+
+  header{padding:52px 0 26px;border-bottom:1px solid var(--line)}
+  .kick{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--acc2);border:1px solid var(--line);padding:5px 12px;border-radius:999px;margin-bottom:16px}
+  h1{font-size:clamp(27px,4.4vw,44px);line-height:1.1;letter-spacing:-.02em;font-weight:800}
+  h1 .h{color:var(--host)}h1 .s{color:var(--sum)}h1 .p{color:var(--shop)}h1 .w{color:var(--woo)}
+  .sub{color:var(--mut);max-width:740px;margin-top:14px;font-size:15.5px}
+
+  section{padding:38px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+  h2{font-size:clamp(21px,3vw,28px);letter-spacing:-.01em;font-weight:750;margin-bottom:6px}
+  .lead{color:var(--mut);max-width:820px;margin-bottom:20px;font-size:15px}
+
+  /* relationship diagram */
+  .rel{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:860px){.rel{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:500px){.rel{grid-template-columns:1fr}}
+  .rcard{border:1px solid var(--line);border-radius:13px;padding:15px;background:var(--card)}
+  .rcard .t{font-family:var(--mono);font-size:11px;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
+  .rcard h4{font-size:16px;margin-bottom:5px}
+  .rcard p{font-size:12.5px;color:var(--mut)}
+  .rcard.host{border-top:3px solid var(--host)} .rcard.host .t{color:var(--host)}
+  .rcard.sum{border-top:3px solid var(--sum)} .rcard.sum .t{color:var(--sum)}
+  .rcard.shop{border-top:3px solid var(--shop)} .rcard.shop .t{color:var(--shop)}
+  .rcard.woo{border-top:3px solid var(--woo)} .rcard.woo .t{color:var(--woo)}
+  .relnote{margin-top:14px;background:rgba(124,140,255,.08);border:1px solid rgba(124,140,255,.25);border-radius:12px;padding:13px 16px;font-size:13.5px;color:#cdd5ff}
+  .relnote b{color:#fff}
+
+  /* matrix */
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--rad)}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:780px}
+  th,td{padding:10px 13px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{background:var(--card2);color:var(--txt);font-size:13px;font-weight:700;position:sticky;top:0}
+  thead th.dim{color:var(--mut);font-family:var(--mono);font-size:11px;letter-spacing:.5px;text-transform:uppercase;font-weight:600}
+  th.h{border-top:3px solid var(--host)}th.s{border-top:3px solid var(--sum)}th.p{border-top:3px solid var(--shop)}th.w{border-top:3px solid var(--woo)}
+  td:first-child{color:var(--mut);font-family:var(--mono);font-size:11.5px;letter-spacing:.3px;white-space:nowrap}
+  tbody tr:hover{background:rgba(124,140,255,.05)}
+  td b{color:#fff}
+  .yes{color:var(--grn);font-weight:600}.nope{color:var(--red);font-weight:600}.warn{color:var(--amb);font-weight:600}
+  .price{font-family:var(--mono);color:#fff}
+  .small{font-size:11.5px;color:var(--dim)}
+
+  /* deep cards */
+  .deep{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:860px){.deep{grid-template-columns:1fr}}
+  .dc{border:1px solid var(--line);border-radius:14px;padding:18px;background:var(--card);display:flex;flex-direction:column;gap:9px}
+  .dc.host{border-left:3px solid var(--host)} .dc.sum{border-left:3px solid var(--sum)}
+  .dc.shop{border-left:3px solid var(--shop)} .dc.woo{border-left:3px solid var(--woo)}
+  .dc h3{font-size:18px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+  .dc .role{font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .dc .blurb{font-size:13.5px;color:var(--txt)}
+  .dc .sec{font-size:12.5px;color:var(--mut)}
+  .dc .sec b{color:#fff;display:block;font-size:11px;font-family:var(--mono);letter-spacing:.5px;text-transform:uppercase;margin:6px 0 2px;color:var(--mut)}
+  .pl{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dotted var(--line)}
+  .pl span:last-child{font-family:var(--mono);color:#fff}
+  .pros{font-size:12.5px}.pros li{list-style:none;display:flex;gap:7px;margin-top:3px;color:var(--mut)}
+  .pros li.up::before{content:"▲";color:var(--grn);font-size:10px;margin-top:2px}
+  .pros li.dn::before{content:"▼";color:var(--red);font-size:10px;margin-top:2px}
+
+  .callout{background:var(--amb-bg);border:1px solid rgba(255,193,77,.32);border-radius:12px;padding:13px 16px;font-size:13.5px;color:#f0d9a8;margin-top:16px}
+  .callout.win{background:var(--grn-bg);border-color:rgba(61,220,132,.4);color:#bdebcf}
+  .callout b{color:#fff}
+  .note{font-size:12px;color:var(--dim);margin-top:11px;font-style:italic}
+  footer{padding:30px 0 60px}
+  .src{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.95}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>◆ 4-WAY · MALTA 2026</b>
+  <a href="#types">Not the same type</a>
+  <a href="#matrix">Full matrix</a>
+  <a href="#deep">Deep dive</a>
+  <a href="#cost">Cost example</a>
+  <a href="#verdict">Verdict</a>
+</div></nav>
+
+<header><div class="wrap">
+  <span class="kick">Deep Comparison · Verified June 2026 · Malta (EU)</span>
+  <h1><span class="h">Hostinger</span> vs <span class="s">SumUp</span> vs <span class="p">Shopify</span> vs <span class="w">WooCommerce</span></h1>
+  <p class="sub">Everything each one offers — features, pricing, who handles hosting/security/SSL/PCI, fees, scalability, GDPR — plus the part most comparisons miss: <b style="color:var(--txt)">these four aren't the same kind of product</b>, and two of them actually team up.</p>
+</div></header>
+
+<!-- TYPES -->
+<section id="types"><div class="wrap">
+  <div class="eyebrow">Read this first</div>
+  <h2>They're four different layers — not four versions of one thing</h2>
+  <p class="lead">Comparing them head-to-head on price alone is misleading. Here's what each one actually <i>is</i>:</p>
+  <div class="rel">
+    <div class="rcard host"><div class="t">Web host + builder</div><h4>Hostinger</h4><p>Gives you server space, a domain, SSL, and a simple AI builder. A <b>place to run a site</b> — including WordPress/WooCommerce. It is not itself a shop.</p></div>
+    <div class="rcard sum"><div class="t">Payments + POS</div><h4>SumUp</h4><p>A card reader + till + a free light online store. <b>Payments-led</b>: starts from "take a card in person," adds a basic web shop.</p></div>
+    <div class="rcard shop"><div class="t">All-in-one commerce</div><h4>Shopify</h4><p>Hosting + store + POS + payments + security, all managed in one subscription. <b>Nothing to self-administer.</b></p></div>
+    <div class="rcard woo"><div class="t">Self-hosted commerce</div><h4>WooCommerce</h4><p>A free shop plugin for WordPress. Infinitely flexible, but <b>needs a host</b> (e.g. Hostinger) and someone to run it.</p></div>
+  </div>
+  <div class="relnote"><b>The key relationship:</b> WooCommerce <i>runs on</i> a host like Hostinger — so "<span style="color:var(--host)">Hostinger</span> + <span style="color:var(--woo)">WooCommerce</span>" is really <b>one combined route</b> (cheap + flexible, but you own the upkeep). <span style="color:var(--shop)">Shopify</span> is the all-in-one managed alternative to that whole stack. <span style="color:var(--sum)">SumUp</span> is the odd one out — it's the in-person-first, plug-and-play option.</div>
+</div></section>
+
+<!-- MATRIX -->
+<section id="matrix"><div class="wrap">
+  <div class="eyebrow">Everything, side by side</div>
+  <h2>Full feature matrix</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr>
+        <th class="dim">Dimension</th>
+        <th class="h">Hostinger</th><th class="s">SumUp</th><th class="p">Shopify</th><th class="w">WooCommerce</th>
+      </tr></thead>
+      <tbody>
+        <tr><td>What it is</td><td>Web host + AI builder</td><td>Payments + POS + light store</td><td>All-in-one commerce</td><td>Self-hosted store plugin</td></tr>
+        <tr><td>Best for</td><td>Cheap home for a WP/Woo site or basic brochure</td><td>Small in-person seller wanting cheap card + simple web</td><td><b>Serious selling, online + in-store, hands-off</b></td><td>Full control &amp; ownership, willing to maintain</td></tr>
+        <tr><td>Setup (non-coder)</td><td class="warn">Medium</td><td class="yes">Easiest — plug &amp; play</td><td class="yes">Easy — guided</td><td class="nope">Hardest — needs dev help</td></tr>
+        <tr><td>Hosting handled?</td><td class="yes">Yes (it's the host)</td><td class="yes">Yes (SaaS)</td><td class="yes">Yes (fully managed)</td><td class="warn">You buy a host (e.g. Hostinger)</td></tr>
+        <tr><td>Security + updates</td><td class="warn">Server yes; <b>you</b> patch WordPress</td><td class="yes">Fully managed</td><td class="yes">Fully managed (Level-1 PCI)</td><td class="nope"><b>You / your dev</b></td></tr>
+        <tr><td>SSL</td><td class="yes">Free (Let's Encrypt)</td><td class="yes">Built in</td><td class="yes">Built in</td><td class="yes">Free via host</td></tr>
+        <tr><td>PCI compliance</td><td>Via your processor</td><td class="yes">Handled by SumUp</td><td class="yes">Handled (Level 1)</td><td>Via your processor; you keep app safe</td></tr>
+        <tr><td>Online store</td><td>Basic builder, or full via WooCommerce</td><td>Basic catalog, free</td><td class="yes">Full-featured</td><td class="yes">Full-featured + extensible</td></tr>
+        <tr><td>In-person POS</td><td>Only via Woo + POS plugin</td><td class="yes">Native (its core)</td><td class="yes">POS Lite free / Pro €79</td><td>Via Oliver/FooSales plugin</td></tr>
+        <tr><td>Inventory mgmt</td><td>Via WooCommerce</td><td>Basic stock counts</td><td class="yes">Native, multi-location</td><td class="yes">Native + powerful plugins</td></tr>
+        <tr><td>Expiry / batch (perishables)</td><td>Woo plugin (€79 / ATUM)</td><td class="nope">None → spreadsheet</td><td class="warn">Apps (€15–40/mo)</td><td class="yes">Best — ATUM, Batch &amp; Expiration</td></tr>
+        <tr><td>Multichannel (social/marketplaces)</td><td>Via Woo plugins</td><td>Limited</td><td class="yes">Strong (built-in)</td><td>Via plugins</td></tr>
+        <tr><td>Platform cut (per sale)</td><td class="yes">0%</td><td class="yes">0%</td><td class="yes">0% w/ Shopify Payments*</td><td class="yes">0%</td></tr>
+        <tr><td>Card processing (EU)</td><td>Stripe ~1.5–1.9%</td><td>1.69% in-person · 2.5% online</td><td>~1.7% in-person · 1.9%+€0.25 online</td><td>Stripe/WooPayments ~1.5–1.9%</td></tr>
+        <tr><td>Monthly price</td><td class="price">€2.99→€8–26<span class="small"> (renewal 3×)</span></td><td class="price">€0 or €29</td><td class="price">€36–384</td><td class="price">free + €14–35 host</td></tr>
+        <tr><td>Hardware</td><td>—</td><td class="price">Reader €42</td><td class="price">Reader €49+</td><td>Reader for POS plugin</td></tr>
+        <tr><td>App / plugin ecosystem</td><td>WordPress plugins</td><td class="warn">Small</td><td class="yes">Huge App Store</td><td class="yes">Largest (WordPress)</td></tr>
+        <tr><td>Scalability</td><td>Upgrade hosting (shared limits)</td><td class="nope">Small-scale only</td><td class="yes">To enterprise (Plus)</td><td class="yes">As far as your host/dev go</td></tr>
+        <tr><td>GDPR data residency</td><td class="yes">EU DCs (LT/NL)</td><td class="yes">EU</td><td class="yes">EU-default</td><td class="yes">Your EU host's choice</td></tr>
+        <tr><td>Support</td><td>24/7 chat</td><td>Email/phone</td><td class="yes">24/7 + ecosystem</td><td class="warn">Community / your dev</td></tr>
+        <tr><td>Lock-in / migration</td><td>Standard WP — portable</td><td>Light, easy to leave</td><td class="warn">Export OK, theme/apps locked</td><td class="yes">You own it all — portable</td></tr>
+        <tr><td>Hidden costs</td><td>Renewal jump, premium plugins</td><td>None beyond reader</td><td>POS Pro, expiry app, theme, apps</td><td><b>Setup €500–1500</b>, plugins, maintenance €50–150/mo</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">* Shopify charges 2% / 1% / 0.5% (Basic/Grow/Advanced) only if you use an outside processor instead of Shopify Payments — avoidable.</p>
+</div></section>
+
+<!-- DEEP -->
+<section id="deep"><div class="wrap">
+  <div class="eyebrow">What each one offers in full</div>
+  <h2>Deep dive</h2>
+  <div class="deep">
+
+    <div class="dc host">
+      <h3>Hostinger <span class="role">· web host + builder</span></h3>
+      <div class="blurb">Cheap, fast hosting with a beginner AI site builder and one-click WordPress/WooCommerce. The <b>infrastructure</b>, not the shop.</div>
+      <div class="sec"><b>Plans (intro → renewal)</b>
+        <div class="pl"><span>Premium</span><span>€2.99 → €8–11</span></div>
+        <div class="pl"><span>Business (+WooCommerce-ready)</span><span>€3.99 → €19</span></div>
+        <div class="pl"><span>Cloud Startup</span><span>€8 → €26</span></div>
+      </div>
+      <div class="sec"><b>Offers</b> Free SSL · free domain (1yr) · 100+ emails · daily backups (Business+) · EU data centres · 24/7 chat · staging.</div>
+      <ul class="pros"><li class="up">Cheapest entry; EU data; easy WordPress install</li><li class="dn">Renewal price 3×+ intro</li><li class="dn">You manage WordPress security/updates — not "hands-off"</li></ul>
+    </div>
+
+    <div class="dc sum">
+      <h3>SumUp <span class="role">· payments + POS</span></h3>
+      <div class="blurb">Buy a €42 reader, take cards in minutes, get a free light online store that shares stock with the till. <b>Plug-and-play</b>, Malta-native.</div>
+      <div class="sec"><b>Plans</b>
+        <div class="pl"><span>Free POS app + online store</span><span>€0</span></div>
+        <div class="pl"><span>SumUp One (lower fees + perks)</span><span>€29/mo</span></div>
+        <div class="pl"><span>Air card reader</span><span>€42 one-off</span></div>
+      </div>
+      <div class="sec"><b>Offers</b> Card reader + till app · free online store · basic stock · invoices · payment links · gift cards · 1.69% in-person / 2.5% online (1.25% w/ One).</div>
+      <ul class="pros"><li class="up">Cheapest card rate; nothing to administer; EU data</li><li class="up">No monthly fee or contract on free tier</li><li class="dn">No expiry tracking; basic catalog; won't scale to a big shop</li></ul>
+    </div>
+
+    <div class="dc shop">
+      <h3>Shopify <span class="role">· all-in-one commerce</span></h3>
+      <div class="blurb">Hosting, store, POS, payments, security — all managed, all in one subscription. The <b>fully-managed</b> way to sell online + in-store on one stock count.</div>
+      <div class="sec"><b>Plans (monthly / annual)</b>
+        <div class="pl"><span>Starter (links/social)</span><span>€5</span></div>
+        <div class="pl"><span>Basic</span><span>€36 / €27</span></div>
+        <div class="pl"><span>Grow</span><span>€105 / €79</span></div>
+        <div class="pl"><span>Advanced</span><span>€384 / €289</span></div>
+        <div class="pl"><span>POS Pro (per location)</span><span>+€79</span></div>
+      </div>
+      <div class="sec"><b>Offers</b> Full store + checkout · free POS Lite · Shopify Payments (Malta ✓, 0% cut) · multichannel · huge App Store (expiry apps for perishables) · Level-1 PCI · 24/7 support.</div>
+      <ul class="pros"><li class="up">Zero admin — hosting/SSL/PCI/security done for you</li><li class="up">Real till + website share one stock; scales to enterprise</li><li class="dn">Monthly fee + paid apps add up; some theme/app lock-in</li></ul>
+    </div>
+
+    <div class="dc woo">
+      <h3>WooCommerce <span class="role">· self-hosted store</span></h3>
+      <div class="blurb">A free, open-source shop plugin for WordPress. The most flexible and fully owned option — runs on a host like Hostinger, but <b>you</b> (or a dev) run the stack.</div>
+      <div class="sec"><b>Real cost</b>
+        <div class="pl"><span>Plugin</span><span>free</span></div>
+        <div class="pl"><span>Managed EU host</span><span>€14–35/mo</span></div>
+        <div class="pl"><span>One-time setup (dev)</span><span>€500–1500</span></div>
+        <div class="pl"><span>POS / expiry / GDPR plugins</span><span>€79 + €15–20/mo</span></div>
+        <div class="pl"><span>Maintenance (optional)</span><span>€50–150/mo</span></div>
+      </div>
+      <div class="sec"><b>Offers</b> Unlimited products · best inventory/expiry plugins (ATUM, Batch &amp; Expiration) · POS via Oliver/FooSales · 0% cut · total data/EU control · you own everything (portable).</div>
+      <ul class="pros"><li class="up">Most powerful + flexible; no platform cut; full ownership</li><li class="dn">You own security/updates/backups — wrong for a pure non-coder unless you pay for upkeep</li></ul>
+    </div>
+
+  </div>
+</div></section>
+
+<!-- COST -->
+<section id="cost"><div class="wrap">
+  <div class="eyebrow">Like-for-like</div>
+  <h2>Cost at €5,000/mo (70% in-store / 30% online)</h2>
+  <p class="lead">€3,500 till + €1,500 online (~50 orders). All four take <b>0% cut</b>; the card fee is roughly equal — watch the monthly + setup columns.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="dim">Route</th><th class="dim">Monthly software</th><th class="dim">Card</th><th class="dim">Total/mo</th><th class="dim">One-time</th><th class="dim">Who runs security</th></tr></thead>
+      <tbody>
+        <tr><td><b style="color:var(--shop)">Shopify</b> Basic + POS Lite + expiry app</td><td class="price">€56</td><td class="price">~€100</td><td class="price"><b>≈ €156</b></td><td>—</td><td class="yes">Shopify</td></tr>
+        <tr><td><b style="color:var(--sum)">SumUp</b> One + reader</td><td class="price">€29</td><td class="price">~€78</td><td class="price"><b>≈ €107</b></td><td>€42 reader</td><td class="yes">SumUp</td></tr>
+        <tr><td><b style="color:var(--woo)">WooCommerce</b> on <b style="color:var(--host)">Hostinger</b> + POS + plugins</td><td class="price">~€50</td><td class="price">~€81</td><td class="price"><b>≈ €131</b></td><td class="warn">€500–1500 setup</td><td class="nope">You / dev</td></tr>
+        <tr><td><b style="color:var(--host)">Hostinger</b> own builder store (online only)</td><td class="price">~€19</td><td class="price">~€27</td><td class="price">≈ €46†</td><td>—</td><td class="warn">You (WP) / n-a</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">† Hostinger's own basic store is online-only &amp; limited — the €3,500 in-store half would run on a separate reader. For a real unified shop on Hostinger you'd add WooCommerce (the row above).</p>
+</div></section>
+
+<!-- VERDICT -->
+<section id="verdict"><div class="wrap">
+  <div class="eyebrow">For your case</div>
+  <h2>Which of the four — Malta shop, in-store + online, perishables, non-coder</h2>
+  <div class="callout win"><b>Shopify</b> — the only one of the four that's <b>fully managed</b> (you never touch hosting/SSL/PCI/security), runs a real till sharing one stock count with the site, handles perishables via expiry apps, and operates in Malta with 0% cut on Shopify Payments. ≈ <b>€156/mo</b> all-in. The right pick for a non-coder who wants to just run the shop.</div>
+  <div class="callout"><b>SumUp</b> — best <b>budget</b> route (~€107/mo) and just as hands-off, but it's a lighter system with <b>no expiry tracking</b> (you'd keep a spreadsheet) — fine for a small shop, less room to grow.</div>
+  <div class="callout"><b>Hostinger + WooCommerce</b> — the most powerful &amp; flexible, with the <b>best perishable/expiry plugins</b> and 0% cut, but <b>you (or a paid dev) own security, updates and backups</b> — which conflicts with your "the platform must handle security for me" requirement. Only choose it if you'll pay for managed maintenance. <b>Hostinger alone</b> (its own builder) is for a cheap blog/brochure, not a unified shop.</div>
+</div></section>
+
+<footer><div class="wrap">
+  <p style="margin-bottom:9px;color:var(--mut);font-size:12.5px"><b>Sources</b> — verified June 2026. Prices indicative (region/FX vary); exact card rate shows at signup. Card rates are EU figures (Malta gets EU interchange caps), not US.</p>
+  <p class="src">hostinger.com/pricing · sumup.com/pricing · shopify.com/pricing · shopify.com/pos/pricing · help.shopify.com/.../supported-countries/malta · woocommerce.com (Batch &amp; Expiration) · ATUM · oliverpos.com · cloudways/kinsta (EU hosting) · stripe.com/pricing · Mastercard Malta interchange 2026</p>
+</div></footer>
+
+</body>
+</html>

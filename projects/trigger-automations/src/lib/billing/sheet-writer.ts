@@ -1,14 +1,12 @@
 // Append a single monthly snapshot row to the AI Spend Tracker sheet.
-// Reuses the OAuth refresh-token flow already configured for job-hunt.
 // Reads the previous 2 rows on every append to compute deltas and the
 // 3-month rolling average — these get baked into the row at write time
 // rather than as Sheets formulas, so historical values stay stable even
 // if a row is later edited or re-ordered.
 
-import { getAccessToken } from "../../trigger/job-hunt/google-auth.js";
+import { getAccessToken } from "../google-auth.js";
 import type { ProviderUsage } from "./types.js";
 import type { MeetsyncAppMetrics } from "./meetsync-app.js";
-import type { JobhuntAppMetrics } from "./jobhunt-app.js";
 
 const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -32,9 +30,9 @@ export const SHEET_HEADERS = [
   "meetsync_new_users",          // Q
   "meetsync_turns",              // R
   "meetsync_reminders_fired",    // S
-  "jobhunt_runs",                // T
-  "jobhunt_jobs_ingested",       // U
-  "jobhunt_emails_sent",         // V
+  "jobhunt_runs",                // T  retired (job-hunt removed 2026-06) — kept blank for alignment
+  "jobhunt_jobs_ingested",       // U  retired
+  "jobhunt_emails_sent",         // V  retired
   "alert_count",                 // W  alerts logged in `alerts` tab this month
   "flags",                       // X  comma-list of low-balance / health warnings
   "errors",                      // Y  comma-list of providers that errored this run
@@ -47,7 +45,6 @@ export interface SnapshotRow {
   month: string; // YYYY-MM
   byProvider: Record<ProviderUsage["provider"], ProviderUsage>;
   meetsync: MeetsyncAppMetrics;
-  jobhunt: JobhuntAppMetrics;
   alertCount: number;
 }
 
@@ -98,7 +95,6 @@ export async function appendSnapshot(row: SnapshotRow): Promise<void> {
     }
   }
   if (row.meetsync.error) errors.push(`meetsync-app: ${row.meetsync.error}`);
-  if (row.jobhunt.error) errors.push(`jobhunt-app: ${row.jobhunt.error}`);
 
   const totalUsd =
     Math.round(
@@ -146,9 +142,9 @@ export async function appendSnapshot(row: SnapshotRow): Promise<void> {
     row.meetsync.new_users,
     row.meetsync.turns,
     row.meetsync.reminders_fired,
-    row.jobhunt.runs,
-    row.jobhunt.jobs_ingested,
-    row.jobhunt.emails_sent,
+    null, // jobhunt_runs — retired, column kept blank for sheet alignment
+    null, // jobhunt_jobs_ingested — retired
+    null, // jobhunt_emails_sent — retired
     row.alertCount,
     flags.join("; "),
     errors.join("; "),

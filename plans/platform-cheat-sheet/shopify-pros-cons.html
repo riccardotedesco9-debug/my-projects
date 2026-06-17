@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopify — Pros & Cons, Consolidated (2026, Malta)</title>
+<style>
+  :root{
+    --bg:#0c0f17; --bg2:#11151f; --card:#161b27; --card2:#1c2333;
+    --line:#262e40; --txt:#e8edf6; --mut:#97a3b8; --dim:#6b7689;
+    --grn:#3ddc84; --grn-bg:rgba(61,220,132,.10);
+    --red:#ff6b6b; --red-bg:rgba(255,107,107,.09);
+    --amb:#ffc14d; --amb-bg:rgba(255,193,77,.12);
+    --blu:#5aa7ff; --shop:#95bf47;
+    --rad:15px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#1a2140 0%,transparent 55%),var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased}
+  a{color:var(--blu);text-decoration:none}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 22px}
+
+  header{padding:48px 0 24px;border-bottom:1px solid var(--line)}
+  .kick{display:inline-block;font-family:var(--mono);font-size:11.5px;letter-spacing:2px;text-transform:uppercase;color:var(--shop);border:1px solid var(--line);padding:5px 12px;border-radius:999px;margin-bottom:15px}
+  h1{font-size:clamp(26px,4.4vw,42px);line-height:1.08;letter-spacing:-.02em;font-weight:800}
+  h1 .g{color:var(--shop)}
+  .tldr{margin-top:18px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 18px}
+  .tldr p{font-size:14px;color:var(--txt);margin-bottom:6px}
+  .tldr p:last-child{margin-bottom:0}
+  .tldr b{color:#fff} .tldr .v{color:var(--shop)}
+
+  section{padding:32px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:14px}
+  h2{font-size:clamp(19px,2.6vw,24px);font-weight:750;margin-bottom:14px}
+
+  /* pros | cons side by side */
+  .pc{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.pc{grid-template-columns:1fr}}
+  .pane{border:1px solid var(--line);border-radius:14px;padding:6px 0;background:var(--card)}
+  .pane.pros{border-top:3px solid var(--grn)} .pane.cons{border-top:3px solid var(--red)}
+  .pane h3{font-size:14px;padding:12px 16px 8px;display:flex;align-items:center;gap:8px}
+  .pane.pros h3{color:var(--grn)} .pane.cons h3{color:var(--red)}
+  .pane .row{padding:9px 16px;border-top:1px solid var(--line);font-size:13px;color:var(--mut)}
+  .pane .row b{color:#fff;display:block;margin-bottom:1px;font-size:13.5px}
+  .pane.pros .row b::before{content:"▲ ";color:var(--grn);font-size:9px;vertical-align:middle}
+  .pane.cons .row b::before{content:"▼ ";color:var(--red);font-size:9px;vertical-align:middle}
+
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--rad)}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:480px}
+  th,td{padding:9px 13px;text-align:left;border-bottom:1px solid var(--line)}
+  thead th{background:var(--card2);color:var(--mut);font-family:var(--mono);font-size:11px;letter-spacing:.5px;text-transform:uppercase;font-weight:600}
+  td b{color:#fff} .price{font-family:var(--mono);color:#fff}
+
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:780px){.cols{grid-template-columns:1fr}}
+  .col{border:1px solid var(--line);border-radius:13px;padding:15px;background:var(--card)}
+  .col.best{border-top:3px solid var(--grn)} .col.worst{border-top:3px solid var(--red)}
+  .col h4{font-size:13.5px;margin-bottom:8px} .col.best h4{color:var(--grn)} .col.worst h4{color:var(--red)}
+  .col li{list-style:none;font-size:12.5px;color:var(--mut);display:flex;gap:7px;margin-top:5px}
+  .col.best li::before{content:"✓";color:var(--grn)} .col.worst li::before{content:"✕";color:var(--red)}
+
+  .callout{border-radius:12px;padding:13px 16px;font-size:13.5px;margin-top:13px}
+  .callout.flag{background:var(--amb-bg);border:1px solid rgba(255,193,77,.35);color:#f0d9a8}
+  .callout.win{background:var(--grn-bg);border:1px solid rgba(61,220,132,.4);color:#cdeedb}
+  .callout.risk{background:var(--red-bg);border:1px solid rgba(255,107,107,.35);color:#f3c0c0}
+  .callout b{color:#fff}
+  .mini{font-size:12.5px;color:var(--mut);margin-top:10px}.mini b{color:#fff}
+  .note{font-size:11.5px;color:var(--dim);margin-top:10px;font-style:italic}
+  footer{padding:26px 0 56px}
+  .src{font-family:var(--mono);font-size:10.5px;color:var(--dim);line-height:1.9}
+</style>
+</head>
+<body>
+
+<header><div class="wrap">
+  <span class="kick">Shopify · Pros &amp; Cons · Verified June 2026 · Malta</span>
+  <h1>Should you use <span class="g">Shopify</span>?</h1>
+  <div class="tldr">
+    <p><b>Great at:</b> easiest fully-managed shop for a non-coder — hosting/SSL/PCI/security done for you, best checkout (Shop Pay), real POS + stock sync, huge app store, built-in AI, scales to enterprise.</p>
+    <p><b>Bites:</b> real cost is <b>2–3× the plan</b> (apps+fees, ~€120–250/mo not €22); <b>locked to Shopify Payments</b> (2/1/0.6% surcharge otherwise); <b>payout-hold risk</b>; <b>migration is painful</b> (Liquid + URL lock-in); weaker <b>blog/SEO</b> than WordPress.</p>
+    <p class="v"><b>Verdict (Malta non-coder shop):</b> still the best all-round pick for online + simple in-store — if you budget realistically, use Shopify Payments (0% cut), and confirm the in-person Malta flag below.</p>
+  </div>
+</div></header>
+
+<!-- PROS | CONS -->
+<section><div class="wrap">
+  <div class="eyebrow">The honest balance</div>
+  <h2>Pros &amp; cons at a glance</h2>
+  <div class="pc">
+    <div class="pane pros">
+      <h3>PROS</h3>
+      <div class="row"><b>Fully managed</b>Hosting, SSL, PCI, security, scaling — all Shopify's job, zero on you.</div>
+      <div class="row"><b>Easy for non-coders</b>No-code setup + built-in AI (Sidekick/Magic). Live in hours.</div>
+      <div class="row"><b>Best checkout</b>Shop Pay one-tap lifts conversion ~20% — the biggest revenue lever.</div>
+      <div class="row"><b>Real POS + omnichannel</b>Till + website share one stock count; BOPIS, local delivery.</div>
+      <div class="row"><b>Huge app store</b>One-click email, reviews, loyalty, expiry, fulfilment (double-edged → cons).</div>
+      <div class="row"><b>Reliable + scales</b>Survives Black-Friday spikes effortlessly; grows to enterprise.</div>
+      <div class="row"><b>0% platform cut</b>…when you use Shopify Payments. Plus 24/7 support + big ecosystem.</div>
+    </div>
+    <div class="pane cons">
+      <h3>CONS</h3>
+      <div class="row"><b>App cost creep</b>Thin native features → 5–10 paid apps = €50–150+/mo on top.</div>
+      <div class="row"><b>Payment lock-in</b>Outside processor → 2% (Basic) / 1% (Grow) / 0.6% (Adv) surcharge.</div>
+      <div class="row"><b>Payout holds / freezes</b>Funds can be held on fraud/chargeback flags; opaque appeals. Rare but existential.</div>
+      <div class="row"><b>Lock-in / migration pain</b>Liquid themes don't port; fixed URLs → leaving breaks SEO.</div>
+      <div class="row"><b>Weak blog &amp; SEO limits</b>Rigid URLs, no nested categories vs WordPress.</div>
+      <div class="row"><b>Customization ceiling</b>Deep changes need code/apps; checkout locked below Advanced/Plus.</div>
+      <div class="row"><b>Regressive at scale + US data</b>€1M+/mo loses to BigCommerce/Woo; no EU-only data SLA.</div>
+    </div>
+  </div>
+</div></section>
+
+<!-- COST + MALTA -->
+<section><div class="wrap">
+  <div class="eyebrow">The sticker vs the truth · Malta</div>
+  <h2>Real cost &amp; Malta flags</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Line</th><th>Headline</th><th>Realistic</th></tr></thead>
+      <tbody>
+        <tr><td>Plan (Basic)</td><td class="price">€22–32</td><td class="price">€22–32</td></tr>
+        <tr><td>Apps (email/reviews/loyalty/expiry)</td><td>"free trials"</td><td class="price">+€50–150</td></tr>
+        <tr><td>Card processing (online EU)</td><td>"from 1.7%"</td><td>~2% + €0.25 (Basic)</td></tr>
+        <tr><td>Outside-processor surcharge</td><td>—</td><td class="price">+2/1/0.6%</td></tr>
+        <tr><td><b>True monthly (small store)</b></td><td class="price">"€22"</td><td class="price"><b>~€120–250</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="callout flag"><b>⚠️ Verify before committing the till:</b> Shopify's help docs say Shopify Payments is <b>online-only in Malta</b> (no in-store card processing) — but the live signup page now advertises "sell in person." <b>Confirm at signup</b> whether in-store cards work via Shopify in Malta; if not, use a Stripe Terminal / SumUp reader for the counter.</div>
+  <p class="mini"><b>VAT/GDPR:</b> Shopify Tax calcs Malta 18% VAT + EU OSS but <b>you file &amp; stay liable</b>; no EU-only data residency guarantee; the DPA, consent banner, policies + 72-hr IDPC breach line are still on you.</p>
+</div></section>
+
+<!-- FIT + VERDICT -->
+<section><div class="wrap">
+  <div class="eyebrow">Match &amp; verdict</div>
+  <h2>Who it's for — and the call</h2>
+  <div class="cols">
+    <div class="col best">
+      <h4>Shines when…</h4>
+      <li>Non-coder who wants to sell, not sysadmin</li>
+      <li>Online + simple in-store, one stock</li>
+      <li>Under ~€500k/mo, OK with ~1–2% platform tax</li>
+      <li>Values reliability, checkout, support</li>
+    </div>
+    <div class="col worst">
+      <h4>Look elsewhere when…</h4>
+      <li>Content/SEO-led brand → WooCommerce/WordPress</li>
+      <li>Very thin margins (app+fee creep hurts)</li>
+      <li>Complex products / chargeback-prone (hold risk)</li>
+      <li>€1M+/mo → BigCommerce / self-hosted Woo</li>
+    </div>
+  </div>
+  <div class="callout win"><b>Use Shopify if</b> you want the easiest, fully-managed way to run a Malta shop online + in-store as a non-coder — accepting ~€120–250/mo real cost, Shopify Payments for 0% cut, and that it's a long-term home (migration is painful).</div>
+  <div class="callout risk"><b>Settle two things first:</b> (1) confirm in-person card processing works in Malta at signup; (2) know the payout-hold risk exists so a big month / chargeback spike doesn't blindside you.</div>
+</div></section>
+
+<footer><div class="wrap">
+  <p style="margin-bottom:8px;color:var(--mut);font-size:12px"><b>Sources</b> — verified June 2026. Pricing/fees from Shopify Ireland (EUR, Malta proxy) + Stripe/SumUp/Mollie official pages.</p>
+  <p class="src">shopify.com/ie/pricing · help.shopify.com (Payments Malta · EU tax · transaction fees) · ecomm.design · swell.is (pricing + suspension stats) · chargebacks911 · searchflex / skyloomstudios (SEO) · letstalkshop (migration / payout holds) · numeral (Malta VAT) · jetfuel.agency (Shopify vs Woo vs BigCommerce)</p>
+</div></footer>
+
+</body>
+</html>

@@ -23,7 +23,6 @@ const VAULT = "AI-Stack";
 // Files to scan for values, in priority order (later wins).
 const ENV_FILES = [
   "projects/trigger-automations/.env",
-  "projects/job-hunt/.env",
   "projects/meetsync/.env",
 ];
 

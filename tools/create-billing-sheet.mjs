@@ -4,8 +4,8 @@
 // header row, and saves the resulting sheet ID into 1Password
 // (op://AI-Stack/billing-sheet/id).
 //
-// Reuses the job-hunt OAuth refresh-token already in 1P (same Google
-// account that gets the daily digest emails).
+// Reuses the Google OAuth refresh-token already in 1P (the same Google
+// account used for the daily digest emails).
 //
 // Run from workspace root:
 //   node tools/create-billing-sheet.mjs

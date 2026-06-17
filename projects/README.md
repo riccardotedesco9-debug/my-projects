@@ -7,7 +7,7 @@ This is deliberately separate from **`agents/`** — the sibling folder holding 
 ## Conventions
 
 - **Flat layout** — every project sits directly here (`projects/<name>/`), regardless of domain. No nesting by domain.
-- **Kebab-case** folder names, descriptive (e.g. `client-landing-page/`, `q2-email-campaign/`, `pet-centre-mellieha/`).
+- **Kebab-case** folder names, descriptive (e.g. `client-landing-page/`, `q2-email-campaign/`, `pet-centre-marketing/`).
 - **Each project is self-contained** — its own code/assets, plus its own `docs/` and `plans/` (the session hook creates these in the current directory automatically when you work from inside the folder).
 - **Each project has its own `CLAUDE.md`** — global rules/skills are the baseline; the project's `CLAUDE.md` carries its stack, conventions, and specifics. Put a `Domain:` line at the top so the right local skills/agents are obvious:
 
@@ -25,9 +25,8 @@ Projects here are created and deleted freely. **Don't hardcode any project's nam
 
 ## Deploy-coupled projects (don't rename without rewiring)
 
-Most projects here come and go freely. **Three are referenced by shared tooling**, so renaming/moving them means updating those refs too:
+Most projects here come and go freely. **Two are referenced by shared tooling**, so renaming/moving them means updating those refs too:
 - `meetsync/` — `tools/secrets-manifest.json` points wrangler at `projects/meetsync/worker`; deploy commands live in `meetsync/CLAUDE.md`.
-- `trigger-automations/` — the deployed Trigger.dev platform (runs the meetsync / job-hunt / billing tasks). meetsync's deploy copies it from the sibling `../trigger-automations`.
-- `job-hunt/` — `tools/bootstrap-1p-vault.mjs` reads `projects/job-hunt/.env`.
+- `trigger-automations/` — the deployed Trigger.dev platform (runs the meetsync / billing tasks). meetsync's deploy copies it from the sibling `../trigger-automations`.
 
 Everything else in `projects/` is transient (see above).

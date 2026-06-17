@@ -8,7 +8,7 @@
 // would need an in-Worker OAuth flow — cost > value at this stage). All
 // Worker alerts are still routed to Telegram only.
 
-import { getAccessToken } from "../../trigger/job-hunt/google-auth.js";
+import { getAccessToken } from "../google-auth.js";
 
 const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 const TAB = "alerts";

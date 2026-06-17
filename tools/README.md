@@ -19,7 +19,7 @@ Single source of truth for secrets is the **AI-Stack** vault in 1Password. This 
    - Recommended item names mirror the `opRef` field in `secrets-manifest.json`. Adjust the manifest if you've already named items differently.
 
 3. **Populate from your existing `.env` files** (one-time, ~30 min)
-   - Open each `.env` referenced in the audit (projects/meetsync/, projects/trigger-automations/, projects/job-hunt/)
+   - Open each `.env` referenced in the audit (projects/meetsync/, projects/trigger-automations/)
    - For each variable, create or update the matching 1P item
 
 4. **Verify**
@@ -59,7 +59,7 @@ Migrate one platform at a time so a mistake never tanks both halves of the stack
 2. **Trigger.dev second**
    - `node tools/sync-secrets.mjs --target=trigger-prod --dry-run`
    - Apply (writes file), import via dashboard
-   - Trigger a manual run of `job-hunt-daily-scan` and `meetsync-turn-handler`
+   - Trigger a manual run of `billing-monthly-pulse` and `meetsync-turn-handler`
    - Watch logs for missing-env errors
 3. **Cleanup**
    - Delete the `.tmp/trigger-prod.env` after dashboard import

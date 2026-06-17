@@ -1,0 +1,133 @@
+/* Turtle Adopt-Me Poster — bold & punchy, A4 portrait, print-ready */
+@import url('https://fonts.googleapis.com/css2?family=Anton&family=Archivo:wght@500;700;800&display=swap');
+
+:root {
+  --teal:   #0E3B38;   /* deep background */
+  --teal-2: #14524d;   /* lighter panel */
+  --yellow: #FFC83D;   /* punchy accent */
+  --coral:  #FF6A45;   /* secondary pop */
+  --cream:  #FFF7E9;   /* light text */
+  --ink:    #0E3B38;   /* dark text on light */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+@page { size: A4 portrait; margin: 0; }
+
+html, body { background: #555; }
+
+.poster {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  background: var(--teal);
+  color: var(--cream);
+  font-family: 'Archivo', 'Segoe UI', sans-serif;
+  display: flex;
+  flex-direction: column;
+  padding: 14mm 13mm 0 13mm;
+}
+
+/* ---- decorative dot scatter (top corners) ---- */
+.dots { position: absolute; inset: 0; pointer-events: none; }
+.dot { position: absolute; width: 4mm; height: 4mm; border-radius: 50%; }
+.dot.y { background: var(--yellow); }
+.dot.c { background: var(--coral); }
+.dot.o { background: transparent; border: 1.1mm solid var(--cream); opacity: .35; }
+
+/* ---- header ---- */
+.kicker {
+  font-weight: 800;
+  letter-spacing: .42em;
+  font-size: 10.5pt;
+  color: var(--yellow);
+  text-transform: uppercase;
+  margin-bottom: 4mm;
+}
+.headline {
+  font-family: 'Anton', 'Arial Black', sans-serif;
+  line-height: .84;
+  text-transform: uppercase;
+  letter-spacing: .005em;
+}
+.headline .l1 { display: block; font-size: 116pt; color: var(--cream); }
+.headline .l2 { display: block; font-size: 116pt; color: var(--yellow); }
+.headline .l2 em { font-style: normal; color: var(--coral); }
+
+/* ---- hero ---- */
+.hero {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2mm 0 0 0;
+}
+.blob {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 146mm; height: 146mm;
+  transform: translate(-50%, -58%);
+  background: radial-gradient(circle at 42% 38%, var(--yellow) 0%, #ffb820 70%, #ff9e0f 100%);
+  border-radius: 50%;
+  box-shadow: 0 8mm 18mm rgba(0,0,0,.28);
+}
+.sunray { position: absolute; top: 50%; left: 50%; width: 178mm; height: 178mm; transform: translate(-50%,-52%); border-radius: 50%; opacity: .14; }
+.turtle {
+  position: relative;
+  width: 160mm;
+  filter: drop-shadow(0 7mm 6mm rgba(0,0,0,.38));
+  z-index: 2;
+  transform: translateY(-6mm);
+}
+.tag {
+  position: absolute;
+  z-index: 3;
+  top: 52%; left: 9mm;
+  background: var(--coral);
+  color: #fff;
+  font-family: 'Anton', sans-serif;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  font-size: 20pt;
+  padding: 3mm 6mm;
+  border-radius: 2mm;
+  transform: rotate(-7deg);
+  box-shadow: 0 3mm 6mm rgba(0,0,0,.3);
+}
+
+/* ---- pitch line ---- */
+.pitch {
+  position: relative;
+  z-index: 4;
+  text-align: center;
+  font-weight: 700;
+  font-size: 21pt;
+  line-height: 1.18;
+  margin: 0 4mm 8mm 4mm;
+  color: var(--cream);
+  text-shadow: 0 1mm 3mm rgba(0,0,0,.45);
+}
+.pitch b { color: var(--yellow); }
+
+/* ---- contact bar (full-bleed bottom) ---- */
+.contact {
+  position: relative;
+  left: -13mm;
+  width: 210mm;
+  background: var(--yellow);
+  color: var(--ink);
+  padding: 8mm 13mm 9mm 13mm;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8mm;
+  border-top: 3mm solid var(--coral);
+}
+.shop { font-family: 'Anton', sans-serif; }
+.shop .name { font-size: 30pt; line-height: .95; letter-spacing: .01em; }
+.shop .sub  { font-family: 'Archivo'; font-weight: 700; font-size: 11pt; letter-spacing: .14em; text-transform: uppercase; margin-top: 2mm; opacity: .8; }
+.lines { text-align: right; font-weight: 700; font-size: 13pt; line-height: 1.5; }
+.lines .ig { color: var(--coral); }
+.lines .small { display:block; font-weight:500; font-size: 10.5pt; opacity:.75; margin-top:1mm; }

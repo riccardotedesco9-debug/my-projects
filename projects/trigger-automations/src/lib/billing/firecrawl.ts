@@ -15,8 +15,7 @@ interface CreditUsage {
 }
 
 export async function fetchFirecrawlUsage(): Promise<ProviderUsage> {
-  // Accept the legacy name (FireCrawlAPI) too — it's already set on
-  // Trigger.dev prod from the job-hunt setup.
+  // Accept the legacy name (FireCrawlAPI) too — both may be set on Trigger.dev prod.
   const key = process.env.FIRECRAWL_API_KEY ?? process.env.FireCrawlAPI;
   if (!key) return emptyUsage("firecrawl", "FIRECRAWL_API_KEY not set");
 

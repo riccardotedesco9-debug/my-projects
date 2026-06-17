@@ -20,15 +20,15 @@ dedupes by its first `backticked` / **bold** token.
 
 - **Start any UI with `frontend-design`** — the visual-craft pass that keeps output from looking generic — then reach for `ui-ux-pro-max` to lock color/type/layout/design-system decisions. Audit with `web-design-guidelines` (a11y/UX) before you ship; `ui-styling` for shadcn/Tailwind.
 - Build: `frontend-development` · `web-frameworks` · `shopify` (storefronts) · `threejs` / `shader` (3D/WebGL & canvas effects) · `remotion` (programmatic video) · `show-off` (self-contained HTML showcase / demo pages).
-- **Generate, don't placeholder:** `creative-router` makes custom art/sprites via fal.ai (beats emoji); `ai-multimodal` analyzes reference images; `banner-design` for banners.
+- **Generate, don't placeholder:** `creative-router` makes custom art/sprites via fal.ai (beats emoji); `ai-multimodal` analyzes reference images; `banner-design` for banners; `media-processing` (ffmpeg) edits owner-supplied real footage / video effects — cut, grade, captions, transitions, 24→60fps smoothing (the pro path vs AI video).
 - Prove it in a real browser: `chrome-devtools` (screenshot→compare→fix loop) · ship with `deploy` · `security-scan` (Web Studio builds).
 - Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
 ## MCP Tools
 
 - Experience layer (sound / custom art / video): reach for the managed tool first — **ElevenLabs** for sound, **creative-router** for art — hand-rolled code (oscillators, emoji-as-art) is the fallback, not the default.
-- **ElevenLabs** — real SFX & music for interactive / game UI (`text_to_sound_effects`, `compose_music`); the sound tool, not Web Audio oscillators.
-- **fal.ai** (via `creative-router`) — generate custom raster/vector/video/3D assets instead of placeholders when no template fits.
+- **ElevenLabs** — real SFX & music for interactive / game UI (`text_to_sound_effects`, `compose_music`); the sound tool, not Web Audio oscillators. NOT for AI-rendered video sound (use the video model's native audio, else it desyncs/tacky).
+- **fal.ai** (via `creative-router`) — generate custom raster/vector/video/3D assets instead of placeholders; AI video uses NATIVE audio; ALSO edits real footage (object removal, restyle, upscale); creative-router live-picks the best current model. Prefer real footage + ffmpeg for client-grade motion.
 - **Chrome DevTools** — screenshots, visual diff, Core Web Vitals.
 - **Canva** — templated brand graphics, resizes, multi-format export.
 - **Gamma** — quick AI-generated one-pagers / decks.

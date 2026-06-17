@@ -5,8 +5,9 @@ Domain: **WebDesign — Web Studio Mode** (lives in `projects/`; uses global + W
 
 The **build** of the Pet Centre online store for Riccardo's real pet shop in Mellieħa, Malta
 (petcentremalta.com — vet + retail under one roof, Pet Club loyalty, 6 animal categories). The
-marketing strategy + research lives in the sibling **`../pet-centre-mellieha/`** project; this
-folder is the production website (the app is in `storefront/`).
+marketing strategy + research lives in the sibling **`../pet-centre-marketing/`** project, and the
+Hike POS catalogue enrichment in **`../pet-centre-catalog/`**; this folder is the production website
+(the app is in `storefront/`).
 
 > **This is the first test bed for the general-purpose Web Studio tool**, not a one-off. The tool
 > (see the recipe) is built to stand up *any* site — marketing, blog, web-app, storefront. Pet

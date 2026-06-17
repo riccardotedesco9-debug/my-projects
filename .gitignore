@@ -9,14 +9,11 @@ release-manifest.json
 !**/.env.tpl
 **/.tmp/
 
-# Personal — kept OUT of this public repo; lives in its own private repo
-projects/job-application/
-
-# Shopify app scaffold — has its own .git (own repo), not tracked here
-projects/my-site/
-
 # Dependencies — never track (was missing; caused thousands of untracked files)
 node_modules/
+
+# Compiled Python artifacts
+__pycache__/
 
 # Scratch — WebDesign screenshot/compare output, regenerated on demand
 temporary-screenshots/
@@ -26,4 +23,7 @@ temporary-screenshots/
 /plans/260517-1834-cv-cover-letter-redesign/
 /plans/260527-1234-mookie-pitch/
 /plans/reports/research-260602-1138-pet-centre-market.md
-/projects/pet-centre-mellieha/
+/projects/pet-centre-marketing/
+# Kept local — has 100MB+ video assets (exceed GitHub's file limit); host media on a
+# CDN + commit only code if this ever needs versioning.
+/projects/re-dei-sapori/

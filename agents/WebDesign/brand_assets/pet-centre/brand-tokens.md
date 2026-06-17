@@ -26,5 +26,5 @@ Get a clean transparent-PNG / SVG export from Riccardo for production use.
 
 ## Voice
 Warm, caring, local, trustworthy — the strategic spine is care + trust + locality + convenience, not
-price/catalogue. See marketing project `projects/pet-centre-mellieha/` and memory
+price/catalogue. See marketing project `projects/pet-centre-marketing/` and memory
 `project_pet-centre-mellieha.md`.

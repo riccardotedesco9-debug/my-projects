@@ -24,15 +24,15 @@ dedupes by its first `backticked` / **bold** token (don't backtick the [CONVENTI
 - SEO: `seo` · `competitor-alternatives`.
 - Channels: `email` · `social` · `paid-ads` · `campaign`.
 - Funnel & CRO: `funnel` · `form-cro` · `onboarding-cro` · `pricing-strategy` · `ab-test-setup` · `launch-strategy` · `referral-program-building` · `affiliate-marketing`.
-- Brand & visual: `brand-guidelines` · `logo-design` · `cip-design` · `banner-design` · `slides-design` · `creative-router`.
+- Brand & visual: `brand-guidelines` · `logo-design` · `cip-design` · `banner-design` · `slides-design` · `creative-router` · `media-processing` (ffmpeg — edit/effect owner-supplied real footage: cut, grade, captions, 24→60fps smoothing; preferred over AI video for client work).
 - Analytics: `analytics`. Full map: `~/.claude/rules/skill-domain-routing.md` (+ the local `mkt:*` commands).
 
 ## MCP Tools
 
 - **Canva** — templated brand graphics, social, resizes.
 - **Gamma** — quick AI-generated decks, docs, one-pager landing pages.
-- **fal.ai** (via `creative-router`) — custom ad creative, illustrations, video clips.
-- **ElevenLabs** — voiceover, music, sound effects.
+- **fal.ai** (via `creative-router`) — custom ad creative, illustrations, AI video (use NATIVE audio, not ElevenLabs on top), AND video editing on real footage (object removal, restyle, upscale); creative-router live-picks the best current model.
+- **ElevenLabs** — standalone voiceover, music beds, SFX; NOT for AI-video sound (use the renderer's native audio, else it desyncs/tacky).
 - **Gmail** / **Slack** — outreach, follow-ups, team comms.
 - **Google Drive** — content calendars, shared reports.
 

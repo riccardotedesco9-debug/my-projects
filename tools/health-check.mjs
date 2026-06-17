@@ -127,7 +127,7 @@ check('secrets: manifest ↔ .env.tpl', () => {
   // .env.tpl lines look like NAME=op://AI-Stack/item/field — build NAME→ref map.
   const tplRefs = new Map();
   for (const line of tpl.split(/\r?\n/)) {
-    // Names are conventionally ALL-CAPS but a few (job-hunt) are mixed-case — accept both.
+    // Names are conventionally ALL-CAPS but mixed-case is accepted too.
     const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(op:\/\/\S+)/);
     if (m) tplRefs.set(m[1], m[2]);
   }
@@ -141,16 +141,15 @@ check('secrets: manifest ↔ .env.tpl', () => {
   pass('secrets: manifest ↔ .env.tpl', `${tplRefs.size} refs consistent`);
 });
 
-// --- 7. Deploy-coupled trio paths exist (the only hardcoded project paths in shared tooling) -----
-check('paths: deploy-coupled trio', () => {
+// --- 7. Deploy-coupled project paths exist (the only hardcoded project paths in shared tooling) ---
+check('paths: deploy-coupled projects', () => {
   const required = [
     join(ROOT, 'projects', 'meetsync', 'worker'), // secrets-manifest cwd
     join(ROOT, 'projects', 'trigger-automations'),
-    join(ROOT, 'projects', 'job-hunt'),
   ];
   const missing = required.filter((p) => !existsSync(p));
   if (missing.length) throw new Error(`missing: ${missing.map((p) => p.replace(ROOT, '.')).join(', ')}`);
-  pass('paths: deploy-coupled trio', 'all 3 referenced paths present');
+  pass('paths: deploy-coupled projects', `all ${required.length} referenced paths present`);
 });
 
 // --- Report -------------------------------------------------------------------------------------

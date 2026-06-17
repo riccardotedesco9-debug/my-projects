@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shopify vs WooCommerce + Hostinger — Full Comparison 2026</title>
+<style>
+  :root{
+    --bg:#0c0f17; --bg2:#11151f; --card:#161b27; --card2:#1c2333;
+    --line:#262e40; --txt:#e8edf6; --mut:#97a3b8; --dim:#6b7689;
+    --grn:#3ddc84; --grn-bg:rgba(61,220,132,.12);
+    --red:#ff6b6b; --red-bg:rgba(255,107,107,.12);
+    --amb:#ffc14d; --amb-bg:rgba(255,193,77,.12);
+    --blu:#5aa7ff;
+    --shop:#95bf47; --shop-bg:rgba(149,191,71,.12);
+    --woo:#a779d6; --woo-bg:rgba(167,121,214,.12);
+    --rad:15px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#1a2140 0%,transparent 55%),var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(12,15,23,.82);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:5px;align-items:center;height:54px;overflow-x:auto;scrollbar-width:none}
+  nav .wrap::-webkit-scrollbar{display:none}
+  nav b{font-size:13.5px;letter-spacing:.3px;margin-right:12px;white-space:nowrap;color:var(--shop)}
+  nav a{color:var(--mut);font-size:12.5px;padding:7px 10px;border-radius:9px;white-space:nowrap;transition:.18s}
+  nav a:hover{color:#fff;background:var(--card2)}
+
+  header{padding:52px 0 26px;border-bottom:1px solid var(--line)}
+  .kick{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--woo);border:1px solid var(--line);padding:5px 12px;border-radius:999px;margin-bottom:16px}
+  h1{font-size:clamp(27px,4.4vw,44px);line-height:1.1;letter-spacing:-.02em;font-weight:800}
+  h1 .p{color:var(--shop)}h1 .w{color:var(--woo)}
+  .sub{color:var(--mut);max-width:740px;margin-top:14px;font-size:15.5px}
+
+  /* the one-liner mindset banner */
+  .mind{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:24px}
+  @media(max-width:720px){.mind{grid-template-columns:1fr}}
+  .mb{border:1px solid var(--line);border-radius:14px;padding:18px}
+  .mb.p{background:var(--shop-bg);border-color:rgba(149,191,71,.4)}
+  .mb.w{background:var(--woo-bg);border-color:rgba(167,121,214,.4)}
+  .mb .h{font-size:18px;font-weight:750;margin-bottom:4px}
+  .mb.p .h{color:var(--shop)}.mb.w .h{color:var(--woo)}
+  .mb .q{font-size:14px;color:#fff;font-style:italic;margin-bottom:6px}
+  .mb p{font-size:13px;color:var(--mut)}
+
+  section{padding:38px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+  h2{font-size:clamp(21px,3vw,28px);letter-spacing:-.01em;font-weight:750;margin-bottom:6px}
+  .lead{color:var(--mut);max-width:820px;margin-bottom:20px;font-size:15px}
+
+  /* who-does-the-work split */
+  .work{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:720px){.work{grid-template-columns:1fr}}
+  .wcol{border:1px solid var(--line);border-radius:14px;padding:18px;background:var(--card)}
+  .wcol.p{border-top:3px solid var(--shop)}.wcol.w{border-top:3px solid var(--woo)}
+  .wcol h3{font-size:16px;margin-bottom:4px}
+  .wcol .who{font-family:var(--mono);font-size:11px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px}
+  .wcol.p .who{color:var(--shop)}.wcol.w .who{color:var(--woo)}
+  .task{display:flex;gap:9px;font-size:13px;padding:7px 0;border-bottom:1px dotted var(--line);color:var(--mut)}
+  .task:last-child{border-bottom:none}
+  .task .i{flex-shrink:0;font-size:12px;margin-top:1px}
+  .wcol.p .i{color:var(--grn)}.wcol.w .i{color:var(--amb)}
+  .task b{color:#fff}
+
+  .callout{border-radius:12px;padding:14px 16px;font-size:13.5px;margin-top:18px}
+  .callout.dev{background:var(--woo-bg);border:1px solid rgba(167,121,214,.35);color:#ddc9f2}
+  .callout.win{background:var(--shop-bg);border:1px solid rgba(149,191,71,.45);color:#d6e9b3}
+  .callout.amb{background:var(--amb-bg);border:1px solid rgba(255,193,77,.32);color:#f0d9a8}
+  .callout b{color:#fff}
+
+  .scroll{overflow-x:auto;border:1px solid var(--line);border-radius:var(--rad)}
+  table{width:100%;border-collapse:collapse;font-size:13px;min-width:680px}
+  th,td{padding:10px 14px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  thead th{background:var(--card2);font-size:13px;font-weight:700}
+  thead th.dim{color:var(--mut);font-family:var(--mono);font-size:11px;letter-spacing:.5px;text-transform:uppercase}
+  th.p{border-top:3px solid var(--shop);color:var(--shop)}th.w{border-top:3px solid var(--woo);color:var(--woo)}
+  td:first-child{color:var(--mut);font-family:var(--mono);font-size:11.5px;white-space:nowrap}
+  tbody tr:hover{background:rgba(124,140,255,.05)}
+  td b{color:#fff}
+  .yes{color:var(--grn);font-weight:600}.nope{color:var(--red);font-weight:600}.warn{color:var(--amb);font-weight:600}
+  .price{font-family:var(--mono);color:#fff}
+  .small{font-size:11px;color:var(--dim)}
+
+  .note{font-size:12px;color:var(--dim);margin-top:11px;font-style:italic}
+  footer{padding:30px 0 60px}
+  .src{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.95}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>◆ SHOPIFY vs WOO+HOSTINGER</b>
+  <a href="#mindset">Mindset</a>
+  <a href="#work">Who does the work</a>
+  <a href="#dev">What's "a dev"</a>
+  <a href="#matrix">Full matrix</a>
+  <a href="#benefits">What you get</a>
+  <a href="#scenarios">Examples</a>
+  <a href="#cost">True cost</a>
+  <a href="#verdict">Verdict</a>
+</div></nav>
+
+<header><div class="wrap">
+  <span class="kick">Full Head-to-Head · Malta · Verified June 2026</span>
+  <h1><span class="p">Shopify</span> <span style="color:var(--dim)">vs</span> <span class="w">WooCommerce + Hostinger</span></h1>
+  <p class="sub">Same end-goal — a shop that sells online + in-store — but two opposite deals. The whole comparison comes down to one trade: <b style="color:var(--txt)">rent a finished product, or own a system you keep running.</b></p>
+  <div class="mind">
+    <div class="mb p"><div class="h">Shopify</div><div class="q">"I rent a finished product."</div><p>It works on day one. You touch the UI; Shopify runs the engine — hosting, security, updates, PCI — invisibly. Less control, nothing to maintain, nothing breaks on you.</p></div>
+    <div class="mb w"><div class="h">WooCommerce + Hostinger</div><div class="q">"I own a system."</div><p>Free software on a host you rent. Total control, 0% fees, your data — but <b style="color:#fff">you (or a dev)</b> assemble it, update it, secure it, and fix it when it breaks.</p></div>
+  </div>
+</div></header>
+
+<!-- WHO DOES THE WORK -->
+<section id="work"><div class="wrap">
+  <div class="eyebrow">The heart of it</div>
+  <h2>Who does the work under the hood</h2>
+  <p class="lead">Same shop on the surface. The difference is the invisible layer beneath — and who owns it. This is the "fine print &amp; control vs just touch the UI" you asked about, made concrete.</p>
+  <div class="work">
+    <div class="wcol p">
+      <h3>Shopify handles it</h3>
+      <div class="who">▶ you just use the admin UI</div>
+      <div class="task"><span class="i">✓</span><span><b>Hosting &amp; servers</b> — done, invisible</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Software updates</b> — auto, nothing to apply, nothing conflicts</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Security &amp; PCI</b> — Level-1 certified, patched for you</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Backups &amp; uptime</b> — Shopify's problem, not yours</span></div>
+      <div class="task"><span class="i">✓</span><span><b>SSL</b> — automatic</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Performance/scaling</b> — handled to enterprise</span></div>
+      <div class="task"><span class="i">✓</span><span><b>If it breaks</b> — 24/7 support answers</span></div>
+    </div>
+    <div class="wcol w">
+      <h3>You (or a dev) handle it</h3>
+      <div class="who">▶ panels, plugins &amp; watching for breakage</div>
+      <div class="task"><span class="i">▲</span><span><b>Assemble the stack</b> — WordPress + WooCommerce + theme + 5–15 plugins</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Apply updates</b> — core/plugins/PHP constantly; <b>updates can break the site</b></span></div>
+      <div class="task"><span class="i">▲</span><span><b>Security</b> — firewall, logins, malware scans (neglect = hacked)</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Backups</b> — set up + know how to restore</span></div>
+      <div class="task"><span class="i">▲</span><span><b>SSL</b> — auto via host (the easy bit)</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Performance</b> — caching, image optimisation, right host tier</span></div>
+      <div class="task"><span class="i">▲</span><span><b>If it breaks</b> — you diagnose; no one's on call</span></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- WHAT'S A DEV -->
+<section id="dev"><div class="wrap">
+  <div class="eyebrow">Plain English</div>
+  <h2>What "a dev" actually means here</h2>
+  <p class="lead">You won't be writing code daily — but <b>someone</b> owns that technical layer above. On Shopify that someone is Shopify. On WooCommerce it's you or a hired hand.</p>
+  <div class="callout dev"><b>"A dev" = a developer:</b> a person who does the under-the-hood setup &amp; upkeep WordPress needs. In practice that's either <b>(a) you</b> — learning WordPress admin, plugins and hosting panels — or <b>(b) a freelancer/agency</b> at ~€30–80/hr, or a monthly care plan ~€50–150/mo that quietly does updates, backups and security so the site doesn't rot. It's not "build an app from scratch" — it's "keep the plumbing running." Shopify simply includes that person in the subscription.</div>
+</div></section>
+
+<!-- MATRIX -->
+<section id="matrix"><div class="wrap">
+  <div class="eyebrow">Everything side by side</div>
+  <h2>Full feature matrix</h2>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="dim">Dimension</th><th class="p">Shopify</th><th class="w">WooCommerce + Hostinger</th></tr></thead>
+      <tbody>
+        <tr><td>Mindset</td><td>Rent a finished product</td><td>Own a system</td></tr>
+        <tr><td>Control</td><td class="warn">Guardrails — change what the UI allows</td><td class="yes">Total — change anything</td></tr>
+        <tr><td>Setup to launch</td><td class="yes">Hours — works day one</td><td class="nope">Days — assemble from parts (often a dev)</td></tr>
+        <tr><td>Day-to-day for you</td><td class="yes">Just the store UI</td><td class="warn">Admin panels + watch for breakage</td></tr>
+        <tr><td>Who runs hosting</td><td class="yes">Shopify</td><td>Hostinger (you pick tier)</td></tr>
+        <tr><td>Security &amp; updates</td><td class="yes">Shopify (auto)</td><td class="nope">You / your dev</td></tr>
+        <tr><td>Can it break on you?</td><td class="yes">Practically no</td><td class="warn">Yes — update/plugin conflicts</td></tr>
+        <tr><td>SSL / PCI</td><td class="yes">Built in (Level 1)</td><td>SSL free via host · PCI via processor</td></tr>
+        <tr><td>Design / theme</td><td>Polished themes, easy editor</td><td class="yes">Unlimited themes + full code access</td></tr>
+        <tr><td>Catalog / products</td><td class="yes">Full, easy</td><td class="yes">Unlimited, extensible</td></tr>
+        <tr><td>In-store POS</td><td class="yes">POS Lite free / Pro €79</td><td>Oliver / FooSales plugin (€15–20/mo)</td></tr>
+        <tr><td>Inventory + expiry (perishables)</td><td class="warn">Native stock + expiry apps (€15–40)</td><td class="yes">Best — ATUM, Batch &amp; Expiration plugins</td></tr>
+        <tr><td>AI — native</td><td class="yes">Magic + Sidekick built in</td><td>Via plugins (varies)</td></tr>
+        <tr><td>AI — your own / custom</td><td>Clean API + dev MCP to automate</td><td class="yes">Unlimited — own code + database, any model</td></tr>
+        <tr><td>App / plugin ecosystem</td><td class="yes">Huge App Store</td><td class="yes">Largest (WordPress)</td></tr>
+        <tr><td>Platform cut</td><td class="yes">0% w/ Shopify Payments*</td><td class="yes">0%</td></tr>
+        <tr><td>Card rate (EU)</td><td>~1.7% in-person · 1.9%+€0.25 online</td><td>Stripe/WooPayments ~1.5–1.9%</td></tr>
+        <tr><td>Monthly cost</td><td class="price">€36–384 + apps</td><td class="price">host €3–35 + plugins</td></tr>
+        <tr><td>One-time setup</td><td class="yes">~€0</td><td class="nope">€500–1,500 (dev)</td></tr>
+        <tr><td>Ongoing maintenance</td><td class="yes">None (in subscription)</td><td class="warn">€50–150/mo if outsourced</td></tr>
+        <tr><td>Scalability</td><td class="yes">To enterprise (Plus)</td><td>As far as host/dev take it</td></tr>
+        <tr><td>GDPR data residency</td><td class="yes">EU-default · DPA</td><td class="yes">Your EU host · you configure plugins</td></tr>
+        <tr><td>Support</td><td class="yes">24/7 + ecosystem</td><td class="warn">Community / your dev</td></tr>
+        <tr><td>Ownership / lock-in</td><td class="warn">Export OK; theme/apps locked</td><td class="yes">You own everything — portable</td></tr>
+        <tr><td>Malta</td><td class="yes">✓ + Shopify Payments live</td><td class="yes">✓ (Stripe/Mollie)</td></tr>
+        <tr><td>Best for</td><td><b>Non-coder who wants to just sell</b></td><td><b>Control/ownership, with a dev to maintain</b></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">* Shopify charges 2% / 1% / 0.5% (Basic/Grow/Advanced) only if you use an outside processor instead of Shopify Payments — avoidable.</p>
+</div></section>
+
+<!-- COST -->
+<section id="cost"><div class="wrap">
+  <div class="eyebrow">The true cost (not just the sticker)</div>
+  <h2>What you'll actually pay at €5,000/mo (70% in-store / 30% online)</h2>
+  <p class="lead">Both take 0% cut and a near-identical EU card fee. The difference is the <b>setup + maintenance + your time</b> that WooCommerce adds.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="dim">Line</th><th class="p">Shopify</th><th class="w">WooCommerce + Hostinger</th></tr></thead>
+      <tbody>
+        <tr><td>Platform / host</td><td class="price">€36 (Basic)</td><td class="price">€14–19 host</td></tr>
+        <tr><td>POS</td><td class="price">€0 (POS Lite)</td><td class="price">€15–20 plugin</td></tr>
+        <tr><td>Expiry tracking</td><td class="price">~€20 app</td><td class="price">~€7 (amortised) / ATUM</td></tr>
+        <tr><td>GDPR / security plugins</td><td class="price">included</td><td class="price">~€5–10</td></tr>
+        <tr><td>Platform cut</td><td class="yes">€0</td><td class="yes">€0</td></tr>
+        <tr><td>Card processing</td><td class="price">~€100</td><td class="price">~€81</td></tr>
+        <tr><td><b>Running total / month</b></td><td class="price"><b>≈ €156</b></td><td class="price"><b>≈ €126</b></td></tr>
+        <tr><td>One-time setup</td><td class="yes">~€0</td><td class="nope">€500–1,500 (dev)</td></tr>
+        <tr><td>Maintenance (if outsourced)</td><td class="yes">€0</td><td class="warn">+€50–150/mo</td></tr>
+        <tr><td><b>Who keeps it alive</b></td><td class="yes">Shopify</td><td class="nope">You / your dev</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">WooCommerce looks ~€30/mo cheaper on paper — but that gap vanishes (or reverses) once you add the one-time setup and any maintenance plan, and it never includes <b>your own time</b> spent administering it. "Cheaper" only holds if you do the upkeep yourself for free.</p>
+</div></section>
+
+<!-- BENEFITS -->
+<section id="benefits"><div class="wrap">
+  <div class="eyebrow">The upside · what you actually get</div>
+  <h2>What you get out of each</h2>
+  <p class="lead">Not features — <b>outcomes</b>. What each one buys you when you live with it.</p>
+  <div class="work">
+    <div class="wcol p">
+      <h3>What Shopify gets you</h3>
+      <div class="who">▶ a shop that runs itself</div>
+      <div class="task"><span class="i">✓</span><span><b>Your time back</b> — zero maintenance, so all your hours go into selling, not sysadmin</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Peace of mind</b> — it won't get hacked or go down on you; 24/7 support owns problems</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Selling this week</b> — live in hours, not a build project</span></div>
+      <div class="task"><span class="i">✓</span><span><b>A true omnichannel shop</b> — till + website on one stock count, out of the box</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Growth tools included</b> — native AI, marketing, multichannel, analytics, app store</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Reliability at scale</b> — survives Black Friday spikes without you touching anything</span></div>
+      <div class="task"><span class="i">✓</span><span><b>Predictable cost + built-in trust</b> — flat fee, PCI/SSL/security badge done for you</span></div>
+    </div>
+    <div class="wcol w">
+      <h3>What WooCommerce + Hostinger gets you</h3>
+      <div class="who">▶ a system you own outright</div>
+      <div class="task"><span class="i">▲</span><span><b>Full ownership</b> — you own the site, the data, the customer list; portable, <b>no lock-in</b></span></div>
+      <div class="task"><span class="i">▲</span><span><b>0% cut forever + cheap base</b> — software is free; only host + card fees</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Unlimited customisation</b> — make it do literally anything, no platform "you can't"</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Full data access for AI</b> — point any model/agent at your own database (fits your automations)</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Content + commerce powerhouse</b> — WordPress = best blogging/SEO engine attached to the shop</span></div>
+      <div class="task"><span class="i">▲</span><span><b>Cost control at high volume</b> — €1M in sales costs the same platform fee as €1k (none)</span></div>
+      <div class="task"><span class="i">▲</span><span><b>A reusable skill/asset</b> — you build a capability you (or your business) keep</span></div>
+    </div>
+  </div>
+  <div class="callout amb"><b>The honest summary of the payoff:</b> Shopify buys you <b>freedom from the work</b> (time, reliability, simplicity) at a monthly price. WooCommerce buys you <b>freedom of the work</b> (ownership, control, no cut, custom AI) at the price of running it. You're choosing which freedom matters more.</div>
+</div></section>
+
+<!-- SCENARIOS -->
+<section id="scenarios"><div class="wrap">
+  <div class="eyebrow">Real situations · same task, two experiences</div>
+  <h2>Practical examples</h2>
+  <p class="lead">What an actual week running your shop feels like on each. This is where the trade stops being abstract.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th class="dim" style="min-width:180px">The situation</th><th class="p">On Shopify</th><th class="w">On WooCommerce + Hostinger</th></tr></thead>
+      <tbody>
+        <tr><td>Add a new product (photo, price, stock)</td><td class="yes">Type it into the admin, hit save. Done in 2 min.</td><td>Same — once the store's built. Day-to-day product work is easy on both.</td></tr>
+        <tr><td>Run a weekend discount code</td><td class="yes">Discounts → create code → done.</td><td>Coupons screen → create → done. Both simple.</td></tr>
+        <tr><td><b>A plugin update breaks the checkout — on a Saturday</b></td><td class="yes"><b>Can't happen</b> — no plugins/updates to apply; Shopify maintains the engine.</td><td class="nope">Checkout is <b>down</b>. You roll back the update or restore a backup — or phone your dev and wait. Sales lost meanwhile.</td></tr>
+        <tr><td>Black Friday traffic spike (10× visitors)</td><td class="yes">Scales automatically. You do nothing.</td><td class="warn">Site may crawl or crash if your host tier is too small. You upgrade hosting / add caching beforehand.</td></tr>
+        <tr><td>A security hole is announced in a plugin you use</td><td class="yes">Not your problem — Shopify patches its platform.</td><td class="nope">You must update it <b>fast</b>; a neglected WordPress site is a real hack target.</td></tr>
+        <tr><td>Flag stock expiring within 30 days (perishables)</td><td>Install an expiry app (~€20/mo) → dashboard + alerts.</td><td class="yes">ATUM / Batch &amp; Expiration plugin → strongest expiry/FEFO control.</td></tr>
+        <tr><td>Add an AI chatbot + product recommendations</td><td class="yes">Install an app from the store, few clicks.</td><td>Install a plugin and configure it — or wire your own AI API (more power, more work).</td></tr>
+        <tr><td>Build a custom AI agent on your live sales data</td><td>Hit Shopify's API from your automation (clean, but within their API).</td><td class="yes">Point any model straight at your own database — <b>no limits</b>. The power route.</td></tr>
+        <tr><td>Customer emails "delete my data" (GDPR)</td><td class="yes">Built-in data-erasure request tool in admin.</td><td>Your GDPR plugin handles it — <b>if</b> you installed &amp; configured one.</td></tr>
+        <tr><td>Take payment for a walk-in at the counter</td><td class="yes">Shopify POS app + €49 reader; stock updates live.</td><td>Oliver/FooSales POS app + reader; syncs to WooCommerce.</td></tr>
+        <tr><td>Redesign the storefront look</td><td>Pick/customise a theme in the editor.</td><td class="yes">Total design freedom (any theme/code) — but a big change may need a dev.</td></tr>
+        <tr><td>The site is just… down one morning</td><td class="yes">Rare; 24/7 support owns it.</td><td class="nope">You diagnose (host? plugin? PHP?) or call your dev. The buck stops with you.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">Notice the pattern: <b>routine selling is easy on both</b>. The gap only opens on the <b>infrastructure moments</b> — breakage, spikes, security, downtime — where Shopify quietly absorbs it and WooCommerce hands it to you.</p>
+</div></section>
+
+<!-- VERDICT -->
+<section id="verdict"><div class="wrap">
+  <div class="eyebrow">For your case — Malta shop, perishables, non-coder, AI on top</div>
+  <h2>The verdict</h2>
+  <div class="callout win"><b>Shopify — for you.</b> You said the platform must handle security for you and you want to <b>run a shop, not sysadmin a website</b>. Shopify is "just touch the UI": hosting, SSL, PCI, updates and backups are invisible, the till shares one stock count, expiry apps cover perishables, AI is built in, and it's 0% cut in Malta. ≈ €156/mo, nothing to maintain.</div>
+  <div class="callout amb"><b>WooCommerce + Hostinger — only if</b> you specifically need something Shopify won't allow (bespoke logic, deep custom AI on your own data, total ownership) <b>and</b> you'll either learn the upkeep or pay a dev ~€50–150/mo to own the plumbing. More power, more control, more responsibility.</div>
+  <div class="callout dev" style="margin-top:14px"><b>One-line rule:</b> pick <span style="color:var(--shop)">Shopify</span> if "the site must just work and never need me." Pick <span style="color:var(--woo)">WooCommerce + Hostinger</span> if "I want to own and customise everything, and I have hands (mine or hired) to keep it running."</div>
+</div></section>
+
+<footer><div class="wrap">
+  <p style="margin-bottom:9px;color:var(--mut);font-size:12.5px"><b>Sources</b> — verified June 2026. Prices indicative (region/FX vary); exact card rate shows at signup. EU card rates (Malta gets EU interchange caps), not US.</p>
+  <p class="src">shopify.com/pricing · shopify.com/pos/pricing · help.shopify.com (Shopify Payments, transaction fees) · hostinger.com/pricing · woocommerce.com (Batch &amp; Expiration) · ATUM · oliverpos.com · cloudways/kinsta EU hosting · stripe.com/pricing · Mastercard Malta interchange 2026</p>
+</div></footer>
+
+</body>
+</html>

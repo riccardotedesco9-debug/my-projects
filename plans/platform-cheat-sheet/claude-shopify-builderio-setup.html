@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup: Shopify + Builder.io plugin + Claude Code (non-headless) — 2026</title>
+<style>
+  :root{
+    --bg:#0c0f17; --bg2:#11151f; --card:#161b27; --card2:#1c2333;
+    --line:#262e40; --txt:#e8edf6; --mut:#97a3b8; --dim:#6b7689;
+    --grn:#3ddc84; --grn-bg:rgba(61,220,132,.12);
+    --red:#ff6b6b; --red-bg:rgba(255,107,107,.12);
+    --amb:#ffc14d; --amb-bg:rgba(255,193,77,.12);
+    --blu:#5aa7ff;
+    --shop:#95bf47; --build:#a779d6; --claude:#d97757;
+    --rad:15px;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#1a2140 0%,transparent 55%),var(--bg);color:var(--txt);font-family:var(--sans);line-height:1.55;-webkit-font-smoothing:antialiased}
+  a{color:var(--blu);text-decoration:none}
+  .wrap{max-width:1040px;margin:0 auto;padding:0 22px}
+
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(12px);background:rgba(12,15,23,.82);border-bottom:1px solid var(--line)}
+  nav .wrap{display:flex;gap:5px;align-items:center;height:54px;overflow-x:auto;scrollbar-width:none}
+  nav .wrap::-webkit-scrollbar{display:none}
+  nav b{font-size:13.5px;letter-spacing:.3px;margin-right:12px;white-space:nowrap;color:var(--shop)}
+  nav a{color:var(--mut);font-size:12.5px;padding:7px 10px;border-radius:9px;white-space:nowrap;transition:.18s}
+  nav a:hover{color:#fff;background:var(--card2)}
+
+  header{padding:50px 0 26px;border-bottom:1px solid var(--line)}
+  .kick{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--build);border:1px solid var(--line);padding:5px 12px;border-radius:999px;margin-bottom:16px}
+  h1{font-size:clamp(26px,4.2vw,42px);line-height:1.1;letter-spacing:-.02em;font-weight:800}
+  .sub{color:var(--mut);max-width:740px;margin-top:14px;font-size:15.5px}
+  .verdict{margin-top:18px;background:var(--grn-bg);border:1px solid rgba(61,220,132,.4);border-radius:12px;padding:13px 16px;font-size:14px;color:#cdeedb}
+  .verdict b{color:#fff}
+
+  /* architecture stack */
+  .stack{display:grid;gap:10px;margin-top:24px}
+  .row{display:grid;grid-template-columns:150px 1fr;gap:14px;align-items:center;border:1px solid var(--line);border-radius:13px;padding:14px 16px;background:var(--card)}
+  @media(max-width:640px){.row{grid-template-columns:1fr;gap:6px}}
+  .row .badge{font-family:var(--mono);font-size:12px;font-weight:700;padding:6px 10px;border-radius:8px;text-align:center}
+  .row.shop{border-left:3px solid var(--shop)} .row.shop .badge{background:rgba(149,191,71,.15);color:var(--shop)}
+  .row.build{border-left:3px solid var(--build)} .row.build .badge{background:rgba(167,121,214,.15);color:var(--build)}
+  .row.claude{border-left:3px solid var(--claude)} .row.claude .badge{background:rgba(217,119,87,.15);color:var(--claude)}
+  .row p{font-size:13.5px;color:var(--mut)}.row p b{color:#fff}
+
+  section{padding:38px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--dim);margin-bottom:8px}
+  h2{font-size:clamp(20px,2.8vw,26px);letter-spacing:-.01em;font-weight:750;margin-bottom:6px}
+  h2 .tag{font-family:var(--mono);font-size:.5em;padding:3px 9px;border-radius:6px;vertical-align:middle;margin-left:8px;font-weight:600}
+  .tag.build{background:rgba(167,121,214,.15);color:var(--build)}
+  .tag.claude{background:rgba(217,119,87,.15);color:var(--claude)}
+  .lead{color:var(--mut);max-width:800px;margin-bottom:18px;font-size:15px}
+
+  /* steps */
+  ol.steps{list-style:none;counter-reset:s;display:grid;gap:10px}
+  ol.steps li{counter-increment:s;position:relative;padding:13px 16px 13px 52px;background:var(--card);border:1px solid var(--line);border-radius:12px;font-size:13.5px;color:var(--mut)}
+  ol.steps li::before{content:counter(s);position:absolute;left:14px;top:13px;width:24px;height:24px;border-radius:50%;background:var(--card2);color:#fff;font-family:var(--mono);font-size:12px;display:flex;align-items:center;justify-content:center;font-weight:700}
+  ol.steps li b{color:#fff}
+  ol.steps.build li::before{background:rgba(167,121,214,.2);color:var(--build)}
+  ol.steps.claude li::before{background:rgba(217,119,87,.2);color:var(--claude)}
+  code{font-family:var(--mono);font-size:12px;background:#0a0d14;border:1px solid var(--line);border-radius:5px;padding:1px 6px;color:#cdd6f4}
+  pre{font-family:var(--mono);font-size:12px;background:#0a0d14;border:1px solid var(--line);border-radius:10px;padding:13px 15px;color:#cdd6f4;overflow-x:auto;margin-top:8px;line-height:1.5}
+
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:6px}
+  @media(max-width:720px){.grid2{grid-template-columns:1fr}}
+  .box{border:1px solid var(--line);border-radius:12px;padding:15px;background:var(--card)}
+  .box h4{font-size:13px;font-family:var(--mono);letter-spacing:.5px;text-transform:uppercase;color:var(--mut);margin-bottom:9px}
+  .box li{list-style:none;font-size:13px;color:var(--mut);display:flex;gap:8px;margin-top:5px}
+  .box li::before{content:"›";color:var(--blu);flex-shrink:0}
+  .box.do{border-color:rgba(61,220,132,.3)}.box.do h4{color:var(--grn)}.box.do li::before{content:"✓";color:var(--grn)}
+  .box.dont{border-color:rgba(255,107,107,.3)}.box.dont h4{color:var(--red)}.box.dont li::before{content:"✕";color:var(--red)}
+
+  .pricerow{display:flex;justify-content:space-between;font-size:13px;padding:6px 0;border-bottom:1px dotted var(--line)}
+  .pricerow span:last-child{font-family:var(--mono);color:#fff}
+
+  .callout{border-radius:12px;padding:13px 16px;font-size:13.5px;margin-top:16px}
+  .callout.safe{background:var(--grn-bg);border:1px solid rgba(61,220,132,.35);color:#cdeedb}
+  .callout.warn{background:var(--amb-bg);border:1px solid rgba(255,193,77,.32);color:#f0d9a8}
+  .callout.flag{background:rgba(217,119,87,.1);border:1px solid rgba(217,119,87,.35);color:#f0c4ad}
+  .callout b{color:#fff}
+
+  .chk{display:grid;gap:8px}
+  .chk div{display:flex;gap:10px;font-size:13.5px;color:var(--mut);background:var(--bg2);border:1px solid var(--line);border-radius:10px;padding:11px 14px}
+  .chk div::before{content:"☐";color:var(--grn);font-size:16px}
+  .chk div b{color:#fff}
+  .note{font-size:12px;color:var(--dim);margin-top:11px;font-style:italic}
+  footer{padding:30px 0 60px}
+  .src{font-family:var(--mono);font-size:11px;color:var(--dim);line-height:1.95}
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <b>◆ SETUP GUIDE</b>
+  <a href="#arch">Architecture</a>
+  <a href="#builder">① Builder.io</a>
+  <a href="#claude">② Claude Code</a>
+  <a href="#security">Security</a>
+  <a href="#checklist">Checklist</a>
+</div></nav>
+
+<header><div class="wrap">
+  <span class="kick">Non-headless setup · Verified June 2026 · Malta</span>
+  <h1>Shopify <span style="color:var(--dim)">+</span> <span style="color:var(--build)">Builder.io plugin</span> <span style="color:var(--dim)">+</span> <span style="color:var(--claude)">Claude Code</span></h1>
+  <p class="sub">How to wire up the exact setup you proposed — Shopify as the managed platform, Builder.io as a visual <b style="color:var(--txt)">plugin</b> (not headless), and Claude Code just <b style="color:var(--txt)">communicating</b> with the store over the API.</p>
+  <div class="verdict"><b>Verdict:</b> ✅ Real, viable, <b>non-headless</b>, and <b>mostly no-code</b>. The only things you truly own: keep the Shopify API token safe, approve Claude's write actions, and a one-time Builder theme block. Payments + card data stay sealed in Shopify throughout.</div>
+</div></header>
+
+<!-- ARCHITECTURE -->
+<section id="arch"><div class="wrap">
+  <div class="eyebrow">The shape of it</div>
+  <h2>Three layers, one managed store</h2>
+  <p class="lead">Nothing is headless. Shopify hosts and secures everything; the other two ride on top.</p>
+  <div class="stack">
+    <div class="row shop"><div class="badge">SHOPIFY</div><p><b>The platform.</b> Hosts the store, runs commerce + checkout + payments, owns the secure vault (card data, customers). Fully managed — PCI/SSL/security done for you.</p></div>
+    <div class="row build"><div class="badge">BUILDER.IO</div><p><b>Plugin / visual layer.</b> A Shopify App-Store app that adds drag-and-drop sections into your existing theme. Reads public product data only. <b>Never touches checkout.</b></p></div>
+    <div class="row claude"><div class="badge">CLAUDE CODE</div><p><b>Communicates.</b> Talks to the store via Shopify's API (MCP) to read/edit products, inventory, discounts, run expiry reports — on your instruction. Hosts nothing.</p></div>
+  </div>
+</div></section>
+
+<!-- BUILDER -->
+<section id="builder"><div class="wrap">
+  <div class="eyebrow">Layer ① · the look</div>
+  <h2>Set up Builder.io as a plugin <span class="tag build">non-headless</span></h2>
+  <p class="lead">Visual sections that render inside your normal Shopify theme. Headless/Hydrogen is optional — you don't use it.</p>
+  <ol class="steps build">
+    <li>Install the <b>Builder.io app</b> from the Shopify App Store (<code>apps.shopify.com/builder-2</code>).</li>
+    <li>In <b>Builder → Integrations → Shopify</b>, paste a <b>Storefront access token</b> + your store domain (copy-paste from Shopify admin — no code).</li>
+    <li>Build pages/sections in Builder's <b>drag-and-drop editor</b>.</li>
+    <li>Add them to your theme — two options:<br>
+      &nbsp;• <b>Online Store 2.0 theme</b> → add Builder as a <b>theme block</b> in the customizer = <span style="color:var(--grn)">zero code</span>.<br>
+      &nbsp;• Older theme → paste a 1–2 line Liquid snippet like <code>{% include 'model.x.builder' %}</code> (guided copy-paste).</li>
+  </ol>
+  <div class="grid2">
+    <div class="box">
+      <h4>Code you own</h4>
+      <li>Builder <b>hosts &amp; renders</b> the section code (managed) — not you</li>
+      <li>With OS 2.0 themes: <b>none at all</b></li>
+      <li>Older themes: one 1–2 line snippet, once</li>
+    </div>
+    <div class="box">
+      <h4>Pricing 2026</h4>
+      <div class="pricerow"><span>Free (basic use)</span><span>€0</span></div>
+      <div class="pricerow"><span>Pro</span><span>$24/user/mo</span></div>
+      <div class="pricerow"><span>Team</span><span>$40/user/mo</span></div>
+      <p class="note" style="margin-top:8px">App is free; the editor needs a Builder plan. Free tier covers a few pages.</p>
+    </div>
+  </div>
+  <div class="callout warn"><b>Reality check:</b> for a pure non-coder, native page-builders (<b>PageFly</b> ~$29–99/mo, <b>GemPages</b> ~$59 unlimited) are just as simple and often cheaper. Builder.io's only real edge is it <i>can</i> scale to headless later. If you'll never go headless, a native builder is the lighter pick — Builder.io is worth it only if you want its specific design power.</div>
+</div></section>
+
+<!-- CLAUDE -->
+<section id="claude"><div class="wrap">
+  <div class="eyebrow">Layer ② · the assistant</div>
+  <h2>Connect Claude Code to Shopify <span class="tag claude">via MCP</span></h2>
+  <p class="lead">Shopify ships official MCP servers in 2026 — this is the supported way for an AI tool to talk to a store. One-time setup ≈ 30–45 min, no real coding.</p>
+
+  <div class="grid2" style="margin-bottom:14px">
+    <div class="box">
+      <h4>Dev MCP — safe, no token</h4>
+      <li>Gives Claude Shopify's API <b>docs + schema</b></li>
+      <li>Read-only, <b>zero risk</b> — so Claude writes correct API calls</li>
+      <li>Good to add first</li>
+    </div>
+    <div class="box">
+      <h4>Admin-API MCP — acts on the store</h4>
+      <li>Read/edit <b>products, orders, inventory, discounts, theme</b></li>
+      <li>Needs an Admin API <b>token</b></li>
+      <li>This is the "communicates with my store" part</li>
+    </div>
+  </div>
+
+  <ol class="steps claude">
+    <li>In <b>Shopify admin → Settings → Apps → Develop apps → Create app</b> ("Claude Code"). Clickable, <b>no code</b>.</li>
+    <li>Pick <b>Admin API scopes — start read-only</b>: <code>read_products</code>, <code>read_orders</code>, <code>read_inventory</code>.</li>
+    <li><b>Install app → copy the Admin API token</b> (<code>shpat_…</code>) — shown once. Store it in <b>1Password</b>.</li>
+    <li>Add the MCP server to Claude Code (token via env var, ideally injected with <code>op run</code> so it never hits disk):
+      <pre>{
+  "mcpServers": {
+    "shopify": {
+      "command": "npx",
+      "args": ["-y", "@shopify/dev-mcp@latest"],
+      "env": {
+        "SHOPIFY_ACCESS_TOKEN": "${SHOPIFY_ACCESS_TOKEN}",
+        "SHOPIFY_DOMAIN": "your-store.myshopify.com"
+      }
+    }
+  }
+}</pre></li>
+    <li><b>Test read-only:</b> "list my products", "what stock expires in 30 days", "orders last 7 days".</li>
+    <li><b>Add write scopes later</b> (<code>write_products</code>, <code>write_inventory</code>) only once you trust it.</li>
+  </ol>
+
+  <div class="callout safe"><b>What it lets you do (non-headless, just API talk):</b> bulk product/price edits · inventory + <b>expiry reports/alerts</b> · create discounts · order/customer summaries · small theme tweaks · automations — all in plain English, Claude using the API under the hood. No hosting, no headless.</div>
+</div></section>
+
+<!-- SECURITY -->
+<section id="security"><div class="wrap">
+  <div class="eyebrow">Guardrails</div>
+  <h2>Security — the few things that are actually on you</h2>
+  <div class="grid2">
+    <div class="box do">
+      <h4>Do</h4>
+      <li>Keep the <b>Admin API token in 1Password</b> / env var (you already do this)</li>
+      <li><b>Start read-only</b>; add write scopes only when confident</li>
+      <li>Ask Claude to <b>preview before applying</b> bulk/destructive changes</li>
+      <li>Test on a <b>dev/staging store</b> first</li>
+      <li>Keep <b>checkout on Shopify</b> (no custom card forms anywhere)</li>
+    </div>
+    <div class="box dont">
+      <h4>Don't</h4>
+      <li>Commit the token to <b>git</b> or put it in <b>front-end code</b></li>
+      <li>Grant <b>write scopes</b> before you've tested reads</li>
+      <li>Run a vague write prompt ("halve all prices") without a preview</li>
+      <li>Move checkout into Builder.io (keep it on Shopify)</li>
+    </div>
+  </div>
+  <div class="callout safe"><b>Card data is never exposed.</b> Shopify's API doesn't return card numbers (you'd see "Visa ending 1234", not the number) — payments stay in Shopify's PCI vault. So a leaked token risks <i>store-data tampering</i>, not a card-data breach. Builder.io (Storefront token) only reads public catalog data and can't reach checkout.</div>
+  <div class="callout warn"><b>Biggest practical risk:</b> Claude's write actions hit the <b>live store with no undo</b>. Mitigate with: read-only first → previews → minimal scopes → a dev store for experiments.</div>
+</div></section>
+
+<!-- CHECKLIST -->
+<section id="checklist"><div class="wrap">
+  <div class="eyebrow">Do-it list</div>
+  <h2>One-time setup checklist</h2>
+  <div class="chk">
+    <div><b>Shopify</b> — store live on a Basic+ plan, Shopify Payments enabled (Malta ✓)</div>
+    <div><b>Builder.io</b> — install app, paste Storefront token + domain, add a theme block (OS 2.0 = no code)</div>
+    <div><b>Builder plan</b> — start Free; upgrade to Pro ($24/user) if you need more pages/A-B</div>
+    <div><b>Shopify custom app</b> — create "Claude Code", read-only scopes, copy <code>shpat_</code> token</div>
+    <div><b>Token</b> — store in 1Password; inject via <code>op run</code>, never in git/front-end</div>
+    <div><b>Claude Code MCP</b> — add Dev MCP (docs) + Admin MCP (token) via <code>.mcp.json</code></div>
+    <div><b>Test</b> — read-only prompts work ("list products", "expiring stock")</div>
+    <div><b>Go-live</b> — add write scopes only after testing; keep checkout on Shopify</div>
+  </div>
+  <div class="callout flag"><b>Honest confidence flag:</b> the Shopify↔Claude MCP piece is <b>new (rolled out 2026)</b> — the architecture is supported and solid, but exact package/command names (Dev MCP vs the live-store "AI Toolkit") were ~85–90% certain in research; confirm the precise install command hands-on at first setup. The Builder.io plugin piece is well-established and verified. Builder.io is US-based (DPA available) but in plugin mode only handles public product data, not customer PII.</div>
+</div></section>
+
+<footer><div class="wrap">
+  <p style="margin-bottom:9px;color:var(--mut);font-size:12.5px"><b>Sources</b> — verified June 2026 via parallel research + source checks.</p>
+  <p class="src">apps.shopify.com/builder-2 · builder.io/c/docs/shopify-plugin · builder.io/m/pricing · builder.io/c/docs/gdpr · shopify.dev/docs/apps/build/devmcp · github.com/Shopify/Shopify-AI-Toolkit · shopify.dev (custom app access tokens, API scopes) · code.claude.com/docs (MCP) · modelcontextprotocol.io (security) · shopify.com/security/pci-compliant</p>
+</div></footer>
+
+</body>
+</html>
