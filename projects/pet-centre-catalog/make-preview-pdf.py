@@ -43,6 +43,8 @@ def fetch_thumb(url, box=120):
 
 def conf_label(rec):
     c = rec.get("confidence") if rec else None
+    if c == "verified-visual":
+        return "verified (image)", GREEN  # image-AI confirmed — trusted, labelled distinctly
     if c and c.startswith("verified"):
         return c, GREEN
     if c == "likely":

@@ -46,6 +46,7 @@ def fetch_thumb(url, box=110):
 
 YELLOW = PatternFill("solid", fgColor="FFEB9C")   # likely / unverified — review this
 RED = PatternFill("solid", fgColor="FFC7CE")      # blank — needs manual sourcing
+GREEN = PatternFill("solid", fgColor="C6EFCE")    # verified-visual (image-AI) — trusted, distinct
 HEAD = PatternFill("solid", fgColor="00975A")     # Pet Centre green
 HEADFONT = Font(bold=True, color="FFFFFF")
 
@@ -60,6 +61,8 @@ def img_url(rec):
 
 def confidence(rec):
     c = rec.get("confidence") if rec else None
+    if c == "verified-visual":
+        return "verified (image)"  # image-AI confirmed — trusted, but not barcode-confirmed
     if c and c.startswith("verified"):
         return c  # verified-official / verified-cross / verified
     if c == "likely":
@@ -69,8 +72,11 @@ def confidence(rec):
 
 def style_cell(cell, rec):
     c = rec.get("confidence") if rec else None
+    if c == "verified-visual":
+        cell.fill = GREEN  # trusted, but visibly distinct from barcode-verified (white)
+        return
     if c and c.startswith("verified"):
-        return  # white — trusted
+        return  # white — barcode/code confirmed
     cell.fill = YELLOW if c == "likely" else RED
 
 
