@@ -274,6 +274,16 @@ def page_confirms(page_url, variants, ref, bt, allow_ref):
     return None, used, excerpt, og
 
 
+def fetch_grounding(url):
+    """Scrape a page's main text for description grounding (no confirmation logic — identity is
+    already proven). Returns (excerpt, creditsUsed). Used to ground the rows that were verified
+    without a scrape (barcode-in-filename shortcut, vision) so their description still draws from
+    the same source as the image."""
+    res = api("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True})
+    md = (res.get("data") or {}).get("markdown", "") or ""
+    return re.sub(r"\s+", " ", md)[:1800], res.get("creditsUsed", 1)
+
+
 def image_check(url):
     """Fetch the image once and judge it. Returns (live, good):
       live = the URL actually serves an image (200 + image content-type) — a kept row must
@@ -570,6 +580,23 @@ def main():
             if vision_confirm(chosen[1]["imageUrl"], p["clean"], p["brand"], p["type"]):
                 s, im, via, _, _, _ = chosen
                 chosen = (s, im, via, "verified-visual", "vision", "")
+
+        # Ground EVERY verified row's description in its own source page, so the description shares
+        # the image's provenance. Scrape-confirmed rows already carry page_text; the filename-
+        # shortcut (`ean-url`) and vision-confirmed rows don't — fetch it from the chosen image's
+        # source page now (one scrape) so green = image AND a page-grounded description.
+        if chosen and chosen[3].startswith("verified") and not chosen[5]:
+            src_url = chosen[1].get("url")
+            if src_url and src_url not in scraped:
+                scraped.add(src_url)
+                try:
+                    exc, vc = fetch_grounding(src_url)
+                    state["credits"] += vc
+                    if exc:
+                        chosen = chosen[:5] + (exc,)
+                except Exception as e:
+                    if DEBUG:
+                        print(f"  row {p['row']} grounding fetch failed: {e}")
 
         rec = {"credits": state["credits"] - cr0, "score": round(order[0][0], 2) if order else 0.0}
         if chosen:
