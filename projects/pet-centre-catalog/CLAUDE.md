@@ -29,10 +29,13 @@ Regenerate `.env` from 1Password with `node ../../tools/op-to-env.mjs` if a key 
 
 ## Status (June 2026)
 
-Engine + scripts built and validated. **48-product stratified test catalogue: 26 verified / 15 likely /
-7 blank, 0 dead images.** Latest review PDF in `Downloads` (+ Desktop copy). **Full 9,817 run not yet
-authorised** — awaiting go and/or a barcode-keyed official supplier source (would become a Tier-0 feed).
-Working data in `.tmp/` (disposable, regenerated). Est. full run ~$45–58, resumable, capped.
+Engine + scripts built, reviewed, and validated on a 50-product stratified sample (40 verified / 5 likely /
+5 blank). Output restructured for Hike: a full Hike-import workbook **+** a verification-first **curation
+workbook** (image-first, whole-row tier colour, clickable source links, structured Depth/Width/Height/Weight,
+READY/HOLD status). `normalize-images.py` squares + converts each image to JPG ≤1 MB for clean import.
+**Full 9,817 run not yet authorised** — awaiting go. Working data in `.tmp/` (disposable, regenerated).
+Est. full run **~$130–145** (Sonnet vision + descriptions + Firecrawl credits), resumable, capped at 60k
+credits. Image hosting (Cloudflare R2) + the Hike API upload happen at the upload stage, after curation.
 
 ## Don'ts
 - Never upload the internal catalogue to an external CDN/service without explicit OK (it's private business data).
