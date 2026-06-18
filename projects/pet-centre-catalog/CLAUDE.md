@@ -10,16 +10,19 @@ Enriches Riccardo's full **Hike POS** product catalogue (`C:\Users\Riccardo\Down
 **Overriding rule: accuracy > coverage.** "False advertising is worse than no advertising." Nothing
 unconfirmed is ever presented as confirmed — anything uncertain is flagged (yellow) or left blank (red).
 
-## Pipeline (Python; run via the skills venv + `op run` for secrets)
+## Pipeline (Python; run via the skills venv + a gitignored `.env` for secrets)
 
-`~/.claude/skills/.venv/Scripts/python.exe`, secrets injected with
-`op run --env-file="../../.env.tpl" -- <cmd>` (needs the 1Password desktop approval popup).
+`~/.claude/skills/.venv/Scripts/python.exe`. Keys come from the workspace-root **`.env`** (no popup):
+`set -a; . ../../.env; set +a` then run the script (needs `FIRECRAWL_API_KEY`, `ANTHROPIC_API_KEY`).
+Regenerate `.env` from 1Password with `node ../../tools/op-to-env.mjs` if a key rotates. (`op run
+--env-file="../../.env.tpl" -- <cmd>` still works as a backup but its approval popup is unreliable here.)
 
 1. `read-catalog.py` — parse the source xlsx → `.tmp/catalog.json` (one record/row; cleaned name, barcode, type, brand).
 2. `resolve-images.py` — **the engine.** Barcode (EAN) search → scrape candidate pages → confirm the
    EAN (or brand+article-code) literally on-page. Tiers: `verified-official` > `verified-cross` > `verified` > `likely` (name-match, unconfirmed) > blank. Image-quality gate (live + min 250px short side, ≤3:1) keeps junk crops/thumbnails out of the likely tier; verified stays identity-first. Resumable, per-row checkpoint, hard `CREDIT_CAP`. Uses `FIRECRAWL_API_KEY`.
-3. `gen-descriptions.py` — Claude Haiku, batched, resumable. Hard no-fabrication rule; verified rows are
-   *grounded* in the real scraped page text (free by-product of step 2). Uses `ANTHROPIC_API_KEY`.
+3. `gen-descriptions.py` — Claude Sonnet, batched, resumable. Hard no-fabrication rule; verified rows are
+   *grounded* in the real scraped page text (free by-product of step 2). Emits structured
+   `{description, depth, width, height, weight}` (dims only when explicitly stated). Uses `ANTHROPIC_API_KEY`.
 4. `assemble.py` — writes the enriched xlsx (col B/F/G, colour-coded: verified=white, likely=yellow, blank=red).
    `--preview [--embed]` builds a compact review workbook with inline thumbnails.
 5. `make-preview-pdf.py` — review PDF: thumbnail + name/brand/type + confidence + description + URL per row.
@@ -33,5 +36,5 @@ Working data in `.tmp/` (disposable, regenerated). Est. full run ~$45–58, resu
 
 ## Don'ts
 - Never upload the internal catalogue to an external CDN/service without explicit OK (it's private business data).
-- Never write secrets to disk — only `op run`.
+- Secrets live in the gitignored workspace-root `.env` (canonical in 1Password) — never commit them, never paste a key into chat or logs.
 - Never present a `likely`/`blank` image as confirmed.
