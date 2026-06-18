@@ -128,7 +128,7 @@ def call(batch):
     body = json.dumps(
         {
             "model": MODEL,
-            "max_tokens": 4096,
+            "max_tokens": 20000,  # ingredients/nutrition can be long; avoid truncated-JSON batches
             "system": SYSTEM,
             "messages": [{"role": "user", "content": user}],
         }
