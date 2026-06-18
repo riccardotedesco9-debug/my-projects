@@ -47,7 +47,7 @@ def main() -> None:
     for idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         if idx == 1:
             continue  # header
-        name = (row[0] or "").strip() if row[0] else ""
+        name = str(row[0]).strip() if row[0] else ""  # str(): a numeric product name (e.g. "404") mustn't crash .strip()
         if not name:
             continue
         rows.append(
@@ -55,9 +55,11 @@ def main() -> None:
                 "row": idx,
                 "name": name,
                 "clean": clean_name(name),
-                "barcode": str(row[2]).strip() if len(row) > 2 and row[2] else "",
-                "type": (row[3] or "").strip() if len(row) > 3 and row[3] else "",
-                "brand": (row[4] or "").strip() if len(row) > 4 and row[4] else "",
+                # Excel often stores barcodes as numbers -> openpyxl yields a float ('5350...3.0');
+                # keep only the integer part so the EAN matches.
+                "barcode": str(row[2]).split(".")[0].strip() if len(row) > 2 and row[2] else "",
+                "type": str(row[3]).strip() if len(row) > 3 and row[3] else "",
+                "brand": str(row[4]).strip() if len(row) > 4 and row[4] else "",
             }
         )
     with open(OUT, "w", encoding="utf-8") as f:

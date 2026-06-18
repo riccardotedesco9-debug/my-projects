@@ -16,24 +16,29 @@ filename — never on a plausible-looking guess):
      retailer/brand pages that actually print the code; confirm + take the page's og:image.
   3. NAME image search (broaden) + confirm again.
   4. NAME fallback -> unconfirmed but strong match = `likely`; else blank + flagged.
-  5. VISION (opt-in `--vision`): for a remaining `likely`, ask Haiku vision whether the photo IS
-     the product; a strict yes -> its own tier `verified-visual` (trusted, but labelled distinctly
-     from a barcode confirmation). Never overrides a name mismatch.
+  5. VISION (opt-in `--vision`, Opus 4.8): judge the chosen image for single-product + uncropped
+     (and, for an unconfirmed row, identity). A junk image (multi-pack marketing shot / crop) is
+     swapped for a clean pooled alternate when one exists; an off-source swap is tagged and stays
+     green only when vision is very sure (else demoted to `likely`). A clean image on a `likely`
+     row that vision confirms IS the product is promoted to `verified-visual`.
 
 Tiers: verified-official > verified-cross (2+ domains) > verified > verified-visual > likely > blank.
 Anything not confidently matched is left blank + flagged. Resumable; hard credit cap.
 Reads FIRECRAWL_API_KEY (and ANTHROPIC_API_KEY if --vision) from env (inject via `op run`).
 
-Usage: python resolve-images.py <in_json> <out_json> [credit_cap] [threshold] [--vision]
+Usage: python resolve-images.py <in_json> <out_json> [credit_cap] [threshold] [--vision] [--workers N]
 """
+import base64
 import io
 import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from PIL import Image as _PILImage
@@ -42,15 +47,26 @@ except Exception:  # Pillow missing -> quality gate degrades to liveness-only (n
 
 IN = sys.argv[1]
 OUT = sys.argv[2]
-CREDIT_CAP = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].lstrip("-").isdigit() else 35000
+CREDIT_CAP = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].lstrip("-").isdigit() else 60000
 THRESHOLD = float(sys.argv[4]) if len(sys.argv) > 4 and re.fullmatch(r"[0-9.]+", sys.argv[4]) else 0.55
 VISION = "--vision" in sys.argv
 DEBUG = "--debug" in sys.argv or os.environ.get("RI_DEBUG") == "1"
+WORKERS = 1  # parallel product workers; >1 fans the I/O-bound per-product work across threads
+if "--workers" in sys.argv:
+    _wi = sys.argv.index("--workers")
+    if _wi + 1 < len(sys.argv) and sys.argv[_wi + 1].isdigit():
+        WORKERS = max(1, int(sys.argv[_wi + 1]))
 MIN_BASE = 0.30  # distinctive product tokens must overlap at least this much
 MIN_IMG_PX = 250    # short side below this is a thumbnail/icon, not a usable product photo
 MAX_IMG_RATIO = 3.0  # wider/taller than this is a banner or sliver crop, not a full product
-VISION_MODEL = "claude-haiku-4-5-20251001"
-VISION_MIN_CONF = 0.8  # vision must be at least this sure before it may promote a likely
+VISION_MODEL = "claude-sonnet-4-6"  # vision judgement (single-product/crop/identity) — right-sized vs Opus; strong enough for counting/crop, far cheaper
+VISION_MIN_CONF = 0.8   # vision must be at least this sure the image matches before its quality verdict counts
+VISION_STRICT_CONF = 0.85  # any GREEN minted by vision alone (verified-visual / off-source swap) needs this
+MAX_QUALITY_ALTS = 2    # at most this many alternate images get a vision call when the primary fails
+VISION_MAX_PX = 1024    # downscale the long edge before the vision call to bound image-token cost
+VISION_CALL_CAP = 30000  # hard ceiling on vision calls per run (insurance against runaway Anthropic spend)
+GROUND_MIN = 400        # below this many chars of page text, try one supplementary trusted-source fetch
+PRODUCT_BUDGET = 150    # per-product wall-clock ceiling (s): past this, skip remaining stages/scrapes
 
 KEY = os.environ.get("FIRECRAWL_API_KEY")
 if not KEY:
@@ -169,7 +185,7 @@ def reliable_gtin(s):
     return ean_valid(s) and not re.match(r"(?:0[24]|2\d)", s or "")
 
 
-def api(path, body, timeout=90, retries=4):
+def api(path, body, timeout=60, retries=3):
     """POST to Firecrawl with retry/backoff on transient network/DNS errors (e.g.
     getaddrinfo failures under load) so a momentary blip never blanks a product.
     Real API errors (HTTP 4xx/5xx) are not retried."""
@@ -183,8 +199,12 @@ def api(path, body, timeout=90, retries=4):
             )
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read())
-        except urllib.error.HTTPError:
-            raise  # genuine API response (402/403/429/5xx) — let the caller handle it
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 529) and attempt < retries - 1:
+                last = e  # transient server / rate-limit — back off + retry (matters under --workers)
+                time.sleep(min(2 ** attempt, 12))
+                continue
+            raise  # 402/403/404/400 etc. — a real client error; let the caller handle it
         except Exception as e:  # URLError (DNS/conn reset), timeout, etc. — transient
             last = e
             time.sleep(min(2 ** attempt, 10))
@@ -250,6 +270,28 @@ def _og_image(html):
     return ""
 
 
+def _grounding(md):
+    """Flatten scraped markdown for description grounding, but pull the most description-relevant
+    sections — INGREDIENTS/composition (a must for food) and DIMENSIONS/size — to the FRONT so they
+    survive truncation and reach the description writer even when they sit far down the page."""
+    flat = re.sub(r"\s+", " ", md or "").strip()
+    heads = []
+    for pat in (
+        r"(?:composition|ingredients|analytical constituents|crude protein|protein\s*\d)\b.{0,600}",
+        r"(?:dimensions?|measurements?|product size|size\s*[:\-]).{0,200}",
+        r"\b\d+(?:[.,]\d+)?\s?(?:cm|mm|kg|g|ml|l)\b.{0,120}",  # a stated size/weight + nearby context
+        # material / construction / durability features (e.g. a toy's inner nylon rope)
+        r"(?:made (?:of|from|with)|material\b|nylon|polyester|cotton|rubber|silicone|ceramic|"
+        r"stainless steel|alumini?um|wood(?:en)?|reinforced|inner rope|rope core|chew[- ]?proof|"
+        r"heavy[- ]?duty|durable|rugged|tear[- ]?resistant|non[- ]?toxic)\b.{0,220}",
+    ):
+        m = re.search(pat, flat, re.IGNORECASE)
+        if m:
+            heads.append(m.group(0).strip())
+    prefix = (" | ".join(heads) + " || ") if heads else ""
+    return (prefix + flat)[:5000]
+
+
 def page_confirms(page_url, variants, ref, bt, allow_ref):
     """Scrape once (markdown for grounding + rawHtml for structured data). Confirm identity by
     GTIN — found in the page's structured data / raw HTML (JSON-LD gtin/mpn, meta, data-attrs)
@@ -261,7 +303,7 @@ def page_confirms(page_url, variants, ref, bt, allow_ref):
     md = data.get("markdown", "") or ""
     html = data.get("rawHtml", "") or ""
     used = res.get("creditsUsed", 1)
-    excerpt = re.sub(r"\s+", " ", md)[:1800]
+    excerpt = _grounding(md)
     og = _og_image(html)
     # GTIN in structured data / raw HTML (contiguous) or visible text (spaces tolerated).
     if variants and (gtin_in(html, variants, contiguous=True) or gtin_in(md, variants, contiguous=False)):
@@ -281,7 +323,7 @@ def fetch_grounding(url):
     the same source as the image."""
     res = api("scrape", {"url": url, "formats": ["markdown"], "onlyMainContent": True})
     md = (res.get("data") or {}).get("markdown", "") or ""
-    return re.sub(r"\s+", " ", md)[:1800], res.get("creditsUsed", 1)
+    return _grounding(md), res.get("creditsUsed", 1)
 
 
 def image_check(url):
@@ -313,43 +355,101 @@ def image_check(url):
     return True, good
 
 
-def vision_confirm(img_url, name, brand, ptype):
-    """Ask Haiku vision whether the image really shows this product. Conservative: True only on
-    an explicit high-confidence yes. Fail-open to False on any error/missing key, so a vision
-    hiccup can never fabricate a verification."""
+def _vision_image_block(url):
+    """Build the image content block for a vision call. Fetch + downscale to VISION_MAX_PX on the
+    long edge and send as base64 (bounds image-token cost — a high-res photo is ~3x the tokens of a
+    1024px one). Falls back to a URL block if Pillow is missing; returns None if we have nothing
+    usable (so the caller fails open to 'no')."""
+    if not url:
+        return None
+    if not _PILImage:
+        return {"type": "image", "source": {"type": "url", "url": url}}
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = r.read(8_000_000)
+        im = _PILImage.open(io.BytesIO(data)).convert("RGB")
+        w, h = im.size
+        long_ = max(w, h)
+        if long_ > VISION_MAX_PX:
+            scale = VISION_MAX_PX / long_
+            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))))
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+        b64 = base64.standard_b64encode(buf.getvalue()).decode()
+        return {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}}
+    except Exception:
+        return {"type": "image", "source": {"type": "url", "url": url}}
+
+
+def vision_assess(img_url, name, brand, ptype):
+    """Ask Opus vision to judge an image for THIS product on three axes -> dict
+    {match, single, whole, confidence, reason}. Conservative + fail-open: any error/missing key
+    returns all-false, so a vision hiccup can never fabricate a pass or a quality verdict."""
+    fail = {"match": False, "single": False, "whole": False, "confidence": 0.0, "reason": "no-vision"}
     if not (ANTHROPIC_KEY and img_url):
-        return False
+        return fail
+    block = _vision_image_block(img_url)
+    if not block:
+        return fail
     prompt = (
-        "You verify product photos for a pet-shop catalogue.\n"
+        "You inspect product photos for a pet-shop catalogue. "
         f'Claimed product: name="{name}" brand="{brand or "n/a"}" category="{ptype or "n/a"}".\n'
-        "Look at the image. Does it clearly show THIS product — same brand and same item type "
-        "(and variant/flavour/size if discernible)? Be strict: if it's a different brand, a "
-        "different product, a generic/stock photo, packaging you cannot match, or you are unsure, "
-        "answer no.\n"
-        'Reply ONLY with JSON: {"match": true|false, "confidence": 0.0-1.0, "reason": "<short>"}.'
+        "Judge the image on three axes, strictly:\n"
+        "1. match — does it clearly show THIS product (same brand and item type, and "
+        "variant/flavour/size if discernible)? A different brand/product, a generic stock photo, "
+        "or packaging you cannot match = false.\n"
+        "2. single — is exactly ONE unit shown, OR a coherent multipack/set that IS this SKU "
+        "(e.g. a 24-can tray sold as one)? Mark false when the SAME item is repeated purely as a "
+        "marketing arrangement (e.g. three identical bags fanned out side by side).\n"
+        "3. whole — is the entire product visible, not cropped or cut off at an edge?\n"
+        'Reply ONLY with JSON: {"match": true|false, "single": true|false, "whole": true|false, '
+        '"confidence": 0.0-1.0, "reason": "<short>"}.'
     )
     body = json.dumps({
-        "model": VISION_MODEL, "max_tokens": 200,
-        "messages": [{"role": "user", "content": [
-            {"type": "image", "source": {"type": "url", "url": img_url}},
-            {"type": "text", "text": prompt},
-        ]}],
+        "model": VISION_MODEL, "max_tokens": 300,
+        "messages": [{"role": "user", "content": [block, {"type": "text", "text": prompt}]}],
     }).encode()
     req = urllib.request.Request(
         "https://api.anthropic.com/v1/messages", data=body,
         headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json"},
     )
+    data = None
+    for attempt in range(3):  # back off on rate-limit/5xx so parallel load can't fail-open to a wrong verdict
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                data = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503, 529) and attempt < 2:
+                time.sleep(min(2 ** attempt, 12))
+                continue
+            if DEBUG:
+                print(f"  vision http {e.code}")
+            return fail
+        except Exception as e:  # transient network — retry, then give up (fail-open to no-match)
+            if attempt < 2:
+                time.sleep(min(2 ** attempt, 12))
+                continue
+            if DEBUG:
+                print(f"  vision err: {e}")
+            return fail
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = json.loads(r.read())
         text = data["content"][0]["text"].strip()
         if text.startswith("```"):
             text = re.sub(r"^json\s*", "", text.split("```")[1].strip())
         obj = json.loads(text)
-        return bool(obj.get("match")) and float(obj.get("confidence", 0)) >= VISION_MIN_CONF
+        return {
+            "match": bool(obj.get("match")),
+            "single": bool(obj.get("single")),
+            "whole": bool(obj.get("whole")),
+            "confidence": float(obj.get("confidence", 0) or 0),
+            "reason": str(obj.get("reason", ""))[:120],
+        }
     except Exception as e:
-        print(f"  vision err: {e}")
-        return False
+        if DEBUG:
+            print(f"  vision parse err: {e}")
+        return fail
 
 
 def img_pref(url):
@@ -409,24 +509,41 @@ def main():
     done = {}
     if os.path.exists(OUT):
         done = {int(k): v for k, v in json.load(open(OUT, encoding="utf-8")).items()}
-    state = {"credits": sum(v.get("credits", 0) for v in done.values()), "vision_calls": 0}
+    state = {"credits": sum(v.get("credits", 0) for v in done.values()),
+             "vision_calls": sum(v.get("vision", 0) for v in done.values())}
+    lock = threading.Lock()  # guards the shared counters + done/flush when WORKERS > 1
 
     def process(p):
         """Resolve one product. Returns (rec, kind) to store, or (None, 'retry') when a
         network error left us with nothing — that row is NOT recorded, so a later sweep
         retries it instead of falsely concluding 'no-results'."""
-        ean = p["barcode"] if reliable_gtin(p["barcode"]) else None
+        with lock:
+            if state["credits"] >= CREDIT_CAP:
+                return None, "capped"  # spend ceiling — leave unrecorded so a resume continues here
+        bc = (p["barcode"] or "").split(".")[0].strip()  # tolerate float artifacts like '5350...3.00'
+        ean = bc if reliable_gtin(bc) else None
         variants = gtin_variants(ean)
         ref = extract_ref(p["name"])
         core = toks(p["clean"]) - brand_toks(p["brand"])
         bt = brand_toks(p["brand"])
         offdoms = official_domains_for(p["brand"])
-        cr0 = state["credits"]
         chosen = None
         had_error = False
         pool = {}  # imageUrl -> (score, image, via)
         img_memo = {}
         scraped = set()  # page URLs already scraped this product (don't pay twice)
+        acc = {"credits": 0, "vision": 0}  # this product's own spend (thread-owned, no lock needed)
+        t0 = time.time()  # per-product clock; later stages/scrapes are skipped once past PRODUCT_BUDGET
+
+        def spend(c):  # tally credits per-product (for the rec) AND globally (cap check + live total)
+            acc["credits"] += c
+            with lock:
+                state["credits"] += c
+
+        def vbump():
+            acc["vision"] += 1
+            with lock:
+                state["vision_calls"] += 1
 
         def img_ok(u):
             """(live, good) for an image URL, fetched at most once per product."""
@@ -457,6 +574,8 @@ def main():
             # 1) scrape + confirm
             confirmed, checked = [], 0
             for s, im, via in cands:
+                if time.time() - t0 > PRODUCT_BUDGET:
+                    break
                 pg = im.get("url")
                 if not pg or pg in scraped or checked >= 3:
                     continue
@@ -464,7 +583,7 @@ def main():
                 checked += 1
                 try:
                     key, vc, excerpt, og = page_confirms(pg, variants, ref, bt, bool(core))
-                    state["credits"] += vc
+                    spend(vc)
                 except Exception:
                     continue
                 if key:
@@ -480,13 +599,15 @@ def main():
             scrape, confirm, and take the page's og:image as the product photo."""
             confirmed, checked = [], 0
             for pg in urls:
+                if time.time() - t0 > PRODUCT_BUDGET:
+                    break
                 if not pg or pg in scraped or checked >= 3:
                     continue
                 scraped.add(pg)
                 checked += 1
                 try:
                     key, vc, excerpt, og = page_confirms(pg, variants, ref, bt, bool(core))
-                    state["credits"] += vc
+                    spend(vc)
                 except Exception:
                     continue
                 if key and og and is_product_image(og):
@@ -525,21 +646,81 @@ def main():
                         return (s, im, via, conf, key, excerpt)
             return None
 
+        def quality_pass(chosen):
+            """Vision-judge the chosen image for single-product + uncropped (and identity for an
+            unconfirmed tier). On failure, try up to MAX_QUALITY_ALTS clean pooled alternates.
+            Returns (chosen, img_provenance, img_quality). Accuracy rules:
+              - a real barcode confirmation is NEVER discarded for an unproven image: a verified row
+                swaps only to a same-page clean image or an off-source one vision is very sure of
+                (>= VISION_STRICT_CONF); otherwise it keeps its image and just flags the quality;
+              - any GREEN minted by vision alone (verified-visual) needs >= VISION_STRICT_CONF."""
+            s, im, via, conf, key, excerpt = chosen
+            if state["vision_calls"] >= VISION_CALL_CAP:
+                return chosen, "", ""  # spend ceiling reached — leave the row as resolved
+            barcode_verified = conf in ("verified-official", "verified-cross", "verified")
+            src_dom = domain_of(im.get("url", ""))
+            base_prov = "official" if (offdoms and any(d in src_dom for d in offdoms)) else "source"
+
+            a = vision_assess(im["imageUrl"], p["clean"], p["brand"], p["type"])
+            vbump()
+            ident_ok = barcode_verified or (a["match"] and a["confidence"] >= VISION_MIN_CONF)
+            if ident_ok and a["single"] and a["whole"]:  # primary image is clean and is the product
+                if conf == "likely":  # unconfirmed identity — vision mints green only when very sure
+                    if a["confidence"] >= VISION_STRICT_CONF:
+                        return (s, im, via, "verified-visual", "vision", excerpt), "ai-matched", ""
+                    return chosen, "", ""  # clean but not sure enough — stays likely (its own image)
+                return chosen, base_prov, ""
+
+            # primary failed (quality, or identity on a likely row) — hunt a clean pooled alternate.
+            seen, tried = {im["imageUrl"]}, 0
+            for cs, cim, cvia in sorted(pool.values(), key=lambda x: x[0], reverse=True):
+                if tried >= MAX_QUALITY_ALTS:
+                    break
+                cu = cim["imageUrl"]
+                if cu in seen or not is_product_image(cu) or not img_ok(cu)[1]:
+                    continue
+                seen.add(cu)
+                tried += 1
+                ca = vision_assess(cu, p["clean"], p["brand"], p["type"])
+                vbump()
+                if not (ca["match"] and ca["single"] and ca["whole"]):
+                    continue
+                cdom = domain_of(cim.get("url", ""))
+                same = bool(cdom) and cdom == src_dom
+                strong = ca["confidence"] >= VISION_STRICT_CONF
+                prov = base_prov if same else ("off-source:" + cdom)
+                if barcode_verified:
+                    # keep the barcode tier; swap only to a same-page image or an off-source one we
+                    # are very sure of — never discard a barcode confirmation for an unproven picture.
+                    if same or strong:
+                        return (s, cim, cvia, conf, key, excerpt), prov, ""
+                    continue
+                # likely row: vision is the only identity signal. Green only when very sure.
+                if strong:
+                    return (s, cim, cvia, "verified-visual", "vision", excerpt), prov, ""
+                return (s, cim, cvia, "likely", "", excerpt), prov, ""
+
+            # no clean alternate. Keep the primary image; flag the quality issue for manual swap.
+            if conf == "likely" and not ident_ok:
+                return chosen, base_prov, ""  # unconfirmed + unclear photo — already yellow, no extra tag
+            quality = "multi" if not a["single"] else ("crop" if not a["whole"] else "unclear")
+            return chosen, base_prov, quality
+
         try:
             if ean or ref:  # Stage 1: barcode/code image search + confirm
                 imgs, c = img_search(ean or (p["brand"] + " " + ref))
-                state["credits"] += c
+                spend(c)
                 add(imgs, "barcode")
                 chosen = verify_top()
-            if not chosen and ean:  # Stage 2: EAN web search (official-scoped first, then general)
+            if not chosen and ean and time.time() - t0 < PRODUCT_BUDGET:  # Stage 2: EAN web search (official-scoped first, then general)
                 urls = []
                 scoped = [d for d in offdoms if "." in d]  # real domains only (bare frags can't scope)
                 if scoped:
                     w, c = web_search(f'{ean} {p["brand"]}', domains=scoped)
-                    state["credits"] += c
+                    spend(c)
                     urls += w
                 w, c = web_search(ean)
-                state["credits"] += c
+                spend(c)
                 urls += w
                 # dedupe preserving order
                 seen, ordered = set(), []
@@ -550,12 +731,12 @@ def main():
                 if DEBUG and not ordered:
                     print(f"  row {p['row']} ean-web: 0 page urls (stage no-op)")
                 chosen = verify_urls(ordered[:6], "ean-web")
-            if not chosen:  # Stage 3: name image search to broaden, confirm again
+            if not chosen and time.time() - t0 < PRODUCT_BUDGET:  # Stage 3: name image search to broaden, confirm again
                 parts = [p["brand"], p["clean"], p["type"]]
                 if not bt:
                     parts.append("pet")
                 imgs, c = img_search(" ".join(filter(None, parts)) or p["clean"])
-                state["credits"] += c
+                spend(c)
                 add(imgs, "name")
                 chosen = verify_top()
         except Exception as e:
@@ -573,36 +754,66 @@ def main():
                     chosen = (s, im, via, "likely", "", "")
                     break
 
-        # Stage 5 (opt-in): vision tie-breaker — promote a `likely` to `verified-visual` only on
-        # a strict high-confidence image match. Conservative, name already agreed (cleared score).
-        if VISION and ANTHROPIC_KEY and chosen and chosen[3] == "likely":
-            state["vision_calls"] += 1
-            if vision_confirm(chosen[1]["imageUrl"], p["clean"], p["brand"], p["type"]):
-                s, im, via, _, _, _ = chosen
-                chosen = (s, im, via, "verified-visual", "vision", "")
+        # Stage 5 (opt-in `--vision`): quality + identity judgement on the chosen image. May swap a
+        # multi-pack/cropped image for a clean pooled alternate (tagged when off-source), promote a
+        # `likely` whose image vision confirms, or flag an unfixable image for manual swap.
+        img_provenance, img_quality = "", ""
+        if VISION and ANTHROPIC_KEY and chosen and chosen[1].get("imageUrl"):
+            chosen, img_provenance, img_quality = quality_pass(chosen)
 
-        # Ground EVERY verified row's description in its own source page, so the description shares
-        # the image's provenance. Scrape-confirmed rows already carry page_text; the filename-
-        # shortcut (`ean-url`) and vision-confirmed rows don't — fetch it from the chosen image's
-        # source page now (one scrape) so green = image AND a page-grounded description.
-        if chosen and chosen[3].startswith("verified") and not chosen[5]:
+        # Description grounding + provenance. A verified row draws its description from the SAME page
+        # the identity/image came from; a row with thin/no page text gets ONE bounded trusted-source
+        # fetch so the description can still cite real specifics (tagged `supplemented`).
+        desc_provenance = ""
+        if chosen:
+            excerpt = chosen[5]
             src_url = chosen[1].get("url")
-            if src_url and src_url not in scraped:
+            if chosen[3].startswith("verified") and not excerpt and src_url and src_url not in scraped:
                 scraped.add(src_url)
                 try:
                     exc, vc = fetch_grounding(src_url)
-                    state["credits"] += vc
+                    spend(vc)
                     if exc:
+                        excerpt = exc
                         chosen = chosen[:5] + (exc,)
                 except Exception as e:
                     if DEBUG:
                         print(f"  row {p['row']} grounding fetch failed: {e}")
+            desc_provenance = "source" if excerpt else ""
+            # Supplement ONLY identity-confirmed rows: enriching a `likely` row's description with
+            # specifics from a name-matched page risks describing a different variant (false advert).
+            if chosen[3].startswith("verified") and len(excerpt or "") < GROUND_MIN and (core or bt) \
+                    and time.time() - t0 < PRODUCT_BUDGET:
+                try:
+                    urls, c = web_search(" ".join(filter(None, [p["brand"], p["clean"], p["type"]])))
+                    spend(c)
+                    pref = lambda u: (2 if offdoms and any(x in domain_of(u) for x in offdoms)
+                                      else (1 if PET_SIG.search(u) else 0))
+                    cands = sorted((u for u in urls if u not in scraped and not OFF_DOMAIN.search(domain_of(u))),
+                                   key=pref, reverse=True)
+                    if cands:
+                        u = cands[0]
+                        scraped.add(u)
+                        exc, vc = fetch_grounding(u)
+                        spend(vc)
+                        if exc and len(exc) >= GROUND_MIN:
+                            excerpt = exc
+                            chosen = chosen[:5] + (exc,)
+                            desc_provenance = "supplemented:" + domain_of(u)
+                except Exception as e:
+                    if DEBUG:
+                        print(f"  row {p['row']} supplement fetch failed: {e}")
+            if not excerpt:
+                desc_provenance = "name-only"
 
-        rec = {"credits": state["credits"] - cr0, "score": round(order[0][0], 2) if order else 0.0}
+        rec = {"credits": acc["credits"], "vision": acc["vision"],
+               "score": round(order[0][0], 2) if order else 0.0}
         if chosen:
             s, im, via, conf, key, excerpt = chosen
             rec.update(url=im["imageUrl"], src=im.get("url", ""), title=im.get("title", ""),
-                       via=via, key=key, score=round(s, 2), confidence=conf)
+                       via=via, key=key, score=round(s, 2), confidence=conf,
+                       img_provenance=img_provenance, img_quality=img_quality,
+                       desc_provenance=desc_provenance)
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
             return rec, ("ver" if conf.startswith("verified") else "lik")
@@ -615,37 +826,58 @@ def main():
         return rec, "blank"
 
     def flush():
-        json.dump({str(k): v for k, v in done.items()}, open(OUT, "w", encoding="utf-8"), ensure_ascii=False, indent=0)
+        # Atomic: write a temp file then os.replace, so a crash/kill/reboot mid-write can never
+        # truncate the checkpoint to invalid JSON and lose all prior (paid-for) progress on resume.
+        tmp = OUT + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in done.items()}, f, ensure_ascii=False, indent=0)
+        os.replace(tmp, OUT)
 
     capped = False
-    # Self-healing sweeps: anything left unrecorded (network errors) is retried up to 4x.
+    # Self-healing sweeps: anything left unrecorded (network errors) is retried up to 4x. Within a
+    # sweep, products are independent, so we fan them out across WORKERS threads (the work is almost
+    # all network wait). A row hitting the credit cap returns "capped" and is left unrecorded so a
+    # resume picks up exactly where this run stopped.
     for sweep in range(4):
         todo = [p for p in products if p["row"] not in done]
         if not todo:
             break
-        print(f"sweep {sweep + 1}: {len(todo)} to process (cap {CREDIT_CAP}, vision={'on' if VISION else 'off'})")
-        for n, p in enumerate(todo):
-            if state["credits"] >= CREDIT_CAP:
-                print(f"!! credit cap reached at {len(done)} products -- stopping")
-                capped = True
-                break
-            rec, kind = process(p)
-            if kind == "retry":
-                continue  # not recorded -> next sweep re-attempts it
-            done[p["row"]] = rec
-            flush()
-            if (n + 1) % 10 == 0:
-                v = sum(1 for x in done.values() if (x.get("confidence") or "").startswith("verified"))
-                l = sum(1 for x in done.values() if x.get("confidence") == "likely")
-                print(f"  {len(done)} done | {v} verified | {l} likely | {state['credits']} credits")
-            time.sleep(0.3)
+        print(f"sweep {sweep + 1}: {len(todo)} to process "
+              f"(cap {CREDIT_CAP}, workers {WORKERS}, vision={'on' if VISION else 'off'})")
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            futs = {ex.submit(process, p): p for p in todo}
+            for fut in as_completed(futs):
+                p = futs[fut]
+                try:
+                    rec, kind = fut.result()
+                except Exception as e:  # an unexpected crash -> leave unrecorded for the next sweep
+                    if DEBUG:
+                        print(f"  row {p['row']} crashed: {e}")
+                    continue
+                if kind == "capped":
+                    capped = True
+                    continue
+                if kind == "retry":
+                    continue  # not recorded -> next sweep re-attempts it
+                with lock:
+                    done[p["row"]] = rec
+                    flush()
+                    nd = len(done)
+                    cr, vca = state["credits"], state["vision_calls"]
+                if nd % 10 == 0:
+                    v = sum(1 for x in done.values() if (x.get("confidence") or "").startswith("verified"))
+                    l = sum(1 for x in done.values() if x.get("confidence") == "likely")
+                    print(f"  {nd} done | {v} verified | {l} likely | {cr} credits | {vca} vision")
         if capped:
+            print(f"!! credit cap reached at {len(done)} products -- stopping (resume to continue)")
             break
-    # Finalize stragglers that errored through every sweep, so a resume terminates cleanly.
-    for p in products:
-        if p["row"] not in done:
-            done[p["row"]] = {"credits": 0, "score": 0.0, "url": "", "confidence": None,
-                              "reason": "no-results-after-retries"}
+    # Finalize stragglers that errored through every sweep, so a resume terminates cleanly — but NOT
+    # when we stopped on the cap (those rows aren't failures, just not-yet-reached).
+    if not capped:
+        for p in products:
+            if p["row"] not in done:
+                done[p["row"]] = {"credits": 0, "vision": 0, "score": 0.0, "url": "", "confidence": None,
+                                  "reason": "no-results-after-retries"}
     flush()
     vv = sum(1 for x in done.values() if x.get("confidence") == "verified-visual")
     v = sum(1 for x in done.values() if (x.get("confidence") or "").startswith("verified"))
