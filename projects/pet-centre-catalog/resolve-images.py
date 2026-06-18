@@ -47,7 +47,7 @@ except Exception:  # Pillow missing -> quality gate degrades to liveness-only (n
 
 IN = sys.argv[1]
 OUT = sys.argv[2]
-CREDIT_CAP = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].lstrip("-").isdigit() else 60000
+CREDIT_CAP = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].lstrip("-").isdigit() else 80000
 THRESHOLD = float(sys.argv[4]) if len(sys.argv) > 4 and re.fullmatch(r"[0-9.]+", sys.argv[4]) else 0.55
 VISION = "--vision" in sys.argv
 DEBUG = "--debug" in sys.argv or os.environ.get("RI_DEBUG") == "1"
