@@ -73,7 +73,13 @@ SYSTEM = (
     "measurement is NOT a box dimension — a "
     "collar's neck range ('15-17 in'), a garment/collar 'size 4', a screen size, or a bowl's litre "
     "capacity must leave depth/width/height null (keep that detail in the description instead). Fill only "
-    "the dims actually stated (e.g. a round bed giving one '60cm' figure fills one dimension, nulls the rest)."
+    "the dims actually stated (e.g. a round bed giving one '60cm' figure fills one dimension, nulls the rest).\n"
+    "INGREDIENTS (food and treats ONLY): also populate `ingredients` with the full composition / ingredient "
+    "list AND analytical constituents (protein, fat/oils, fibre, ash, moisture and any other percentages or "
+    "additives), copied EXACTLY as stated in source_info — keep the real figures; do NOT invent, estimate, "
+    "round or infer any value. Format readably, e.g. 'Composition: chicken 30%, rice, ... | Analytical "
+    "constituents: protein 26%, fat 15%, fibre 3%, ash 7%, moisture 8%'. If the item is not food/treats, or "
+    "source_info gives no composition, set ingredients to an empty string. Never fabricate ingredients or values."
 )
 
 
@@ -87,17 +93,18 @@ def _num(x, hi, decimals=1):
 
 
 def _clean_result(o):
-    """Normalise one model result; tolerate a bare string (description only, no dims)."""
+    """Normalise one model result; tolerate a bare string (description only, no dims/ingredients)."""
     if isinstance(o, str):
-        return {"description": o.strip(), "depth": None, "width": None, "height": None, "weight": None}
+        return {"description": o.strip(), "depth": None, "width": None, "height": None, "weight": None, "ingredients": ""}
     if not isinstance(o, dict):
-        return {"description": "", "depth": None, "width": None, "height": None, "weight": None}
+        return {"description": "", "depth": None, "width": None, "height": None, "weight": None, "ingredients": ""}
     return {
         "description": (o.get("description") or "").strip(),
         "depth": _num(o.get("depth"), 1000),   # cm — sanity-cap at 10 m
         "width": _num(o.get("width"), 1000),
         "height": _num(o.get("height"), 1000),
         "weight": _num(o.get("weight"), 200, 3),  # kg — sanity-cap at 200 kg; 3dp keeps gram precision
+        "ingredients": (o.get("ingredients") or "").strip(),  # food/treats: full composition + macros, else ""
     }
 
 
@@ -108,13 +115,14 @@ def call(batch):
         line = f'{i + 1}. name="{p["clean"]}" brand="{p["brand"] or "n/a"}" category="{p["type"] or "n/a"}"'
         src = GROUND.get(p["row"])
         if src:
-            line += f'\n   source_info="""{src[:2500]}"""'
+            line += f'\n   source_info="""{src[:4500]}"""'  # headroom for full ingredient + constituents lists
         lines.append(line)
     user = (
         "For each numbered product below, return one JSON object. Return ONLY a JSON array of objects in "
         "the same order, one per product, each EXACTLY:\n"
         '{"description": "<plain-text 1-2 sentences, no quotes or labels>", "depth": <cm|null>, '
-        '"width": <cm|null>, "height": <cm|null>, "weight": <kg|null>}\n'
+        '"width": <cm|null>, "height": <cm|null>, "weight": <kg|null>, '
+        '"ingredients": "<food/treats only: full composition + analytical constituents, else empty>"}\n'
         "No extra keys, no numbering, no text outside the array.\n\n" + "\n".join(lines)
     )
     body = json.dumps(

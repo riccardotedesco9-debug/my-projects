@@ -272,12 +272,16 @@ def _og_image(html):
 
 def _grounding(md):
     """Flatten scraped markdown for description grounding, but pull the most description-relevant
-    sections — INGREDIENTS/composition (a must for food) and DIMENSIONS/size — to the FRONT so they
-    survive truncation and reach the description writer even when they sit far down the page."""
+    sections — full INGREDIENTS/composition AND analytical constituents/nutrition (a must for food),
+    plus DIMENSIONS/size and material — to the FRONT so they survive truncation and reach the writer
+    even when they sit far down the page. Composition and nutrition are captured as SEPARATE heads so a
+    long ingredient list can't crowd out the macros."""
     flat = re.sub(r"\s+", " ", md or "").strip()
     heads = []
     for pat in (
-        r"(?:composition|ingredients|analytical constituents|crude protein|protein\s*\d)\b.{0,600}",
+        r"(?:composition|ingredients)\b.{0,1500}",   # full ingredient list — can run long
+        r"(?:analytical constituents|crude protein|protein\s*[:\d]|nutritional additives|"
+        r"fat content|crude (?:fat|fibre|ash)|moisture)\b.{0,700}",  # nutrition / macros, captured separately
         r"(?:dimensions?|measurements?|product size|size\s*[:\-]).{0,200}",
         r"\b\d+(?:[.,]\d+)?\s?(?:cm|mm|kg|g|ml|l)\b.{0,120}",  # a stated size/weight + nearby context
         # material / construction / durability features (e.g. a toy's inner nylon rope)
@@ -289,7 +293,7 @@ def _grounding(md):
         if m:
             heads.append(m.group(0).strip())
     prefix = (" | ".join(heads) + " || ") if heads else ""
-    return (prefix + flat)[:5000]
+    return (prefix + flat)[:6000]
 
 
 def page_confirms(page_url, variants, ref, bt, allow_ref):

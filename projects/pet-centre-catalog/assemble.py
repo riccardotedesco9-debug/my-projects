@@ -286,6 +286,7 @@ CURATION_COLS = [
     ("Product Type",     lambda p, rec, d: p["type"],                None,                      22, True),
     ("Barcode",          lambda p, rec, d: p["barcode"],             None,                      16, False),
     ("Description",      lambda p, rec, d: d.get("description", ""),  None,                      58, True),
+    ("Ingredients",      lambda p, rec, d: d.get("ingredients", ""),  None,                      60, True),
     ("Depth (cm)",       lambda p, rec, d: d.get("depth") or "",      None,                      11, False),
     ("Width (cm)",       lambda p, rec, d: d.get("width") or "",       None,                      11, False),
     ("Height (cm)",      lambda p, rec, d: d.get("height") or "",      None,                      11, False),
