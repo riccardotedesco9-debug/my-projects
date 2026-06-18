@@ -100,7 +100,7 @@ def confidence(rec):
 
 def _img_src(rec):
     """Where the PICTURE came from, in plain words."""
-    if not rec.get("url"):
+    if not rec or not rec.get("url"):  # rec is None for rows not yet resolved (capped/partial run)
         return "none"
     q = rec.get("img_quality") or ""
     if q:  # couldn't get a clean photo — flag for manual swap
@@ -117,6 +117,8 @@ def _img_src(rec):
 
 def _txt_src(rec):
     """Where the DESCRIPTION facts came from, in plain words."""
+    if not rec:  # rec is None for rows not yet resolved (capped/partial run)
+        return "name-only"
     dp = rec.get("desc_provenance") or ""
     if dp.startswith("supplemented:"):
         return "+" + dp.split(":", 1)[1]

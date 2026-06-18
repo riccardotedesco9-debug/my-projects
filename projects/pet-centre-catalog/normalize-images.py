@@ -45,12 +45,16 @@ def square_pad(data, size):
 
 
 def save_jpg(im, path, max_kb=MAX_KB):
-    """Save JPEG, stepping quality down until <= max_kb (a 1000px packshot is usually well under)."""
+    """Save JPEG, stepping quality down until <= max_kb; if a pathological image is still over, downscale
+    once and retry, then warn (rather than silently keep an oversized file Hike would reject). A 1000px
+    packshot is normally far under, so the fallback rarely fires."""
     for q in range(90, 49, -8):
         im.save(path, "JPEG", quality=q, optimize=True)
         if os.path.getsize(path) <= max_kb * 1024:
             return
-    # lowest quality stands even if marginally over
+    im.resize((im.width * 3 // 4, im.height * 3 // 4), Image.LANCZOS).save(path, "JPEG", quality=80, optimize=True)
+    if os.path.getsize(path) > max_kb * 1024:
+        print(f"  WARNING: {path} is {os.path.getsize(path) // 1024}KB (> {max_kb}KB) — may exceed Hike's limit")
 
 
 def main():
