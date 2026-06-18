@@ -29,13 +29,18 @@ Regenerate `.env` from 1Password with `node ../../tools/op-to-env.mjs` if a key 
 
 ## Status (June 2026)
 
-Engine + scripts built, reviewed, and validated on a 50-product stratified sample (40 verified / 5 likely /
-5 blank). Output restructured for Hike: a full Hike-import workbook **+** a verification-first **curation
-workbook** (image-first, whole-row tier colour, clickable source links, structured Depth/Width/Height/Weight,
-READY/HOLD status). `normalize-images.py` squares + converts each image to JPG ≤1 MB for clean import.
+Engine + scripts built, reviewed, and validated on a 250-product stratified sample. Output restructured for
+Hike: a full Hike-import workbook **+** a verification-first **curation workbook** — image-first, **per-field**
+tier colour (each of Description / Ingredients / Image carries its own `Tier — how` source cell, clickable),
+a worst-of-fields **Status** (all green = READY · any yellow = REVIEW · any red = HOLD), structured
+Depth/Width/Height/Weight, and an **EDIBLE** classifier (food + treats/chews/bones/dental → must carry an
+ingredient list; green only on a barcode/article-code match). `normalize-images.py` trims the white border and
+scales the product to fill the frame (~86% long-side, capped upscale) then squares to JPG ≤1 MB.
 **Full 9,817 run not yet authorised** — awaiting go. Working data in `.tmp/` (disposable, regenerated).
-Est. full run **~$130–145** (Sonnet vision + descriptions + Firecrawl credits), resumable, capped at 60k
-credits. Image hosting (Cloudflare R2) + the Hike API upload happen at the upload stage, after curation.
+Est. full run **~$250** (Anthropic ~$155: Sonnet vision + descriptions · Firecrawl ~100–120k credits ≈ one
+Standard month $83). NOTE: the in-script credit counter under-logs Firecrawl **search** calls (they cost 2
+credits but report 0), so real spend is ~1.7× the printed number — size the Firecrawl plan accordingly. Image
+hosting (Cloudflare R2) + the Hike API upload happen at the upload stage, after curation.
 
 ## Don'ts
 - Never upload the internal catalogue to an external CDN/service without explicit OK (it's private business data).

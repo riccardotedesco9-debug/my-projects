@@ -16,6 +16,7 @@ import argparse
 import io
 import json
 import os
+import re
 import urllib.request
 from urllib.parse import urlsplit
 
@@ -61,15 +62,32 @@ def thumb_for(row, url, imgdir, box=110):
                 return out
             except Exception:
                 pass
-    return fetch_thumb(url)
+    return fetch_thumb(url, box)
 
 YELLOW = PatternFill("solid", fgColor="FFEB9C")   # likely / unverified — review this
 RED = PatternFill("solid", fgColor="FFC7CE")      # blank — needs manual sourcing
 GREEN = PatternFill("solid", fgColor="C6EFCE")    # verified (any tier) — whole row
+GREY = PatternFill("solid", fgColor="808080")     # not-applicable (e.g. ingredients on a non-edible item)
 HEAD = PatternFill("solid", fgColor="00975A")     # Pet Centre green
 HEADFONT = Font(bold=True, color="FFFFFF")
 WRAP_TOP = Alignment(wrap_text=True, vertical="top", horizontal="left")  # wrap long text in-cell, left-align
 LEFT_TOP = Alignment(vertical="top", horizontal="left")  # left-align numbers too (not Excel's default right)
+
+# One source tier per enriched field. Green ONLY for a unique-identifier (barcode/article-code) match;
+# everything softer is yellow ("check"); missing is red; not-applicable is grey.
+FILL = {"verified": GREEN, "likely": YELLOW, "blank": RED, "na": GREY}
+TIER_WORD = {"verified": "Verified", "likely": "Likely", "blank": "Blank", "na": "N/A"}
+
+# An item is EDIBLE (must carry an ingredient list) if its type names any consumable category — NOT just
+# "food": treats, chews, bones, dental sticks, pâtés, etc. (?:...)s? keeps every word plural-tolerant.
+EDIBLE_TYPE = re.compile(
+    r"\b(?:food|treat|snack|biscuit|cookie|kibble|wet|dry|dental|milk|yog(?:h)?urt|paste|pat[eé]|"
+    r"mousse|gravy|broth|stew|loaf|sausage|meal|topper|nibble|chew|bone|stick|jerky|rawhide)s?\b",
+    re.IGNORECASE)
+
+
+def is_edible(p):
+    return bool(EDIBLE_TYPE.search(p.get("type") or ""))
 
 
 def load(path):
@@ -166,23 +184,6 @@ def ready(rec):
 def img_flag(rec):
     q = (rec or {}).get("img_quality") or ""
     return {"multi": "multi-product", "crop": "cropped", "unclear": "unclear"}.get(q, "")
-
-
-def ing_src_label(rec):
-    """Where the ingredients/composition came from: verified product page, a barcode-confirmed
-    ingredients page, or an (uncertain) name-matched search."""
-    s = (rec or {}).get("ingredients_src") or ""
-    if s == "source":
-        return "product page"
-    if s.startswith("verified:"):
-        return "verified: " + s.split(":", 1)[1]
-    if s.startswith("official:"):
-        return "brand site: " + s.split(":", 1)[1]
-    if s.startswith("cross:"):
-        return "2 sources: " + s.split(":", 1)[1]
-    if s.startswith("supplemented:"):
-        return "search: " + s.split(":", 1)[1]
-    return ""
 
 
 def dims_cells(dobj):
@@ -290,45 +291,6 @@ def fit_and_wrap(ws, ncols, last_row):
             ws.cell(row=r, column=c).alignment = align
 
 
-# Curation (review) sheet column order: the image is column A, then everything you verify grouped
-# left-to-right (identity + description + dims first, then the confidence/provenance aids). This is the
-# HUMAN working copy; the clean Hike-import sheet is a separate extraction built later on request.
-# Each entry: (header, value_fn(p, rec, dobj), link_fn(rec)->url|None, width_cap, wrap?).
-CURATION_COLS = [
-    ("Name",             lambda p, rec, d: p["name"],                None,                      34, True),
-    ("Brand Name",       lambda p, rec, d: p["brand"],               None,                      18, True),
-    ("Product Type",     lambda p, rec, d: p["type"],                None,                      22, True),
-    ("Barcode",          lambda p, rec, d: p["barcode"],             None,                      16, False),
-    ("Description",      lambda p, rec, d: d.get("description", ""),  None,                      58, True),
-    ("Ingredients",      lambda p, rec, d: d.get("ingredients", ""),  None,                      60, True),
-    ("Ingredients src",  lambda p, rec, d: ing_src_label(rec),        None,                      16, True),
-    ("Depth (cm)",       lambda p, rec, d: d.get("depth") or "",      None,                      11, False),
-    ("Width (cm)",       lambda p, rec, d: d.get("width") or "",       None,                      11, False),
-    ("Height (cm)",      lambda p, rec, d: d.get("height") or "",      None,                      11, False),
-    ("Weight (kg)",      lambda p, rec, d: d.get("weight") or "",      None,                      12, False),
-    ("Status",           lambda p, rec, d: ready(rec),               None,                      9,  False),
-    ("Image Confidence", lambda p, rec, d: confidence(rec),          None,                      22, True),
-    ("Image Flag",       lambda p, rec, d: img_flag(rec),            None,                      15, False),
-    ("Image URL",        lambda p, rec, d: img_url(rec),             lambda rec: img_url(rec),   44, True),
-    ("Image Source",     lambda p, rec, d: _img_src(rec),            None,                      22, True),
-    ("Text Source",      lambda p, rec, d: src_domain(txt_src_url(rec)) if txt_src_url(rec) else _txt_src(rec),
-                                                                     lambda rec: txt_src_url(rec), 24, True),
-    ("Best guess (manual)", lambda p, rec, d: best_guess_text(rec),  lambda rec: best_guess_url(rec), 40, True),
-]
-
-# 1-based sheet columns for the curation layout (image is col 1; CURATION_COLS start at col 2).
-# Each curation field belongs to a colour GROUP coloured by ITS OWN confidence (not the whole row):
-#   id = product identity (tier) · image = the product photo · desc = description text · ing = ingredients
-# Columns not listed (dimensions, best guess) stay unfilled.
-COL_GROUP = {
-    "Name": "id", "Brand Name": "id", "Product Type": "id", "Barcode": "id",
-    "Status": "id", "Image Confidence": "id",
-    "Image URL": "image", "Image Source": "image", "Image Flag": "image",
-    "Description": "desc", "Text Source": "desc",
-    "Ingredients": "ing", "Ingredients src": "ing",
-}
-
-
 def tier_of(rec):
     """Green only for a UNIQUE-identifier match (barcode/GTIN or the brand's article code) = the exact
     product. A vision-only image match (verified-visual) or a name match (likely) carries reasonable
@@ -341,35 +303,156 @@ def tier_of(rec):
     return "blank"
 
 
-def cell_colour(group, rec):
-    """Per-field colour: GREEN = from the barcode-verified product page; YELLOW = uncertain (likely
-    tier, off-source/AI image, or a supplementary-search source); RED = missing; None = not applicable."""
-    r, tier = rec or {}, tier_of(rec)
-    if group == "id":
-        return {"verified": GREEN, "likely": YELLOW, "blank": RED}[tier]
-    if group == "image":
-        if not r.get("url"):
-            return RED
-        ip, iq = r.get("img_provenance") or "", r.get("img_quality") or ""
-        return YELLOW if (tier == "likely" or iq or ip.startswith("off-source") or ip == "ai-matched") else GREEN
-    if group == "desc":
-        dp = r.get("desc_provenance") or ""
-        if dp == "source":
-            return GREEN
-        if dp.startswith("supplemented"):
-            return YELLOW
-        return RED if tier == "blank" else YELLOW  # name-only (no real page text)
-    if group == "ing":
-        s = r.get("ingredients_src") or ""
-        # GREEN only when a UNIQUE identifier (barcode/GTIN or the brand's article code) ties the
-        # composition to the EXACT product — a flavour/protein match alone is NOT enough (food has many
-        # same-protein variants with different recipes).
-        if s == "source" or s.startswith("verified"):   # composition on a barcode/code-confirmed page -> exact SKU
-            return GREEN
-        if s.startswith(("official", "cross", "supplemented")):  # composition found but NOT SKU-pinned -> verify
-            return YELLOW
-        return None  # no composition captured -> no fill
-    return None
+# --- Per-field source tier + method ------------------------------------------------------------------
+# The curation workbook gives each enriched field (Description, Ingredients, Image) ONE source column.
+# Each cell reads "<Tier> — <how>" (e.g. "Verified — barcode", "Likely — name match", "Blank — missing")
+# and is filled by its tier (green/yellow/red/grey). The tier is GREEN only for a unique-identifier match.
+
+def img_tier(rec):
+    """Image trust: GREEN only for a barcode/code-confirmed clean photo; YELLOW for vision/stock/flagged
+    photos; RED when no image was found."""
+    r = rec or {}
+    if not r.get("url"):
+        return "blank"
+    ip, iq = r.get("img_provenance") or "", r.get("img_quality") or ""
+    return "likely" if (tier_of(rec) == "likely" or iq or ip.startswith("off-source") or ip == "ai-matched") else "verified"
+
+
+def desc_tier(rec):
+    """Description trust: GREEN from the real product page; YELLOW supplemented / name-only; RED nothing."""
+    dp = (rec or {}).get("desc_provenance") or ""
+    if dp == "source":
+        return "verified"
+    if dp.startswith("supplemented"):
+        return "likely"
+    return "blank" if tier_of(rec) == "blank" else "likely"  # name-only (no real page text)
+
+
+def ing_tier(rec, ing_text, edible):
+    """Ingredient trust. Non-edible -> N/A (grey). Edible but no list captured -> RED (missing). GREEN only
+    when a barcode/article-code ties the composition to THIS exact SKU; a flavour/protein match -> YELLOW."""
+    if not edible:
+        return "na"
+    if not (ing_text or "").strip():
+        return "blank"
+    s = (rec or {}).get("ingredients_src") or ""
+    if s == "source" or s.startswith("verified"):
+        return "verified"
+    return "likely"   # official / cross / supplemented / text-without-a-traced-source -> unverified
+
+
+def img_method(rec):
+    """How the image was confirmed, in plain words (the subtag after the tier)."""
+    r = rec or {}
+    if not r.get("url"):
+        return "no image"
+    conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
+    if conf == "verified-official":
+        m = "official site (barcode)"
+    elif conf == "verified-cross":
+        m = "2 sources (barcode)"
+    elif conf == "verified":
+        m = "official site (barcode)" if prov == "official" else "barcode"
+    elif conf == "verified-visual" or prov == "ai-matched":
+        m = "image match"
+    elif prov.startswith("off-source"):
+        m = "stock photo"
+    elif conf == "likely":
+        m = "name match"
+    else:
+        m = "best guess"
+    if q:
+        m += " (" + {"multi": "multi-product", "crop": "cropped", "unclear": "unclear"}.get(q, q) + ")"
+    return m
+
+
+def desc_method(rec):
+    dp = (rec or {}).get("desc_provenance") or ""
+    if dp == "source":
+        return "product page"
+    if dp.startswith("supplemented:"):
+        return "search: " + dp.split(":", 1)[1]
+    return "name only"
+
+
+def ing_method(rec, ing_text, edible):
+    if not edible:
+        return "not edible"
+    s = (rec or {}).get("ingredients_src") or ""
+    dom = s.split(":", 1)[1] if ":" in s else ""
+    if not (ing_text or "").strip():                       # edible but we have no list -> show where to fill it
+        return ("missing (try %s)" % dom) if dom else "missing"
+    if s == "source":
+        return "product page (barcode)"
+    if s.startswith("verified:"):
+        return "barcode: " + dom
+    if s.startswith("official:"):
+        return "brand site: " + dom        # brand's own site, flavour-matched — NOT barcode-pinned -> yellow
+    if s.startswith("cross:"):
+        return "2 sources: " + dom         # 2 independent sites agree — NOT barcode-pinned -> yellow
+    if s.startswith("supplemented:"):
+        return "search: " + dom
+    return "unverified"
+
+
+def ing_src_url(rec):
+    """Source PAGE the ingredients came from, for a clickable link. 'source' uses the main product page
+    (rec.src); supplement tiers use the captured ingredients_url (populated on the full run)."""
+    r = rec or {}
+    return (r.get("src") or "") if (r.get("ingredients_src") or "") == "source" else (r.get("ingredients_url") or "")
+
+
+def field_label(tier, method):
+    """e.g. 'Verified — barcode', 'Likely — name match', 'Blank — missing', 'N/A (not edible)'."""
+    return "N/A (not edible)" if tier == "na" else (TIER_WORD[tier] + " — " + method)
+
+
+STATUS_WORD = {"verified": "READY", "likely": "REVIEW", "blank": "HOLD"}
+_TIER_ORDER = {"blank": 0, "likely": 1, "verified": 2}
+
+
+def overall_tier(p, rec, dobj):
+    """Row Status = the WEAKEST enriched field: all green -> READY, any yellow -> REVIEW, any red -> HOLD.
+    Non-edible ingredients (N/A) are irrelevant and don't drag the row down."""
+    tiers = [img_tier(rec), desc_tier(rec)]
+    it = ing_tier(rec, dobj.get("ingredients"), is_edible(p))
+    if it != "na":
+        tiers.append(it)
+    return min(tiers, key=lambda t: _TIER_ORDER[t])
+
+
+# Curation (review) sheet: the image is column A (frozen), then each enriched field sits next to its OWN
+# source column so provenance reads at a glance — Description + Description Source, Ingredients + Ingredients
+# Source, Image URL + Image Source. Catalog-given identity columns (Name/Brand/Type/Barcode) stay uncoloured
+# (they're inputs, not enrichments); each enriched field + its source share one tier colour.
+# Entry: (header, value_fn(p,rec,d), link_fn(p,rec,d)->url|None, tier_fn(p,rec,d)->tier|None, width_cap, wrap?).
+CURATION_COLS = [
+    ("Name",          lambda p, rec, d: p["name"],                None, None, 34, True),
+    ("Brand Name",    lambda p, rec, d: p["brand"],               None, None, 18, True),
+    ("Product Type",  lambda p, rec, d: p["type"],                None, None, 22, True),
+    ("Barcode",       lambda p, rec, d: p["barcode"],             None, None, 16, False),
+    ("Status",        lambda p, rec, d: STATUS_WORD[overall_tier(p, rec, d)], None,
+                           lambda p, rec, d: overall_tier(p, rec, d), 10, False),
+    ("Description",   lambda p, rec, d: d.get("description", ""),  None, lambda p, rec, d: desc_tier(rec), 56, True),
+    ("Description Source", lambda p, rec, d: field_label(desc_tier(rec), desc_method(rec)),
+                           lambda p, rec, d: txt_src_url(rec), lambda p, rec, d: desc_tier(rec), 22, True),
+    ("Ingredients",   lambda p, rec, d: d.get("ingredients", ""), None,
+                           lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 56, True),
+    ("Ingredients Source", lambda p, rec, d: field_label(ing_tier(rec, d.get("ingredients"), is_edible(p)),
+                                                          ing_method(rec, d.get("ingredients"), is_edible(p))),
+                           lambda p, rec, d: ing_src_url(rec),
+                           lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 24, True),
+    ("Image URL",     lambda p, rec, d: img_url(rec), lambda p, rec, d: img_url(rec),
+                           lambda p, rec, d: img_tier(rec), 40, True),
+    ("Image Source",  lambda p, rec, d: field_label(img_tier(rec), img_method(rec)),
+                           lambda p, rec, d: (rec or {}).get("src") or "", lambda p, rec, d: img_tier(rec), 24, True),
+    ("Depth (cm)",    lambda p, rec, d: d.get("depth") or "",      None, None, 11, False),
+    ("Width (cm)",    lambda p, rec, d: d.get("width") or "",       None, None, 11, False),
+    ("Height (cm)",   lambda p, rec, d: d.get("height") or "",      None, None, 11, False),
+    ("Weight (kg)",   lambda p, rec, d: d.get("weight") or "",      None, None, 12, False),
+    ("Best guess (manual)", lambda p, rec, d: best_guess_text(rec),
+                           lambda p, rec, d: best_guess_url(rec), None, 40, True),
+]
 
 
 def main():
@@ -402,25 +485,25 @@ def main():
         for p in rows:
             rec = img.get(p["row"])
             dobj = desc_obj(desc, p["row"])
-            ws.append([""] + [vfn(p, rec, dobj) for _, vfn, _, _, _ in CURATION_COLS])
+            ws.append([""] + [vfn(p, rec, dobj) for _, vfn, _, _, _, _ in CURATION_COLS])
             r = ws.max_row
-            for j, (_, _, lfn, _, _) in enumerate(CURATION_COLS, start=2):
+            for j, (_, _, lfn, tfn, _, _) in enumerate(CURATION_COLS, start=2):
                 if lfn:
-                    link_cell(ws.cell(row=r, column=j), lfn(rec))
-            ci = cell_colour("image", rec)                   # per-FIELD colour (image lives in column A)
-            if ci:
-                ws.cell(row=r, column=1).fill = ci
-            for j, (cname, *_rest) in enumerate(CURATION_COLS, start=2):
-                cc = cell_colour(COL_GROUP.get(cname), rec)
-                if cc:
-                    ws.cell(row=r, column=j).fill = cc
+                    link_cell(ws.cell(row=r, column=j), lfn(p, rec, dobj))
+                if tfn:                                      # per-field tier colour (its own confidence)
+                    t = tfn(p, rec, dobj)
+                    if t in FILL:
+                        ws.cell(row=r, column=j).fill = FILL[t]
+            it = img_tier(rec)                               # the embedded image (column A) -> its own tier colour
+            if it in FILL:
+                ws.cell(row=r, column=1).fill = FILL[it]
             if a.embed:  # embed the product thumbnail in column A for at-a-glance confirmation
-                thumb = thumb_for(p["row"], img_url(rec), a.imgdir)
+                thumb = thumb_for(p["row"], img_url(rec), a.imgdir, box=150)
                 if thumb:
                     ws.add_image(XLImage(thumb), f"A{r}")
-                    ws.row_dimensions[r].height = 85
-        ws.column_dimensions["A"].width = 16  # image column
-        for j, (_, _, _, cap, wrap) in enumerate(CURATION_COLS, start=2):  # auto-fit to content, capped
+                    ws.row_dimensions[r].height = 120
+        ws.column_dimensions["A"].width = 22  # image column
+        for j, (_, _, _, _, cap, wrap) in enumerate(CURATION_COLS, start=2):  # auto-fit to content, capped
             longest = len(str(headers[j - 1]))
             for rr in range(2, ws.max_row + 1):
                 v = ws.cell(row=rr, column=j).value

@@ -17,7 +17,7 @@ import os
 import sys
 import urllib.request
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 IMG = sys.argv[1]
 OUTDIR = sys.argv[2] if len(sys.argv) > 2 and not sys.argv[2].startswith("--") else ".tmp/normalized"
@@ -27,10 +27,27 @@ if "--size" in sys.argv:
     if i + 1 < len(sys.argv) and sys.argv[i + 1].isdigit():
         SIZE = int(sys.argv[i + 1])
 MAX_KB = 1000  # Hike's per-image ceiling
+TRIM = "--no-trim" not in sys.argv   # trim white margin by default; --no-trim keeps the original framing
 
 
-def square_pad(data, size):
-    """Contain-fit (no crop) + centre on a white square canvas. Transparency flattened to white."""
+def content_bbox(im, tol=14):
+    """Bounding box of the non-white content. None if the frame is effectively blank, or if the only
+    'content' is a tiny speck (< 4% on both axes — likely a stray logo/mark, not the product) so we don't
+    crazily zoom a mis-detection."""
+    bg = Image.new("RGB", im.size, (255, 255, 255))
+    bbox = ImageChops.difference(im, bg).convert("L").point(lambda v: 255 if v > tol else 0).getbbox()
+    if not bbox:
+        return None
+    if (bbox[2] - bbox[0]) < 0.04 * im.width and (bbox[3] - bbox[1]) < 0.04 * im.height:
+        return None
+    return bbox
+
+
+def square_pad(data, size, trim=True, fill=0.86, max_up=3.0):
+    """Centre the product on a white square so it FILLS the frame (fixes 'tiny / zoomed-out' packshots).
+    Transparency is flattened to white, the white border is trimmed off, then the product is scaled so its
+    longer side is ~`fill` of the canvas — but never upscaled more than `max_up`x, so a genuinely low-res
+    source softens gently instead of turning to mush. Output is always a uniform size x size JPEG."""
     im = Image.open(io.BytesIO(data))
     if im.mode in ("RGBA", "LA", "P"):
         im = im.convert("RGBA")
@@ -38,7 +55,14 @@ def square_pad(data, size):
         im = Image.alpha_composite(bg, im).convert("RGB")
     else:
         im = im.convert("RGB")
-    im.thumbnail((size, size), Image.LANCZOS)  # preserve aspect, fit inside the square
+    box = content_bbox(im) if trim else None
+    if box:
+        im = im.crop(box)
+    scale = min(fill * size / max(im.width, im.height), max_up)   # fill the frame, capped upscale
+    if scale != 1.0:
+        im = im.resize((max(1, round(im.width * scale)), max(1, round(im.height * scale))), Image.LANCZOS)
+    if im.width > size or im.height > size:                       # safety: never exceed the canvas
+        im.thumbnail((size, size), Image.LANCZOS)
     canvas = Image.new("RGB", (size, size), (255, 255, 255))
     canvas.paste(im, ((size - im.width) // 2, (size - im.height) // 2))
     return canvas
@@ -72,7 +96,7 @@ def main():
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 data = r.read()
-            save_jpg(square_pad(data, SIZE), out)
+            save_jpg(square_pad(data, SIZE, trim=TRIM), out)
             ok += 1
         except Exception as e:
             fail += 1

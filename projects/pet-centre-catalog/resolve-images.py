@@ -296,8 +296,13 @@ def _grounding(md):
     return (prefix + flat)[:6000]
 
 
-FOOD_TYPE = re.compile(r"\b(?:food|treat|snack|biscuit|kibble|wet|dry|dental|milk|paste|meal|chew(?:s|ing)?)\b",
-                       re.IGNORECASE)
+# Edible product types that should carry an ingredient/composition list — NOT just "food": treats, chews,
+# bones, dental sticks, pâtés, etc. Trailing (?:...)s? makes every word plural-tolerant (treat -> "Treats",
+# chew -> "Chews", bone -> "Bones", stick -> "Sticks") — the old \btreat\b silently missed every plural type.
+EDIBLE_TYPE = re.compile(
+    r"\b(?:food|treat|snack|biscuit|cookie|kibble|wet|dry|dental|milk|yog(?:h)?urt|paste|pat[eé]|"
+    r"mousse|gravy|broth|stew|loaf|sausage|meal|topper|nibble|chew|bone|stick|jerky|rawhide)s?\b",
+    re.IGNORECASE)
 
 
 def _has_comp(text):
@@ -869,10 +874,11 @@ def main():
             # Two triggers: (a) thin/empty grounding; (b) a FOOD/TREAT whose page carries no composition
             # (the barcode often confirms on a retailer listing without ingredients) -> fetch the brand's
             # ingredients page so the full composition + analytical constituents reach the writer.
-            is_food = bool(FOOD_TYPE.search(p["type"] or ""))
-            ingredients_src = "source" if (is_food and _has_comp(excerpt)) else ""  # where composition came from
+            is_edible = bool(EDIBLE_TYPE.search(p["type"] or ""))
+            ingredients_src = "source" if (is_edible and _has_comp(excerpt)) else ""  # where composition came from
+            ingredients_url = ""   # source PAGE the adopted composition came from (for a clickable provenance link)
             thin = len(excerpt or "") < GROUND_MIN
-            need_comp = is_food and not _has_comp(excerpt)
+            need_comp = is_edible and not _has_comp(excerpt)
             if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt) \
                     and time.time() - t0 < PRODUCT_BUDGET:
                 q = " ".join(filter(None, [p["brand"], p["clean"], p["type"]]))
@@ -894,7 +900,7 @@ def main():
                                       else (1 if PET_SIG.search(u) else 0))
                     cands = [u for u in sorted(urls, key=pref, reverse=True)
                              if u not in scraped and not OFF_DOMAIN.search(domain_of(u))]
-                    nm = []  # name-matched composition from DISTINCT domains: [(dom, comp_text, merged)]
+                    nm = []  # name-matched composition from DISTINCT domains: [(dom, comp_text, merged, url)]
                     for u in cands[:2]:
                         if time.time() - t0 > PRODUCT_BUDGET:
                             break
@@ -914,14 +920,16 @@ def main():
                                 if thin:
                                     desc_provenance = "source"
                                 ingredients_src = "verified:" + dom
+                                ingredients_url = u
                                 break
                             if any(x in dom for x in offdoms) and _flavor_consistent(p["name"], exc):
                                 excerpt = merged  # brand's OWN site + flavour matches the name -> GREEN
                                 chosen = chosen[:5] + (excerpt,)
                                 ingredients_src = "official:" + dom
+                                ingredients_url = u
                                 break
-                            if _site_key(dom) not in [_site_key(d) for d, _, _ in nm]:
-                                nm.append((dom, exc, merged))  # independent (distinct-brand) name-matched source
+                            if _site_key(dom) not in [_site_key(d) for d, _, _, _ in nm]:
+                                nm.append((dom, exc, merged, u))  # independent (distinct-brand) name-matched source
                         elif thin and not need_comp and len(exc) >= GROUND_MIN:  # thin non-food row needs real text
                             excerpt = exc
                             chosen = chosen[:5] + (exc,)
@@ -930,6 +938,7 @@ def main():
                     if need_comp and not _has_comp(excerpt) and nm:
                         excerpt = nm[0][2]
                         chosen = chosen[:5] + (excerpt,)
+                        ingredients_url = nm[0][3]
                         if (len(nm) >= 2 and _ings_agree(nm[0][1], nm[1][1])
                                 and _flavor_consistent(p["name"], nm[0][1])):  # 2 independent + name flavour -> GREEN
                             ingredients_src = "cross:" + nm[0][0] + "+" + nm[1][0]
@@ -948,7 +957,8 @@ def main():
             rec.update(url=im["imageUrl"], src=im.get("url", ""), title=im.get("title", ""),
                        via=via, key=key, score=round(s, 2), confidence=conf,
                        img_provenance=img_provenance, img_quality=img_quality,
-                       desc_provenance=desc_provenance, ingredients_src=ingredients_src)
+                       desc_provenance=desc_provenance, ingredients_src=ingredients_src,
+                       ingredients_url=ingredients_url)
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
             return rec, ("ver" if conf.startswith("verified") else "lik")
