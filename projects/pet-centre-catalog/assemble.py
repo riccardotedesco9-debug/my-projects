@@ -166,6 +166,16 @@ def img_flag(rec):
     return {"multi": "multi-product", "crop": "cropped", "unclear": "unclear"}.get(q, "")
 
 
+def ing_src_label(rec):
+    """Where the ingredients/composition came from: the verified product page vs a supplementary search."""
+    s = (rec or {}).get("ingredients_src") or ""
+    if s == "source":
+        return "product page"
+    if s.startswith("supplemented:"):
+        return "search: " + s.split(":", 1)[1]
+    return ""
+
+
 def dims_cells(dobj):
     """Depth/Width/Height/Weight cell values (blank when not stated)."""
     return [dobj.get("depth") or "", dobj.get("width") or "",
@@ -287,6 +297,7 @@ CURATION_COLS = [
     ("Barcode",          lambda p, rec, d: p["barcode"],             None,                      16, False),
     ("Description",      lambda p, rec, d: d.get("description", ""),  None,                      58, True),
     ("Ingredients",      lambda p, rec, d: d.get("ingredients", ""),  None,                      60, True),
+    ("Ingredients src",  lambda p, rec, d: ing_src_label(rec),        None,                      16, True),
     ("Depth (cm)",       lambda p, rec, d: d.get("depth") or "",      None,                      11, False),
     ("Width (cm)",       lambda p, rec, d: d.get("width") or "",       None,                      11, False),
     ("Height (cm)",      lambda p, rec, d: d.get("height") or "",      None,                      11, False),
@@ -300,6 +311,51 @@ CURATION_COLS = [
                                                                      lambda rec: txt_src_url(rec), 24, True),
     ("Best guess (manual)", lambda p, rec, d: best_guess_text(rec),  lambda rec: best_guess_url(rec), 40, True),
 ]
+
+# 1-based sheet columns for the curation layout (image is col 1; CURATION_COLS start at col 2).
+# Each curation field belongs to a colour GROUP coloured by ITS OWN confidence (not the whole row):
+#   id = product identity (tier) · image = the product photo · desc = description text · ing = ingredients
+# Columns not listed (dimensions, best guess) stay unfilled.
+COL_GROUP = {
+    "Name": "id", "Brand Name": "id", "Product Type": "id", "Barcode": "id",
+    "Status": "id", "Image Confidence": "id",
+    "Image URL": "image", "Image Source": "image", "Image Flag": "image",
+    "Description": "desc", "Text Source": "desc",
+    "Ingredients": "ing", "Ingredients src": "ing",
+}
+
+
+def tier_of(rec):
+    c = (rec or {}).get("confidence") or ""
+    return "verified" if c.startswith("verified") else ("likely" if c == "likely" else "blank")
+
+
+def cell_colour(group, rec):
+    """Per-field colour: GREEN = from the barcode-verified product page; YELLOW = uncertain (likely
+    tier, off-source/AI image, or a supplementary-search source); RED = missing; None = not applicable."""
+    r, tier = rec or {}, tier_of(rec)
+    if group == "id":
+        return {"verified": GREEN, "likely": YELLOW, "blank": RED}[tier]
+    if group == "image":
+        if not r.get("url"):
+            return RED
+        ip, iq = r.get("img_provenance") or "", r.get("img_quality") or ""
+        return YELLOW if (tier == "likely" or iq or ip.startswith("off-source") or ip == "ai-matched") else GREEN
+    if group == "desc":
+        dp = r.get("desc_provenance") or ""
+        if dp == "source":
+            return GREEN
+        if dp.startswith("supplemented"):
+            return YELLOW
+        return RED if tier == "blank" else YELLOW  # name-only (no real page text)
+    if group == "ing":
+        s = r.get("ingredients_src") or ""
+        if s == "source":
+            return GREEN
+        if s.startswith("supplemented"):
+            return YELLOW
+        return None  # no composition captured -> no fill
+    return None
 
 
 def main():
@@ -337,9 +393,13 @@ def main():
             for j, (_, _, lfn, _, _) in enumerate(CURATION_COLS, start=2):
                 if lfn:
                     link_cell(ws.cell(row=r, column=j), lfn(rec))
-            fill = row_fill(rec)                             # whole-row tier colour
-            for col in range(1, len(headers) + 1):
-                ws.cell(row=r, column=col).fill = fill
+            ci = cell_colour("image", rec)                   # per-FIELD colour (image lives in column A)
+            if ci:
+                ws.cell(row=r, column=1).fill = ci
+            for j, (cname, *_rest) in enumerate(CURATION_COLS, start=2):
+                cc = cell_colour(COL_GROUP.get(cname), rec)
+                if cc:
+                    ws.cell(row=r, column=j).fill = cc
             if a.embed:  # embed the product thumbnail in column A for at-a-glance confirmation
                 thumb = thumb_for(p["row"], img_url(rec), a.imgdir)
                 if thumb:

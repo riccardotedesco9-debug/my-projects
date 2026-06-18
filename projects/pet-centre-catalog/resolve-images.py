@@ -296,6 +296,15 @@ def _grounding(md):
     return (prefix + flat)[:6000]
 
 
+FOOD_TYPE = re.compile(r"\b(?:food|treat|snack|biscuit|kibble|wet|dry|dental|milk|paste|meal|chew(?:s|ing)?)\b",
+                       re.IGNORECASE)
+
+
+def _has_comp(text):
+    """Does the grounding already carry an ingredient/composition section?"""
+    return bool(re.search(r"composition|ingredients|analytical constituents|crude protein", text or "", re.IGNORECASE))
+
+
 def page_confirms(page_url, variants, ref, bt, allow_ref):
     """Scrape once (markdown for grounding + rawHtml for structured data). Confirm identity by
     GTIN — found in the page's structured data / raw HTML (JSON-LD gtin/mpn, meta, data-attrs)
@@ -786,10 +795,20 @@ def main():
             desc_provenance = "source" if excerpt else ""
             # Supplement ONLY identity-confirmed rows: enriching a `likely` row's description with
             # specifics from a name-matched page risks describing a different variant (false advert).
-            if chosen[3].startswith("verified") and len(excerpt or "") < GROUND_MIN and (core or bt) \
+            # Two triggers: (a) thin/empty grounding; (b) a FOOD/TREAT whose page carries no composition
+            # (the barcode often confirms on a retailer listing without ingredients) -> fetch the brand's
+            # ingredients page so the full composition + analytical constituents reach the writer.
+            is_food = bool(FOOD_TYPE.search(p["type"] or ""))
+            ingredients_src = "source" if (is_food and _has_comp(excerpt)) else ""  # where composition came from
+            thin = len(excerpt or "") < GROUND_MIN
+            need_comp = is_food and not _has_comp(excerpt)
+            if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt) \
                     and time.time() - t0 < PRODUCT_BUDGET:
+                q = " ".join(filter(None, [p["brand"], p["clean"], p["type"]]))
+                if need_comp:
+                    q += " ingredients composition analytical constituents"
                 try:
-                    urls, c = web_search(" ".join(filter(None, [p["brand"], p["clean"], p["type"]])))
+                    urls, c = web_search(q)
                     spend(c)
                     pref = lambda u: (2 if offdoms and any(x in domain_of(u) for x in offdoms)
                                       else (1 if PET_SIG.search(u) else 0))
@@ -800,10 +819,13 @@ def main():
                         scraped.add(u)
                         exc, vc = fetch_grounding(u)
                         spend(vc)
-                        if exc and len(exc) >= GROUND_MIN:
-                            excerpt = exc
-                            chosen = chosen[:5] + (exc,)
+                        # accept when it materially helps: composition for a food, or real text for a thin row
+                        if exc and ((need_comp and _has_comp(exc)) or (thin and len(exc) >= GROUND_MIN)):
+                            excerpt = (exc + " || " + (excerpt or ""))[:6000] if (need_comp and not thin) else exc
+                            chosen = chosen[:5] + (excerpt,)
                             desc_provenance = "supplemented:" + domain_of(u)
+                            if need_comp and _has_comp(exc):
+                                ingredients_src = "supplemented:" + domain_of(u)
                 except Exception as e:
                     if DEBUG:
                         print(f"  row {p['row']} supplement fetch failed: {e}")
@@ -817,7 +839,7 @@ def main():
             rec.update(url=im["imageUrl"], src=im.get("url", ""), title=im.get("title", ""),
                        via=via, key=key, score=round(s, 2), confidence=conf,
                        img_provenance=img_provenance, img_quality=img_quality,
-                       desc_provenance=desc_provenance)
+                       desc_provenance=desc_provenance, ingredients_src=ingredients_src)
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
             return rec, ("ver" if conf.startswith("verified") else "lik")
