@@ -305,6 +305,77 @@ def _has_comp(text):
     return bool(re.search(r"composition|ingredients|analytical constituents|crude protein", text or "", re.IGNORECASE))
 
 
+# Generic filler/adjective words in a composition that DON'T distinguish one recipe from another — the
+# distinctive part is the protein/flavour. Used so two different flavours of one line don't look alike.
+_ING_FILLER = {
+    "fresh", "dried", "dehydrated", "frozen", "raw", "whole", "ground", "meal", "meat", "animal",
+    "animals", "derivatives", "derivative", "products", "byproducts", "cereals", "cereal", "grain",
+    "grains", "rice", "maize", "corn", "wheat", "barley", "oats", "oils", "oil", "fats", "fat",
+    "minerals", "mineral", "vegetable", "vegetables", "vegetal", "plant", "protein", "proteins",
+    "extract", "extracts", "with", "and", "various", "sugars", "sugar", "additives", "additive",
+    "yeast", "yeasts", "fibre", "fiber", "content", "including", "from", "origin", "based", "natural",
+    "premium", "quality", "poultry", "starch", "pulp", "flour", "broth", "gravy", "jelly", "sauce",
+}
+# Recognised protein/flavour words (what a product name usually advertises).
+_FLAVORS = {
+    "chicken", "beef", "lamb", "turkey", "duck", "salmon", "tuna", "fish", "sardine", "trout",
+    "herring", "venison", "rabbit", "pork", "veal", "liver", "kangaroo", "goat", "quail", "mackerel",
+    "whitefish", "cod", "shrimp", "prawn", "ocean", "game", "boar", "buffalo", "egg", "cheese",
+}
+
+
+def _lead_distinctive(text):
+    """Leading DISTINCTIVE ingredient(s) — the protein/flavour that defines the recipe — with generic
+    fillers removed, so corroboration anchors on what actually differs between variants (chicken vs
+    lamb), not on shared rice/fats/minerals."""
+    m = re.search(r"(?:composition|ingredients)\s*[:\-]?\s*(.{0,160})", text or "", re.IGNORECASE)
+    seg = (m.group(1) if m else (text or "")[:160]).lower()
+    out = []
+    for item in re.split(r"[,;|()]", seg)[:5]:
+        for w in re.findall(r"[a-z]{4,}", item):
+            if w not in _ING_FILLER:
+                out.append(w)
+        if out:  # stop at the first item yielding a distinctive token (the dominant ingredient)
+            break
+    return out[:2]
+
+
+def _ings_agree(a, b):
+    """Corroborate ONLY when the leading distinctive ingredient (the defining protein/flavour) matches —
+    so lamb-vs-turkey (sharing only rice/maize) does NOT agree, and a generic 'meat and animal
+    derivatives' label (no distinctive token) cannot corroborate at all."""
+    la, lb = _lead_distinctive(a), _lead_distinctive(b)
+    return bool(la and lb and (set(la) & set(lb)))
+
+
+def _flavor_consistent(name, comp_text):
+    """A non-barcode composition is trusted (green) only if the product NAME's flavour, when it has one,
+    actually appears in the composition — catches a wrong-variant pull (a 'Lamb' product whose fetched
+    composition contains no lamb). No flavour word in the name -> nothing to contradict."""
+    nf = {f for f in _FLAVORS if re.search(r"\b" + f + r"\b", (name or "").lower())}
+    if not nf:
+        return True
+    seg = (comp_text or "").lower()
+    return any(re.search(r"\b" + f + r"\b", seg) for f in nf)
+
+
+def base_domain(host):
+    """Registrable domain (drops subdomains): emea.acana.com and www.acana.com both -> acana.com."""
+    parts = (host or "").split(".")
+    if len(parts) <= 2:
+        return host or ""
+    if len(parts[-1]) == 2 and parts[-2] in ("co", "com", "org", "net", "gov", "ac", "edu"):
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
+def _site_key(host):
+    """Brand label of a host, ignoring subdomains AND TLD, so different regional TLDs of one brand
+    (orijenpetfoods.com vs orijenpetfoods.co.uk) are recognised as the SAME source, not independent."""
+    b = base_domain(host)
+    return b.split(".")[0] if b else ""
+
+
 def page_confirms(page_url, variants, ref, bt, allow_ref):
     """Scrape once (markdown for grounding + rawHtml for structured data). Confirm identity by
     GTIN — found in the page's structured data / raw HTML (JSON-LD gtin/mpn, meta, data-attrs)
@@ -806,26 +877,64 @@ def main():
                     and time.time() - t0 < PRODUCT_BUDGET:
                 q = " ".join(filter(None, [p["brand"], p["clean"], p["type"]]))
                 if need_comp:
-                    q += " ingredients composition analytical constituents"
+                    q += " ingredients composition"
                 try:
-                    urls, c = web_search(q)
+                    urls = []
+                    scoped = [d for d in offdoms if "." in d]   # the brand's official domain(s), if known
+                    if scoped:
+                        w, c = web_search(q, domains=scoped)
+                        spend(c)
+                        urls += w
+                    w, c = web_search(q)
                     spend(c)
+                    urls += w
+                    seen_u = set()
+                    urls = [u for u in urls if not (u in seen_u or seen_u.add(u))]
                     pref = lambda u: (2 if offdoms and any(x in domain_of(u) for x in offdoms)
                                       else (1 if PET_SIG.search(u) else 0))
-                    cands = sorted((u for u in urls if u not in scraped and not OFF_DOMAIN.search(domain_of(u))),
-                                   key=pref, reverse=True)
-                    if cands:
-                        u = cands[0]
+                    cands = [u for u in sorted(urls, key=pref, reverse=True)
+                             if u not in scraped and not OFF_DOMAIN.search(domain_of(u))]
+                    nm = []  # name-matched composition from DISTINCT domains: [(dom, comp_text, merged)]
+                    for u in cands[:2]:
+                        if time.time() - t0 > PRODUCT_BUDGET:
+                            break
                         scraped.add(u)
-                        exc, vc = fetch_grounding(u)
+                        dom = domain_of(u)
+                        # barcode-confirm the supplement page with the SAME GTIN check as the main
+                        # verification, so a composition we adopt is tied to THIS exact item -> green.
+                        key, vc, exc, _og = page_confirms(u, variants, ref, bt, bool(core))
                         spend(vc)
-                        # accept when it materially helps: composition for a food, or real text for a thin row
-                        if exc and ((need_comp and _has_comp(exc)) or (thin and len(exc) >= GROUND_MIN)):
-                            excerpt = (exc + " || " + (excerpt or ""))[:6000] if (need_comp and not thin) else exc
-                            chosen = chosen[:5] + (excerpt,)
-                            desc_provenance = "supplemented:" + domain_of(u)
-                            if need_comp and _has_comp(exc):
-                                ingredients_src = "supplemented:" + domain_of(u)
+                        if not exc:
+                            continue
+                        if need_comp and _has_comp(exc):
+                            merged = (exc + " || " + (excerpt or ""))[:6000]
+                            if key:  # barcode-confirmed -> GREEN (verified for this exact product)
+                                excerpt = merged
+                                chosen = chosen[:5] + (excerpt,)
+                                if thin:
+                                    desc_provenance = "source"
+                                ingredients_src = "verified:" + dom
+                                break
+                            if any(x in dom for x in offdoms) and _flavor_consistent(p["name"], exc):
+                                excerpt = merged  # brand's OWN site + flavour matches the name -> GREEN
+                                chosen = chosen[:5] + (excerpt,)
+                                ingredients_src = "official:" + dom
+                                break
+                            if _site_key(dom) not in [_site_key(d) for d, _, _ in nm]:
+                                nm.append((dom, exc, merged))  # independent (distinct-brand) name-matched source
+                        elif thin and not need_comp and len(exc) >= GROUND_MIN:  # thin non-food row needs real text
+                            excerpt = exc
+                            chosen = chosen[:5] + (exc,)
+                            desc_provenance = "source" if key else "supplemented:" + dom
+                            break
+                    if need_comp and not _has_comp(excerpt) and nm:
+                        excerpt = nm[0][2]
+                        chosen = chosen[:5] + (excerpt,)
+                        if (len(nm) >= 2 and _ings_agree(nm[0][1], nm[1][1])
+                                and _flavor_consistent(p["name"], nm[0][1])):  # 2 independent + name flavour -> GREEN
+                            ingredients_src = "cross:" + nm[0][0] + "+" + nm[1][0]
+                        else:                                                  # single / unconfirmed -> YELLOW
+                            ingredients_src = "supplemented:" + nm[0][0]
                 except Exception as e:
                     if DEBUG:
                         print(f"  row {p['row']} supplement fetch failed: {e}")

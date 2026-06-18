@@ -91,8 +91,10 @@ VERIFIED_LABELS = {
 
 def confidence(rec):
     c = rec.get("confidence") if rec else None
-    if c in VERIFIED_LABELS:
+    if c in ("verified", "verified-cross", "verified-official"):
         return VERIFIED_LABELS[c]
+    if c == "verified-visual":
+        return "image-matched (check)"   # vision-only, not barcode-confirmed -> yellow, not green
     if c == "likely":
         return "likely (check)"
     return "blank: " + ((rec or {}).get("reason") or "no-data")
@@ -110,8 +112,8 @@ def _img_src(rec):
         return "off-source (" + prov.split(":", 1)[1] + ")"
     if prov == "ai-matched":
         return "AI-matched"
-    if not (rec.get("confidence") or "").startswith("verified"):
-        return "best-guess"  # likely tier — image is unconfirmed
+    if (rec.get("confidence") or "") not in ("verified", "verified-cross", "verified-official"):
+        return "best-guess"  # not a barcode/code-confirmed tier (likely / vision-only) — image unconfirmed
     return "brand site" if prov == "official" else "verified source"
 
 
@@ -167,10 +169,17 @@ def img_flag(rec):
 
 
 def ing_src_label(rec):
-    """Where the ingredients/composition came from: the verified product page vs a supplementary search."""
+    """Where the ingredients/composition came from: verified product page, a barcode-confirmed
+    ingredients page, or an (uncertain) name-matched search."""
     s = (rec or {}).get("ingredients_src") or ""
     if s == "source":
         return "product page"
+    if s.startswith("verified:"):
+        return "verified: " + s.split(":", 1)[1]
+    if s.startswith("official:"):
+        return "brand site: " + s.split(":", 1)[1]
+    if s.startswith("cross:"):
+        return "2 sources: " + s.split(":", 1)[1]
     if s.startswith("supplemented:"):
         return "search: " + s.split(":", 1)[1]
     return ""
@@ -202,13 +211,8 @@ def txt_src_url(rec):
 
 
 def row_fill(rec):
-    """Whole-row tier colour: verified -> green, likely -> yellow, blank/no-match -> red."""
-    c = (rec or {}).get("confidence") or ""
-    if c.startswith("verified"):
-        return GREEN
-    if c == "likely":
-        return YELLOW
-    return RED
+    """Whole-row tier colour (full-mode workbook), by the same green=exact-match rule as tier_of."""
+    return {"verified": GREEN, "likely": YELLOW, "blank": RED}[tier_of(rec)]
 
 
 def link_cell(cell, url):
@@ -326,8 +330,15 @@ COL_GROUP = {
 
 
 def tier_of(rec):
+    """Green only for a UNIQUE-identifier match (barcode/GTIN or the brand's article code) = the exact
+    product. A vision-only image match (verified-visual) or a name match (likely) carries reasonable
+    doubt -> yellow. Nothing confident -> red. (Same green=exact philosophy used for every field.)"""
     c = (rec or {}).get("confidence") or ""
-    return "verified" if c.startswith("verified") else ("likely" if c == "likely" else "blank")
+    if c in ("verified", "verified-cross", "verified-official"):
+        return "verified"
+    if c in ("verified-visual", "likely"):
+        return "likely"
+    return "blank"
 
 
 def cell_colour(group, rec):
@@ -350,9 +361,12 @@ def cell_colour(group, rec):
         return RED if tier == "blank" else YELLOW  # name-only (no real page text)
     if group == "ing":
         s = r.get("ingredients_src") or ""
-        if s == "source":
+        # GREEN only when a UNIQUE identifier (barcode/GTIN or the brand's article code) ties the
+        # composition to the EXACT product — a flavour/protein match alone is NOT enough (food has many
+        # same-protein variants with different recipes).
+        if s == "source" or s.startswith("verified"):   # composition on a barcode/code-confirmed page -> exact SKU
             return GREEN
-        if s.startswith("supplemented"):
+        if s.startswith(("official", "cross", "supplemented")):  # composition found but NOT SKU-pinned -> verify
             return YELLOW
         return None  # no composition captured -> no fill
     return None
