@@ -39,43 +39,35 @@ Projects may contain these common directories:
 
 Final deliverables go to cloud services (Google Drive, Sheets, etc.), not local files.
 
-### Secrets — 1Password is the single source of truth (set up 2026-05-06)
+### Secrets — local `.env` is the working source; 1Password (AI-Stack) is the vault of record (updated 2026-06-18)
 
-All secrets across every project are managed from the **AI-Stack** 1Password vault. Per-project `.env` files still exist on disk as a **legacy fallback** — do NOT create new ones for new work; do NOT add new secrets to them.
+A gitignored **`.env` at the workspace root** is the **primary runtime source** for API keys. Scripts read it directly (`set -a; . .env; set +a` in shell, `process.env.NAME` in Node), so nothing depends on a per-command 1Password approval popup (`op run`'s popup was unreliable on this machine and bottlenecked work — decision 2026-06-18). **1Password vault `AI-Stack` stays canonical** — the source of record, the place to rotate keys, and account login; `.env` is a generated cache materialized from it.
 
 **The flow:**
 
-1. Real value lives in **1Password vault `AI-Stack`** (e.g. `op://AI-Stack/anthropic/api-key`).
-2. **`.env.tpl`** (committed at workspace root) maps each var name → `op://` reference. Every secret in the workspace is listed here.
-3. **`tools/secrets-manifest.json`** declares which platforms (Cloudflare Worker via wrangler, Trigger.dev via env-file import) each secret needs to reach.
-4. **`tools/sync-secrets.mjs`** reads from 1P and pushes:
-   - `--target=cloudflare-meetsync` → runs `wrangler secret put` for the MeetSync Worker
-   - `--target=trigger-prod` → writes `.tmp/trigger-prod.env` you import via the Trigger.dev dashboard
-   - No flag = both targets
-5. **Local dev**: `op run --env-file=".env.tpl" -- <command>` injects secrets at runtime — never written to disk.
+1. Canonical value lives in **1Password vault `AI-Stack`** (e.g. `op://AI-Stack/anthropic/api-key`).
+2. **`.env.tpl`** (committed at workspace root) maps each var name → its `op://` reference — the manifest of every secret.
+3. **`.env`** (gitignored, workspace root) holds the real values. Regenerate it from 1Password whenever a key rotates or on a fresh machine: **`node tools/op-to-env.mjs`** (reads each `op://` ref in `.env.tpl`, writes `.env`; one `op` approval).
+4. **Runtime:** shell → `set -a; . .env; set +a` then run; Node → `process.env.NAME`. `op run --env-file=".env.tpl" -- <cmd>` still works as a **backup/alternative** when you'd rather not have `.env` on disk.
+5. **Pushing to platforms:** `tools/sync-secrets.mjs --target=cloudflare-meetsync` / `--target=trigger-prod` reads from 1P and pushes to the MeetSync Worker (`wrangler secret put`) / Trigger.dev (`.tmp/trigger-prod.env` import). No flag = both.
 
-**When adding a new secret:**
+**When adding a new secret:** create the item in 1Password (title + field, lowercase-kebab) → add `NAME=op://AI-Stack/<item>/<field>` to `.env.tpl` → run `node tools/op-to-env.mjs` to refresh `.env` → code reads `process.env.NAME`. (Also add it to `tools/secrets-manifest.json` if it must reach Cloudflare/Trigger.)
 
-1. Create the item in 1Password (item title + field name, all lowercase-kebab).
-2. Add a row to `tools/secrets-manifest.json` with name, `opRef`, and target platforms.
-3. Add a line to `.env.tpl`: `NAME=op://AI-Stack/<item>/<field>`.
-4. Run `node tools/sync-secrets.mjs --target=<platform>` to push.
-5. Code reads it via `process.env.NAME` as usual.
-
-**Bootstrap helper** (one-time, populates the vault from existing `.env` files): `tools/bootstrap-1p-vault.mjs`.
+**Tradeoff (accepted 2026-06-18):** real keys now sit in plaintext in a **gitignored** `.env` on this personal machine — the one thing the pure-1Password setup avoided, traded for not fighting the `op` popup every run. Keep `.env` out of any cloud-synced folder; rotate the keys in 1P if it's ever exposed. 1P remains the source of truth and the way to re-materialize `.env`.
 
 **Do NOT:**
+- Commit `.env` — it's gitignored (`.env`, `.env.*` in `.gitignore`); keep it that way. Real secret values never go in git.
+- Add a secret only to `.env` — also add it to `.env.tpl` + 1Password, or the next `op-to-env` regenerate wipes it.
 - Create per-project `.env.tpl` — single workspace template only.
-- Commit real secret values anywhere.
-- Add secrets to per-project `.env` for new work — go through 1P.
-- `wrangler secret put` directly in production — always go through `sync-secrets.mjs` so 1P stays canonical.
-- Tell users to "edit your `.env`" for new vars without also updating the manifest + `.env.tpl`.
+- `wrangler secret put` directly in production — go through `sync-secrets.mjs` so 1P stays canonical.
 
 **Gotcha cheatsheet:**
 - `op item create ... id=<value>` silently drops the field (`id` is reserved). Use `password=<value>` or another name.
 - Cloudflare API token permissions are immutable — to add a scope you create a new token, not edit.
 - Anthropic Admin API keys are Team/Org-tier only — billing-pulse silent-skips on personal plans.
+- `op inject -i .env.tpl -o .env` fails if `.env.tpl` has a comment containing a bare `op://…` phrase; `tools/op-to-env.mjs` skips comments, so use it.
 
+**Bootstrap helper** (one-time, populated the vault from existing `.env` files): `tools/bootstrap-1p-vault.mjs`.
 **Related memory:** `~/.claude/projects/C--Users-Riccardo-Documents-My-Projects/memory/project_billing-pulse.md` documents the billing pulse, `/internal/alert` Worker route, and more op-CLI gotchas.
 
 ## Agent Operating Model
