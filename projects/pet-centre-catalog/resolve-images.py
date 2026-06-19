@@ -111,6 +111,11 @@ OFFICIAL_DOMAINS = {
     "zolux": ["zolux"], "rogz": ["rogz"], "julius": ["julius-k9", "juliusk9"],
 }
 
+# The identity tiers that rest on a UNIQUE identifier (barcode/GTIN or brand article code) literally
+# confirmed on the page. ONLY these may mint a GREEN field — a vision-only (verified-visual) or
+# name-only (likely) match is never enough, even if its page happens to carry a composition.
+BARCODE_TIERS = ("verified", "verified-cross", "verified-official")
+
 
 def domain_of(url):
     m = re.search(r"https?://([^/]+)", url or "")
@@ -746,7 +751,7 @@ def main():
             s, im, via, conf, key, excerpt = chosen
             if state["vision_calls"] >= VISION_CALL_CAP:
                 return chosen, "", ""  # spend ceiling reached — leave the row as resolved
-            barcode_verified = conf in ("verified-official", "verified-cross", "verified")
+            barcode_verified = conf in BARCODE_TIERS
             src_dom = domain_of(im.get("url", ""))
             base_prov = "official" if (offdoms and any(d in src_dom for d in offdoms)) else "source"
 
@@ -868,14 +873,18 @@ def main():
                 except Exception as e:
                     if DEBUG:
                         print(f"  row {p['row']} grounding fetch failed: {e}")
-            desc_provenance = "source" if excerpt else ""
+            # GREEN ("source") only when the grounding sits on a barcode/code-confirmed page; a likely or
+            # vision-only row's name-matched page text is unverified -> leave blank so desc_tier yellows it.
+            desc_provenance = "source" if (excerpt and chosen[3] in BARCODE_TIERS) else ""
             # Supplement ONLY identity-confirmed rows: enriching a `likely` row's description with
             # specifics from a name-matched page risks describing a different variant (false advert).
             # Two triggers: (a) thin/empty grounding; (b) a FOOD/TREAT whose page carries no composition
             # (the barcode often confirms on a retailer listing without ingredients) -> fetch the brand's
             # ingredients page so the full composition + analytical constituents reach the writer.
             is_edible = bool(EDIBLE_TYPE.search(p["type"] or ""))
-            ingredients_src = "source" if (is_edible and _has_comp(excerpt)) else ""  # where composition came from
+            # GREEN ("source") only when the composition is on a barcode/code-confirmed page (exact SKU);
+            # a likely / vision-only row's composition is unverified -> stays "" so ing_tier yellows it.
+            ingredients_src = "source" if (is_edible and _has_comp(excerpt) and chosen[3] in BARCODE_TIERS) else ""
             ingredients_url = ""   # source PAGE the adopted composition came from (for a clickable provenance link)
             thin = len(excerpt or "") < GROUND_MIN
             need_comp = is_edible and not _has_comp(excerpt)
@@ -887,6 +896,14 @@ def main():
                 try:
                     urls = []
                     scoped = [d for d in offdoms if "." in d]   # the brand's official domain(s), if known
+                    # Interconnect: the site that already barcode-confirmed THIS product is a strong hint for
+                    # its composition too, so reuse it as a scoped search domain — especially valuable when the
+                    # brand's official site is unknown (otherwise this row only gets a generic search). Accuracy
+                    # is unaffected: any composition adopted below still must pass the same barcode + _has_comp
+                    # + flavour checks; this only widens WHERE we look, never the bar for going green.
+                    conf_dom = base_domain(domain_of((chosen[1] or {}).get("url") or ""))
+                    if conf_dom and conf_dom not in scoped and not OFF_DOMAIN.search(conf_dom):
+                        scoped.append(conf_dom)
                     if scoped:
                         w, c = web_search(q, domains=scoped)
                         spend(c)
@@ -896,7 +913,8 @@ def main():
                     urls += w
                     seen_u = set()
                     urls = [u for u in urls if not (u in seen_u or seen_u.add(u))]
-                    pref = lambda u: (2 if offdoms and any(x in domain_of(u) for x in offdoms)
+                    pref = lambda u: (2 if (offdoms and any(x in domain_of(u) for x in offdoms))
+                                           or (conf_dom and conf_dom in domain_of(u))
                                       else (1 if PET_SIG.search(u) else 0))
                     cands = [u for u in sorted(urls, key=pref, reverse=True)
                              if u not in scraped and not OFF_DOMAIN.search(domain_of(u))]

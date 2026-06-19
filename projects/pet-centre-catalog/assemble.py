@@ -314,15 +314,17 @@ def img_tier(rec):
     r = rec or {}
     if not r.get("url"):
         return "blank"
+    if tier_of(rec) != "verified":      # identity not barcode-confirmed (likely / vision-only) -> never green
+        return "likely"
     ip, iq = r.get("img_provenance") or "", r.get("img_quality") or ""
-    return "likely" if (tier_of(rec) == "likely" or iq or ip.startswith("off-source") or ip == "ai-matched") else "verified"
+    return "likely" if (iq or ip.startswith("off-source") or ip == "ai-matched") else "verified"
 
 
 def desc_tier(rec):
     """Description trust: GREEN from the real product page; YELLOW supplemented / name-only; RED nothing."""
     dp = (rec or {}).get("desc_provenance") or ""
-    if dp == "source":
-        return "verified"
+    if dp == "source":   # grounded in a page — green ONLY if that identity is barcode-confirmed, else unverified
+        return "verified" if tier_of(rec) == "verified" else "likely"
     if dp.startswith("supplemented"):
         return "likely"
     return "blank" if tier_of(rec) == "blank" else "likely"  # name-only (no real page text)
@@ -336,9 +338,11 @@ def ing_tier(rec, ing_text, edible):
     if not (ing_text or "").strip():
         return "blank"
     s = (rec or {}).get("ingredients_src") or ""
-    if s == "source" or s.startswith("verified"):
+    if s.startswith("verified"):                            # barcode-confirmed on its page -> green on its own merit
         return "verified"
-    return "likely"   # official / cross / supplemented / text-without-a-traced-source -> unverified
+    if s == "source" and tier_of(rec) == "verified":        # composition on the barcode-confirmed product page
+        return "verified"
+    return "likely"   # official / cross / supplemented / source-on-unverified-id / text-without-a-traced-source
 
 
 def img_method(rec):
@@ -347,16 +351,18 @@ def img_method(rec):
     if not r.get("url"):
         return "no image"
     conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
-    if conf == "verified-official":
+    # Describe where the PHOTO came from first: an off-site / vision-picked image is yellow even when the
+    # product IDENTITY is barcode-solid, so the image cell must say so (not parrot the identity method).
+    if prov.startswith("off-source"):
+        m = "off-site photo"
+    elif prov == "ai-matched" or conf == "verified-visual":
+        m = "image match"
+    elif conf == "verified-official":
         m = "official site (barcode)"
     elif conf == "verified-cross":
         m = "2 sources (barcode)"
     elif conf == "verified":
         m = "official site (barcode)" if prov == "official" else "barcode"
-    elif conf == "verified-visual" or prov == "ai-matched":
-        m = "image match"
-    elif prov.startswith("off-source"):
-        m = "stock photo"
     elif conf == "likely":
         m = "name match"
     else:
@@ -382,8 +388,8 @@ def ing_method(rec, ing_text, edible):
     dom = s.split(":", 1)[1] if ":" in s else ""
     if not (ing_text or "").strip():                       # edible but we have no list -> show where to fill it
         return ("missing (try %s)" % dom) if dom else "missing"
-    if s == "source":
-        return "product page (barcode)"
+    if s == "source":   # only claim "(barcode)" when the product page's identity is actually barcode-confirmed
+        return "product page (barcode)" if tier_of(rec) == "verified" else "product page"
     if s.startswith("verified:"):
         return "barcode: " + dom
     if s.startswith("official:"):
