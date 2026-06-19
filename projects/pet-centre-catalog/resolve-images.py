@@ -249,6 +249,79 @@ def web_search(query, limit=5, domains=None):
     return urls, res.get("creditsUsed", 0)
 
 
+DB_UA = "PetCentreCatalog/1.0 (pet-shop catalogue enrichment; contact ricotedesco@gmail.com)"
+
+
+def _db_get(url, headers=None, timeout=20):
+    """GET -> parsed JSON, else None. Never raises: a DB miss/404/error must fail open (the row simply
+    falls through to the normal Firecrawl path), never crash or block a product."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": DB_UA, **(headers or {})})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except Exception:
+        return None
+
+
+def _off_family(host, ean):
+    """One Product-Facts lookup (OpenPetFoodFacts / OpenFoodFacts). Returns a normalized dict on a real
+    hit (status 1 + a usable field), else None. Prefers the English ingredient text when present."""
+    fields = "product_name,brands,ingredients_text,ingredients_text_en,image_front_url"
+    r = _db_get(f"https://{host}/api/v2/product/{ean}.json?fields={fields}")
+    if not isinstance(r, dict) or r.get("status") == 0:
+        return None
+    pr = r.get("product") or {}
+    img = pr.get("image_front_url") or ""
+    ing = (pr.get("ingredients_text_en") or pr.get("ingredients_text") or "").strip()
+    if not (img or ing):
+        return None
+    return {"name": pr.get("product_name") or "", "ingredients": ing, "image": img,
+            "source_url": f"https://{host}/product/{ean}", "db": host.split(".")[1]}
+
+
+def _upcitemdb(ean):
+    """UPCitemdb free trial (100/day). Broad commercial coverage; returns an image, no ingredients.
+    A rate-limit / miss -> None (fail open)."""
+    r = _db_get(f"https://api.upcitemdb.com/prod/trial/lookup?upc={ean}")
+    if not isinstance(r, dict) or r.get("code") != "OK" or not r.get("items"):
+        return None
+    it = r["items"][0]
+    img = (it.get("images") or [""])[0]
+    if not img:
+        return None
+    return {"name": it.get("title") or "", "ingredients": "", "image": img,
+            "source_url": f"https://www.upcitemdb.com/upc/{ean}", "db": "upcitemdb"}
+
+
+def barcode_db_lookup(ean):
+    """Tier-0: query the barcode-keyed databases that the Phase-A probe proved useful on this catalogue
+    — OpenPetFoodFacts (pet; image, occasionally ingredients) then UPCitemdb (broad; image). A hit is
+    keyed by the GTIN, i.e. the EXACT SKU, so its image is a barcode-confirmed candidate and any
+    composition is barcode-pinned (green) — the same bar as finding the GTIN on a page. Free; fail-open;
+    returns the merged best (first image found, plus any ingredients) or None. (OpenFoodFacts and
+    OpenProductsFacts were dropped — 0/30 on our catalogue.)"""
+    if not ean:
+        return None
+    out = None
+    for fn in (lambda: _off_family("world.openpetfoodfacts.org", ean), lambda: _upcitemdb(ean)):
+        try:
+            rec = fn()
+        except Exception:
+            rec = None
+        if not rec:
+            continue
+        if out is None:
+            out = rec
+        else:  # fill gaps from the later source without losing the first hit's provenance
+            if not out.get("image") and rec.get("image"):
+                out["image"], out["source_url"], out["db"] = rec["image"], rec["source_url"], rec["db"]
+            if not out.get("ingredients") and rec.get("ingredients"):
+                out["ingredients"] = rec["ingredients"]
+        if out.get("image"):
+            break  # an image is all a later source could add (none carry ingredients) -> stop, save the quota
+    return out
+
+
 def extract_ref(name):
     """Leading manufacturer article code in the POS name (e.g. B413, AE906/A, LA400,
     00207PR). Normalised to alnum-uppercase; empty if the name has no such code."""
@@ -623,6 +696,8 @@ def main():
         offdoms = official_domains_for(p["brand"])
         chosen = None
         had_error = False
+        db_hit = None  # a barcode-keyed DB record (OpenPetFoodFacts/UPCitemdb), if any — exact SKU
+        db_imgq = ""   # quality flag for a DB image ("unclear" if low-res/odd-ratio), applied when --vision is off
         pool = {}  # imageUrl -> (score, image, via)
         img_memo = {}
         scraped = set()  # page URLs already scraped this product (don't pay twice)
@@ -801,7 +876,20 @@ def main():
             return chosen, base_prov, quality
 
         try:
-            if ean or ref:  # Stage 1: barcode/code image search + confirm
+            if ean:  # Stage 0: free barcode DBs (OpenPetFoodFacts/UPCitemdb) — exact-SKU image + (rare)
+                # ingredients, NO Firecrawl credit. A hit short-circuits the paid image search; a miss
+                # (the common case for premium/EU SKUs) falls straight through to Firecrawl below.
+                db_hit = barcode_db_lookup(ean)
+                if db_hit and db_hit.get("image"):
+                    live, good = img_ok(db_hit["image"])
+                    if live:
+                        im = {"imageUrl": db_hit["image"], "url": db_hit.get("source_url", ""),
+                              "title": db_hit.get("name", "")}
+                        pool[db_hit["image"]] = (0.97, im, "db")
+                        dbexc = ("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else ""
+                        chosen = (0.97, im, "db:" + db_hit["db"], "verified", "ean-db", dbexc)
+                        db_imgq = "" if good else "unclear"  # flag a low-quality DB image so it yellows even w/o vision
+            if not chosen and (ean or ref):  # Stage 1: barcode/code image search + confirm
                 imgs, c = img_search(ean or (p["brand"] + " " + ref))
                 spend(c)
                 add(imgs, "barcode")
@@ -854,6 +942,8 @@ def main():
         img_provenance, img_quality = "", ""
         if VISION and ANTHROPIC_KEY and chosen and chosen[1].get("imageUrl"):
             chosen, img_provenance, img_quality = quality_pass(chosen)
+        elif chosen and chosen[4] == "ean-db":  # no vision pass: still record the DB photo provenance + quality flag
+            img_provenance, img_quality = "source", db_imgq
 
         # Description grounding + provenance. A verified row draws its description from the SAME page
         # the identity/image came from; a row with thin/no page text gets ONE bounded trusted-source
@@ -886,6 +976,10 @@ def main():
             # a likely / vision-only row's composition is unverified -> stays "" so ing_tier yellows it.
             ingredients_src = "source" if (is_edible and _has_comp(excerpt) and chosen[3] in BARCODE_TIERS) else ""
             ingredients_url = ""   # source PAGE the adopted composition came from (for a clickable provenance link)
+            # A barcode-keyed DB composition is the exact SKU -> GREEN, tagged to the DB it came from.
+            if db_hit and db_hit.get("ingredients") and is_edible and chosen[4] == "ean-db" and _has_comp(excerpt):
+                ingredients_src = "verified:" + db_hit["db"]   # only when the DB row is what we actually adopted
+                ingredients_url = db_hit.get("source_url", "")
             thin = len(excerpt or "") < GROUND_MIN
             need_comp = is_edible and not _has_comp(excerpt)
             if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt) \

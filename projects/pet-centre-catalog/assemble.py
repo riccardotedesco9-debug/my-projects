@@ -98,6 +98,9 @@ def img_url(rec):
     return rec.get("url", "") if rec else ""
 
 
+# Friendly names for the barcode-keyed databases, so a source label reads "OpenPetFoodFacts (barcode)".
+DB_LABEL = {"openpetfoodfacts": "OpenPetFoodFacts", "openfoodfacts": "OpenFoodFacts", "upcitemdb": "UPCitemdb"}
+
 # Human-readable col-G labels: every verified tier says HOW it was confirmed.
 VERIFIED_LABELS = {
     "verified-official": "verified (official site)",  # barcode confirmed on the brand's own site
@@ -320,14 +323,18 @@ def img_tier(rec):
     return "likely" if (iq or ip.startswith("off-source") or ip == "ai-matched") else "verified"
 
 
-def desc_tier(rec):
-    """Description trust: GREEN from the real product page; YELLOW supplemented / name-only; RED nothing."""
+def desc_tier(rec, desc_text=""):
+    """Description trust: GREEN from the real product page; YELLOW supplemented / name-only generic; RED only
+    when there is no description text at all. A generic description written from the name is real, accurate and
+    unverified -> yellow ("check"), not "missing"."""
     dp = (rec or {}).get("desc_provenance") or ""
     if dp == "source":   # grounded in a page — green ONLY if that identity is barcode-confirmed, else unverified
         return "verified" if tier_of(rec) == "verified" else "likely"
     if dp.startswith("supplemented"):
         return "likely"
-    return "blank" if tier_of(rec) == "blank" else "likely"  # name-only (no real page text)
+    if tier_of(rec) != "blank":
+        return "likely"                                        # name-only on a resolved row
+    return "likely" if (desc_text or "").strip() else "blank"  # generic-from-name text present -> yellow, not red
 
 
 def ing_tier(rec, ing_text, edible):
@@ -349,7 +356,7 @@ def img_method(rec):
     """How the image was confirmed, in plain words (the subtag after the tier)."""
     r = rec or {}
     if not r.get("url"):
-        return "no image"
+        return "best guess (unverified)" if r.get("best_url") else "no image"
     conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
     # Describe where the PHOTO came from first: an off-site / vision-picked image is yellow even when the
     # product IDENTITY is barcode-solid, so the image cell must say so (not parrot the identity method).
@@ -357,6 +364,9 @@ def img_method(rec):
         m = "off-site photo"
     elif prov == "ai-matched" or conf == "verified-visual":
         m = "image match"
+    elif r.get("key") == "ean-db":   # barcode-keyed database image (exact SKU)
+        dbn = (r.get("via") or "").split(":", 1)[-1]
+        m = DB_LABEL.get(dbn, dbn) + " (barcode)"
     elif conf == "verified-official":
         m = "official site (barcode)"
     elif conf == "verified-cross":
@@ -372,13 +382,13 @@ def img_method(rec):
     return m
 
 
-def desc_method(rec):
+def desc_method(rec, desc_text=""):
     dp = (rec or {}).get("desc_provenance") or ""
     if dp == "source":
         return "product page"
     if dp.startswith("supplemented:"):
         return "search: " + dp.split(":", 1)[1]
-    return "name only"
+    return "generic (from name)" if (desc_text or "").strip() else "missing"
 
 
 def ing_method(rec, ing_text, edible):
@@ -391,7 +401,7 @@ def ing_method(rec, ing_text, edible):
     if s == "source":   # only claim "(barcode)" when the product page's identity is actually barcode-confirmed
         return "product page (barcode)" if tier_of(rec) == "verified" else "product page"
     if s.startswith("verified:"):
-        return "barcode: " + dom
+        return (DB_LABEL[dom] + " (barcode)") if dom in DB_LABEL else ("barcode: " + dom)
     if s.startswith("official:"):
         return "brand site: " + dom        # brand's own site, flavour-matched — NOT barcode-pinned -> yellow
     if s.startswith("cross:"):
@@ -420,7 +430,7 @@ _TIER_ORDER = {"blank": 0, "likely": 1, "verified": 2}
 def overall_tier(p, rec, dobj):
     """Row Status = the WEAKEST enriched field: all green -> READY, any yellow -> REVIEW, any red -> HOLD.
     Non-edible ingredients (N/A) are irrelevant and don't drag the row down."""
-    tiers = [img_tier(rec), desc_tier(rec)]
+    tiers = [img_tier(rec), desc_tier(rec, dobj.get("description"))]
     it = ing_tier(rec, dobj.get("ingredients"), is_edible(p))
     if it != "na":
         tiers.append(it)
@@ -439,9 +449,12 @@ CURATION_COLS = [
     ("Barcode",       lambda p, rec, d: p["barcode"],             None, None, 16, False),
     ("Status",        lambda p, rec, d: STATUS_WORD[overall_tier(p, rec, d)], None,
                            lambda p, rec, d: overall_tier(p, rec, d), 10, False),
-    ("Description",   lambda p, rec, d: d.get("description", ""),  None, lambda p, rec, d: desc_tier(rec), 56, True),
-    ("Description Source", lambda p, rec, d: field_label(desc_tier(rec), desc_method(rec)),
-                           lambda p, rec, d: txt_src_url(rec), lambda p, rec, d: desc_tier(rec), 22, True),
+    ("Description",   lambda p, rec, d: d.get("description", ""),  None,
+                           lambda p, rec, d: desc_tier(rec, d.get("description", "")), 56, True),
+    ("Description Source", lambda p, rec, d: field_label(desc_tier(rec, d.get("description", "")),
+                                                         desc_method(rec, d.get("description", ""))),
+                           lambda p, rec, d: txt_src_url(rec),
+                           lambda p, rec, d: desc_tier(rec, d.get("description", "")), 22, True),
     ("Ingredients",   lambda p, rec, d: d.get("ingredients", ""), None,
                            lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 56, True),
     ("Ingredients Source", lambda p, rec, d: field_label(ing_tier(rec, d.get("ingredients"), is_edible(p)),
@@ -503,8 +516,8 @@ def main():
             it = img_tier(rec)                               # the embedded image (column A) -> its own tier colour
             if it in FILL:
                 ws.cell(row=r, column=1).fill = FILL[it]
-            if a.embed:  # embed the product thumbnail in column A for at-a-glance confirmation
-                thumb = thumb_for(p["row"], img_url(rec), a.imgdir, box=150)
+            if a.embed:  # embed the product thumbnail in column A (or a flagged best-guess candidate when blank)
+                thumb = thumb_for(p["row"], img_url(rec) or best_guess_url(rec), a.imgdir, box=150)
                 if thumb:
                     ws.add_image(XLImage(thumb), f"A{r}")
                     ws.row_dimensions[r].height = 120
