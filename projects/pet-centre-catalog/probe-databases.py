@@ -164,11 +164,34 @@ def src_upcdatabase(ean):
                  r.get("size") or "", f"https://www.upcdatabase.org/code/{ean}")
 
 
+def src_icecat(ean):
+    """Open Icecat JSON API. Free: the 'openIcecat-live' demo user serves sponsor-brand open content with no
+    registration (or set ICECAT_USERNAME for your own account). Strong on branded NON-FOOD: specs, images,
+    DIMENSIONS — exactly our weak categories (accessories/gadgets)."""
+    user = os.environ.get("ICECAT_USERNAME") or "openIcecat-live"
+    url = f"https://live.icecat.biz/api?lang=EN&shopname={user}&GTIN={ean}&content="
+    r = get_json(url)
+    if isinstance(r, tuple):
+        return _norm(False, note="http %s" % r[1])
+    if not isinstance(r, dict):
+        return _norm(False, note="error")
+    data = r.get("data")
+    if not isinstance(data, dict) or not data:
+        return _norm(False, note=(str(r.get("msg", "")) or "not-found")[:30])
+    gen = data.get("GeneralInfo") or {}
+    name = gen.get("Title") or gen.get("ProductName") or gen.get("BrandPartCode") or ""
+    img = (data.get("Image") or {}).get("HighPic") or (data.get("Image") or {}).get("Pic500x500") or ""
+    blob = str(data.get("FeaturesGroups") or []).lower()
+    dims = "dims" if any(k in blob for k in ("dimension", "width", "height", "weight", "depth")) else ""
+    return _norm(bool(name or img), name, (gen.get("Brand") or ""), "", img, dims, url)
+
+
 SOURCES = [
     ("OpenPetFoodFacts", src_openpetfoodfacts),
     ("OpenFoodFacts", src_openfoodfacts),
     ("OpenProductsFacts", src_openproductsfacts),
     ("UPCitemdb", src_upcitemdb),
+    ("Icecat", src_icecat),
     ("BarcodeLookup", src_barcodelookup),
     ("Go-UPC", src_goupc),
     ("UPCDatabase", src_upcdatabase),

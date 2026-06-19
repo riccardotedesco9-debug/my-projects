@@ -116,6 +116,12 @@ OFFICIAL_DOMAINS = {
 # name-only (likely) match is never enough, even if its page happens to carry a composition.
 BARCODE_TIERS = ("verified", "verified-cross", "verified-official")
 
+# Large pet retailers that reliably publish the full composition + analytical constituents (and often the EAN,
+# so the page can barcode-confirm -> GREEN). Targeted directly when an edible still lacks a real ingredient list,
+# since premium/EU compositions live here far more often than on the open barcode databases.
+PET_RETAILERS = ["zooplus.com", "zooplus.co.uk", "zooplus.de", "zooplus.it", "zooplus.fr",
+                 "bitiba.co.uk", "bitiba.de", "fressnapf.de", "petsathome.com", "chewy.com", "petco.com"]
+
 
 def domain_of(url):
     m = re.search(r"https?://([^/]+)", url or "")
@@ -218,7 +224,9 @@ def api(path, body, timeout=60, retries=3):
 
 def img_search(query):
     res = api("search", {"query": query, "limit": 6, "sources": ["images"]})
-    return (res.get("data") or {}).get("images", []), res.get("creditsUsed", 0)
+    # Firecrawl v2 charges 2 credits per search (per 10 results) but reports creditsUsed=0 for searches,
+    # so the raw total under-counts real spend ~1.66x. Floor a search at its real 2-credit cost.
+    return (res.get("data") or {}).get("images", []), (res.get("creditsUsed") or 2)
 
 
 def web_search(query, limit=5, domains=None):
@@ -246,7 +254,8 @@ def web_search(query, limit=5, domains=None):
         u = r if isinstance(r, str) else (r.get("url") if isinstance(r, dict) else None)
         if u:
             urls.append(u)
-    return urls, res.get("creditsUsed", 0)
+    # search reports creditsUsed=0 but really costs 2 (see img_search) — floor it so the tally/cap are honest.
+    return urls, (res.get("creditsUsed") or 2)
 
 
 DB_UA = "PetCentreCatalog/1.0 (pet-shop catalogue enrichment; contact ricotedesco@gmail.com)"
@@ -384,8 +393,18 @@ EDIBLE_TYPE = re.compile(
 
 
 def _has_comp(text):
-    """Does the grounding already carry an ingredient/composition section?"""
-    return bool(re.search(r"composition|ingredients|analytical constituents|crude protein", text or "", re.IGNORECASE))
+    """Does the grounding carry a REAL ingredient/composition list — not merely a 'Composition' heading? Require
+    the keyword followed (within ~300 chars) by list-like content (a comma, a %, or a known ingredient/nutrient
+    word). A bare nav/heading mention otherwise counts as 'has composition', which wrongly SKIPS the supplement
+    fetch and leaves the row with no real ingredients (the exact gap seen on sparse OpenPetFoodFacts pages)."""
+    m = re.search(r"(?:composition|ingredients|analytical constituents|crude protein)\b(.{0,300})",
+                  text or "", re.IGNORECASE)
+    if not m:
+        return False
+    tail = m.group(1)
+    return ("," in tail) or ("%" in tail) or bool(re.search(
+        r"\b(?:protein|fat|fibre|fiber|ash|moisture|meat|chicken|beef|lamb|salmon|tuna|rice|maize|cereal|poultry)\b",
+        tail, re.IGNORECASE))
 
 
 # Generic filler/adjective words in a composition that DON'T distinguish one recipe from another — the
@@ -1002,6 +1021,10 @@ def main():
                         w, c = web_search(q, domains=scoped)
                         spend(c)
                         urls += w
+                    if need_comp:   # composition reliably lives on big pet retailers — target them directly
+                        w, c = web_search(q, domains=PET_RETAILERS)
+                        spend(c)
+                        urls += w
                     w, c = web_search(q)
                     spend(c)
                     urls += w
@@ -1009,7 +1032,8 @@ def main():
                     urls = [u for u in urls if not (u in seen_u or seen_u.add(u))]
                     pref = lambda u: (2 if (offdoms and any(x in domain_of(u) for x in offdoms))
                                            or (conf_dom and conf_dom in domain_of(u))
-                                      else (1 if PET_SIG.search(u) else 0))
+                                      else (1 if (PET_SIG.search(u)
+                                                  or any(rt in domain_of(u) for rt in PET_RETAILERS)) else 0))
                     cands = [u for u in sorted(urls, key=pref, reverse=True)
                              if u not in scraped and not OFF_DOMAIN.search(domain_of(u))]
                     nm = []  # name-matched composition from DISTINCT domains: [(dom, comp_text, merged, url)]
