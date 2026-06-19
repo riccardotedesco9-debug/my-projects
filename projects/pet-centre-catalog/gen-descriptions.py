@@ -65,8 +65,12 @@ SYSTEM = (
     "navigation, prices, reviews, cookie notices and unrelated text, and never copy marketing fluff. If "
     "the source genuinely gives no such specifics, stay accurate and general rather than inventing any. "
     "RULES: Never name or refer to the shop, any town, or location. No fluff, no hype, no marketing "
-    "cliches ('purr-fect', 'best ever', 'must-have'), no emojis, no exclamation overload. Don't repeat "
+    "cliches ('purr-fect', 'best ever', 'must have'), no emojis, no exclamation overload. Don't repeat "
     "the brand or size if it adds nothing. Vary sentence openings across products.\n"
+    "PUNCTUATION: NEVER use an em dash or en dash (the long '—' / '–'); they read as machine-written and "
+    "cheapen the copy. Use a comma, full stop, or 'and' instead. Also avoid hyphenated compound words "
+    "unless the hyphen is genuinely standard for the term or dropping it would mislead: prefer writing "
+    "'grain free', 'odour control', 'easy to clean' as separate words. Keep punctuation plain and human.\n"
     "DIMENSIONS: also extract the product's physical size as plain numbers — depth, width, height in "
     "CENTIMETRES and weight in KILOGRAMS. Give a number ONLY when that measurement is explicitly stated "
     "for THIS product or its package; otherwise null. Convert inches (x2.54), mm (/10) to cm and grams "
@@ -98,14 +102,26 @@ def _num(x, hi, decimals=1):
     return round(v, decimals) if 0 < v < hi else None
 
 
+def _no_dashes(text):
+    """Strip em/en dashes (— –) from prose — they read as 'AI-written' and cheapen the copy. Replace with a
+    comma and tidy spacing/punctuation. Regular hyphens (omega-3, grain-free) are LEFT ALONE; the prompt
+    handles minimising those by judgement."""
+    t = re.sub(r"\s*[‒–—―]+\s*", ", ", text or "")  # figure/en/em/horizontal-bar dashes
+    t = re.sub(r"\s+-+\s+", ", ", t)                # spaced hyphen(s) used AS a dash (keeps grain-free, omega-3)
+    t = re.sub(r"\s*,\s*,+", ", ", t)               # collapse any double commas the swap created
+    t = re.sub(r"\s+([.,;:!?])", r"\1", t)          # no space before punctuation
+    t = re.sub(r",\s*([.;:!?])", r"\1", t)          # ", ." -> "." etc.
+    return re.sub(r"\s{2,}", " ", t).strip(" ,")
+
+
 def _clean_result(o):
     """Normalise one model result; tolerate a bare string (description only, no dims/ingredients)."""
     if isinstance(o, str):
-        return {"description": o.strip(), "depth": None, "width": None, "height": None, "weight": None, "ingredients": ""}
+        return {"description": _no_dashes(o.strip()), "depth": None, "width": None, "height": None, "weight": None, "ingredients": ""}
     if not isinstance(o, dict):
         return {"description": "", "depth": None, "width": None, "height": None, "weight": None, "ingredients": ""}
     return {
-        "description": (o.get("description") or "").strip(),
+        "description": _no_dashes((o.get("description") or "").strip()),
         "depth": _num(o.get("depth"), 1000),   # cm — sanity-cap at 10 m
         "width": _num(o.get("width"), 1000),
         "height": _num(o.get("height"), 1000),
