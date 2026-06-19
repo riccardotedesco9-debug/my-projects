@@ -19,21 +19,27 @@ unverified** (vision-only image, name match, brand-site or 2-source composition)
 ## Pipeline (Python; run via the skills venv + a gitignored `.env` for secrets)
 
 `~/.claude/skills/.venv/Scripts/python.exe`. Keys come from the workspace-root **`.env`** (no popup):
-`set -a; . ../../.env; set +a` then run the script (needs `FIRECRAWL_API_KEY`, `ANTHROPIC_API_KEY`).
-Regenerate `.env` from 1Password with `node ../../tools/op-to-env.mjs` if a key rotates. (`op run
---env-file="../../.env.tpl" -- <cmd>` still works as a backup but its approval popup is unreliable here.)
+`set -a; . ../../.env; set +a` then run the script (needs `FIRECRAWL_API_KEY`, `ANTHROPIC_API_KEY`; optional
+`BARCODELOOKUP_API_KEY` for the paid primary image source). Regenerate `.env` from 1Password with
+`node ../../tools/op-to-env.mjs` if a key rotates. **Portable engine briefing (architecture + how to re-point at
+another company's catalogue): `docs/engine-briefing.md`.**
 
 1. `read-catalog.py` — parse the source xlsx → `.tmp/catalog.json` (one record/row; cleaned name, barcode, type, brand).
-2. `resolve-images.py` — **the engine.** Per product: barcode (EAN) web-search → scrape candidates → confirm
-   the EAN (or brand article code) literally on-page. Identity tiers `verified-official` > `verified-cross` >
-   `verified` (all barcode/code-confirmed = green) > `verified-visual` (vision-only) / `likely` (name match) =
-   yellow > blank. Image-quality gate (live, ≥250px short side, ≤3:1). For an **edible** whose confirmed page
-   lacks a composition, it *supplements*: searches the brand's official site first **and reuses the domain that
-   already confirmed the product**, re-confirming the barcode there before adopting ingredients (stores
-   `ingredients_url` for provenance). Every green rests on a unique-identifier match — interconnected so identity,
-   image, description and ingredients all trace back to the same confirmed product. Resumable, per-row
-   checkpoint, hard `CREDIT_CAP`. Uses `FIRECRAWL_API_KEY` (+ `ANTHROPIC_API_KEY` for the `--vision` check).
-   NB: the printed credit total under-counts Firecrawl search calls (~1.7× real — see Status).
+2. `resolve-images.py` — **the engine.** Per product a most-reliable-first **source cascade** fixes identity +
+   image: (Tier-0) the barcode-keyed databases — **Barcode Lookup** (paid, key-gated; best coverage incl. the
+   non-food half) → **OpenPetFoodFacts** (free; also yields ingredients + the label photo + net weight) →
+   **UPCitemdb** (free) — then Firecrawl barcode image/web search → scrape + confirm the EAN/article code
+   literally (page text, structured data, or image filename) → name-search + `--vision` confirm. Identity tiers
+   `verified-official` > `verified-cross` > `verified` (all barcode/code-confirmed = green) > `verified-visual`
+   (vision-only) / `likely` (name) = yellow > blank. Image-quality gate (live, ≥250px short side, ≤3:1); a DB
+   image short-circuits the paid Firecrawl image search. For an **edible** lacking a composition it *supplements*:
+   the brand's official site + the domain that already confirmed it + the big pet retailers (zooplus etc.),
+   re-confirming the barcode before adopting (stores `ingredients_url`; the label photo + composition trace to
+   their real source even when a different DB supplied the image). Every green rests on a unique-identifier match.
+   Resumable, per-row checkpoint, hard `CREDIT_CAP`, parallel `--workers`. Uses `FIRECRAWL_API_KEY` +
+   `ANTHROPIC_API_KEY` (`--vision`) + optional `BARCODELOOKUP_API_KEY` (preflights its `/v3/rate-limits` quota,
+   counts calls, 429-backoff, disables itself fail-open on quota/auth). The credit counter now books each
+   Firecrawl search at its real 2-credit cost (the old ~1.7× undercount is fixed).
 3. `gen-descriptions.py` — Claude Sonnet, batched, resumable. Hard no-fabrication; grounded in the real scraped
    page text from step 2. Emits `{description, depth, width, height, weight, ingredients}` — dims only when
    explicitly stated; ingredients (full composition + analytical constituents) only for edibles whose source
@@ -49,20 +55,25 @@ Regenerate `.env` from 1Password with `node ../../tools/op-to-env.mjs` if a key 
    xlsx in place with Hike-named columns + native dims for a clean 1:1 import.
 6. `make-preview-pdf.py` — review PDF: thumbnail + name/brand/type + confidence + description + URL per row.
 
-## Status (June 2026)
+## Status (June 2026) — final max-reliability build
 
-Engine + scripts built, reviewed, and validated on a 250-product stratified sample. Output restructured for
-Hike: a full Hike-import workbook **+** a verification-first **curation workbook** — image-first, **per-field**
-tier colour (each of Description / Ingredients / Image carries its own `Tier — how` source cell, clickable),
-a worst-of-fields **Status** (all green = READY · any yellow = REVIEW · any red = HOLD), structured
-Depth/Width/Height/Weight, and an **EDIBLE** classifier (food + treats/chews/bones/dental → must carry an
-ingredient list; green only on a barcode/article-code match). `normalize-images.py` trims the white border and
-scales the product to fill the frame (~86% long-side, capped upscale) then squares to JPG ≤1 MB.
-**Full 9,817 run not yet authorised** — awaiting go. Working data in `.tmp/` (disposable, regenerated).
-Est. full run **~$250** (Anthropic ~$155: Sonnet vision + descriptions · Firecrawl ~100–120k credits ≈ one
-Standard month $83). NOTE: the in-script credit counter under-logs Firecrawl **search** calls (they cost 2
-credits but report 0), so real spend is ~1.7× the printed number — size the Firecrawl plan accordingly. Image
-hosting (Cloudflare R2) + the Hike API upload happen at the upload stage, after curation.
+Engine + scripts built, reviewed (clean), and validated on stratified + mixed samples. Output: a Hike-import
+workbook **+** a verification-first **curation workbook** (per-field `Tier — how` clickable sources, worst-field
+Status, structured Depth/Width/Height/Weight, EDIBLE classifier, and an ingredients label-photo link).
+Barcode-keyed **Barcode Lookup** is the primary image/identity source — measured **~75% coverage incl. the
+non-food half** (toys/accessories, which free DBs and Firecrawl image weakly); it returns **no ingredients** and
+its dimensions are unreliable shipping weights, so dims stay from the name/page.
+
+**Two run tiers** (one-time; cancel subscriptions after):
+- **Free-database model** — Firecrawl + free DBs only: ~77% images / ~80% descriptions / ~49% READY.
+- **Max-reliability model** — + Barcode Lookup on every product: ~88% images (non-food covered) / ~58% READY.
+
+Descriptions and ingredients are **identical across tiers**; **ingredients have a public-data ceiling**
+(~20% green / ~45% red of edibles) that no spend lifts — ~20–25% of products need manual ingredient sourcing
+regardless. **Full 9,817 run not yet launched** — gated on the owner activating the paid plans (a Firecrawl plan
+covering ~100k credits; a Barcode Lookup plan covering the blanket run's successful lookups). Working data in
+`.tmp/` (disposable). Scope ends at the workbook + normalized JPGs; image hosting (Cloudflare R2) + the Hike API
+upload are a separate later phase. See `docs/engine-briefing.md` for the full architecture + reuse guide.
 
 ## Don'ts
 - Never upload the internal catalogue to an external CDN/service without explicit OK (it's private business data).

@@ -74,6 +74,10 @@ if not KEY:
 ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY")
 if VISION and not ANTHROPIC_KEY:
     print("WARNING: --vision set but ANTHROPIC_API_KEY missing — vision step will be skipped.")
+# Barcode Lookup (paid) is the PRIMARY barcode image/identity source when its key is present; absent -> the
+# free barcode DBs + Firecrawl carry the cascade unchanged. It's metered, so it gets its own counter + a
+# run-wide kill-switch once its monthly quota/auth fails (then we fail open to the free sources).
+BARCODELOOKUP_KEY = os.environ.get("BARCODELOOKUP_API_KEY")
 
 STOP = {"the", "for", "and", "with", "x1", "pcs", "pc", "ass", "cs", "of", "in", "a"}
 BRAND_STOP = {"pet", "pets", "line", "co", "ltd", "the", "my", "and"}
@@ -260,6 +264,10 @@ def web_search(query, limit=5, domains=None):
 
 DB_UA = "PetCentreCatalog/1.0 (pet-shop catalogue enrichment; contact ricotedesco@gmail.com)"
 
+_bl_lock = threading.Lock()
+_bl_count = [0]          # successful (metered) Barcode Lookup lookups this run
+_bl_disabled = [False]   # flipped once BL auth/quota fails -> stop calling it, fail open to the free sources
+
 
 def _db_get(url, headers=None, timeout=20):
     """GET -> parsed JSON, else None. Never raises: a DB miss/404/error must fail open (the row simply
@@ -272,10 +280,55 @@ def _db_get(url, headers=None, timeout=20):
         return None
 
 
+def _barcodelookup(ean):
+    """Barcode Lookup (paid; the PRIMARY image/identity source when BARCODELOOKUP_KEY is set). Returns image +
+    name only — it carries no ingredients, and its dimensions are unreliable shipping weights, so we ignore them.
+    Fail-open: None on miss/error. Retries 429 (the 100/min cap); on auth/quota failure it disables BL for the
+    rest of the run (every later call short-circuits, falling open to the free sources)."""
+    if not BARCODELOOKUP_KEY or _bl_disabled[0]:
+        return None
+    url = f"https://api.barcodelookup.com/v3/products?barcode={ean}&formatted=y&key={BARCODELOOKUP_KEY}"
+    d = None
+    for attempt in range(4):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": DB_UA})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                d = json.loads(r.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 3:      # rate cap (100/min) — back off and retry
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            if e.code in (401, 403):               # auth / monthly quota exhausted -> stop calling BL this run
+                with _bl_lock:
+                    if not _bl_disabled[0]:
+                        _bl_disabled[0] = True
+                        print(f"  Barcode Lookup disabled for the run (HTTP {e.code} — quota/auth)")
+            return None                            # 404/other -> clean miss, fail open
+        except Exception:
+            if attempt < 3:
+                time.sleep(min(2 ** attempt, 8))
+                continue
+            return None
+    if not isinstance(d, dict) or not d.get("products"):
+        return None
+    with _bl_lock:           # Barcode Lookup bills any 200-with-data (image or not) — count the metered call here
+        _bl_count[0] += 1
+    pr = d["products"][0]
+    imgs = pr.get("images") or []
+    img = imgs[0] if imgs else ""
+    if not img:
+        return None
+    return {"name": pr.get("title") or pr.get("product_name") or "", "ingredients": "", "image": img,
+            "source_url": f"https://www.barcodelookup.com/{ean}", "db": "barcodelookup"}
+
+
 def _off_family(host, ean):
-    """One Product-Facts lookup (OpenPetFoodFacts / OpenFoodFacts). Returns a normalized dict on a real
-    hit (status 1 + a usable field), else None. Prefers the English ingredient text when present."""
-    fields = "product_name,brands,ingredients_text,ingredients_text_en,image_front_url"
+    """One Product-Facts lookup (OpenPetFoodFacts / OpenFoodFacts) -> normalized dict on a real hit, else None.
+    Prefers English ingredient text; also returns the ingredients-LABEL photo and the net weight (kg) when
+    present — free verification + Weight aids that Barcode Lookup can't supply."""
+    fields = ("product_name,brands,ingredients_text,ingredients_text_en,image_front_url,"
+              "image_ingredients_url,product_quantity,product_quantity_unit")
     r = _db_get(f"https://{host}/api/v2/product/{ean}.json?fields={fields}")
     if not isinstance(r, dict) or r.get("status") == 0:
         return None
@@ -284,8 +337,19 @@ def _off_family(host, ean):
     ing = (pr.get("ingredients_text_en") or pr.get("ingredients_text") or "").strip()
     if not (img or ing):
         return None
+    nw = None  # net weight in kg, ONLY from a mass unit (ml/l are volume, not weight -> left for the writer)
+    try:
+        q = float(pr.get("product_quantity"))
+        u = (pr.get("product_quantity_unit") or "").lower()
+        if 0 < q and u in ("g", "gram", "grams"):
+            nw = round(q / 1000, 3)
+        elif 0 < q < 200 and u in ("kg", "kilogram", "kilograms"):
+            nw = round(q, 3)
+    except (TypeError, ValueError):
+        pass
     return {"name": pr.get("product_name") or "", "ingredients": ing, "image": img,
-            "source_url": f"https://{host}/product/{ean}", "db": host.split(".")[1]}
+            "source_url": f"https://{host}/product/{ean}", "db": host.split(".")[1],
+            "ingredients_img": pr.get("image_ingredients_url") or "", "net_weight": nw}
 
 
 def _upcitemdb(ean):
@@ -302,33 +366,57 @@ def _upcitemdb(ean):
             "source_url": f"https://www.upcitemdb.com/upc/{ean}", "db": "upcitemdb"}
 
 
-def barcode_db_lookup(ean):
-    """Tier-0: query the barcode-keyed databases that the Phase-A probe proved useful on this catalogue
-    — OpenPetFoodFacts (pet; image, occasionally ingredients) then UPCitemdb (broad; image). A hit is
-    keyed by the GTIN, i.e. the EXACT SKU, so its image is a barcode-confirmed candidate and any
-    composition is barcode-pinned (green) — the same bar as finding the GTIN on a page. Free; fail-open;
-    returns the merged best (first image found, plus any ingredients) or None. (OpenFoodFacts and
-    OpenProductsFacts were dropped — 0/30 on our catalogue.)"""
+def barcode_db_lookup(ean, edible=True):
+    """Tier-0 barcode-keyed cascade (most-reliable-first). Every source is keyed by the GTIN = the EXACT SKU, so
+    a hit's image is a barcode-confirmed candidate and any composition is barcode-pinned (green) — the same bar
+    as finding the GTIN on a page:
+      1) Barcode Lookup (paid, key-gated) — best image/identity coverage, incl. the non-food half;
+      2) OpenPetFoodFacts (free) — image fallback PLUS what BL lacks: ingredients, the label photo, net weight;
+      3) UPCitemdb (free) — image fallback only.
+    The IMAGE comes from the first source that has one; INGREDIENTS/label/weight always come from OpenPetFoodFacts
+    (tracked separately so provenance never mislabels a BL image's row as carrying BL ingredients). OpenPetFoodFacts
+    is skipped for a non-edible that already has an image (it would only add ingredient data). Fail-open; returns
+    the merged dict or None."""
     if not ean:
         return None
-    out = None
-    for fn in (lambda: _off_family("world.openpetfoodfacts.org", ean), lambda: _upcitemdb(ean)):
+    out = {"name": "", "image": "", "source_url": "", "db": "",
+           "ingredients": "", "ingredients_db": "", "ingredients_url": "", "ingredients_img": "", "net_weight": None}
+    got = False
+
+    def take_image(rec):
+        nonlocal got
+        got = True
+        if not out["image"] and rec.get("image"):
+            out["image"], out["source_url"], out["db"] = rec["image"], rec["source_url"], rec["db"]
+        if not out["name"]:
+            out["name"] = rec.get("name", "")
+
+    bl = _barcodelookup(ean)
+    if bl:
+        take_image(bl)
+    if edible or not out["image"]:   # OpenPetFoodFacts only adds ingredient data; skip it for a non-edible w/ image
         try:
-            rec = fn()
+            off = _off_family("world.openpetfoodfacts.org", ean)
         except Exception:
-            rec = None
-        if not rec:
-            continue
-        if out is None:
-            out = rec
-        else:  # fill gaps from the later source without losing the first hit's provenance
-            if not out.get("image") and rec.get("image"):
-                out["image"], out["source_url"], out["db"] = rec["image"], rec["source_url"], rec["db"]
-            if not out.get("ingredients") and rec.get("ingredients"):
-                out["ingredients"] = rec["ingredients"]
-        if out.get("image"):
-            break  # an image is all a later source could add (none carry ingredients) -> stop, save the quota
-    return out
+            off = None
+        if off:
+            take_image(off)
+            if off.get("ingredients"):
+                out["ingredients"] = off["ingredients"]
+                out["ingredients_db"] = off["db"]          # where the COMPOSITION came from (not the image)
+                out["ingredients_url"] = off["source_url"]
+            if off.get("ingredients_img"):
+                out["ingredients_img"] = off["ingredients_img"]
+            if off.get("net_weight") is not None:
+                out["net_weight"] = off["net_weight"]
+    if not out["image"]:
+        try:
+            up = _upcitemdb(ean)
+        except Exception:
+            up = None
+        if up:
+            take_image(up)
+    return out if got else None
 
 
 def extract_ref(name):
@@ -699,6 +787,14 @@ def main():
              "vision_calls": sum(v.get("vision", 0) for v in done.values())}
     lock = threading.Lock()  # guards the shared counters + done/flush when WORKERS > 1
 
+    if BARCODELOOKUP_KEY:  # preflight: show the paid Barcode Lookup budget before we spend any of it
+        rl = _db_get(f"https://api.barcodelookup.com/v3/rate-limits?formatted=y&key={BARCODELOOKUP_KEY}")
+        if isinstance(rl, dict) and rl.get("allowed_calls_per_month") is not None:
+            print(f"Barcode Lookup quota: {rl.get('remaining_calls_per_month')}/"
+                  f"{rl.get('allowed_calls_per_month')} successful calls remaining this month")
+        else:
+            print("Barcode Lookup: key set but quota preflight failed (will fail open to free sources on error)")
+
     def process(p):
         """Resolve one product. Returns (rec, kind) to store, or (None, 'retry') when a
         network error left us with nothing — that row is NOT recorded, so a later sweep
@@ -713,9 +809,10 @@ def main():
         core = toks(p["clean"]) - brand_toks(p["brand"])
         bt = brand_toks(p["brand"])
         offdoms = official_domains_for(p["brand"])
+        edible = bool(EDIBLE_TYPE.search(p["type"] or ""))  # consumable -> needs ingredients (hoisted for Stage 0)
         chosen = None
         had_error = False
-        db_hit = None  # a barcode-keyed DB record (OpenPetFoodFacts/UPCitemdb), if any — exact SKU
+        db_hit = None  # a barcode-keyed DB record (Barcode Lookup / OpenPetFoodFacts / UPCitemdb), if any — exact SKU
         db_imgq = ""   # quality flag for a DB image ("unclear" if low-res/odd-ratio), applied when --vision is off
         pool = {}  # imageUrl -> (score, image, via)
         img_memo = {}
@@ -895,17 +992,19 @@ def main():
             return chosen, base_prov, quality
 
         try:
-            if ean:  # Stage 0: free barcode DBs (OpenPetFoodFacts/UPCitemdb) — exact-SKU image + (rare)
-                # ingredients, NO Firecrawl credit. A hit short-circuits the paid image search; a miss
-                # (the common case for premium/EU SKUs) falls straight through to Firecrawl below.
-                db_hit = barcode_db_lookup(ean)
+            if ean:  # Stage 0: barcode-keyed DB cascade (Barcode Lookup -> OpenPetFoodFacts -> UPCitemdb) — exact-SKU
+                # image (+ OpenPetFoodFacts ingredients/label/weight), NO Firecrawl credit. A hit short-circuits the
+                # paid image search; a miss falls straight through to Firecrawl below.
+                db_hit = barcode_db_lookup(ean, edible)
                 if db_hit and db_hit.get("image"):
                     live, good = img_ok(db_hit["image"])
                     if live:
                         im = {"imageUrl": db_hit["image"], "url": db_hit.get("source_url", ""),
                               "title": db_hit.get("name", "")}
                         pool[db_hit["image"]] = (0.97, im, "db")
-                        dbexc = ("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else ""
+                        nw = db_hit.get("net_weight")
+                        dbexc = (f"Net weight: {nw} kg. " if nw else "") + \
+                                (("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else "")
                         chosen = (0.97, im, "db:" + db_hit["db"], "verified", "ean-db", dbexc)
                         db_imgq = "" if good else "unclear"  # flag a low-quality DB image so it yellows even w/o vision
             if not chosen and (ean or ref):  # Stage 1: barcode/code image search + confirm
@@ -970,6 +1069,15 @@ def main():
         desc_provenance = ""
         if chosen:
             excerpt = chosen[5]
+            # Salvage a free barcode-keyed OpenPetFoodFacts composition even when the IMAGE came from Firecrawl
+            # (BL/UPC missed and OpenPetFoodFacts had no front photo): it's the exact SKU, so it greens the
+            # ingredients regardless of how the image was resolved, and avoids a paid supplement re-scrape.
+            db_ing_used = False
+            if db_hit and db_hit.get("ingredients") and edible and not _has_comp(excerpt):
+                dbing = "Ingredients: " + db_hit["ingredients"]
+                excerpt = (dbing + " || " + excerpt) if excerpt else dbing
+                chosen = chosen[:5] + (excerpt,)
+                db_ing_used = True
             src_url = chosen[1].get("url")
             if chosen[3].startswith("verified") and not excerpt and src_url and src_url not in scraped:
                 scraped.add(src_url)
@@ -990,15 +1098,17 @@ def main():
             # Two triggers: (a) thin/empty grounding; (b) a FOOD/TREAT whose page carries no composition
             # (the barcode often confirms on a retailer listing without ingredients) -> fetch the brand's
             # ingredients page so the full composition + analytical constituents reach the writer.
-            is_edible = bool(EDIBLE_TYPE.search(p["type"] or ""))
+            is_edible = edible
             # GREEN ("source") only when the composition is on a barcode/code-confirmed page (exact SKU);
             # a likely / vision-only row's composition is unverified -> stays "" so ing_tier yellows it.
             ingredients_src = "source" if (is_edible and _has_comp(excerpt) and chosen[3] in BARCODE_TIERS) else ""
             ingredients_url = ""   # source PAGE the adopted composition came from (for a clickable provenance link)
-            # A barcode-keyed DB composition is the exact SKU -> GREEN, tagged to the DB it came from.
-            if db_hit and db_hit.get("ingredients") and is_edible and chosen[4] == "ean-db" and _has_comp(excerpt):
-                ingredients_src = "verified:" + db_hit["db"]   # only when the DB row is what we actually adopted
-                ingredients_url = db_hit.get("source_url", "")
+            # A barcode-keyed DB composition is the exact SKU -> GREEN, tagged to the DB it actually came FROM
+            # (OpenPetFoodFacts) even when a different source (Barcode Lookup) supplied the image.
+            if db_hit and db_hit.get("ingredients") and is_edible and (chosen[4] == "ean-db" or db_ing_used) \
+                    and _has_comp(excerpt):
+                ingredients_src = "verified:" + (db_hit.get("ingredients_db") or "openpetfoodfacts")
+                ingredients_url = db_hit.get("ingredients_url", "")
             thin = len(excerpt or "") < GROUND_MIN
             need_comp = is_edible and not _has_comp(excerpt)
             if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt) \
@@ -1094,7 +1204,8 @@ def main():
                        via=via, key=key, score=round(s, 2), confidence=conf,
                        img_provenance=img_provenance, img_quality=img_quality,
                        desc_provenance=desc_provenance, ingredients_src=ingredients_src,
-                       ingredients_url=ingredients_url)
+                       ingredients_url=ingredients_url,
+                       ingredients_img=(db_hit or {}).get("ingredients_img", ""))
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
             return rec, ("ver" if conf.startswith("verified") else "lik")
@@ -1164,7 +1275,8 @@ def main():
     v = sum(1 for x in done.values() if (x.get("confidence") or "").startswith("verified"))
     l = sum(1 for x in done.values() if x.get("confidence") == "likely")
     print(f"DONE: {len(done)} | {v} verified (incl. {vv} image-AI) + {l} likely = {v + l} kept "
-          f"({100 * (v + l) // max(len(done), 1)}%) | {state['credits']} credits | {state['vision_calls']} vision calls")
+          f"({100 * (v + l) // max(len(done), 1)}%) | {state['credits']} credits | {state['vision_calls']} vision calls"
+          f" | {_bl_count[0]} Barcode Lookup calls")
 
 
 if __name__ == "__main__":

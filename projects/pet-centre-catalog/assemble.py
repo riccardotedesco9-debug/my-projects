@@ -99,7 +99,8 @@ def img_url(rec):
 
 
 # Friendly names for the barcode-keyed databases, so a source label reads "OpenPetFoodFacts (barcode)".
-DB_LABEL = {"openpetfoodfacts": "OpenPetFoodFacts", "openfoodfacts": "OpenFoodFacts", "upcitemdb": "UPCitemdb"}
+DB_LABEL = {"openpetfoodfacts": "OpenPetFoodFacts", "openfoodfacts": "OpenFoodFacts", "upcitemdb": "UPCitemdb",
+            "barcodelookup": "Barcode Lookup"}
 
 # Human-readable col-G labels: every verified tier says HOW it was confirmed.
 VERIFIED_LABELS = {
@@ -455,7 +456,8 @@ CURATION_COLS = [
                                                          desc_method(rec, d.get("description", ""))),
                            lambda p, rec, d: txt_src_url(rec),
                            lambda p, rec, d: desc_tier(rec, d.get("description", "")), 22, True),
-    ("Ingredients",   lambda p, rec, d: d.get("ingredients", ""), None,
+    ("Ingredients",   lambda p, rec, d: d.get("ingredients", ""),
+                           lambda p, rec, d: (rec or {}).get("ingredients_img", ""),  # link to the real label photo (OPFF) to verify
                            lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 56, True),
     ("Ingredients Source", lambda p, rec, d: field_label(ing_tier(rec, d.get("ingredients"), is_edible(p)),
                                                           ing_method(rec, d.get("ingredients"), is_edible(p))),
