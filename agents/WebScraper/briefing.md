@@ -32,6 +32,7 @@ dedupes by its first `backticked` / **bold** token.
 - **Google Drive / Sheets** — export structured extraction results.
 - **Slack** — notify when a large crawl completes.
 - **Trigger.dev** — schedule recurring scrape jobs.
+- Need custom art / video / music / voice? That's the **WebDesign / Marketing** domains — `creative-router` (fal) for visuals + music, **ElevenLabs** for voice/SFX; add that `Domain:` to the project too rather than pulling the tools in here.
 
 ## Your Agents
 

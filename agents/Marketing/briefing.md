@@ -31,8 +31,8 @@ dedupes by its first `backticked` / **bold** token (don't backtick the [CONVENTI
 
 - **Canva** — templated brand graphics, social, resizes.
 - **Gamma** — quick AI-generated decks, docs, one-pager landing pages.
-- **fal.ai** (via `creative-router`) — custom ad creative, illustrations, AI video (use NATIVE audio, not ElevenLabs on top), AND video editing on real footage (object removal, restyle, upscale); creative-router live-picks the best current model.
-- **ElevenLabs** — standalone voiceover, music beds, SFX; NOT for AI-video sound (use the renderer's native audio, else it desyncs/tacky).
+- **fal.ai** (via `creative-router`) — custom ad creative, illustrations, AI video (use NATIVE audio, not ElevenLabs on top), video editing on real footage (object removal, restyle, upscale), AND **music** (license-clean `stable-audio-3`, vocals `minimax-music`/`lyria3`, video-to-music `sonilo`); creative-router live-picks the best current model.
+- **ElevenLabs** — standalone **voiceover + SFX** (music now → fal/`creative-router`); NOT for AI-video sound (use the renderer's native audio, else it desyncs/tacky).
 - **Gmail** / **Slack** — outreach, follow-ups, team comms.
 - **Google Drive** — content calendars, shared reports.
 

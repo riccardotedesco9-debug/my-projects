@@ -32,6 +32,7 @@ dedupes by its first `backticked` / **bold** token.
 - **Cloudflare** — D1 queries, Workers, KV/R2 (meetsync infra).
 - **Trigger.dev** — background jobs & scheduled tasks (build in `projects/trigger-automations/`).
 - **Sequential Thinking** — structured multi-step reasoning when a problem is gnarly.
+- Need custom art / video / music / voice? That's the **WebDesign / Marketing** domains — `creative-router` (fal) for visuals + music, **ElevenLabs** for voice/SFX; add that `Domain:` to the project too rather than pulling the tools in here.
 
 ## Your Agents
 

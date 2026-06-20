@@ -39,27 +39,27 @@ Projects may contain these common directories:
 
 Final deliverables go to cloud services (Google Drive, Sheets, etc.), not local files.
 
-### Secrets — local `.env` is the working source; 1Password (AI-Stack) is the vault of record (updated 2026-06-18)
+### Secrets — local `.env` is the PRIMARY source of record; 1Password (AI-Stack) is a BACKUP (updated 2026-06-20)
 
-A gitignored **`.env` at the workspace root** is the **primary runtime source** for API keys. Scripts read it directly (`set -a; . .env; set +a` in shell, `process.env.NAME` in Node), so nothing depends on a per-command 1Password approval popup (`op run`'s popup was unreliable on this machine and bottlenecked work — decision 2026-06-18). **1Password vault `AI-Stack` stays canonical** — the source of record, the place to rotate keys, and account login; `.env` is a generated cache materialized from it.
+A gitignored **`.env` at the workspace root** is the **primary source of record** for API keys — hand-maintained, read directly (`set -a; . .env; set +a` in shell, `process.env.NAME` in Node), so nothing depends on a 1Password approval popup (the owner avoids `op` login friction entirely — decision 2026-06-18, reaffirmed 2026-06-20). **1Password vault `AI-Stack` is a BACKUP / secondary copy, NOT canonical** — keep it loosely in sync for disaster-recovery and the platform-sync tooling, but `.env` is the working truth.
 
 **The flow:**
 
-1. Canonical value lives in **1Password vault `AI-Stack`** (e.g. `op://AI-Stack/anthropic/api-key`).
+1. The real value lives in **`.env`** (primary). A copy may also sit in **1Password vault `AI-Stack`** as backup (e.g. `op://AI-Stack/anthropic/api-key`).
 2. **`.env.tpl`** (committed at workspace root) maps each var name → its `op://` reference — the manifest of every secret.
 3. **`.env`** (gitignored, workspace root) holds the real values. Regenerate it from 1Password whenever a key rotates or on a fresh machine: **`node tools/op-to-env.mjs`** (reads each `op://` ref in `.env.tpl`, writes `.env`; one `op` approval).
 4. **Runtime:** shell → `set -a; . .env; set +a` then run; Node → `process.env.NAME`. `op run --env-file=".env.tpl" -- <cmd>` still works as a **backup/alternative** when you'd rather not have `.env` on disk.
 5. **Pushing to platforms:** `tools/sync-secrets.mjs --target=cloudflare-meetsync` / `--target=trigger-prod` reads from 1P and pushes to the MeetSync Worker (`wrangler secret put`) / Trigger.dev (`.tmp/trigger-prod.env` import). No flag = both.
 
-**When adding a new secret:** create the item in 1Password (title + field, lowercase-kebab) → add `NAME=op://AI-Stack/<item>/<field>` to `.env.tpl` → run `node tools/op-to-env.mjs` to refresh `.env` → code reads `process.env.NAME`. (Also add it to `tools/secrets-manifest.json` if it must reach Cloudflare/Trigger.)
+**When adding a new secret:** add `NAME=value` directly to **`.env`** (primary) → code reads `process.env.NAME`. Optionally mirror it into 1Password as backup (and add the `op://` ref to `.env.tpl`). An **MCP-server** secret also needs `setx NAME <value>` (Windows user env) since MCPs launch from the OS env, not `.env`. (Add to `tools/secrets-manifest.json` if it must reach Cloudflare/Trigger.)
 
-**Tradeoff (accepted 2026-06-18):** real keys now sit in plaintext in a **gitignored** `.env` on this personal machine — the one thing the pure-1Password setup avoided, traded for not fighting the `op` popup every run. Keep `.env` out of any cloud-synced folder; rotate the keys in 1P if it's ever exposed. 1P remains the source of truth and the way to re-materialize `.env`.
+**Tradeoff (accepted 2026-06-18):** real keys now sit in plaintext in a **gitignored** `.env` on this personal machine — the one thing the pure-1Password setup avoided, traded for not fighting the `op` popup every run. Keep `.env` out of any cloud-synced folder; rotate keys if it's ever exposed. 1P is the backup copy / restore path, not the source of truth.
 
 **Do NOT:**
 - Commit `.env` — it's gitignored (`.env`, `.env.*` in `.gitignore`); keep it that way. Real secret values never go in git.
-- Add a secret only to `.env` — also add it to `.env.tpl` + 1Password, or the next `op-to-env` regenerate wipes it.
+- Run `node tools/op-to-env.mjs` routinely — it regenerates `.env` FROM 1P and **overwrites hand-edits**. It's a restore-from-backup tool now; only run it deliberately when 1P is current and you want to reset `.env`.
 - Create per-project `.env.tpl` — single workspace template only.
-- `wrangler secret put` directly in production — go through `sync-secrets.mjs` so 1P stays canonical.
+- `wrangler secret put` directly in production — go through `sync-secrets.mjs` so the platform and 1P backup stay in sync.
 
 **Gotcha cheatsheet:**
 - `op item create ... id=<value>` silently drops the field (`id` is reserved). Use `password=<value>` or another name.
@@ -112,8 +112,8 @@ These tools are available across ALL projects. Use them autonomously when the ta
 - **Canva** (`mcp__claude_ai_Canva__*`) — Generate designs (AI-powered), create from candidates, edit via transactions (start → perform operations → commit), export in multiple formats, manage folders/assets, comment on designs, resize, search designs/folders, manage brand kits, import from URL. Use for visual content, social graphics, presentations.
 - **Gamma** (`mcp__claude_ai_Gamma__*`) — Generate AI-powered presentations, documents, webpages, and social posts. Browse themes and folders. Note: can only create new content, cannot edit existing Gammas. Use for pitch decks, reports, landing pages.
 
-### Visual Generation
-- **fal.ai** (`mcp__fal-ai__*`) — Live catalog of 1000+ image, vector/SVG, video, and 3D generation models (FLUX, Recraft, Ideogram, Nano Banana, Kling/Veo/Wan, Trellis/Hunyuan3D, flux-lora, etc.). Use `recommend_model` / `search_models` / `get_pricing` to discover the best current model, `run_model` / `submit_job` / `check_job` to execute. **Do not call fal tools directly — activate the global `creative-router` skill first**, which decomposes intent, picks the live best-fit model, declares cost, and gates spend. Use for custom images, pixel/game art, vectors/SVG, video clips, 3D assets, niche/anime/LoRA styles.
+### Visual & Audio Generation
+- **fal.ai** (`mcp__fal-ai__*`) — Live catalog of 1000+ image, vector/SVG, video, 3D, AND music/audio generation models (FLUX, Recraft, Ideogram, Nano Banana, Kling/Veo/Wan, Trellis/Hunyuan3D, flux-lora; music: Stable Audio 3, MiniMax, Lyria 3, Sonilo video-to-music, ElevenLabs-music, etc.). Use `recommend_model` / `search_models` / `get_pricing` to discover the best current model, `run_model` / `submit_job` / `check_job` to execute. **Do not call fal tools directly — activate the global `creative-router` skill first**, which decomposes intent, picks the live best-fit model, declares cost, and gates spend. Use for custom images, pixel/game art, vectors/SVG, video clips, 3D assets, niche/anime/LoRA styles, **and music/soundtracks (incl. license-clean commercial + video-to-music)**. (Voice + SFX → ElevenLabs, below.)
 
 ### Voice, Audio & Sound Design
 - **ElevenLabs** (`mcp__elevenlabs__*`) — Comprehensive audio platform:
@@ -126,7 +126,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
   - **Audio Isolation**: Extract/clean vocals from audio files
   - **Conversational AI**: Create voice agents with custom prompts, knowledge bases, and phone call capabilities
   - **Playback**: Play audio files directly
-  - Use as **primary tool for all sound design** — covers SFX, music, voices, and audio processing
+  - Use as **primary tool for voice + sound design** — voiceover/TTS, SFX, voice clone/design, audio processing. **Music generation defaults to fal via `creative-router`** (license-clean, vocals, video-to-music); ElevenLabs music is the quick in-tool bed only. See the audio rule under "Visual & Audio / Creative Routing".
 
 ### Web Scraping
 - **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in the `agents/WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
@@ -150,7 +150,7 @@ Always use available MCP tools before improvising code-based alternatives:
 
 - **Email** → Gmail MCP, not manual drafting or script-based SMTP
 - **Automation** → Trigger.dev tasks, not custom scripts or cron jobs
-- **Audio/Sound** → ElevenLabs, not code-based audio generation
+- **Voice & SFX** → ElevenLabs; **Music** → fal via `creative-router` — not code-based audio generation
 - **Scheduling** → Google Calendar, not manual tracking
 - **Documents/Data** → Google Drive (Docs, Sheets, Slides), not local-only files when collaboration matters
 - **Communication** → Slack, not ad-hoc notification scripts
@@ -169,14 +169,15 @@ Only fall back to new code when: MCP tool lacks a required capability, no existi
 - **Ask when ambiguous**: Briefly confirm before executing external actions (sending emails, posting messages, creating events).
 - **Deliverables to cloud**: Final outputs go to cloud services where the user can access them directly. Local files (`.tmp/`) are just for processing.
 
-### Visual / Creative Routing
+### Visual & Audio / Creative Routing
 
 For any **dynamic visual generation** — custom images, pixel/indie game art, vectors/SVG, video, 3D assets, niche/anime/trained styles — fal.ai supplies the generation models and the global **`creative-router`** skill (`~/.claude/skills/creative-router/`) decides which model to use. It activates before any such request and runs a general procedure: decompose intent → search fal's **live** catalog (`fal-ai` MCP: `recommend_model` / `search_models` / `get_pricing`) for the best CURRENT model → **declare the model + estimated cost** → gate on spend → run → download to `.tmp/creative/` + log to a cost ledger. There is no frozen model list; selection happens live so new models are used automatically.
 
+- **Audio lane (so there's never a "which one?"):** voice / voiceover / SFX → **ElevenLabs**; **music / soundtrack / bed → fal via `creative-router`** (license-clean `stable-audio-3`, vocals `minimax-music` / `lyria3`, video-to-music `sonilo`); an AI-**generated** video → the renderer's **native audio**, never bolt ElevenLabs or fal music on top.
 - **fal capability surface (so the BEST tool is always picked, never a subpar one):** images (photoreal · text-in-image · vector/SVG · logo/icon), **video** (text→video & image→video, with native audio), **video editing / v2v** (object removal & inpaint e.g. Bria/Void · restyle/edit e.g. Kling O3 · motion transfer · upscale/restore e.g. Topaz · merge), **3D** (image/text→3D), plus niche/anime/pixel/**LoRA** styles and LoRA training. `creative-router` **always live-queries `recommend_model` / `search_models` / `get_pricing` and picks the best CURRENT model — never a memorized or sub-par one.** So "edit my real video" (erase an object, restyle, upscale, retime) routes through fal+ffmpeg, not just generation.
-- **Keep existing lanes / precedence:** decks → Gamma, templated brand graphics/resizes → Canva, audio → ElevenLabs, analyze/OCR existing media → ai-multimodal, structured diagrams → Mermaid. `creative-router` defers to those first. **This block is the single source of truth for dynamic visual generation and supersedes** any older "generate via ai-multimodal / Imagen / Nano-Banana" wording found in skill descriptions or `development-rules` — those tools are for *analysis*, *curated specialty*, or **grandfathered Gemini pipelines invoked explicitly** (`logo-design`, `cip-design`, `video-production`, `ai-artist`). Any generic "make me a …" visual request routes through `creative-router`.
+- **Keep existing lanes / precedence:** decks → Gamma, templated brand graphics/resizes → Canva, voice/SFX → ElevenLabs (music → `creative-router`/fal), analyze/OCR existing media → ai-multimodal, structured diagrams → Mermaid. `creative-router` defers to those first. **This block is the single source of truth for dynamic visual generation and supersedes** any older "generate via ai-multimodal / Imagen / Nano-Banana" wording found in skill descriptions or `development-rules` — those tools are for *analysis*, *curated specialty*, or **grandfathered Gemini pipelines invoked explicitly** (`logo-design`, `cip-design`, `video-production`, `ai-artist`). Any generic "make me a …" visual request routes through `creative-router`.
 - **Cost discipline:** single images under $0.10 auto-fire; video, batches >4, 3D, LoRA training, or any ≥$0.10 image require a one-line OK first. fal is **prepaid** — keep a low balance as the spend cap. (Gotcha: a **zero balance locks the account** — 403 on submit *and* fetch — and **strands any in-flight job** permanently; top up before long video batches.)
-- **AI video & audio (learned 2026-06-06):** for any AI-generated video, take the **sound from the same renderer** — the fal video model's **native audio** (`generate_audio`, e.g. Seedance/Kling/Veo/Sora). **Do NOT layer ElevenLabs SFX onto AI video** — it desyncs and sounds tacky. ElevenLabs is for **standalone** audio (voiceover, music beds, UI/game SFX) or audio over **stills/edits you fully control**. Live-verify model picks via `recommend_model`; observed: **Seedance 2** = best product realism + native audio; **Kling v3** drifts/hallucinates past ~10–15s; **Sora 2** = 9:16/16:9 only. AI video renders ~24fps → smooth to 60fps with `ffmpeg minterpolate` (don't just `-r` it — that judders). Anti-hallucination: seed from a real image and **feed real product/packaging refs** (or it invents them), soft motion verbs, ≤8s, in-prompt negatives.
+- **AI video & audio (learned 2026-06-06):** for any AI-generated video, take the **sound from the same renderer** — the fal video model's **native audio** (`generate_audio`, e.g. Seedance/Kling/Veo/Sora). **Do NOT layer ElevenLabs SFX onto AI video** — it desyncs and sounds tacky. ElevenLabs is for **standalone voice + SFX** (voiceover, UI/game SFX) or audio over **stills/edits you fully control**; **standalone music now routes to fal via `creative-router`** (license-clean, vocals, video-to-music). Live-verify model picks via `recommend_model`; observed: **Seedance 2** = best product realism + native audio; **Kling v3** drifts/hallucinates past ~10–15s; **Sora 2** = 9:16/16:9 only. AI video renders ~24fps → smooth to 60fps with `ffmpeg minterpolate` (don't just `-r` it — that judders). Anti-hallucination: seed from a real image and **feed real product/packaging refs** (or it invents them), soft motion verbs, ≤8s, in-prompt negatives.
 - **Real footage beats AI video for client work:** AI motion still reads as "AI". When real video is available, **edit it with `media-processing` (ffmpeg)** — cut, colour-grade, captions, transitions, ken-burns, 24→60fps smoothing, mux audio — that's the higher-quality path; reach for AI-gen video only when no footage exists. A **camera-only move on a still** (ffmpeg) is the zero-hallucination "safe" video.
 - **Secret:** `FAL_KEY` canonical in 1Password (`op://AI-Stack/fal/password`, item title `fal`). For zero-prompt MCP auth it's also materialized once into the Windows user env (`setx FAL_KEY` sourced from 1P); the fal-ai MCP header uses `${FAL_KEY}`. A scoped, conscious exception to never-on-disk — acceptable because fal is prepaid (capped blast radius). Re-run the `setx` if the key rotates.
 
