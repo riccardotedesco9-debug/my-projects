@@ -4,6 +4,11 @@ Domain: Engineering
 
 Local automation that drives **DaVinci Resolve (Studio)** via its scripting API, bridging the "generate" side (fal music + ffmpeg) with the "edit" side (Resolve). Started 2026-06-21.
 
+## Division of labor (deterministic vs creative) — core rule
+**AI is weak at taste/creativity/aesthetic nuance; strong at precise deterministic execution.** So this pipeline does ONLY the deterministic, non-interpretive parts and never makes aesthetic calls:
+- **AI / scripts do:** beat detection + sync, cutting on beats, generating music/assets to a spec the user gives, exact transforms, render. Predictable, not open to interpretation.
+- **Riccardo does:** all taste — which effects, transitions, zoom/look, vibe, which clip goes where, what's "good". Scripts must **never auto-apply** aesthetic choices (the beat-pulse zoom was removed for exactly this reason). When taste is needed, surface options / ask — don't default.
+
 ## How to drive Resolve (the WORKING method — learned the hard way)
 - **Run scripts via Resolve's own runner, NOT external Python:**
   `& "C:\Program Files\Blackmagic Design\DaVinci Resolve\fuscript.exe" -l py3 <script.py>`
@@ -21,7 +26,7 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 - `resolve_connect_test.py` — verify connection (project/timeline/markers).
 - `resolve_build_proof.py` — import clip+music → build timeline → add markers (full-control proof). ✅ verified.
 - `resolve_beat_markers.py` — read markers (default) · `--demo-write` · `--from-json beats.json`.
-- `resolve_autocut.py` — read beat markers → slice V1 clip into one segment per beat onto a new `AutoCut` timeline · `--zoom` adds a beat-pulse punch-in (so single-clip cuts read).
+- `resolve_autocut.py` — read beat markers → slice the V1 clip into one segment per beat onto a new timeline. **Deterministic only — no auto-effects** (cuts land on beats; you add any look/transitions).
 - `resolve_render.py` — render a timeline (named or current) to MP4 (H.264) into `.tmp/creative/resolve-out/`.
 
 ## Notes

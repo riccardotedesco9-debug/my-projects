@@ -64,16 +64,8 @@ if not newtl:
 proj.SetCurrentTimeline(newtl)
 ok = mp.AppendToTimeline(clip_infos)
 print(f"{tl_name}: appended {len(clip_infos)} beat-segments -> {'OK' if ok else 'FAILED'}")
+print(f"DONE -- '{tl_name}': cuts land exactly on the beats. Effects/transitions/vibe are YOURS to add in Resolve.")
 
-# Optional: alternate a punch-in zoom on each beat segment so the cut is visible
-# even on a single clip (a montage of different clips needs no zoom to read).
-if "--zoom" in sys.argv:
-    items = newtl.GetItemListInTrack("video", 1) or []
-    pulsed = 0
-    for idx, it in enumerate(items):
-        z = 1.15 if idx % 2 == 0 else 1.0
-        if it.SetProperty("ZoomX", z) and it.SetProperty("ZoomY", z):
-            pulsed += 1
-    print(f"Beat-pulse zoom applied to {pulsed}/{len(items)} segments.")
-
-print(f"DONE -- check Resolve: '{tl_name}' timeline, clip sliced on every beat.")
+# DELIBERATELY NO auto-effects here. This script does the DETERMINISTIC part only
+# (cuts on beats). Aesthetic choices (zoom, transitions, look) are taste -> the user's
+# call, never auto-applied. See projects/video-pipeline/CLAUDE.md "Division of labor".
