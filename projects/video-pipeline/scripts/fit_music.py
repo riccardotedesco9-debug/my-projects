@@ -2,9 +2,11 @@
 
   python fit_music.py <video> --generate          # fal Sonilo generates music fitted to your edit
   python fit_music.py <video> --track <audio>     # lay YOUR song under, trimmed+faded to length
-  optional: --out <path>   --fade <sec, default 2>   --num <samples for --generate, default 1>
+  optional: --flat (muxed MP4 instead of Resolve)  --out <path>  --fade <sec=2>  --num <=1>
 
-Plain Python 3 + ffmpeg (no Resolve needed). --generate needs FAL_KEY (env or workspace .env).
+DEFAULT: assembles your video + music onto a Resolve TIMELINE (Resolve must be open) so you
+finish/grade/export there. Use --flat for a quick muxed MP4 with no Resolve.
+Plain Python 3 + ffmpeg; --generate needs FAL_KEY (env or workspace .env); default path needs Resolve open.
 
 Deterministic only. NOTE: aligning your OWN track's beats to your cut points is taste/precision
 -> do that manually in Resolve (or Premiere 'Remix'); this just lays it under cleanly.
@@ -99,6 +101,7 @@ def main():
     g.add_argument("--generate", action="store_true")
     g.add_argument("--track")
     ap.add_argument("--out")
+    ap.add_argument("--flat", action="store_true", help="flat muxed MP4 instead of assembling in Resolve")
     ap.add_argument("--fade", type=float, default=2.0)
     ap.add_argument("--num", type=int, default=1)
     a = ap.parse_args()
@@ -122,8 +125,17 @@ def main():
         audio = a.track
         print(f"Using your track: {os.path.basename(audio)}")
 
-    mux(a.video, audio, out, dur, a.fade)
-    print(f"DONE -> {out}")
+    if a.flat:
+        mux(a.video, audio, out, dur, a.fade)
+        print(f"DONE (flat MP4) -> {out}")
+    else:
+        fuscript = r"C:\Program Files\Blackmagic Design\DaVinci Resolve\fuscript.exe"
+        assemble = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assemble_in_resolve.py")
+        r = run([fuscript, "-l", "py3", assemble,
+                 "--video", os.path.abspath(a.video), "--audio", os.path.abspath(audio)])
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            sys.exit("Resolve assembly failed (is Resolve open?):\n" + r.stderr)
 
 
 if __name__ == "__main__":

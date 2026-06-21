@@ -3,15 +3,20 @@
 Drive DaVinci Resolve (Studio) from scripts + bridge the fal music / ffmpeg flow.
 
 ## Primary tool — fit music to a finished edit (`fit_music.py`, plain python)
-Your real workflow: you cut the video, then add fitting music.
+Your real workflow: you cut the video, then add fitting music. **By default it lands the
+result on a Resolve timeline** (video V1 + music A1) to finish/grade/export there — Resolve must be open.
 ```
-# AI generates music fitted to your edit (fal Sonilo) and muxes it on
+# AI generates music fitted to your edit (fal Sonilo) -> Resolve timeline
 python scripts\fit_music.py "C:\path\edit.mp4" --generate
 
-# use YOUR own track: laid under, trimmed + faded to length
+# use YOUR own track (trimmed + faded) -> Resolve timeline
 python scripts\fit_music.py "C:\path\edit.mp4" --track "C:\path\song.mp3"
+
+# skip Resolve, just get a muxed MP4
+python scripts\fit_music.py "C:\path\edit.mp4" --generate --flat
 ```
-Output: `<edit>_scored.mp4`. `--generate` needs `FAL_KEY`. Beat-on-cut alignment of your *own* track is a manual step (Resolve/Premiere Remix) — `--track` just lays it under cleanly.
+`--generate` needs `FAL_KEY`. Beat-on-cut alignment of your *own* track is a manual step
+(Resolve / Premiere Remix) — `--track` lays it under cleanly, on the timeline for you to nudge.
 
 ---
 

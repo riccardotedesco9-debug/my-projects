@@ -24,9 +24,9 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 
 ## Scripts (`scripts/`)
 **PRIMARY — your real workflow (you cut the video → AI fits music). Plain Python + ffmpeg, NO Resolve needed:**
-- `fit_music.py <video> --generate` — fal **Sonilo** generates music fitted to your finished edit → muxes it on. ✅ verified.
-- `fit_music.py <video> --track <audio>` — lays YOUR song under, trimmed + faded to the video length. ✅ verified. Beat-on-cut alignment of your own track = **manual** (Resolve / Premiere Remix) — not automated by design.
-- Run with plain `python` (3.14); `--generate` needs `FAL_KEY` (env or workspace `.env`).
+- `fit_music.py <video> --generate` — fal **Sonilo** generates music fitted to your edit, then **assembles video + music onto a Resolve timeline** (default). ✅ verified.
+- `fit_music.py <video> --track <audio>` — uses YOUR song (trimmed + faded), assembled onto a Resolve timeline. ✅ verified. Beat-on-cut alignment of your own track = **manual** in Resolve.
+- **Default lands in Resolve** (must be open) so you finish/grade/export there; add `--flat` for a muxed MP4 with no Resolve. Run with plain `python`; `--generate` needs `FAL_KEY` (env or `.env`). It calls `assemble_in_resolve.py` via fuscript.
 
 **Resolve API scripts (run via fuscript) — the "AI cuts video to beats" path; secondary, since you cut your own:**
 - `resolve_connect_test.py` — verify connection (project/timeline/markers).
@@ -34,6 +34,7 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 - `resolve_beat_markers.py` — read markers (default) · `--demo-write` · `--from-json beats.json`.
 - `resolve_autocut.py` — read beat markers → slice the V1 clip into one segment per beat onto a new timeline. **Deterministic only — no auto-effects** (cuts land on beats; you add any look/transitions).
 - `resolve_render.py` — render a timeline (named or current) to MP4 (H.264) into `.tmp/creative/resolve-out/`.
+- `assemble_in_resolve.py` — import a finished video + a music track → new Resolve timeline (video V1, music A1). Used by `fit_music.py`'s default path.
 
 ## Notes
 - Python 3.10/3.11 + `RESOLVE_SCRIPT_API/LIB` env vars were installed during the failed external-Python attempts and are **NOT used** by the fuscript path. With librosa dropped, they're fully unused — **safe to uninstall** (cleanup pending).
