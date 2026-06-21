@@ -52,7 +52,10 @@ if "--demo-write" in args:
     print("--- read back ---")
     read_markers()
 elif "--from-json" in args:
-    path = args[args.index("--from-json") + 1]
+    i = args.index("--from-json")
+    if i + 1 >= len(args):
+        sys.exit("usage: --from-json <path-to-beats.json>")
+    path = args[i + 1]
     with open(path) as f:
         beats = json.load(f)  # list of seconds, or {"beats":[...]}
     add_at_seconds(beats["beats"] if isinstance(beats, dict) else beats)

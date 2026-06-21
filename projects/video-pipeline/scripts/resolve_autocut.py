@@ -8,6 +8,7 @@ Prereq: Resolve open; current timeline has the video clip on V1 + beat markers.
 This is the "automate then refine" payoff: cuts land on beats; you tweak after.
 """
 import sys
+import time
 
 try:
     resolve = bmd.scriptapp("Resolve")  # noqa: F821  (injected by fuscript)
@@ -37,16 +38,42 @@ item = vid[0].GetMediaPoolItem()
 if not item:
     sys.exit("could not resolve the source MediaPoolItem")
 clip_fps = float(item.GetClipProperty("FPS") or fps)
+try:
+    max_frame = int(item.GetClipProperty("Frames"))   # source clip length in frames
+except (TypeError, ValueError):
+    max_frame = None
 
 clip_infos = []
 for i in range(len(beat_secs) - 1):
     s = int(round(beat_secs[i] * clip_fps))
     e = int(round(beat_secs[i + 1] * clip_fps)) - 1
+    if max_frame is not None:
+        if s >= max_frame - 1:
+            break                       # beats run past the clip's length -> stop
+        e = min(e, max_frame - 1)       # clamp last segment to the clip
     if e > s:
         clip_infos.append({"mediaPoolItem": item, "startFrame": s, "endFrame": e})
 
-newtl = mp.CreateEmptyTimeline("AutoCut")
+if not clip_infos:
+    sys.exit("no valid segments (beats outside clip range?)")
+
+tl_name = "AutoCut_%d" % int(time.time())   # unique -> safe to re-run
+newtl = mp.CreateEmptyTimeline(tl_name)
+if not newtl:
+    sys.exit("could not create timeline " + tl_name)
 proj.SetCurrentTimeline(newtl)
 ok = mp.AppendToTimeline(clip_infos)
-print(f"AutoCut: appended {len(clip_infos)} beat-segments -> {'OK' if ok else 'FAILED'}")
-print("DONE -- check Resolve: 'AutoCut' timeline, clip sliced on every beat.")
+print(f"{tl_name}: appended {len(clip_infos)} beat-segments -> {'OK' if ok else 'FAILED'}")
+
+# Optional: alternate a punch-in zoom on each beat segment so the cut is visible
+# even on a single clip (a montage of different clips needs no zoom to read).
+if "--zoom" in sys.argv:
+    items = newtl.GetItemListInTrack("video", 1) or []
+    pulsed = 0
+    for idx, it in enumerate(items):
+        z = 1.15 if idx % 2 == 0 else 1.0
+        if it.SetProperty("ZoomX", z) and it.SetProperty("ZoomY", z):
+            pulsed += 1
+    print(f"Beat-pulse zoom applied to {pulsed}/{len(items)} segments.")
+
+print(f"DONE -- check Resolve: '{tl_name}' timeline, clip sliced on every beat.")

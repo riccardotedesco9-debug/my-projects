@@ -21,6 +21,8 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 - `resolve_connect_test.py` — verify connection (project/timeline/markers).
 - `resolve_build_proof.py` — import clip+music → build timeline → add markers (full-control proof). ✅ verified.
 - `resolve_beat_markers.py` — read markers (default) · `--demo-write` · `--from-json beats.json`.
+- `resolve_autocut.py` — read beat markers → slice V1 clip into one segment per beat onto a new `AutoCut` timeline · `--zoom` adds a beat-pulse punch-in (so single-clip cuts read).
+- `resolve_render.py` — render a timeline (named or current) to MP4 (H.264) into `.tmp/creative/resolve-out/`.
 
 ## Notes
 - Python 3.10/3.11 + `RESOLVE_SCRIPT_API/LIB` env vars were installed during the failed external-Python attempts and are **NOT used** by the fuscript path. With librosa dropped, they're fully unused — **safe to uninstall** (cleanup pending).

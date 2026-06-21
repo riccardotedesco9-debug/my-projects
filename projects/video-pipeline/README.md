@@ -24,6 +24,12 @@ $fs = "C:\Program Files\Blackmagic Design\DaVinci Resolve\fuscript.exe"
 
 # (optional) add markers from any beats.json (list of seconds)
 & $fs -l py3 scripts\resolve_beat_markers.py --from-json beats.json
+
+# auto-cut: slice the V1 clip onto a new 'AutoCut' timeline at the beats (+ optional beat-pulse zoom)
+& $fs -l py3 scripts\resolve_autocut.py --zoom
+
+# render a timeline (named or current) to MP4 -> .tmp/creative/resolve-out/
+& $fs -l py3 scripts\resolve_render.py AutoCut
 ```
 
 ## Workflow it enables
