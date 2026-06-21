@@ -66,9 +66,11 @@ def upload_to_fal(path, key):
     return init["file_url"]
 
 
-def sonilo(video_url, key, num):
-    job = _api("https://queue.fal.run/sonilo/v1.1/video-to-music", key,
-               {"video_url": video_url, "num_samples": num})
+def sonilo(video_url, key, num, prompt=None):
+    body = {"video_url": video_url, "num_samples": num}
+    if prompt:
+        body["prompt"] = prompt          # steer style; Sonilo still paces to the video's cuts
+    job = _api("https://queue.fal.run/sonilo/v1.1/video-to-music", key, body)
     for _ in range(120):                              # up to ~4 min
         st = _api(job["status_url"], key)
         if st.get("status") == "COMPLETED":
@@ -104,6 +106,7 @@ def main():
     ap.add_argument("--flat", action="store_true", help="flat muxed MP4 instead of assembling in Resolve")
     ap.add_argument("--fade", type=float, default=2.0)
     ap.add_argument("--num", type=int, default=1)
+    ap.add_argument("--prompt", help="style steer for --generate, e.g. 'dark gothic synthwave'")
     a = ap.parse_args()
 
     if not os.path.isfile(a.video):
@@ -117,7 +120,7 @@ def main():
         print(f"Uploading edit to fal ({dur:.1f}s)...")
         url = upload_to_fal(a.video, key)
         print("Generating fitted music (Sonilo)...")
-        audio_url = sonilo(url, key, a.num)
+        audio_url = sonilo(url, key, a.num, a.prompt)
         audio = download(audio_url, os.path.join(workdir, "_fit_generated.m4a"))
     else:
         if not os.path.isfile(a.track):
