@@ -22,7 +22,13 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 - Scripts **read** BeatEdit's markers via `Timeline.GetMarkers()` and automate from there.
 - **librosa = DROPPED (2026-06-21):** BeatEdit is better and the single click is trivial; a second detector was redundant. (`resolve_beat_markers.py --from-json` stays as a generic "beats from any file" option, but nothing produces that file now.)
 
-## Scripts (`scripts/`) — all run via fuscript
+## Scripts (`scripts/`)
+**PRIMARY — your real workflow (you cut the video → AI fits music). Plain Python + ffmpeg, NO Resolve needed:**
+- `fit_music.py <video> --generate` — fal **Sonilo** generates music fitted to your finished edit → muxes it on. ✅ verified.
+- `fit_music.py <video> --track <audio>` — lays YOUR song under, trimmed + faded to the video length. ✅ verified. Beat-on-cut alignment of your own track = **manual** (Resolve / Premiere Remix) — not automated by design.
+- Run with plain `python` (3.14); `--generate` needs `FAL_KEY` (env or workspace `.env`).
+
+**Resolve API scripts (run via fuscript) — the "AI cuts video to beats" path; secondary, since you cut your own:**
 - `resolve_connect_test.py` — verify connection (project/timeline/markers).
 - `resolve_build_proof.py` — import clip+music → build timeline → add markers (full-control proof). ✅ verified.
 - `resolve_beat_markers.py` — read markers (default) · `--demo-write` · `--from-json beats.json`.

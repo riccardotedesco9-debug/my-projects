@@ -2,7 +2,20 @@
 
 Drive DaVinci Resolve (Studio) from scripts + bridge the fal music / ffmpeg flow.
 
-## The one rule: run scripts via `fuscript`, not python
+## Primary tool — fit music to a finished edit (`fit_music.py`, plain python)
+Your real workflow: you cut the video, then add fitting music.
+```
+# AI generates music fitted to your edit (fal Sonilo) and muxes it on
+python scripts\fit_music.py "C:\path\edit.mp4" --generate
+
+# use YOUR own track: laid under, trimmed + faded to length
+python scripts\fit_music.py "C:\path\edit.mp4" --track "C:\path\song.mp3"
+```
+Output: `<edit>_scored.mp4`. `--generate` needs `FAL_KEY`. Beat-on-cut alignment of your *own* track is a manual step (Resolve/Premiere Remix) — `--track` just lays it under cleanly.
+
+---
+
+## Resolve API scripts (the "AI cuts to beat" path) — run via `fuscript`, not python
 External Python crashes loading Resolve 21's bridge DLL. Resolve's own runner works:
 ```
 & "C:\Program Files\Blackmagic Design\DaVinci Resolve\fuscript.exe" -l py3 <script>
