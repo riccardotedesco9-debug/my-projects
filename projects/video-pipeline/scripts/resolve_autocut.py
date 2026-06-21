@@ -29,7 +29,9 @@ beat_frames = sorted(markers)
 if len(beat_frames) < 2:
     sys.exit(f"need >=2 beat markers on the current timeline (have {len(beat_frames)}) -- run BeatEdit first.")
 beat_secs = [f / fps for f in beat_frames]
-print(f"{len(beat_frames)} beat markers -> {len(beat_secs) - 1} segments")
+base = beat_secs[0]                      # normalize: beats may be offset on the timeline
+beat_secs = [b - base for b in beat_secs]  # -> start at 0 so we slice the clip from its start
+print(f"{len(beat_frames)} beat markers -> {len(beat_secs) - 1} segments (normalized from {base:.2f}s)")
 
 vid = src.GetItemListInTrack("video", 1) or []
 if not vid:
@@ -68,6 +70,12 @@ if n_added == len(clip_infos):
     print(f"{tl_name}: appended {n_added} beat-segments -> OK")
 else:
     print(f"{tl_name}: WARNING only {n_added}/{len(clip_infos)} segments appended (some rejected)")
+# Carry the source timeline's music onto the cut timeline (music-first: video cut to the song).
+asrc = src.GetItemListInTrack("audio", 1) or []
+if asrc and asrc[0].GetMediaPoolItem():
+    if mp.AppendToTimeline([{"mediaPoolItem": asrc[0].GetMediaPoolItem(), "recordFrame": 0, "mediaType": 2}]):
+        print("Carried the music onto the cut timeline (A1).")
+
 print(f"DONE -- '{tl_name}': cuts land exactly on the beats. Effects/transitions/vibe are YOURS to add in Resolve.")
 
 # DELIBERATELY NO auto-effects here. This script does the DETERMINISTIC part only
