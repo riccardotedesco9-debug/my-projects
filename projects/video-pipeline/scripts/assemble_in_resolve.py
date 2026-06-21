@@ -41,7 +41,13 @@ tl = mp.CreateTimelineFromClips(name, [vit[0]])     # video defines the timeline
 if not tl:
     sys.exit("timeline create failed: " + name)
 proj.SetCurrentTimeline(tl)
-res = mp.AppendToTimeline([{"mediaPoolItem": ait[0]}])  # music -> A1
+
+# Align the music to where the video actually starts. A bare AppendToTimeline drops the
+# music at the playhead/next free slot (it landed ~3min in), so the track played detached.
+# GetStart() gives the video's absolute timeline frame regardless of the timeline's start TC.
+vitems = tl.GetItemListInTrack("video", 1) or []
+start_frame = vitems[0].GetStart() if vitems else 0
+res = mp.AppendToTimeline([{"mediaPoolItem": ait[0], "recordFrame": start_frame, "mediaType": 2}])
 ok = bool(res)
-print(f"Assembled '{name}': video on V1 + music on A1 -> {'OK' if ok else 'MUSIC APPEND FAILED'}")
+print(f"Assembled '{name}': video on V1 + music on A1 @ frame {start_frame} -> {'OK' if ok else 'MUSIC APPEND FAILED'}")
 print(f"Open Resolve: timeline '{name}' is ready to refine / grade / export.")

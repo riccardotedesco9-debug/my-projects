@@ -44,7 +44,10 @@ name = tl.GetName().replace(" ", "_")
 print(f"Rendering '{tl.GetName()}' -> {out_dir}\\{name}.mp4")
 
 os.makedirs(out_dir, exist_ok=True)  # Resolve won't create the target dir itself
-if not proj.SetRenderSettings({"TargetDir": out_dir, "CustomName": name, "SelectAllFrames": True}):
+# ExportAudio defaults OFF for a bare H.264/mp4 job -> the file came out SILENT. Force both
+# streams + an audio codec so the rendered MP4 actually carries the music.
+if not proj.SetRenderSettings({"TargetDir": out_dir, "CustomName": name, "SelectAllFrames": True,
+                               "ExportVideo": True, "ExportAudio": True, "AudioCodec": "aac"}):
     sys.exit("SetRenderSettings rejected (bad TargetDir?)")
 if not proj.SetCurrentRenderFormatAndCodec("mp4", "H264"):
     sys.exit("format/codec rejected (mp4/H264)")

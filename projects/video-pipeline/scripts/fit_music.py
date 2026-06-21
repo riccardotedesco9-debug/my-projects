@@ -17,6 +17,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
 
 WORKSPACE = r"C:\Users\Riccardo\Documents\My Projects"
@@ -53,8 +54,11 @@ def _api(url, key, data=None):
     req.add_header("Authorization", f"Key {key}")
     if data is not None:
         req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:        # fal failures surface as 4xx/5xx, not a status string
+        sys.exit(f"fal API error {e.code} at {url}:\n{e.read().decode(errors='ignore')[:300]}")
 
 
 def upload_to_fal(path, key):
@@ -96,6 +100,70 @@ def mux(video, audio, out, dur, fade):
     return out
 
 
+def _first_cut(video):
+    """First hard cut in the footage (seconds), via ffmpeg scene detection. None if none found."""
+    r = run(["ffmpeg", "-i", video, "-filter:v", "select='gt(scene,0.3)',showinfo",
+             "-f", "null", "-"])
+    for line in r.stderr.splitlines():
+        if "pts_time:" in line:
+            try:
+                return float(line.split("pts_time:")[1].split()[0])
+            except (IndexError, ValueError):
+                continue
+    return None
+
+
+def _first_onset(audio):
+    """When the song's first sound hits (seconds). 0 if it starts loud; the leading-silence
+    end if it fades in. Measured with ffmpeg silencedetect (no librosa)."""
+    r = run(["ffmpeg", "-i", audio, "-af", "silencedetect=noise=-30dB:d=0.1", "-f", "null", "-"])
+    start, end = None, None
+    for line in r.stderr.splitlines():
+        if "silence_start:" in line and start is None:
+            try:
+                start = float(line.split("silence_start:")[1].split()[0])
+            except (IndexError, ValueError):
+                pass
+        elif "silence_end:" in line and end is None:
+            try:
+                end = float(line.split("silence_end:")[1].split()[0])
+            except (IndexError, ValueError):
+                pass
+    if start is not None and start < 0.3 and end is not None:  # only count an intro-silence
+        return end
+    return 0.0
+
+
+EARLY_CUT = 4.0  # only snap the downbeat to the first cut if that cut is within the opening
+
+
+def align_audio(audio, video, workdir):
+    """Mode-2 best-effort: get the song STARTING right. Trim its leading silence so music
+    begins at t=0; if the footage's first cut is early, snap the song's first hit onto it.
+    Deterministic + measurable (prints the numbers); NOT per-cut sync -- you nudge from there."""
+    cut = _first_cut(video)
+    onset = _first_onset(audio)
+    if cut is not None and cut <= EARLY_CUT:
+        target, why = cut, f"first cut @ {cut:.2f}s is early -> snap song's first hit to it"
+    else:
+        target = 0.0
+        why = (f"first cut @ {cut:.2f}s is late" if cut is not None else "no hard cut found") + " -> start song at t=0"
+    shift = target - onset
+    print(f"align: song onset @ {onset:.2f}s; {why}; shift {shift:+.2f}s")
+    if abs(shift) < 0.03:
+        return audio
+    if shift > 0:                                   # push the song's hit later
+        af = f"adelay={int(shift * 1000)}:all=1"
+    else:                                           # trim the song's head (drop dead air / move earlier)
+        af = f"atrim=start={-shift:.3f},asetpts=PTS-STARTPTS"
+    out = os.path.join(workdir, "_aligned.m4a")
+    r = run(["ffmpeg", "-y", "-loglevel", "error", "-i", audio, "-af", af, "-c:a", "aac", out])
+    if r.returncode != 0:
+        print(f"align: ffmpeg offset failed, using the song unshifted:\n{r.stderr}")
+        return audio
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("video")
@@ -107,6 +175,8 @@ def main():
     ap.add_argument("--fade", type=float, default=2.0)
     ap.add_argument("--num", type=int, default=1)
     ap.add_argument("--prompt", help="style steer for --generate, e.g. 'dark gothic synthwave'")
+    ap.add_argument("--align", action="store_true",
+                    help="(with --track) offset your song so its first hit lands on the footage's first cut")
     a = ap.parse_args()
 
     if not os.path.isfile(a.video):
@@ -127,6 +197,8 @@ def main():
             sys.exit(f"track not found: {a.track}")
         audio = a.track
         print(f"Using your track: {os.path.basename(audio)}")
+        if a.align:
+            audio = align_audio(audio, a.video, workdir)
 
     if a.flat:
         mux(a.video, audio, out, dur, a.fade)
