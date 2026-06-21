@@ -51,7 +51,7 @@ for i in range(len(beat_secs) - 1):
         if s >= max_frame - 1:
             break                       # beats run past the clip's length -> stop
         e = min(e, max_frame - 1)       # clamp last segment to the clip
-    if e > s:
+    if e >= s:  # endFrame is inclusive; e==s is a valid 1-frame beat segment
         clip_infos.append({"mediaPoolItem": item, "startFrame": s, "endFrame": e})
 
 if not clip_infos:
@@ -62,8 +62,12 @@ newtl = mp.CreateEmptyTimeline(tl_name)
 if not newtl:
     sys.exit("could not create timeline " + tl_name)
 proj.SetCurrentTimeline(newtl)
-ok = mp.AppendToTimeline(clip_infos)
-print(f"{tl_name}: appended {len(clip_infos)} beat-segments -> {'OK' if ok else 'FAILED'}")
+result = mp.AppendToTimeline(clip_infos)
+n_added = len(result) if isinstance(result, list) else (len(clip_infos) if result else 0)
+if n_added == len(clip_infos):
+    print(f"{tl_name}: appended {n_added} beat-segments -> OK")
+else:
+    print(f"{tl_name}: WARNING only {n_added}/{len(clip_infos)} segments appended (some rejected)")
 print(f"DONE -- '{tl_name}': cuts land exactly on the beats. Effects/transitions/vibe are YOURS to add in Resolve.")
 
 # DELIBERATELY NO auto-effects here. This script does the DETERMINISTIC part only

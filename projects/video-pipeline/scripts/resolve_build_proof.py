@@ -16,6 +16,8 @@ if not resolve:
     sys.exit("Resolve not open")
 
 proj = resolve.GetProjectManager().GetCurrentProject()
+if not proj:
+    sys.exit("no project open")
 mp = proj.GetMediaPool()
 
 print("Importing media...")

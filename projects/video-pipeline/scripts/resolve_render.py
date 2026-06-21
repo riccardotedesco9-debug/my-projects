@@ -3,6 +3,7 @@
 Defaults: current timeline -> .tmp/creative/resolve-out/. H.264 MP4, whole timeline.
 Resolve must be OPEN.
 """
+import os
 import sys
 import time
 
@@ -20,6 +21,8 @@ tl_name = args[0] if len(args) >= 1 else None
 out_dir = args[1] if len(args) >= 2 else DEFAULT_OUT
 
 proj = resolve.GetProjectManager().GetCurrentProject()
+if not proj:
+    sys.exit("no project open")
 
 # Pick the timeline: by name if given, else current.
 tl = None
@@ -40,17 +43,28 @@ if not tl:
 name = tl.GetName().replace(" ", "_")
 print(f"Rendering '{tl.GetName()}' -> {out_dir}\\{name}.mp4")
 
-proj.SetRenderSettings({"TargetDir": out_dir, "CustomName": name, "SelectAllFrames": True})
-proj.SetCurrentRenderFormatAndCodec("mp4", "H264")
+os.makedirs(out_dir, exist_ok=True)  # Resolve won't create the target dir itself
+if not proj.SetRenderSettings({"TargetDir": out_dir, "CustomName": name, "SelectAllFrames": True}):
+    sys.exit("SetRenderSettings rejected (bad TargetDir?)")
+if not proj.SetCurrentRenderFormatAndCodec("mp4", "H264"):
+    sys.exit("format/codec rejected (mp4/H264)")
 proj.DeleteAllRenderJobs()
 job_id = proj.AddRenderJob()
 if not job_id:
     sys.exit("AddRenderJob failed")
-proj.StartRendering(job_id)
+if not proj.StartRendering(job_id):
+    sys.exit("StartRendering failed -- nothing rendered")
 
+waited = 0
 while proj.IsRenderingInProgress():
     time.sleep(1)
+    waited += 1
+    if waited > 1800:  # 30-min hard cap so a stalled/modal render can't hang forever
+        sys.exit("render timed out (>30min) -- check Resolve for a dialog/stall")
 
 status = proj.GetRenderJobStatus(job_id) or {}
-print("Render status:", status.get("JobStatus"), status.get("CompletionPercentage"), "%")
+js = status.get("JobStatus")
+print("Render status:", js, status.get("CompletionPercentage"), "%")
+if js != "Complete":
+    sys.exit(f"render did NOT complete: {js}")
 print(f"DONE -> {out_dir}\\{name}.mp4")

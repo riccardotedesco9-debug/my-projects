@@ -9,6 +9,7 @@ and automates the rest. `--from-json` is the no-click bridge: an external Python
 runs librosa to write beats.json (seconds), then this adds them as markers.
 Resolve must be OPEN.
 """
+import os
 import sys
 import json
 
@@ -56,8 +57,15 @@ elif "--from-json" in args:
     if i + 1 >= len(args):
         sys.exit("usage: --from-json <path-to-beats.json>")
     path = args[i + 1]
-    with open(path) as f:
-        beats = json.load(f)  # list of seconds, or {"beats":[...]}
-    add_at_seconds(beats["beats"] if isinstance(beats, dict) else beats)
+    if not os.path.isfile(path):
+        sys.exit(f"file not found: {path}")
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        seconds = data["beats"] if isinstance(data, dict) else data
+        seconds = [float(t) for t in seconds]
+    except (ValueError, KeyError, TypeError) as e:
+        sys.exit(f"bad beats file (need JSON list of seconds, or {{'beats':[...]}}): {e}")
+    add_at_seconds(seconds)
 else:
     read_markers()
