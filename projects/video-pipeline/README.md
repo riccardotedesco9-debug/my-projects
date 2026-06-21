@@ -22,17 +22,16 @@ $fs = "C:\Program Files\Blackmagic Design\DaVinci Resolve\fuscript.exe"
 # read current timeline markers (e.g. BeatEdit's)
 & $fs -l py3 scripts\resolve_beat_markers.py
 
-# add markers from a librosa-generated beats.json (no-click bridge)
+# (optional) add markers from any beats.json (list of seconds)
 & $fs -l py3 scripts\resolve_beat_markers.py --from-json beats.json
 ```
 
 ## Workflow it enables
 1. Generate fitted music: fal Sonilo video-to-music + ffmpeg (`.tmp/creative/`).
-2. In Resolve: drop the music, run **BeatEdit** (1 click) → beat markers — OR run librosa externally → `--from-json`.
-3. Run a script here → reads the markers → automates assembly (future: auto-cut + render).
+2. In Resolve: drop the music, run **BeatEdit** (1 click) → beat markers.
+3. Run a script here → reads the markers → automates assembly (next: auto-cut + render).
 
-## No-click beats (optional, later)
-`& "C:\Program Files\Python310\python.exe" -m pip install librosa soundfile`, then a small
-helper detects beats → writes `beats.json` → `resolve_beat_markers.py --from-json`.
-(librosa runs in 3.10 because Resolve's embedded interp has no pip; fuscript does the Resolve side.)
-```
+## Beat detection = BeatEdit (librosa dropped)
+BeatEdit is editing-tuned + lets you visually verify/correct beats — better than a blind
+detector, and the single click is trivial. It's GUI-only (can't be automated — verified), so
+the one click stays; everything after it is scripted. librosa was dropped as redundant.
