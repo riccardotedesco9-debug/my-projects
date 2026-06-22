@@ -56,6 +56,9 @@ The BeatCut is normal clips on V1 with the beat markers on the ruler.
 - **Bad moment, keep it on beat → Slip:** press `T`, drag the *middle* of the clip (changes footage shown, cut stays on the beat). `A` returns to the arrow.
 - **Hold a shot longer → drag the cut line** (comes off the strict beat on purpose).
 
+### Color grading (Resolve-first)
+Grading/looks are done **in Resolve via script** — `SetCDL` (a primary look), `SetLUT` (Sony S-Log3→Rec709 conversion or a creative LUT), `ApplyGradeFromDRX` (a saved grade). It grades the whole clip and **stays editable** on the color page. ffmpeg is used only for **timed/animated FX** the Resolve API can't keyframe (a flash on a beat, fades, brightening one section, glow). Camera tip (a6700): shoot **S-Cinetone** for good-out-of-camera + light grade, or **S-Log3** for maximum grading control (needs a LUT/grade applied).
+
 ---
 
 ## Under the hood — Resolve via `fuscript`, not external Python
