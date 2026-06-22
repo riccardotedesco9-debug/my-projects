@@ -129,7 +129,7 @@ These tools are available across ALL projects. Use them autonomously when the ta
   - Use as **primary tool for voice + sound design** — voiceover/TTS, SFX, voice clone/design, audio processing. **Music generation defaults to fal via `creative-router`** (license-clean, vocals, video-to-music); ElevenLabs music is the quick in-tool bed only. See the audio rule under "Visual & Audio / Creative Routing".
 
 ### Web Scraping
-- **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in the `agents/WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction.
+- **Firecrawl** (`mcp__firecrawl__*`) — Full-site crawling, single-page scraping, site mapping, structured data extraction. Handles JS rendering, converts to clean markdown. Available in the `agents/WebScraper/` workspace. Use for competitor analysis, content audits, documentation ingestion, bulk data extraction. **DEFAULT for ALL web search + scraping — use `firecrawl_search`/`firecrawl_scrape`/`firecrawl_crawl`/`firecrawl_extract` over the built-in WebSearch/WebFetch** (only fall back if Firecrawl actually fails, e.g. 402 → top up). See memory `feedback_firecrawl-default-scraping`.
 
 ### Automation
 - **Trigger.dev** (`mcp__trigger__*`) — Deploy, trigger, and monitor TypeScript automation tasks. Use for background jobs, scheduled tasks, AI agent orchestration, data pipelines. Project lives in `projects/trigger-automations/`. **Before building or changing any automation, follow the conventions in `projects/trigger-automations/CLAUDE.md`** — the canonical builder guide (workflow order, `schedules.task` cron patterns, the 1Password secrets flow, deploy + failure-handling rules). All automations live in that one project, regardless of which other `projects/` project they serve.
@@ -157,7 +157,7 @@ Always use available MCP tools before improvising code-based alternatives:
 - **Visual Content (templated/decks)** → Canva (templated brand graphics, resizes) or Gamma (decks/pages), not code-based HTML/CSS designs
 - **Dynamic visual generation** (custom images, pixel/indie game art, vectors/SVG, video, 3D, niche/anime/trained styles) → fal.ai via the **`creative-router`** skill — NOT Canva/Gamma (those keep their lanes). See "Visual / Creative Routing" below.
 - **File Storage** → Google Drive, not local temp files for shared assets
-- **Web Scraping** → Firecrawl MCP (in agents/WebScraper/), not manual fetch loops or custom scrapers
+- **Web search & scraping** → Firecrawl MCP (`mcp__firecrawl__*`) as the DEFAULT — `firecrawl_search` for search, `firecrawl_scrape`/`_crawl`/`_extract` for content; **not** built-in WebSearch/WebFetch or manual fetch loops (fall back to WebSearch/WebFetch only if Firecrawl actually fails)
 - **Infrastructure** → Cloudflare MCP for D1 queries, Worker management; not raw HTTP API calls
 - **Deterministic tasks** → `tools/` scripts, not inline AI reasoning for API calls, transforms, or file ops
 
