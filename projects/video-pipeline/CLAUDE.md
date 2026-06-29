@@ -2,7 +2,7 @@
 
 Domain: Engineering
 
-Local automation that drives **DaVinci Resolve (Studio)** via its scripting API, bridging the "generate" side (fal music + ffmpeg) with the "edit" side (Resolve). Started 2026-06-21.
+Local automation that drives **DaVinci Resolve (Studio)** via its scripting API, bridging the music **sourcing** side (Epidemic primary / Spotify `spotdl` personal / fal AI-fill + ffmpeg) with the "edit" side (Resolve). Started 2026-06-21.
 
 ## Division of labor (deterministic vs creative) — core rule
 **AI is weak at taste/creativity/aesthetic nuance; strong at precise deterministic execution.** So this pipeline does ONLY the deterministic, non-interpretive parts and never makes aesthetic calls:
@@ -38,6 +38,8 @@ Local automation that drives **DaVinci Resolve (Studio)** via its scripting API,
 
 ## Scripts (`scripts/`)
 **FRONT DOOR — `sync.py`.** Routes the 4 music↔video modes on 2 axes: `--lead video|music` × `--music gen|track`. **Routing rule: video-first ⇒ footage LOCKED → fit music to it; music-first ⇒ footage RE-CUTTABLE → cut it to the song's beats.** Inputs = one or more files (concatenated for video-first; one-per-beat or jump-cut for music-first). Video-first is 1 step; music-first is 2 (BeatEdit's 1 click in the middle). See README for the command matrix. Plain `python`; gen needs `FAL_KEY`; Resolve paths need Resolve open.
+
+**Music sourcing — where `--track` comes from (per root `CLAUDE.md` → Audio sourcing):** primary = **Epidemic Sound** (licensed, commercial; browse/drag via the Resolve plugin → file lands in the Resolve **project folder** → pass that path as `--track`). Personal/unlicensed = **Spotify** (`--track` accepts a Spotify URL/URI → auto-grabbed via `python -m spotdl`, preferred) or **YouTube** (`--track` accepts a YouTube URL → `python -m yt_dlp`, backup); grabbed to `.tmp/creative/`, lossy, personal-use only. `--music gen` / `--vocals` (fal Sonilo / Stable Audio / ElevenLabs-on-fal) = the **AI-generated *fill* lane** only — no longer the default.
 
 **Video-first workhorse (called by sync.py; also usable directly):**
 - `fit_music.py <video> --generate [--prompt]` — fal **Sonilo** scores your locked edit → Resolve timeline (or `--flat` MP4). ✅

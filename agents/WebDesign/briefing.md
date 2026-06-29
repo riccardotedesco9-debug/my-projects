@@ -27,7 +27,7 @@ dedupes by its first `backticked` / **bold** token.
 ## MCP Tools
 
 - Experience layer (sound / custom art / video): reach for the managed tool first — **ElevenLabs** for voice & SFX, **creative-router** (fal) for art **and music** — hand-rolled code (oscillators, emoji-as-art) is the fallback, not the default.
-- **ElevenLabs** — real **SFX & voice** for interactive / game UI (`text_to_sound_effects`); the sound tool, not Web Audio oscillators. Game/UI **music → fal via `creative-router`** (license-clean, longer tracks). NOT for AI-rendered video sound (use the video model's native audio, else it desyncs/tacky).
+- **ElevenLabs** — real **SFX & voice** for interactive / game UI (`text_to_sound_effects`); the sound tool, not Web Audio oscillators. Game/UI **music → fal via `creative-router`** (generated = license-clean to *ship inside* a site/game; Epidemic's license is video-only so it's not the lane here — that's video reels, per root Audio sourcing). NOT for AI-rendered video sound (use the video model's native audio, else it desyncs/tacky).
 - **fal.ai** (via `creative-router`) — generate custom raster/vector/video/3D assets **and music/soundtracks** instead of placeholders; AI video uses NATIVE audio; ALSO edits real footage (object removal, restyle, upscale); creative-router live-picks the best current model. Prefer real footage + ffmpeg for client-grade motion.
 - **Chrome DevTools** — screenshots, visual diff, Core Web Vitals.
 - **Canva** — templated brand graphics, resizes, multi-format export.

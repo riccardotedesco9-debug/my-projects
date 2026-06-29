@@ -1,7 +1,8 @@
 # video-pipeline
 
-Sync music and video across **4 directions**, driving DaVinci Resolve (Studio) + the fal
-music / ffmpeg flow. One front door: **`sync.py`**. Deterministic execution; you bring the taste.
+Sync music and video across **4 directions**, driving DaVinci Resolve (Studio). Music comes from
+**Epidemic Sound** (licensed, primary), **Spotify** via `spotdl` (personal), or **fal** AI-fill; ffmpeg
+muxes. One front door: **`sync.py`**. Deterministic execution; you bring the taste.
 
 ## The one tool — `sync.py`
 Two axes pick the mode: **--lead** (who leads) × **--music** (whose music).
@@ -40,6 +41,7 @@ python scripts\sync.py a.mp4 b.mp4 --lead music --cut --every 1
 - **One file** → jump-cut: each beat jumps to a different, evenly-spread moment of it.
 - `--every N` = use every Nth beat (density). `--vocals` (gen) = ElevenLabs-on-fal instead of instrumental.
 - No-click draft: add `--auto-beats` to skip BeatEdit (auto-detects a steady tempo — rigid, less accurate; BeatEdit stays the real-sync path).
+- **`--track` source:** local file, a **Spotify** URL/URI (auto-grabbed via `spotdl`, preferred), or a **YouTube** URL (`yt-dlp`, backup) → grabbed to `.tmp/creative/` (lossy, personal-use only). **Licensed Epidemic** tracks: drag via the Resolve plugin, then pass the project-folder file path as `--track`.
 
 ### Which lane to use (verified by testing 2026-06-21)
 Two real lanes — the input decides:

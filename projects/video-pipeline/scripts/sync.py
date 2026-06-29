@@ -102,7 +102,7 @@ def get_song(music, track, prompt, length, vocals):
         key = fm.fal_key()
         print(f"Generating {'vocal' if vocals else 'instrumental'} track (~{int(length)}s)...")
         return gen_music(prompt or "instrumental track", length, vocals, key)
-    return track
+    return fm.grab_track(track)              # local file, or grab a Spotify/YouTube URL
 
 
 def assemble_prep(footage0, song):
@@ -152,7 +152,7 @@ def main():
     ap.add_argument("inputs", nargs="+", help="one or more video files (clips, or one file)")
     ap.add_argument("--lead", choices=["video", "music"], required=True)
     ap.add_argument("--music", choices=["gen", "track"], default="gen")
-    ap.add_argument("--track", help="your song (required for --music track)")
+    ap.add_argument("--track", help="your song: local file, Spotify URL/URI, or YouTube URL (for --music track)")
     ap.add_argument("--prompt", help="style steer for generated music")
     ap.add_argument("--length", type=float, default=60, help="generated song length (s), music-first")
     ap.add_argument("--vocals", action="store_true", help="music-first gen: vocals (ElevenLabs-on-fal)")
@@ -167,8 +167,8 @@ def main():
     for p in a.inputs:
         if not os.path.isfile(p):
             sys.exit(f"input not found: {p}")
-    if a.music == "track" and not (a.track and os.path.isfile(a.track)):
-        sys.exit("--music track needs --track <existing file>")
+    if a.music == "track" and not a.track:
+        sys.exit("--music track needs --track <file | Spotify URL | YouTube URL>")
 
     if a.lead == "video":
         video_first(a.inputs, a.music, a.track, a.prompt, a.flat, a.out)

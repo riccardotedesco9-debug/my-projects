@@ -12,8 +12,10 @@ Deterministic only. NOTE: aligning your OWN track's beats to your cut points is 
 -> do that manually in Resolve (or Premiere 'Remix'); this just lays it under cleanly.
 """
 import argparse
+import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -25,6 +27,68 @@ WORKSPACE = r"C:\Users\Riccardo\Documents\My Projects"
 
 def run(cmd):
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+GRAB_DIR = os.path.join(WORKSPACE, ".tmp", "creative")   # gitignored; safe for grabbed audio
+_AUDIO_EXTS = (".mp3", ".m4a", ".opus", ".flac", ".wav", ".ogg")
+_SPOTIFY = ("spotify:", "open.spotify.com")
+_YOUTUBE = ("youtube.com", "youtu.be")
+
+
+def _slug(s):
+    """Filesystem-safe stem from a URL/URI (keeps the trailing id)."""
+    keep = "".join(c if c.isalnum() else "_" for c in s).strip("_")
+    return keep[-40:] or "track"
+
+
+def grab_track(track):
+    """Resolve a --track value to a local audio file. A Spotify URL/URI is grabbed via spotdl, a
+    YouTube URL via yt-dlp (both invoked `python -m ...` since the console scripts aren't on PATH);
+    anything else is treated as an existing local path. Grabs are lossy + personal-use only;
+    licensed/commercial music = Epidemic Sound, dragged in via the Resolve plugin (pass that path)."""
+    low = track.lower()
+    if any(m in low for m in _SPOTIFY):
+        return _grab_spotify(track)
+    if any(m in low for m in _YOUTUBE):
+        return _grab_youtube(track)
+    if not os.path.isfile(track):
+        sys.exit(f"track not found: {track}")
+    return track
+
+
+def _grab_dir(prefix, url):
+    """Fresh per-URL scratch subfolder under GRAB_DIR, cleared each run so a prior/partial grab can
+    never win the file-pick. (Always-fresh: re-grabbing re-downloads; predictable > cached.)"""
+    sub = os.path.join(GRAB_DIR, prefix + _slug(url))
+    shutil.rmtree(sub, ignore_errors=True)
+    os.makedirs(sub, exist_ok=True)
+    return sub
+
+
+def _pick_audio(sub, tool, r):
+    """The single audio file this run produced in `sub`; errors out clearly if the grab failed."""
+    if r.returncode != 0:
+        sys.exit(f"{tool} grab failed (installed? `python -m pip install {tool}`):\n"
+                 + (r.stderr or r.stdout or "")[-400:])
+    got = [f for f in glob.glob(os.path.join(sub, "*")) if f.lower().endswith(_AUDIO_EXTS)]
+    if not got:
+        sys.exit(f"{tool} produced no audio file:\n" + (r.stdout or "")[-400:])
+    return max(got, key=os.path.getmtime)
+
+
+def _grab_spotify(url):
+    sub = _grab_dir("_spotify_", url)
+    print(f"Grabbing from Spotify via spotdl: {url}")
+    return _pick_audio(sub, "spotdl",
+                       run([sys.executable, "-m", "spotdl", "download", url, "--output", sub]))
+
+
+def _grab_youtube(url):
+    sub = _grab_dir("_yt_", url)
+    print(f"Grabbing from YouTube via yt-dlp: {url}")
+    return _pick_audio(sub, "yt-dlp",
+                       run([sys.executable, "-m", "yt_dlp", "-x", "--audio-format", "mp3",
+                            "--no-playlist", "-o", os.path.join(sub, "%(title)s.%(ext)s"), url]))
 
 
 def ffprobe_duration(path):
@@ -193,9 +257,7 @@ def main():
         audio_url = sonilo(url, key, a.num, a.prompt)
         audio = download(audio_url, os.path.join(workdir, "_fit_generated.m4a"))
     else:
-        if not os.path.isfile(a.track):
-            sys.exit(f"track not found: {a.track}")
-        audio = a.track
+        audio = grab_track(a.track)          # local file, or grab a Spotify/YouTube URL
         print(f"Using your track: {os.path.basename(audio)}")
         if a.align:
             audio = align_audio(audio, a.video, workdir)
