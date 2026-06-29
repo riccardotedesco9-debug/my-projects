@@ -25,8 +25,8 @@ import urllib.request
 WORKSPACE = r"C:\Users\Riccardo\Documents\My Projects"
 
 
-def run(cmd):
-    return subprocess.run(cmd, capture_output=True, text=True)
+def run(cmd, cwd=None):
+    return subprocess.run(cmd, capture_output=True, text=True, cwd=cwd)
 
 
 GRAB_DIR = os.path.join(WORKSPACE, ".tmp", "creative")   # gitignored; safe for grabbed audio
@@ -79,8 +79,11 @@ def _pick_audio(sub, tool, r):
 def _grab_spotify(url):
     sub = _grab_dir("_spotify_", url)
     print(f"Grabbing from Spotify via spotdl: {url}")
+    # Run IN `sub` with a bare-filename template: spotdl sanitizes a dotted dir like ".tmp" out of a
+    # path given in --output (writes to "tmp" instead), so we set cwd and keep the template path-free.
     return _pick_audio(sub, "spotdl",
-                       run([sys.executable, "-m", "spotdl", "download", url, "--output", sub]))
+                       run([sys.executable, "-m", "spotdl", "download", url,
+                            "--output", "{title}.{output-ext}"], cwd=sub))
 
 
 def _grab_youtube(url):
@@ -88,7 +91,7 @@ def _grab_youtube(url):
     print(f"Grabbing from YouTube via yt-dlp: {url}")
     return _pick_audio(sub, "yt-dlp",
                        run([sys.executable, "-m", "yt_dlp", "-x", "--audio-format", "mp3",
-                            "--no-playlist", "-o", os.path.join(sub, "%(title)s.%(ext)s"), url]))
+                            "--no-playlist", "-o", "%(title)s.%(ext)s", url], cwd=sub))
 
 
 def ffprobe_duration(path):
