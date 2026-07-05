@@ -1,0 +1,186 @@
+{
+  "meta": {
+    "captured_at": "2026-06-29",
+    "site": "airbnb.com.mt",
+    "currency": "EUR",
+    "guests_standard": 4,
+    "note_pricing_model": "Stephanie's 3 listings (L1/L2/L3) use PER-GUEST pricing. L1 Jul 21-26 = €382 total at 1 guest (matches user screenshot anchor) but €820 total at 4 guests. The earlier '~€166/night' reading was NOT a 2x DOM over-read; it was the 4-guest price (€820/5n = €164/n). The '~€76/night' the user expected is the 1-GUEST rate (€382/5n). All figures below are at the mandated 4 guests for apples-to-apples comparison, with L1 1-guest figures recorded separately.",
+    "self_check": {
+      "listing": "L1",
+      "dates": "2026-07-21 to 2026-07-26",
+      "guests": 1,
+      "expected_total_eur": 382,
+      "observed_total_eur": 382,
+      "observed_pre_discount_eur": 440,
+      "passed": true,
+      "screenshot_path": "assets/L1-peak-1guest-382-selfcheck.png"
+    },
+    "method": "Chrome DevTools MCP. Dates set via URL params (check_in/check_out/adults/guests). Price read from booking panel aside[aria-label='Booking Information']: bold '€X total' = total_eur, strikethrough = pre_discount_total_eur. Each price screenshotted as proof. Where requested dates unavailable, nearest bookable same-season week used and actual dates recorded."
+  },
+  "per_guest_model_evidence_L1_peak_jul21_26_5nights": [
+    { "guests": 1, "total_eur": 382, "pre_discount_eur": 440, "nightly_eur": 76.4 },
+    { "guests": 2, "total_eur": 528, "pre_discount_eur": 586, "nightly_eur": 105.6 },
+    { "guests": 4, "total_eur": 820, "pre_discount_eur": 877, "nightly_eur": 164.0 }
+  ],
+  "rows": [
+    {
+      "id": "1073131988545275312", "label": "L1 (Stephanie, new)", "season": "peak",
+      "check_in": "2026-07-21", "check_out": "2026-07-26", "nights": 5, "guests": 4,
+      "total_eur": 820, "nightly_eur": 164.0, "pre_discount_total_eur": 877, "discount_badge": "y",
+      "screenshot_path": "assets/L1-peak-4guest.png",
+      "availability_note": "Requested dates available. Also captured at 1 guest = €382 total (€440 strike) = self-check anchor; per-guest pricing."
+    },
+    {
+      "id": "1073131988545275312", "label": "L1 (Stephanie, new)", "season": "shoulder",
+      "check_in": "2026-10-05", "check_out": "2026-10-12", "nights": 7, "guests": 4,
+      "total_eur": 1162, "nightly_eur": 166.0, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/L1-shoulder-4guest.png",
+      "availability_note": "Requested dates available. No discount badge in shoulder (peak had one)."
+    },
+    {
+      "id": "1073131988545275312", "label": "L1 (Stephanie, new)", "season": "winter",
+      "check_in": "2027-01-12", "check_out": "2027-01-19", "nights": 7, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/stephanie-winter-jan2027-unavailable.png",
+      "availability_note": "NOT CAPTURABLE. Dec 2026, Jan 2027 and Feb 2027 are entirely unavailable (0 bookable check-in days across all three months) - host has not opened the winter calendar. Winter rate cannot be observed."
+    },
+    {
+      "id": "50337126", "label": "L2 (Stephanie, Guest Fav)", "season": "peak",
+      "check_in": "2026-07-22", "check_out": "2026-07-27", "nights": 5, "guests": 4,
+      "total_eur": 844, "nightly_eur": 168.8, "pre_discount_total_eur": 931, "discount_badge": "y",
+      "screenshot_path": "assets/L2-peak-4guest-jul22-27.png",
+      "availability_note": "Requested Jul 21-26 NOT available; used nearest bookable same-season week Jul 22-27 (5 nights)."
+    },
+    {
+      "id": "50337126", "label": "L2 (Stephanie, Guest Fav)", "season": "shoulder",
+      "check_in": "2026-10-21", "check_out": "2026-10-28", "nights": 7, "guests": 4,
+      "total_eur": 1134, "nightly_eur": 162.0, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/L2-shoulder-4guest-oct21-28.png",
+      "availability_note": "Requested Oct 5-12 NOT available; used nearest bookable same-season week Oct 21-28 (7 nights)."
+    },
+    {
+      "id": "50337126", "label": "L2 (Stephanie, Guest Fav)", "season": "winter",
+      "check_in": "2027-01-12", "check_out": "2027-01-19", "nights": 7, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": null,
+      "availability_note": "NOT CAPTURABLE. Dec 2026/Jan 2027/Feb 2027 entirely unavailable (winter calendar not opened)."
+    },
+    {
+      "id": "14107933", "label": "L3 (Stephanie, flagship)", "season": "peak",
+      "check_in": "2026-07-27", "check_out": "2026-07-30", "nights": 3, "guests": 4,
+      "total_eur": 474, "nightly_eur": 158.0, "pre_discount_total_eur": 506, "discount_badge": "y",
+      "screenshot_path": "assets/L3-peak-4guest-jul27-30-3nights.png",
+      "availability_note": "Requested Jul 21-26 NOT available; L3 almost fully booked in summer. Only bookable summer window near peak was Jul 27-30 (3 nights, the listing's 3-night minimum). Nightly is comparable basis."
+    },
+    {
+      "id": "14107933", "label": "L3 (Stephanie, flagship)", "season": "shoulder",
+      "check_in": "2026-10-05", "check_out": "2026-10-12", "nights": 7, "guests": 4,
+      "total_eur": 1156, "nightly_eur": 165.1, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/L3-shoulder-4guest-oct5-12.png",
+      "availability_note": "Requested dates available."
+    },
+    {
+      "id": "14107933", "label": "L3 (Stephanie, flagship)", "season": "winter",
+      "check_in": "2027-01-12", "check_out": "2027-01-19", "nights": 7, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": null,
+      "availability_note": "NOT CAPTURABLE. Dec 2026/Jan 2027/Feb 2027 entirely unavailable (winter calendar not opened)."
+    },
+    {
+      "id": "49982133", "label": "C-Peter", "season": "peak",
+      "check_in": "2026-07-15", "check_out": "2026-07-20", "nights": 5, "guests": 4,
+      "total_eur": 1190, "nightly_eur": 238.0, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/C-Peter-peak-4guest-jul15-20.png",
+      "availability_note": "Requested Jul 21-26 NOT available; used nearest bookable same-season week Jul 15-20 (5 nights)."
+    },
+    {
+      "id": "49982133", "label": "C-Peter", "season": "shoulder",
+      "check_in": "2026-10-15", "check_out": "2026-10-22", "nights": 7, "guests": 4,
+      "total_eur": 899, "nightly_eur": 128.4, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/C-Peter-shoulder-4guest-oct15-22.png",
+      "availability_note": "Requested Oct 5-12 NOT available; used nearest bookable same-season week Oct 15-22 (7 nights)."
+    },
+    {
+      "id": "6351397", "label": "C-Alison", "season": "peak",
+      "check_in": "2026-09-17", "check_out": "2026-09-22", "nights": 5, "guests": 4,
+      "total_eur": 1278, "nightly_eur": 255.6, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/C-Alison-peak-proxy-4guest-sep17-22.png",
+      "availability_note": "Villa w/ shared pool. Requested Jul 21-26 and all July/August windows NOT available (sold out). Nearest bookable warm-season window was Sep 17-22 (5 nights) - this is September, NOT true July peak, so treat as a soft peak proxy (likely understates true July rate)."
+    },
+    {
+      "id": "6351397", "label": "C-Alison", "season": "shoulder",
+      "check_in": "2026-10-15", "check_out": "2026-10-22", "nights": 7, "guests": 4,
+      "total_eur": 1622, "nightly_eur": 231.7, "pre_discount_total_eur": null, "discount_badge": "n",
+      "screenshot_path": "assets/C-Alison-shoulder-4guest-oct15-22.png",
+      "availability_note": "Villa w/ shared pool. Requested Oct 5-12 NOT available; used nearest bookable same-season week Oct 15-22 (7 nights)."
+    },
+    {
+      "id": "619455034023755608", "label": "C-Portia", "season": "peak",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-Portia-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid. Room URL redirects to Airbnb homepage with no listing content."
+    },
+    {
+      "id": "619455034023755608", "label": "C-Portia", "season": "shoulder",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-Portia-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid (redirects to homepage)."
+    },
+    {
+      "id": "591178909484071270", "label": "C-HighEnd360", "season": "peak",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-HighEnd360-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid (redirects to homepage)."
+    },
+    {
+      "id": "591178909484071270", "label": "C-HighEnd360", "season": "shoulder",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-HighEnd360-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid (redirects to homepage)."
+    },
+    {
+      "id": "1599473792235351108", "label": "C-Eden", "season": "peak",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-Eden-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid (redirects to homepage)."
+    },
+    {
+      "id": "1599473792235351108", "label": "C-Eden", "season": "shoulder",
+      "check_in": null, "check_out": null, "nights": null, "guests": 4,
+      "total_eur": null, "nightly_eur": null, "pre_discount_total_eur": null, "discount_badge": null,
+      "screenshot_path": "assets/C-Eden-delisted-redirect.png",
+      "availability_note": "not_captured - listing delisted/invalid (redirects to homepage)."
+    }
+  ],
+  "summary": {
+    "basis": "All nightly figures are total_eur / nights at 4 guests. Comp set with usable data is small (only C-Peter and C-Alison; C-Portia, C-HighEnd360, C-Eden all delisted). C-Alison peak is a September proxy and likely understates its true July peak.",
+    "peak": {
+      "stephanie_nightly_eur": { "L1": 164.0, "L2": 168.8, "L3": 158.0, "mean": 163.6, "spread": "158-169 (tight - consistent across all 3)" },
+      "comp_nightly_eur": { "C-Peter": 238.0, "C-Alison_sep_proxy": 255.6 },
+      "comp_stats_eur": { "min": 238.0, "max": 255.6, "median": 246.8, "mean": 246.8, "n_captured": 2, "n_total_comps": 5 },
+      "stephanie_vs_market_delta": "Stephanie peak ~€164/n vs comp median ~€247/n => Stephanie is ~34% BELOW comp median (~€83/n cheaper). Stephanie is the cheapest in the set at peak."
+    },
+    "shoulder": {
+      "stephanie_nightly_eur": { "L1": 166.0, "L2": 162.0, "L3": 165.1, "mean": 164.4, "spread": "162-166 (tight)" },
+      "comp_nightly_eur": { "C-Peter": 128.4, "C-Alison": 231.7 },
+      "comp_stats_eur": { "min": 128.4, "max": 231.7, "median": 180.1, "mean": 180.1, "n_captured": 2, "n_total_comps": 5 },
+      "stephanie_vs_market_delta": "Stephanie shoulder ~€164/n vs comp median ~€180/n => Stephanie ~9% below comp median. But comp spread is wide: Stephanie is ABOVE budget C-Peter (€128) and well below premium villa C-Alison (€232). With only 2 comps the median is unstable."
+    },
+    "winter": {
+      "stephanie_nightly_eur": "NOT CAPTURABLE - all 3 listings have winter calendar (Dec-Feb) closed.",
+      "comp_nightly_eur": "n/a"
+    },
+    "key_findings": [
+      "SELF-CHECK PASSED: L1 Jul 21-26 at 1 guest = €382 total (€440 strike), exactly matching the user's screenshot anchor.",
+      "ROOT CAUSE of prior '2x over-read': Stephanie's listings price PER GUEST. €382/5n=€76/n is the 1-guest rate; at the mandated 4 guests it is €820/5n=€164/n. The prior '€166/night' was the 4-guest figure, not a DOM error.",
+      "L1 is NOT a launch-discount outlier. L2 (€169/n) and L3 (€158/n) are priced essentially the SAME as L1 (€164/n) at peak, all three carry the same peak discount badge, and all three drop the discount in shoulder. Pricing is consistent across her portfolio.",
+      "At peak, Stephanie (~€164/n @4guests) is ~34% below the (small) comp median (~€247/n) - she is materially underpriced vs comps for 4-guest stays.",
+      "Comp data is thin: 3 of 5 comps (C-Portia, C-HighEnd360, C-Eden) are delisted; C-Alison peak is a September proxy. Treat comp medians as low-confidence."
+    ]
+  }
+}

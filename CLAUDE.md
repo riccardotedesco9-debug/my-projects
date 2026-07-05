@@ -82,14 +82,18 @@ You operate in a **Workflows → Agent → Tools** architecture. Workflows are m
 
 ## Model Selection
 
-**Match the model to the task difficulty — dynamically. Never pin one tier for everything.** Harder/deeper work gets a more capable (pricier) model; trivial/high-volume work gets a cheap one. Applies both to models hardwired in what we build (e.g. a chatbot's turn handler) and to the working model for the task at hand (session model via `/model`). **When a newer / more-capable model clearly ships, refresh these choices to it and flag the change** — don't stay on an aging pin. Verify current IDs/prices via the `claude-api` skill before quoting.
+**This is a flexible heuristic and a current-day snapshot — not law. The lineup shifts fast (Sonnet 4.6 → Sonnet 5 landed mid-2026). Use judgment per task, and re-verify IDs/prices live via the `claude-api` skill or the Models API before hardwiring anything.**
 
-Difficulty ladder (current IDs — re-verify live):
-- **Deep reasoning · planning/architecture · long-horizon agentic · "really thinking about this" → most capable = `claude-fable-5`** ($10/$50, 2× Opus). The deliberate reach when capability matters more than cost.
-- **Substantive coding/analysis at standard cost → `claude-opus-4-8`** ($5/$25).
-- **Trivial / high-volume — one-line chatbot replies, classification, judges → `claude-sonnet-4-6`** ($3/$15) **or `claude-haiku-4-5`** ($1/$5).
+**Match the model to the *conceptual level* of the work — not its size or how "substantial" it is. Pay for the expensive model where the *thinking* is hard, not where there's just a lot of code.** Construction analogy: **Fable/Opus = architect / structural engineer** (large-scale architecture, hard planning, rigorous test-suite design, gnarly reasoning), **Sonnet = foreman** (routine syntax / production coding in common frameworks — even a lot of it), **Haiku = tradesman** (simple, high-volume, low-latency). On routine syntax gen you won't notice a quality gap between the architect models and Sonnet — only the token bill — so don't send the architect to hang drywall. The pricey models earn out on the conceptual layer: better plans, architecture, and test suites.
 
-Fable is **not a drop-in for Opus**: rejects `temperature`/`top_p`/`top_k` and `thinking:{type:"disabled"}` (omit thinking or use `{type:"adaptive"}`), needs 30-day retention (no ZDR), and can return `stop_reason:"refusal"` — handle it or opt into server-side `fallbacks`. Don't hardwire a model where none was pinned; don't auto-flip a deliberate quality or cost choice without reason.
+Applies to both models hardwired in what we build and the working model for the task at hand (session model via `/model`). **When a newer / more-capable model ships, refresh these choices and flag it.**
+
+Ladder (as of 2026-07-05 — re-verify live; IDs shift):
+- **Architect — large-scale architecture · hard planning · test-suite design · deep reasoning → `claude-fable-5`** ($10/$50; best plans & test suites) or **`claude-opus-4-8`** ($5/$25; the "if unsure" default for complex agentic / enterprise coding).
+- **Foreman — routine syntax / production coding, common frameworks, content-at-scale (any volume) → `claude-sonnet-5`** (intro $2/$10 through Aug 2026, then $3/$15).
+- **Tradesman — simple / high-volume / low-latency (one-line chatbot replies, classification, judges) → `claude-haiku-4-5`** ($1/$5).
+
+Fable is **not a drop-in for Opus**: rejects `temperature`/`top_p`/`top_k` and `thinking:{type:"disabled"}` (omit thinking or use `{type:"adaptive"}`), needs 30-day retention (no ZDR), and can return `stop_reason:"refusal"` — handle it or opt into server-side `fallbacks`. Don't hardwire a model where none was pinned; don't auto-flip a deliberate choice without reason.
 
 ## Skill Visibility
 

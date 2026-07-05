@@ -1,0 +1,208 @@
+{
+  "meta": {
+    "topic": "Malta short-let (Airbnb) regulatory + market-demand + best-practice layer for 3-bed Mellieha audit",
+    "researched_on": "2026-06-29",
+    "research_method": "Firecrawl web search + scrape; official MTA / NSO / Airbnb sources prioritized",
+    "note": "Every factual claim carries a source_url. Regulatory regime changed materially in 2026 (S.L. 409.24) and eco-contribution rate rises 1 July 2026 — flagged below."
+  },
+
+  "1_licensing": {
+    "verdict": "YES — an MTA tourism licence is legally REQUIRED to host any short-let on Airbnb in Malta.",
+    "rule": "Any property in Malta/Gozo rented short-term (less than 6 months) to tourists/visitors requires a Malta Tourism Authority (MTA) licence. Operating a short-let without prior MTA authorisation is expressly prohibited under the Tourism Accommodation Regulations 2026 (S.L. 409.24) and the Travel & Tourism Services Act (Cap. 409).",
+    "licence_number_display_required": "YES — a notice must be displayed OUTSIDE the property showing the licence number and 24/7 contact details. Where the unit is in an apartment block, the building administrator must be notified once the licence is issued.",
+    "airbnb_listing_field_caveat": "Airbnb Malta listings currently have a BLANK licence-number field (Inside Airbnb found it blank across all Malta listings). Airbnb states absence of a registration number 'does not mean the Host is not compliant'. So the legal display obligation is physical signage at the property, not (yet) a mandatory in-app field — but displaying it openly is a credibility/compliance signal and EU data-sharing (below) closes the gap.",
+    "penalties": {
+      "fines": "Fines reach up to €23,000 for renting to tourists without being registered (stated by Tourism Minister Ian Borg).",
+      "disqualification": "Operating without a valid licence carries a THREE-YEAR disqualification that also ATTACHES TO THE PROPERTY (S.L. 409.24).",
+      "suspension_revocation": "Licences may be suspended or revoked for confirmed breaches relating to noise, waste or public health."
+    },
+    "2026_rule_changes": {
+      "regime": "S.L. 409.24 Tourism Accommodation Regulations 2026 — a single harmonised licensing framework now firmly brings short-lets within the regime with stricter entry + ongoing conditions.",
+      "key_new_conditions": [
+        "Occupancy capped at 2 persons per bedroom AND 10 persons per unit (unless property has independent access from a public road).",
+        "Basement areas may NOT be used as bedrooms.",
+        "Bookings capped at a max of 90 consecutive days (distinguishes short-let from long-term residential letting).",
+        "Application must include valid development permission, architect certification of fitness for habitation, third-party liability insurance (incl. common parts), and a waste management plan.",
+        "A named natural person must be available 24/7 for complaints with up-to-date contact details.",
+        "Licences issued only to the 'proprietor in title' (owner / authorised agent / lessee).",
+        "Tourism Policy Compliance Certificate required where applicable."
+      ],
+      "eu_data_sharing": "From 2026 a new EU short-term rental regulation requires large platforms (Airbnb, Booking.com) to share detailed MONTHLY data with authorities — meaning unlicensed listings become far easier to detect.",
+      "implication_for_audit": "A 3-bed (max 6 occupancy under 2/bedroom rule — well within the 10/unit cap) is compliant on occupancy. The audit should confirm (a) the property HOLDS an MTA licence and (b) the licence number is displayed; an unlicensed or licence-not-shown listing is both a legal liability (€23k + 3-yr property ban) and an emerging detectability/ranking risk."
+    },
+    "market_context": {
+      "unlicensed_share": "~1 in 5 (≈25%) of Malta Airbnb listings are unlicensed; hotspots Gzira 46%, Sliema 30%, St Paul's Bay 28%. Over 9,300 active Airbnb listings on the island.",
+      "enforcement": "MTA enforcement lags supply; in 2022-2023 NOT A SINGLE licence was revoked. But the 2026 regime + EU data-sharing signal tightening.",
+      "annual_fee": "Standard-class holiday premises annual licence fee: €130/yr per unit in Malta (€104 in Gozo); higher for villas with pools/farmhouses.",
+      "source_url": "https://www.amphora.media/2025/10/unlicensed-short-lets-holiday-homes-airbnb-malta"
+    },
+    "sources": [
+      "https://mta.com.mt/licenses-applications/holiday-furnished-premises/",
+      "https://www.amphora.media/2025/10/unlicensed-short-lets-holiday-homes-airbnb-malta",
+      "https://propertymanager.com.mt/2025/10/15/mta-licence-short-let-malta-complete-application-guide/",
+      "https://legislation.mt/eli/sl/409.24/eng"
+    ]
+  },
+
+  "2_eco_contribution": {
+    "verdict": "Environmental (eco) contribution applies to ALL licensed accommodation stays in Malta/Gozo — rate is changing.",
+    "current_until_2026-06-30": {
+      "rate": "€0.50 per person per night",
+      "cap": "max €5.00 per person per visit (i.e. capped after 10 nights)",
+      "source_url": "https://www.forvismazars.com/mt/en/insights/tax-vat-news/tourist-tax"
+    },
+    "new_from_2026-07-01": {
+      "rate": "€1.50 per night per person aged 18 or older at the start of the visit",
+      "cap": "max €22.50 per person per visit",
+      "age_threshold": "Under-18s are exempt (charge applies to persons 18+).",
+      "fifteen_night_threshold": "Per the 2026 guidelines, eco-contribution is chargeable on nights exceeding 15 per person during the relative period (combined across Malta + Gozo within one visit).",
+      "source_url": "https://mta.com.mt/services/environmental-contribution/"
+    },
+    "collection_declaration": {
+      "billing": "Must be charged SEPARATELY from the accommodation rate and shown as a DISTINCT line item on the invoice/fiscal receipt. NOT subject to VAT or commissions.",
+      "competent_authority": "MTA is the competent authority (Eco-Contribution Act Cap. 473 / S.L. 473.01). Certain operational functions (onboarding, reporting, collection, remittance) delegated to the Malta Hotels & Restaurants Association (MHRA).",
+      "legal_basis": "Eco-Contribution Act (Cap. 473) as amended by Budget Measures Implementation Act 2026 (Act III of 2026), Part X."
+    },
+    "implication_for_audit": "Listing/host should collect the eco-contribution per adult guest per night, show it as a separate line, and remit it. From 1 July 2026 the cost triples to €1.50/night (cap €22.50) — for a typical family booking this is a non-trivial add-on to disclose transparently in house rules / checkout to avoid guest surprise.",
+    "sources": [
+      "https://mta.com.mt/services/environmental-contribution/",
+      "https://www.forvismazars.com/mt/en/insights/tax-vat-news/tourist-tax"
+    ]
+  },
+
+  "3_demand_seasonality": {
+    "headline": "Malta tourism is at RECORD highs. 2025 was a record year with ~4 million tourists (first time topping 4M). 2026 has continued double-digit YoY growth across every month so far.",
+    "arrivals_trend": {
+      "2025_full_year": "~4 million inbound tourists (record); Dec 2025 alone 225,104 (+17% YoY).",
+      "2025_winter_shoulder_strength": "Nov 2025: 304,620 (+15.9%); Oct 2025: +17.3% YoY; Dec 2025: +17%.",
+      "2026_ytd": "Jan+Feb 2026 combined 484,911 (+19.9% YoY); Feb 2026 249,139 (+18.5%); Mar 2026 321,652 (+11.3%); Apr 2026 409,403 (+16.6%).",
+      "historical": "Arrivals: 2.25M (2023), 1.81M (2022) — growth trajectory is steep.",
+      "sources": [
+        "https://www.linkedin.com/posts/national-statistics-office---malta_2025-was-a-record-strength-year-for-inbound-activity-7427652987621195777-CXWE",
+        "https://etias.com/articles/malta-tourists-hit-record-high%E2%80%94but-locals-aren%E2%80%99t-happy",
+        "https://nso.gov.mt/inbound-tourism-march-2026/",
+        "https://nso.gov.mt/inboundtourism-november-2025/"
+      ]
+    },
+    "seasonality_curve": {
+      "peak_summer_jun_aug": "Hottest + busiest. Air 31-32°C, sea 24-26°C. August arrivals exceed 429,000 in a single month — peak rates, book 3-4 months ahead. Highest nightly rates achievable.",
+      "shoulder_spring_mar_may": "Most underrated value window. Air 17-24°C by May, crowds a fraction of summer, prices not yet spiked. May = clearest shoulder month (warm enough to swim, cool enough to walk).",
+      "shoulder_autumn_sep_oct": "Warmest SEA of the year (Sep 25°C, Oct 23°C), fewer people, strong value. Sep is the experienced-traveller 'sleeper pick'. Oct 2025 arrivals +17.3% YoY — growing fast.",
+      "winter_dec_feb": "Quiet, affordable, mild (13-16°C, ~10h daylight, sea ~16°C — no casual swimming). Arrivals fall to ~235,000-249,000/month (vs 429k August) but still up double-digit YoY. Best for budget, history, architecture, diving.",
+      "source_url": "https://maltaguide.online/blog/best-time-of-year-to-visit-malta-a-season-by-season-guide"
+    },
+    "winter_long_stay_nomad_viability": {
+      "verdict": "VIABLE as a winter/shoulder strategy — Malta actively courts digital nomads and long-stays, and winter demand is rising YoY even if lower in absolute terms.",
+      "nomad_residence_permit": {
+        "income_requirement": "Minimum gross yearly income of €42,000 (~€3,500/month) for the Malta Nomad Residence Permit; allows family relocation.",
+        "source_url": "https://nomad.residencymalta.gov.mt/nomad-eligibility/"
+      },
+      "tactics": [
+        "Target the 90-day max-booking window with monthly discounts (30-40%) for nomads/long-stays in shoulder/winter.",
+        "Emphasise dedicated workspace + fast WiFi amenity (a 'standout amenity' ranking signal and a nomad must-have).",
+        "Mild winter climate + history/diving + low prices is the off-season pitch."
+      ]
+    },
+    "demand_spiking_events": [
+      "Santa Marija (15 August) — Malta's biggest festa season, island-wide processions + fireworks (peak demand).",
+      "L-Imnarja (29 June) — one of Malta's oldest festivals (Buskett Gardens).",
+      "Victory Day / Grand Harbour Regatta (8 September).",
+      "Good Friday processions (3 April 2026) — striking Easter cultural draw, boosts spring.",
+      "Feast of St Paul's Shipwreck (10 February) — Valletta winter draw.",
+      "Note: village festas run heaviest Jun-Sep, several days each; if the property is in a participating village expect noise — frame as a highlight, not a disruption."
+    ]
+  },
+
+  "4_mellieha_selling_points": {
+    "verdict": "Mellieha is one of Malta's strongest beach-tourism bases — name these proximity selling points explicitly in the listing title/description (they are searchable keywords AND conversion drivers).",
+    "selling_points": [
+      {
+        "name": "Mellieha Bay / Ghadira Bay",
+        "detail": "Malta's largest SANDY beach and a Blue Flag beach — the island's premier family swimming beach. Top proximity selling point for a Mellieha listing.",
+        "source_url": "https://www.tripadvisor.com/Attraction_Review-g230152-d15038256-Reviews-or30-Ghadira_Bay-Mellieha_Island_of_Malta.html"
+      },
+      {
+        "name": "Popeye Village",
+        "detail": "Colourful wooden film-set village at Anchor Bay (built for the 1980 Popeye film) — family attraction, swimming platforms, boat rides, photo ops. In Mellieha.",
+        "source_url": "https://www.getyourguide.com/popeye-village-l117575/"
+      },
+      {
+        "name": "Ferry to Comino / Blue Lagoon & Gozo",
+        "detail": "Mellieha is the gateway to Comino's Blue Lagoon (turquoise swimming) and the Cirkewwa ferry to Gozo — a key onward-travel selling point.",
+        "source_url": "https://alizswonderland.com/day-4-in-malta-blue-lagoon-popeye-village-and-golden-bay/"
+      },
+      {
+        "name": "Diving",
+        "detail": "Mellieha / Cirkewwa area is a renowned dive zone (incl. winter dry-suit diving when sea ~16°C) — extends shoulder/winter appeal.",
+        "source_url": "https://maltaguide.online/blog/best-time-of-year-to-visit-malta-a-season-by-season-guide"
+      },
+      {
+        "name": "Red Tower (St Agatha's Tower)",
+        "detail": "Historic tower above Mellieha Bay with panoramic views of the bay and nearby islands.",
+        "source_url": "https://www.facebook.com/groups/1112371162135612/posts/24428478960098170/"
+      },
+      {
+        "name": "Santa Marija festa (15 August)",
+        "detail": "Mellieha's parish + Malta-wide Santa Marija festa — fireworks/processions; a August demand peak and a cultural selling point.",
+        "source_url": "https://maltaguide.online/blog/best-time-of-year-to-visit-malta-a-season-by-season-guide"
+      },
+      {
+        "name": "Paradise Bay / Golden Bay (nearby)",
+        "detail": "Additional sandy beaches within easy reach of Mellieha.",
+        "source_url": "https://www.tripadvisor.com/Attraction_Review-g230152-d15038256-Reviews-or30-Ghadira_Bay-Mellieha_Island_of_Malta.html"
+      }
+    ]
+  },
+
+  "5_airbnb_best_practice_2026": {
+    "photos": {
+      "optimal_count": "Upload AT LEAST 20 high-quality photos covering every room (multiple angles), outdoor spaces, views, neighbourhood, and close-ups of standout amenities.",
+      "impact": "Professional photography increases booking rates by UP TO 40% and is a direct quality/ranking signal. First 5 images should be the most impressive/amenity-driven. Shoot during golden hour.",
+      "source_url": "https://awning.com/post/airbnb-seo-listing-optimization"
+    },
+    "title_seo": {
+      "best_practice": "50-character limit — lead with EXPERIENCE + LOCATION, not basic property specs. e.g. experience/location-led titles outperform '3BR Apartment Near Beach'. Include top 1-2 searched keywords (use Airbnb guest-search autocomplete to find them). For Mellieha: name Blue Flag beach / Mellieha Bay / Popeye Village / sea view.",
+      "description": "Use all 500 chars: bold section headers, lead with strongest feature, name neighbourhood + nearby attractions (searchable keywords), end with CTA. Bullet amenities.",
+      "source_url": "https://awning.com/post/airbnb-seo-listing-optimization"
+    },
+    "superhost_criteria_2026": {
+      "rating_threshold": "4.8 or higher overall rating",
+      "response_rate": "Respond to 90% of new messages (and accept/decline requests) within 24 hours",
+      "cancellation_rate": "Less than 1% host-cancellation rate (exceptions for Major Disruptive Events)",
+      "completed_stays": "At least 10 reservations, OR 3 reservations totalling at least 100 nights",
+      "evaluation": "Assessed every 3 months (1 Jan / 1 Apr / 1 Jul / 1 Oct), looking back over the past 12 months; awarded automatically (no application). Only the listing OWNER qualifies (co-hosts don't count).",
+      "source_url": "https://www.airbnb.com/help/article/829"
+    },
+    "ranking_factors": {
+      "top_factors_data_backed": "AirDNA analysis of 2,750+ listings: click-through rate (CTR), Superhost status, and having 8-9 key amenities are the top ranking factors (high-quality listings with 8-9 key amenities get ~4 percentage-point visibility boost).",
+      "algorithm_pillars": "Airbnb ranks on QUALITY (photos, title, description, amenity count, accuracy, reviews), POPULARITY (CTR, wishlist saves, booking conversion, repeat bookings), and PRICE (competitively-priced listings get more impressions).",
+      "amenities": "Check EVERY applicable amenity; properties with 20+ amenities checked get significantly more bookings. Prioritise 'standout amenities' (pool, hot tub, EV charger, dedicated workspace) — they appear as filters and are strong signals.",
+      "sources": [
+        "https://www.airdna.co/blog/airbnb-seo",
+        "https://awning.com/post/airbnb-seo-listing-optimization"
+      ]
+    },
+    "pricing_and_booking_levers": {
+      "instant_book": "Listings with Instant Book enabled receive UP TO 20% more bookings (Airbnb prioritises them in search). Can still gate via ID verification / review history / pre-booking message.",
+      "smart_pricing_caveat": "Airbnb Smart Pricing tends to UNDERPRICE (optimises for guest bookings, not host revenue). Experienced hosts use 3rd-party dynamic pricing (PriceLabs / Beyond / Wheelhouse) and typically earn 15-25% more annually.",
+      "length_of_stay_discounts": "Weekly discounts 10-15% (high-demand) / 20-25% (elsewhere); monthly 30-40%; early-bird 5-10% (3+ months out); last-minute 10-20% (within 3 days).",
+      "cleaning_fee": "Keep cleaning fee under ~30% of nightly rate — higher fees measurably reduce bookings (guests compare total cost).",
+      "calendar": "Open calendar 12 months out (more future availability = more search appearances). Minimum stay 1-2 nights to appear in more searches.",
+      "cancellation_policy": "Algorithm favours flexible policies; 'Moderate' is a good default.",
+      "source_url": "https://awning.com/post/airbnb-seo-listing-optimization"
+    },
+    "new_listing_boost": {
+      "mechanics": "Airbnb gives NEW listings a TEMPORARY visibility boost in the first few weeks — does NOT penalise new listings. Use this window to generate initial bookings + reviews: competitive pricing, Instant Book ON, and a ~20% new-listing discount.",
+      "review_velocity": "Reviews are among the strongest long-term signals; a listing with 50 five-star reviews outranks one with 10 at the same rating. Request reviews proactively after checkout.",
+      "change_speed": "Title/description/pricing/amenity edits re-index within 24-72 hours.",
+      "source_url": "https://awning.com/post/airbnb-seo-listing-optimization"
+    }
+  },
+
+  "unresolved_questions": [
+    "Whether the SPECIFIC audited Mellieha property currently holds a valid MTA licence and displays the number — must be confirmed against the property/listing (MTA Licensed Register: https://mta.com.mt/licences/licences/).",
+    "Exact MTA penalty schedule per breach type beyond the €23,000 ceiling and 3-year property disqualification (specific fine bands not published on the scraped MTA page).",
+    "Mellieha-specific occupancy-rate benchmarks (vs Malta island average ~77% on US data) were not found in Malta-specific sources — only island-wide arrivals + seasonality.",
+    "Whether Airbnb will activate a mandatory licence-number FIELD for Malta listings once EU monthly data-sharing (2026) is live — currently the field is blank for Malta."
+  ]
+}

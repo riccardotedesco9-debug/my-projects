@@ -1,0 +1,4 @@
+# PDF exports land next to the workbook - regenerable, don't commit
+*.pdf
+# Excel lock files
+~$*

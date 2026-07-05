@@ -1,0 +1,193 @@
+{
+  "meta": {
+    "generated": "2026-06-29",
+    "purpose": "Regional STR pricing baseline for a 3-bedroom / 6-guest entire-place short-let in Mellieha, Malta. Used to judge Stephanie's Aug vs Oct pricing against the market.",
+    "method": "Web research via Firecrawl across STR analytics sites (AirDNA, Airbtics, Holidu) + Malta tourism context. Every figure cites a source URL. No browser automation used.",
+    "currency_note": "AirDNA reports USD; Airbtics reports EUR (and gives the USD equivalent); Holidu reports USD. FX used ~1 EUR = 1.08 USD (per Airbtics' own EUR112=USD121). USD and EUR both retained where the source gave them.",
+    "important_caveats": [
+      "No analytics platform publishes a free Mellieha-specific 3-bedroom ADR or a free Mellieha monthly ADR curve - those sit behind the AirDNA/Airbtics paywalled app. Mellieha-specific topline (ADR, occupancy, RevPAR, listing count) IS free and captured here.",
+      "The Aug-vs-Oct seasonality multiplier is derived from a MALTA-WIDE (all-island, all-sizes) week-by-week ADR curve (Holidu), not Mellieha-specific. AirDNA scores Mellieha's seasonality 47/100 = moderately seasonal, broadly consistent with the island curve, so the multiplier is a reasonable proxy for Mellieha.",
+      "The comp 'top deals' nightly prices from AirDNA are a CURRENT-snapshot pull (near-future dates, not specifically tagged Aug or Oct), so treat them as a price-level sanity-check, not as month-specific. A separate browser agent will price the listed room URLs for actual Aug/Oct nights."
+    ]
+  },
+
+  "mellieha_specific_market": {
+    "source": "https://www.airdna.co/vacation-rental-data/app/mt/default/mellieha/overview",
+    "source_secondary": "https://www.airdna.co/vacation-rental-data/app/mt/default/mellieha/seasonality",
+    "geography": "Mellieha, Malta (AirDNA market id 89686)",
+    "data_through": "May 2026 (page updated 2026-06-09)",
+    "platforms": "Airbnb + Vrbo + Booking.com (de-duplicated)",
+    "adr_usd_all_sizes": 180,
+    "adr_yoy_pct": -3.0,
+    "occupancy_annual_pct": 66,
+    "occupancy_yoy_pct": 4.9,
+    "revpar_usd": 114,
+    "revpar_yoy_pct": 2.8,
+    "annual_revenue_per_listing_usd": 25400,
+    "annual_revenue_yoy_pct": 30.7,
+    "active_listings": 666,
+    "active_listings_yoy_pct": -11.7,
+    "airdna_market_score": 85,
+    "seasonality_score_0to100": 47,
+    "seasonality_score_meaning": "47/100 = moderately seasonal (lower score = sharper peak/trough swing). Peak and trough months are gated in the paid app, but Malta-wide curve (below) shows Jul/Aug peak, Nov/Jan-Feb trough.",
+    "note": "ADR $180 is blended across ALL bedroom sizes and ALL months. A 3-bed/6-guest entire place sits ABOVE this all-size average (see three_bedroom_estimate)."
+  },
+
+  "malta_wide_market": {
+    "airbtics_2026": {
+      "source": "https://airbtics.com/annual-airbnb-revenue-in-malta-malta/",
+      "geography": "Malta (national)",
+      "data_through": "Feb 2025 - Jan 2026 (updated 2026-03-12)",
+      "adr_eur": 112,
+      "adr_usd": 121,
+      "occupancy_pct": 77,
+      "annual_revenue_eur": 32000,
+      "active_listings": 9174,
+      "mellieha_hotspot_listings": 181,
+      "mellieha_location_premium_pct": 12,
+      "regulation": "Lenient"
+    },
+    "airbtics_2025_report": {
+      "source": "https://airbtics.com/short-term-rental-market-report-2025-malta",
+      "geography": "Malta (national, 2025 calendar year)",
+      "adr_eur": 112,
+      "occupancy_pct": 78,
+      "annual_revenue_eur": 32389,
+      "seasonality_flag": "High seasonality",
+      "best_property_type": "Small (studio-1BD), midscale - note this is best YIELD, not highest ADR",
+      "top_guest_origin": "France (75% international)"
+    },
+    "holidu_2026": {
+      "source": "https://www.holidu.com/vacation-rentals/malta",
+      "geography": "Malta (national, all sizes, ~3000 listings)",
+      "annual_avg_adr_usd": 185,
+      "note": "Holidu's 'last year' annual avg quoted as $185/night in FAQ; its live weekly curve runs higher ($279 trailing avg) because it weights current bookable inventory."
+    }
+  },
+
+  "seasonality": {
+    "primary_source": "https://www.holidu.com/vacation-rentals/malta",
+    "geography": "Malta-wide (all-island, all sizes) - used as proxy for Mellieha (Mellieha seasonality score 47/100 is broadly consistent)",
+    "monthly_avg_adr_usd_prior_year": {
+      "August": 227,
+      "July": 221,
+      "September": 206,
+      "annual_avg": 185,
+      "cheapest_months": {"November": 161, "March": 161, "February": 164}
+    },
+    "weekly_curve_usd_live": {
+      "comment": "Live Holidu Malta-wide weekly average ADR. Aug peak vs Oct shoulder visible directly.",
+      "31Jul_7Aug": 315,
+      "7_14Aug": 322,
+      "14_21Aug": 326,
+      "21_28Aug": 321,
+      "28Aug_4Sep": 311,
+      "25Sep_2Oct": 283,
+      "2_9Oct": 278,
+      "9_16Oct": 270,
+      "16_23Oct": 260,
+      "23_30Oct": 253,
+      "30Oct_6Nov": 245
+    },
+    "aug_vs_oct_multiplier": {
+      "value": 1.18,
+      "range": "1.17 - 1.20",
+      "derivation": "Aug-core weekly mean (7-28 Aug) ~$323 / October weekly mean ~$269 = 1.20; vs early-Oct (late Sep-mid Oct) ~$277 = 1.17. Monthly Aug $227 / Sep $206 = 1.10 (Sep is warmer/closer to peak than Oct, so Aug-vs-Oct is wider than Aug-vs-Sep).",
+      "interpretation": "Peak August nightly is ~18% (roughly 17-20%) above an October shoulder night on the Malta-wide curve. October itself declines steadily within the month (early Oct ~$278 -> late Oct ~$253, about -10%)."
+    },
+    "availability_seasonality": {
+      "source": "https://www.holidu.com/vacation-rentals/malta",
+      "aug_availability_pct": 26,
+      "jul_availability_pct": 30,
+      "sep_availability_pct": 40,
+      "oct_availability_climbs_pct": "57 (early) -> 65 (late)",
+      "note": "Aug is the tightest month (only ~26% of rentals free = ~74% booked island-wide); October frees up sharply, confirming demand-driven peak pricing in Aug."
+    }
+  },
+
+  "malta_tourism_context": {
+    "source": "https://maltaguide.online/blog/best-time-of-year-to-visit-malta-a-season-by-season-guide",
+    "source_cited_authority": "Malta Tourism Authority figures quoted within the guide",
+    "arrivals_august_2024": 429000,
+    "arrivals_jan_feb_2026": "235000 - 249000",
+    "aug_vs_winter_arrivals_ratio": "~1.8x (Aug ~429k vs Jan/Feb ~235-249k)",
+    "october_2025_yoy_arrivals_pct": 17.3,
+    "october_note": "October arrivals growing fast (+17.3% YoY 2025) but still far below peak summer; warm enough for beach (sea ~23C) at lower prices. Classic shoulder month.",
+    "season_definitions": "Peak = Jul/Aug; Shoulder = May, Jun, Sep, Oct; Low = Nov-Mar.",
+    "nso_supplementary_source": "https://nso.gov.mt/inboundtourism-november-2025/ (Nov 2025 inbound +15.9% YoY = market-wide demand still rising)"
+  },
+
+  "three_bedroom_estimate": {
+    "logic": "AirDNA Mellieha blended ADR = $180 (all sizes, all months). A 3-bed/6-guest entire place is above the all-size mean. Anchoring on the Malta-wide seasonal curve (Aug ~$320-326/night all-sizes weekly, Oct ~$253-278) and the Mellieha 3-bed apartment comps below ($118-$256 current snapshot for apartments; villas $390-$554 are a separate premium tier), the working 3-bed Mellieha apartment baseline is:",
+    "currency": "USD",
+    "peak_august_nightly": {
+      "low": 180,
+      "median": 240,
+      "high": 320,
+      "confidence": "medium",
+      "basis": "3-bed apartment comps + Malta-wide Aug curve ($315-326 all-sizes weekly avg) scaled for entire 3-bed. Excludes private-pool villas which run $390-620."
+    },
+    "shoulder_october_nightly": {
+      "low": 150,
+      "median": 200,
+      "high": 270,
+      "confidence": "medium",
+      "basis": "August median / 1.18 multiplier, cross-checked against Malta-wide Oct weekly curve ($253-283 all-sizes). Early Oct sits higher than late Oct."
+    },
+    "private_pool_villa_3bed_tier": {
+      "note": "If Stephanie's place is a 3-bed VILLA with private pool, the relevant tier is much higher.",
+      "current_snapshot_usd": "390 - 554+",
+      "examples": "Villa Stephanotis $554, Villa Hibiscus $390, Maltese Villa w/ pool $312"
+    }
+  },
+
+  "comp_listings": {
+    "source": "https://www.airdna.co/top/mt/mellieha",
+    "note": "AirDNA 'Best Airbnb Deals in Mellieha' page. nightly_usd is a current-snapshot price (near-future dates, NOT month-tagged). Use as price-level sanity check. A browser agent should re-price the room URLs for actual Aug + Oct nights. Some entries had the Book Now URL stripped by the scrape (url null).",
+    "three_bed_six_guest_apartments": [
+      {"name": "Mellieha - 2 minutes away from sea", "beds": 3, "baths": 2, "guests": 6, "nightly_usd_snapshot": 118, "airdna_score": 67, "url": "https://www.airbnb.com/rooms/11074158"},
+      {"name": "Mellieha Town Centre Bright 3 Bedroom Apartment", "beds": 3, "baths": 2, "guests": 6, "nightly_usd_snapshot": 157, "airdna_score": 51, "url": "https://www.airbnb.com/rooms/27513460"},
+      {"name": "Country View Apartment next to the Sea!", "beds": 3, "baths": 2, "guests": 6, "nightly_usd_snapshot": 204, "airdna_score": 29, "url": null},
+      {"name": "Mellieha spacious apartment with private pool", "beds": 3, "baths": 2, "guests": 6, "nightly_usd_snapshot": 256, "airdna_score": 58, "url": "https://www.airbnb.com/rooms/14733447"}
+    ],
+    "three_bed_other_guest_counts": [
+      {"name": "At the seaside with valley and sanctuary views", "beds": 3, "baths": 2, "guests": 5, "nightly_usd_snapshot": 166, "airdna_score": 71, "url": "https://www.airbnb.com/rooms/19664229"},
+      {"name": "Maltese Villa with Private Pool", "beds": 3, "baths": 5, "guests": 7, "nightly_usd_snapshot": 312, "airdna_score": 47, "url": "https://www.airbnb.com/rooms/1616907"},
+      {"name": "Sunset Haven Manikata - Short Walk to Golden Bay", "beds": 3, "baths": 2, "guests": 8, "nightly_usd_snapshot": 174, "airdna_score": 46, "url": "https://www.airbnb.com/rooms/18903343"},
+      {"name": "Beautiful villa with fabulous sea views", "beds": 3, "baths": 2, "guests": 8, "nightly_usd_snapshot": 422, "airdna_score": 49, "url": "https://www.airbnb.com/rooms/8757744"},
+      {"name": "Breathtaking views & Private Swimming Pool", "beds": 3, "baths": 1, "guests": 7, "nightly_usd_snapshot": 240, "airdna_score": 21, "url": "https://www.airbnb.com/rooms/34133534"}
+    ],
+    "three_bed_private_pool_villas_premium_tier": [
+      {"name": "Villa Stephanotis~ Villa w/ Private Pool & Views", "beds": 3, "baths": 5, "guests": 6, "nightly_usd_snapshot": 554, "airdna_score": 59, "url": null},
+      {"name": "Villa Hibiscus~ Exclusive Villa with Private Pool", "beds": 3, "baths": 5, "guests": 6, "nightly_usd_snapshot": 390, "airdna_score": 45, "url": null}
+    ],
+    "additional_comp_search_url": "https://www.airbnb.com/s/Mellieha--Malta/homes?room_types[]=Entire+home%2Fapt&min_bedrooms=3",
+    "three_bed_apartment_snapshot_stats_usd": {
+      "count": 4,
+      "min": 118,
+      "median": 180,
+      "max": 256,
+      "comment": "3-bed/6-guest apartments only (villas excluded). Snapshot, not month-specific."
+    }
+  },
+
+  "regional_baseline_summary": {
+    "peak_august_3bed_apartment_usd": {"low": 180, "median": 240, "high": 320, "source_geography": "3-bed Mellieha apartment comps + Malta-wide Aug seasonal curve", "confidence": "medium"},
+    "shoulder_october_3bed_apartment_usd": {"low": 150, "median": 200, "high": 270, "source_geography": "August / 1.18 multiplier + Malta-wide Oct weekly curve", "confidence": "medium"},
+    "aug_vs_oct_multiplier": 1.18,
+    "mellieha_annual_occupancy_pct": 66,
+    "mellieha_blended_adr_usd": 180,
+    "confidence_overall": "Mellieha topline (ADR/occupancy/RevPAR/listings) = HIGH (Mellieha-specific, free AirDNA). 3-bed-specific ADR = MEDIUM (inferred, no free 3-bed Mellieha figure exists). Aug-vs-Oct multiplier = MEDIUM-HIGH (Malta-wide curve, directionally solid; Mellieha seasonality score 47 supports it). Private-pool-villa tier figures = use only if Stephanie's unit is a villa."
+  },
+
+  "all_sources": [
+    "https://www.airdna.co/vacation-rental-data/app/mt/default/mellieha/overview",
+    "https://www.airdna.co/vacation-rental-data/app/mt/default/mellieha/seasonality",
+    "https://www.airdna.co/top/mt/mellieha",
+    "https://airbtics.com/annual-airbnb-revenue-in-malta-malta/",
+    "https://airbtics.com/short-term-rental-market-report-2025-malta",
+    "https://www.holidu.com/vacation-rentals/malta",
+    "https://maltaguide.online/blog/best-time-of-year-to-visit-malta-a-season-by-season-guide",
+    "https://nso.gov.mt/inboundtourism-november-2025/"
+  ]
+}

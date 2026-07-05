@@ -1,0 +1,44 @@
+{
+  "_meta": {
+    "room_id": "14107933",
+    "title": "Apartment with sea views",
+    "host": "Stephanie",
+    "captured_on": "2026-06-29",
+    "overall_rating": 4.8,
+    "review_count": 122,
+    "rating_distribution": { "5_star_pct": 85, "4_star_pct": 13, "3_star_pct": 0, "2_star_pct": 0, "1_star_pct": 2 },
+    "sub_ratings": {
+      "cleanliness": 4.9,
+      "accuracy": 4.9,
+      "check_in": 4.9,
+      "communication": 4.9,
+      "location": 4.8,
+      "value": 4.8
+    },
+    "guest_mentions_chips": ["View", "Beach", "Hospitality", "Cleanliness", "Location", "Accuracy", "Indoor spaces", "Comfort", "Air conditioning", "Getting around"]
+  },
+  "recent_reviews": [
+    { "name": "Thanh", "rating": 5, "date": "May 2026", "stay": "about a week", "text": "Stephanie's place is huge and comfortable with great views. I enjoyed my stay there." },
+    { "name": "Orsi", "rating": 5, "date": "1 week ago (Jun 2026)", "stay": "about a week", "text": "We had a great time. The place to stay is huge and comfortable. The host is excellent; we were able to relax. The location is great, and the beach nearby is excellent!" },
+    { "name": "Danny", "rating": 1, "date": "October 2025", "stay": "a few nights", "text": "Stephanie feels entitled to enter the place after she watches vigilantly from her home across the street to see if any house rules are not complied with - from hanging a towel on a chair to leaving the balcony door open. Money cannot buy happiness.", "host_response": "Guest left balcony door open during a severe storm causing water damage; we entered only to close it and prevent further damage." },
+    { "name": "Aurore", "rating": 1, "date": "September 2025", "stay": "a few nights", "text": "Host entered in our absence, without asking or consent, to collect coin money for the air conditioning (not specified on the listing - borderline). She came while we were out or sleeping. She forgot the keys in the lock so we realised. Intolerable and prohibited by rental law.", "host_response": "Entered due to a power failure to reset the AC coin meter; left the drawer key behind and the guest then took all the money inside." },
+    { "name": "Tami", "rating": 5, "date": "October 2025", "stay": "about a week", "text": "Communicating with Stephanie was easy. Super spacious, typical Maltese, everything you need. Beds smell super good! Only negative: neighbours upstairs (likely an Airbnb too) were super noisy - kids running, loud voices.", "host_response": "Apologised; informed the upstairs apartment as it was excessively loud." },
+    { "name": "Sayem", "rating": 5, "date": "October 2025", "stay": "a few nights", "text": "Amazing stay. Very clean apartment with everything I needed. Views from the balcony are epic. Stephanie is amazing, kind and friendly. Will 100% book again." },
+    { "name": "Joost", "rating": 5, "date": "October 2025", "stay": "a few nights", "text": "Good stay. Spacious, clean, beautiful view. Easy to find, everything present. Communication with Stephanie pleasant." },
+    { "name": "Florencia", "rating": 5, "date": "July 2025", "stay": "about a week", "text": "Clean, spacious apartment matching the photos. Stephanie welcomed us in person despite our flight delay. Only downside: air conditioning is payable and was not specified in the listing. We used the fans and they were sufficient." },
+    { "name": "Piotr", "rating": 5, "date": "August 2025", "stay": "a few nights", "text": "Exactly as shown in the photos. Clean, with a beautiful balcony view. Excellent communication. Highly recommend." },
+    { "name": "Nina", "rating": 5, "date": "July 2025", "stay": "a few nights", "text": "Everything was perfect, the apartment was clean and affordable. Stephanie very kind and provided important information." },
+    { "name": "Heike", "rating": 5, "date": "June 2025", "stay": "a few nights", "text": "Beautiful apartment, well-equipped kitchen, plenty of space, west-facing balcony for breakfast/sunset. Great that it has 2 bathrooms. Bedrooms beautifully decorated, large and have air conditioning. Parking right next to the apartment." },
+    { "name": "Charlotte", "rating": 5, "date": "April 2024", "stay": "over a week", "text": "Lovely stay (Flat 6). Amazing balcony view. Washing machine handy. Kitchen well equipped. Found the king bed mattress just a little too hard for my liking, but plenty of duvets/blankets. On the 'heights', peaceful. Great for fireworks." }
+  ],
+  "recurring_themes": {
+    "positive": ["Spacious / huge / large (very frequent)", "Sea/bay/balcony views (signature draw)", "Cleanliness (consistently praised, 4.9 sub-rating)", "Stephanie's communication/responsiveness/welcome gifts", "Great location near beach, shops, bus", "2 bathrooms, washing machine, well-equipped kitchen", "Parking right outside", "Sunset + village-feast fireworks from balcony"],
+    "negative_or_risk": [
+      "COIN-OPERATED AC repeatedly flagged as 'not specified in the listing' (Aurore 1-star, Florencia 5-star) - a real friction/expectation-gap point even though the current L3 description now mentions it",
+      "HOST ENTERING THE UNIT without consent = the two 1-star reviews (Danny, Aurore); the only serious reputational issue on this listing",
+      "Noise from upstairs neighbours (Tami) - building is multi-let",
+      "King mattress 'too hard' (Charlotte) - minor, single mention",
+      "Stairs: Flat 5 is first-floor, 21 steps, no lift (per listing + photo); not complained about in reviews but a known access constraint"
+    ]
+  }
+}

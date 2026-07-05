@@ -1,0 +1,68 @@
+Option Explicit
+
+' Crash recovery + clean shutdown.
+' State lives in Settings cells, so a session that was running when the
+' workbook (or the whole PC) died is offered back on the next open.
+
+Private Sub Workbook_Open()
+    On Error GoTo SafeExit
+    modUtil.ReapplyProtection
+
+    If CStr(GetState("stTimerStatus")) = "RUNNING" Then
+        If IsSilent() Then
+            modUI.StartTick
+        Else
+            Dim resp As VbMsgBoxResult
+            resp = MsgBox("A session was still running when this workbook closed:" & vbCrLf & _
+                          "  " & GetState("stCurrentClient") & " - started " & _
+                          Format$(CDate(GetState("stStartTime")), "dd/mm/yyyy hh:mm") & vbCrLf & vbCrLf & _
+                          "Yes = keep timing (elapsed continues from that start)" & vbCrLf & _
+                          "No = stop and log it now" & vbCrLf & _
+                          "Cancel = discard that session", _
+                          vbYesNoCancel + vbQuestion, "Resume session?")
+            If resp = vbYes Then
+                modUI.StartTick
+            ElseIf resp = vbNo Then
+                modTimer.StopAndLog
+            Else
+                SetState "stTimerStatus", "IDLE"
+                SetState "stStartTime", ""
+                SetState "stCurrentClient", ""
+                SetState "stCurrentTask", ""
+                Me.Save
+            End If
+        End If
+    End If
+
+    modUI.RefreshStatus
+    Exit Sub
+SafeExit:
+    ' Never leave a modal VBA error hanging a hidden automation session.
+End Sub
+
+Private Sub Workbook_BeforeClose(Cancel As Boolean)
+    On Error GoTo SafeExit
+    modUI.StopTick
+
+    If CStr(GetState("stTimerStatus")) = "RUNNING" And Not IsSilent() Then
+        Dim resp As VbMsgBoxResult
+        resp = MsgBox("The timer is still running." & vbCrLf & vbCrLf & _
+                      "Yes = stop and log the session, then close" & vbCrLf & _
+                      "No = keep it running (you can resume next time you open)" & vbCrLf & _
+                      "Cancel = do not close", _
+                      vbYesNoCancel + vbExclamation, "Timer running")
+        If resp = vbYes Then
+            modTimer.StopAndLog
+        ElseIf resp = vbCancel Then
+            Cancel = True
+            modUI.StartTick
+            Exit Sub
+        End If
+    End If
+
+SafeExit:
+    ' Unconditional: Close(SaveChanges:=False) via automation can mark the
+    ' workbook as saved before this event fires, so don't trust Me.Saved.
+    On Error Resume Next
+    Me.Save
+End Sub

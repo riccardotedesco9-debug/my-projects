@@ -1,0 +1,78 @@
+{
+  "captured_at": "2026-06-29",
+  "market": "airbnb.com.mt (EUR)",
+  "host": "Stephanie (10 years hosting, NOT Superhost on any of the 3 listings)",
+  "occupancy_method": "Counted blocked vs available day-cells from each listing's public calendar (aria-labels) across Jul-Oct 2026. 'blocked'=Unavailable, 'available'=bookable, 'other'=checkout-only/transition. October is far out and naturally under-booked, so Jul-Sep is the meaningful occupancy signal.",
+  "listings": [
+    {
+      "label": "L1", "id": "1073131988545275312", "title": "Apartment with an exceptional view.",
+      "rating": "No reviews (new/relisted)", "reviews": 0, "superhost": false, "photos": 61,
+      "air_con": "INCLUDED - 'AC - split type ductless system' (not coin-op)",
+      "elevator": true, "workspace": false, "crib": true,
+      "view": "view-led title; private fenced backyard + patio", "amenities_count": 42,
+      "check_in_type": "NOT marked Self check-in (no lockbox shown) -> in-person / unconfirmed",
+      "min_nights": "3 night minimum", "license_shown": false,
+      "cleaning_fee": "NONE (no cleaning-fee line in price breakdown)",
+      "airbnb_service_fee_line": "none shown (host-absorbed display)",
+      "eco_tax": "Eco Contribution EUR 1.50/night/person, cash on arrival (in description)",
+      "weekly_discount": "Yes but token: -EUR 19.60 on EUR 1,180.83 (~1.7%) for a 7-night Oct stay",
+      "monthly_discount": "not surfaced",
+      "sample_price_oct5_12_4adults": "7 nights x EUR 168.69 = EUR 1,180.83; weekly disc -EUR 19.60; TOTAL EUR 1,161.23 (~EUR 166/night all-in)",
+      "occupancy": {
+        "July": "7 avail / 23 blocked = ~77% blocked",
+        "August": "7 avail / 22 blocked = ~73% blocked",
+        "September": "3 avail / 27 blocked = ~90% blocked",
+        "October": "31 avail / 0 blocked = 0% (too far out, not yet booked)",
+        "jul_sep_avg": "~80% blocked"
+      }
+    },
+    {
+      "label": "L2", "id": "50337126", "title": "Enjoy the beauty of a sunset from Flat 1",
+      "rating": "4.79", "reviews": 57, "superhost": false, "photos": 40,
+      "air_con": "INCLUDED - 'AC - split type ductless system' (not coin-op)",
+      "elevator": false, "workspace": false, "crib": true,
+      "view": "Sea view; 39in HDTV; private patio/balcony", "amenities_count": 49,
+      "check_in_type": "NOT marked Self check-in -> in-person / unconfirmed",
+      "min_nights": "3 night minimum", "license_shown": false,
+      "cleaning_fee": "NONE surfaced", "eco_tax": "Eco Contribution tax present",
+      "weekly_discount": "Yes (host offers a weekly discount banner)", "monthly_discount": "not surfaced",
+      "occupancy": {
+        "July": "8 avail / 22 blocked = ~73% blocked",
+        "August": "10 avail / 19 blocked = ~65% blocked",
+        "September": "1 avail / 28 blocked = ~93% blocked",
+        "October": "14 avail / 8 blocked = ~36% blocked",
+        "jul_sep_avg": "~77% blocked"
+      }
+    },
+    {
+      "label": "L3", "id": "14107933", "title": "Apartment with sea views",
+      "rating": "4.8", "reviews": 122, "superhost": false, "photos": 37,
+      "air_con": "INCLUDED - 'AC - split type ductless system' (not coin-op)",
+      "elevator": false, "workspace": false, "crib": true,
+      "view": "Sea view + Bay view (title-led)", "amenities_count": 45,
+      "check_in_type": "NOT marked Self check-in -> in-person / unconfirmed",
+      "min_nights": "3 night minimum", "license_shown": false,
+      "cleaning_fee": "NONE (confirmed via Oct 12-15 price breakdown)", "eco_tax": "present",
+      "weekly_discount": "not surfaced (3-night sample under weekly threshold)", "monthly_discount": "not surfaced",
+      "occupancy": {
+        "July": "8 avail / 22 blocked = ~73% blocked",
+        "August": "4 avail / 26 blocked = ~87% blocked",
+        "September": "5 avail / 24 blocked = ~83% blocked",
+        "October": "31 avail / 0 blocked = 0% (too far out)",
+        "jul_sep_avg": "~81% blocked"
+      }
+    }
+  ],
+  "price_parity_check": {
+    "method": "Same date window across all 3 flats: Oct 12-15 2026, 4 adults.",
+    "L1": "3 nights x EUR 169.15 = EUR 507.46, no cleaning fee",
+    "L2": "3 nights x EUR 169.15 = EUR 507.46, no cleaning fee, 'Free cancellation before Sep 28'",
+    "L3": "3 nights x EUR 169.15 = EUR 507.46, no cleaning fee",
+    "verdict": "IDENTICAL pricing across all three flats on the same dates. The 3 flats are NOT differentiated on price - same nightly rate (EUR 169.15), same host, same building/area, same min-nights (3), same no-cleaning-fee structure. They are run as interchangeable inventory at one flat price."
+  },
+  "summary_metrics": {
+    "occupancy_jul_sep_all3": "~77-81% blocked (very high) - they are nearly sold out at peak",
+    "price_level": "~EUR 166-169/night flat across all 3, with only a token ~1.7% weekly discount",
+    "revenue_signal": "High occupancy + low/flat price + token discounts = priced well below what near-sellout demand supports; significant revenue left on the table at peak."
+  }
+}

@@ -1,0 +1,25 @@
+Option Explicit
+
+' Export dialog code-behind. The form itself (controls, layout) is drawn
+' by build-workbook.ps1 via the VBIDE Designer; modReport reads control
+' values late-bound after Show, keyed off Me.Tag = "OK".
+
+Private Sub btnOK_Click()
+    If Me.Controls("cboClient").ListIndex < 0 Then Exit Sub
+    If Me.Controls("cboMonth").ListIndex < 0 Then Exit Sub
+    Me.Tag = "OK"
+    Me.Hide
+End Sub
+
+Private Sub btnCancel_Click()
+    Me.Tag = ""
+    Me.Hide
+End Sub
+
+Private Sub UserForm_QueryClose(Cancel As Integer, CloseMode As Integer)
+    If CloseMode = vbFormControlMenu Then
+        Cancel = True
+        Me.Tag = ""
+        Me.Hide
+    End If
+End Sub

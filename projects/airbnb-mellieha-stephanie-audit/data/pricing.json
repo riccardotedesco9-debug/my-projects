@@ -1,0 +1,136 @@
+{
+  "_meta": {
+    "captured_on": "2026-06-29",
+    "site": "airbnb.com.mt (EUR, redirected from .com)",
+    "tool": "chrome-devtools MCP (automated browser, NOT logged in)",
+    "guests_param": 4,
+    "target_windows": {
+      "peak": "check_in 2026-08-03 -> check_out 2026-08-10 (7 nights)",
+      "shoulder": "check_in 2026-10-05 -> check_out 2026-10-12 (7 nights)"
+    },
+    "round2_method": "BREADTH sweep. The Airbnb search-results page (filter: Mellieha + Entire home/apt + min_bedrooms=3 + adults=4) DID render listing cards this round, giving a large set of Mellieha 3-bed entire-place listings each with a real total for the requested window. Shoulder (Oct 5-12): nearly all listings bookable on the EXACT window -> nightly = total/7. Peak (Aug 3-10): mostly sold out on the exact week, so the search card shows each listing's nearest bookable August window with its actual dates (e.g. 'Aug 6-10') -> nightly = total/actual-nights, dates recorded per row. Town verified via card label / listing breadcrumb; Gozo + St Paul's Bay + other towns discarded. Stephanie's own L1/L2/L3 captured directly on listing pages.",
+    "eco_tax_note": "All Stephanie units charge an Eco Contribution of EUR 1.50/person/night (cash on arrival, 18+); not included in totals below. Several guest reviews note the coin-operated AC and any wifi fee are charged extra.",
+    "fee_note": "Totals are the pre-tax stay totals as Airbnb displayed them in the booking panel / search card. Cleaning fees were not surfaced as separate lines for most listings; where Airbnb folds them into 'total' the nightly = total/nights is the all-in nightly the guest sees.",
+    "comp_filter": "Kept = Mellieha + entire place (apartment/condo/maisonette/townhouse) + 3 bedrooms + sleeps ~6 (a few 9-guest sibling units flagged). Excluded = Gozo, St Paul's Bay/Qawra/St Julian's/Sliema/Naxxar/Zebbug/etc, room-only, <3 bed, and 28-night monthly rentals."
+  },
+  "listings": [
+    {
+      "id": "1073131988545275312", "label": "L1", "host": "Stephanie",
+      "title": "Apartment with an exceptional view.", "bedrooms": 3, "guests": 6,
+      "season": "peak", "check_in": "2026-08-18", "check_out": "2026-08-21",
+      "nightly_eur": 186.67, "nights": 3, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 560, "min_nights": 3,
+      "note": "Exact Aug 3-10 NOT available (blocked). Nearest bookable August window Aug 18-21 (3-night proxy). Did NOT appear in the Aug peak search results = no 7-night August week bookable. No reviews yet on this listing."
+    },
+    {
+      "id": "1073131988545275312", "label": "L1", "host": "Stephanie",
+      "title": "Apartment with an exceptional view.", "bedrooms": 3, "guests": 6,
+      "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12",
+      "nightly_eur": 166.0, "nights": 7, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 1162, "min_nights": 3,
+      "note": "Exact target window, bookable. Weekly discount applied."
+    },
+    {
+      "id": "50337126", "label": "L2", "host": "Stephanie",
+      "title": "Enjoy the beauty of a sunset from Flat 1", "bedrooms": 3, "guests": 6,
+      "season": "peak", "check_in": "2026-08-06", "check_out": "2026-08-10",
+      "nightly_eur": 198.5, "nights": 4, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 794, "min_nights": 3,
+      "note": "UPDATED in round 2: L2 IS bookable for a peak August week on Aug 6-10 (4 nights, EUR 794 total) per the Aug peak search card -> EUR 198.50/nt. Supersedes the earlier Aug 19-22 proxy. Guest Favourite, 4.79/57."
+    },
+    {
+      "id": "50337126", "label": "L2", "host": "Stephanie",
+      "title": "Enjoy the beauty of a sunset from Flat 1", "bedrooms": 3, "guests": 6,
+      "season": "shoulder", "check_in": "2026-10-21", "check_out": "2026-10-28",
+      "nightly_eur": 162.0, "nights": 7, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 1134, "min_nights": 3,
+      "note": "Exact Oct 5-12 NOT available (Oct 5-6 blocked). Nearest bookable 7-night week Oct 21-28. Weekly discount applied."
+    },
+    {
+      "id": "14107933", "label": "L3", "host": "Stephanie",
+      "title": "Apartment with sea views", "bedrooms": 3, "guests": 6,
+      "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12",
+      "nightly_eur": 165.14, "nights": 7, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 1156, "min_nights": 3,
+      "note": "Stephanie's flagship/oldest (Flat 5). Exact shoulder window bookable. 'Rare find - usually booked'. Coin-operated AC confirmed in description. 4.8/122. Weekly discount applied."
+    },
+    {
+      "id": "14107933", "label": "L3", "host": "Stephanie",
+      "title": "Apartment with sea views", "bedrooms": 3, "guests": 6,
+      "season": "peak", "check_in": "2026-08-27", "check_out": "2026-08-30",
+      "nightly_eur": 186.67, "nights": 3, "cleaning_fee_eur": null,
+      "total_before_tax_eur": 560, "min_nights": 3,
+      "note": "Exact Aug 3-10 NOT available; entire early/mid August blocked. Only bookable late-August window Aug 27-30 (3-night proxy, EUR 560) -> EUR 186.67/nt, identical to L1's August rate (Stephanie prices her flats uniformly)."
+    },
+
+    { "id": "6351397", "label": "C1", "host": "Alison", "title": "Villa 3bedroom Apt with shared pool", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": null, "check_out": null, "nightly_eur": null, "nights": 7, "total_before_tax_eur": null, "superhost": true, "rating": 4.95, "review_count": 63, "note": "not_captured - sold out for shoulder window (still booked in round 2). 4 beds/1 bath. Superhost." },
+    { "id": "49982133", "label": "C2", "host": "Peter", "title": "Sunshine Apartments Mellieha - Apt 2", "bedrooms": 3, "guests": 7, "season": "shoulder", "check_in": null, "check_out": null, "nightly_eur": null, "nights": 7, "total_before_tax_eur": null, "superhost": true, "rating": 4.96, "review_count": 48, "note": "not_captured - sold out for shoulder (still booked in round 2). 6 beds/2 baths. Superhost. NOTE: a DIFFERENT Sunshine unit (id 50107418) WAS bookable - see C13." },
+    { "id": "49744611", "label": "C4", "host": "Zzzing", "title": "Malta's Beachfront Apartment in Mellieha", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": null, "check_out": null, "nightly_eur": null, "nights": 7, "total_before_tax_eur": null, "superhost": false, "rating": 4.52, "review_count": 31, "note": "not_captured - sold out for shoulder (still booked in round 2). Beachfront. 4 beds/2 baths. Lowest rating of the named set." },
+    { "id": "43795203", "label": "C3", "host": "Neville", "title": "Summer Breeze Comfort Apartment", "bedrooms": 2, "guests": 6, "season": "n/a", "nightly_eur": null, "nights": 28, "total_before_tax_eur": null, "min_nights": 28, "rating": 4.86, "review_count": 7, "note": "EXCLUDED - 28-night monthly rental + only 2-bed. Not a short-stay comp." },
+
+    { "id": "1131625684687223403", "label": "C5", "host": "Maria", "title": "Sea & City Views in Mellieha, near Beaches", "bedrooms": 3, "guests": 9, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 202.43, "nights": 7, "total_before_tax_eur": 1417, "superhost": true, "rating": 4.94, "review_count": 16, "note": "Mellieha (breadcrumb confirmed). Larger format: 9 guests / 7 beds / 2 baths. Sibling unit of C6 (same host Maria). Exact shoulder window." },
+    { "id": "1065966042847199966", "label": "C6", "host": "Maria", "title": "Sea & City views in Mellieha, nearby Beaches", "bedrooms": 3, "guests": 9, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 202.43, "nights": 7, "total_before_tax_eur": 1417, "superhost": true, "rating": 4.86, "review_count": 56, "note": "Mellieha. 9 guests / 7 beds / 2 baths. Sibling of C5. Exact shoulder window." },
+    { "id": "1599473792235351108", "label": "C7", "host": "Magdalena", "title": "Eden Apartment Mellieha", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 177.14, "nights": 7, "total_before_tax_eur": 1240, "superhost": true, "rating": 5.0, "review_count": 12, "note": "Mellieha. 3 beds / 2 baths. Superhost. Exact shoulder window." },
+    { "id": "619455034023755608", "label": "C8", "host": "Portia", "title": "Beautiful, Modern & Spacious 3 Bedroom Apartment.", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 186.57, "nights": 7, "total_before_tax_eur": 1306, "superhost": true, "rating": 5.0, "review_count": 44, "note": "Mellieha (Top guest favourite). 3 beds / 1 bath. Superhost. Exact shoulder window." },
+    { "id": "1603698923638582233", "label": "C9", "host": "Short Stayz Malta", "title": "Modern Apartment 10 Mins To Mellieha Bay & Centre", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 107.57, "nights": 7, "total_before_tax_eur": 753, "superhost": false, "rating": 4.5, "review_count": 2, "note": "Mellieha (breadcrumb confirmed). 3 beds / 2 baths. CHEAPEST comp - low rating/review count, off-bay location. Exact shoulder window." },
+    { "id": "591178909484071270", "label": "C10", "host": null, "title": "High-end apartment w/ 360 country & sea views", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 209.29, "nights": 7, "total_before_tax_eur": 1465, "superhost": null, "rating": 4.97, "review_count": 99, "note": "Mellieha (Top guest favourite). From search card. Exact shoulder window." },
+    { "id": "52751473", "label": "C11", "host": null, "title": "Modern Apartment, Glorious Views & Terrace", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 131.86, "nights": 7, "total_before_tax_eur": 923, "superhost": null, "rating": 4.71, "review_count": 87, "note": "Mellieha (Triq il-Kbira = Mellieha main street). From search card. Exact shoulder window." },
+    { "id": "1138325902985438690", "label": "C12", "host": null, "title": "Malta's stylish holiday home in Mellieha", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 173.57, "nights": 7, "total_before_tax_eur": 1215, "superhost": null, "rating": 4.58, "review_count": 26, "note": "Mellieha. From search card. Exact shoulder window." },
+    { "id": "1357745648662159161", "label": "C13", "host": null, "title": "Apartment in Mellieha, Malta", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 178.43, "nights": 7, "total_before_tax_eur": 1249, "superhost": null, "rating": 5.0, "review_count": 14, "note": "Mellieha (Guest favourite). From search card. Exact shoulder window." },
+    { "id": "50107418", "label": "C14", "host": null, "title": "Sunshine Apartments Mellieha - 3 bedrooms", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 140.0, "nights": 7, "total_before_tax_eur": 980, "superhost": null, "rating": 4.96, "review_count": 27, "note": "Mellieha (Guest favourite, Condo). Different Sunshine unit from C2. From search card. Exact shoulder window." },
+    { "id": "1396412621598608699", "label": "C15", "host": null, "title": "Modern, stylish & spacious. Great location.", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 201.57, "nights": 7, "total_before_tax_eur": 1411, "superhost": null, "rating": 4.67, "review_count": 3, "note": "Mellieha (Condo). From search card. Exact shoulder window." },
+    { "id": "1438926932780338233", "label": "C16", "host": "Homely", "title": "MLH village 3BED with views by Homely!", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 209.57, "nights": 7, "total_before_tax_eur": 1467, "superhost": null, "rating": 4.92, "review_count": 12, "note": "Mellieha (Guest favourite). Managed by Homely. From search card. Exact shoulder window." },
+    { "id": "1371679467311931650", "label": "C17", "host": null, "title": "Mellieha Beach Apt Terrace&Views", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 169.0, "nights": 7, "total_before_tax_eur": 1183, "superhost": null, "rating": null, "review_count": null, "note": "Mellieha. 4 beds. From search card. Exact shoulder window. No rating shown (likely new/few reviews)." },
+    { "id": "1346715604676835878", "label": "C18", "host": null, "title": "BrandNEW 3 BED maisonette in Mellieha", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 193.0, "nights": 7, "total_before_tax_eur": 1351, "superhost": null, "rating": 5.0, "review_count": 16, "note": "Mellieha (Top guest favourite, maisonette). From search card. Exact shoulder window. Also captured for peak - see peak rows." },
+    { "id": "1088286333849409878", "label": "C19", "host": null, "title": "Beachfront 9ten11 Maisonette w Terrace", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 239.71, "nights": 7, "total_before_tax_eur": 1678, "superhost": null, "rating": 4.78, "review_count": 32, "note": "Mellieha (Guest favourite, beachfront maisonette - premium). From search card. Exact shoulder window." },
+    { "id": "1623946779563592294", "label": "C20", "host": null, "title": "Modern 3BR Maisonette with Private BBQ", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 151.71, "nights": 7, "total_before_tax_eur": 1062, "superhost": null, "rating": 5.0, "review_count": 8, "note": "Mellieha (Guest favourite, maisonette). From search card. Exact shoulder window." },
+    { "id": "1344884666040004096", "label": "C21", "host": "Homely", "title": "Mellieha Cosy House of Character by Homely", "bedrooms": 3, "guests": 6, "season": "shoulder", "check_in": "2026-10-05", "check_out": "2026-10-12", "nightly_eur": 250.29, "nights": 7, "total_before_tax_eur": 1752, "superhost": true, "rating": 4.74, "review_count": 19, "note": "Mellieha (Superhost, House of Character - premium). From search card. Exact shoulder window." },
+
+    { "id": "591178909484071270", "label": "C10", "host": null, "title": "High-end apartment w/ 360 country & sea views", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 244.29, "nights": 7, "total_before_tax_eur": 1710, "rating": 4.97, "review_count": 99, "note": "Mellieha. Bookable exact Aug 3-10 (7nt) per peak search card." },
+    { "id": "1146355319382335012", "label": "C22", "host": null, "title": "3 bedroom apartment (beach 950m)", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 244.57, "nights": 7, "total_before_tax_eur": 1712, "rating": null, "review_count": null, "note": "Mellieha. Bookable exact Aug 3-10 (7nt) per peak search card. Peak-only capture." },
+    { "id": "1346715604676835878", "label": "C18", "host": null, "title": "BrandNEW 3 BED maisonette in Mellieha", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-05", "check_out": "2026-08-09", "nightly_eur": 214.5, "nights": 4, "total_before_tax_eur": 858, "rating": 5.0, "review_count": 16, "note": "Mellieha. Exact Aug 3-10 not bookable; nearest window Aug 5-9 (4nt) per peak search card -> 858/4." },
+    { "id": "1349060452387238508", "label": "C23", "host": null, "title": "Forrest Hill (Mellieha)", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-04", "check_out": "2026-08-10", "nightly_eur": 245.67, "nights": 6, "total_before_tax_eur": 1474, "rating": 5.0, "review_count": 19, "note": "Mellieha. Nearest peak window Aug 4-10 (6nt) per peak search card -> 1474/6. Peak-only capture." },
+    { "id": "14733447", "label": "C24", "host": null, "title": "Mellieha spacious apartment", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-06", "check_out": "2026-08-10", "nightly_eur": 364.75, "nights": 4, "total_before_tax_eur": 1459, "rating": 4.82, "review_count": 77, "note": "Mellieha. Nearest peak window Aug 6-10 (4nt) per peak search card -> 1459/4. High short-window nightly (short stay premium). Peak-only capture." },
+    { "id": "694099467814561652", "label": "C25", "host": null, "title": "Spacious Apartment with Sea & Country views", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 275.0, "nights": 7, "total_before_tax_eur": 1925, "rating": 4.86, "review_count": 14, "note": "Mellieha. Bookable exact Aug 3-10 (7nt) per peak search card. Peak-only capture." },
+    { "id": "1699964558585414057", "label": "C26", "host": null, "title": "Mellieha Central", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 184.0, "nights": 7, "total_before_tax_eur": 1288, "rating": null, "review_count": null, "note": "Mellieha (Il-Mellieha). Bookable exact Aug 3-10 (7nt) per peak search card. Peak-only capture." },
+    { "id": "1715965482463067634", "label": "C27", "host": null, "title": "3BR home w/Rooftop, Sea Views, WiFi", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 319.71, "nights": 7, "total_before_tax_eur": 2238, "rating": null, "review_count": null, "note": "Mellieha (Mellieha). Bookable exact Aug 3-10 (7nt) per peak search card. Peak-only capture." },
+    { "id": "42724848", "label": "C28", "host": null, "title": "Sunny Penthouse w/ Sea Views", "bedrooms": 3, "guests": 6, "season": "peak", "check_in": "2026-08-03", "check_out": "2026-08-10", "nightly_eur": 469.29, "nights": 7, "total_before_tax_eur": 3285, "superhost": true, "rating": 4.86, "review_count": 21, "note": "Mellieha (Superhost, penthouse - premium outlier). Bookable exact Aug 3-10 (7nt) per peak search card. Peak-only capture." }
+  ],
+  "summary": {
+    "method": "Regional averages = mean of comp NIGHTLY rates (total/nights). Excludes Stephanie L1/L2/L3 and the 28-night monthly rental (C3). Shoulder comps are on the EXACT Oct 5-12 window; peak comps use each listing's nearest bookable August window (actual dates/nights recorded per row), so peak nightlies mix 4/6/7-night stays (short stays carry a premium).",
+    "shoulder": {
+      "comps_captured": 17,
+      "comp_ids_used": ["1131625684687223403","1065966042847199966","1599473792235351108","619455034023755608","1603698923638582233","591178909484071270","52751473","1138325902985438690","1357745648662159161","50107418","1396412621598608699","1438926932780338233","1371679467311931650","1346715604676835878","1088286333849409878","1623946779563592294","1344884666040004096"],
+      "comp_nightlies_eur": [202.43, 202.43, 177.14, 186.57, 107.57, 209.29, 131.86, 173.57, 178.43, 140.0, 201.57, 209.57, 169.0, 193.0, 239.71, 151.71, 250.29],
+      "regional_avg_nightly_eur": 183.77,
+      "median_nightly_eur": 186.57,
+      "min_nightly_eur": 107.57,
+      "max_nightly_eur": 250.29,
+      "sample_size_n": 17,
+      "stephanie": {
+        "L1_nightly_eur": 166.0, "L1_vs_avg_abs_eur": -17.77, "L1_vs_avg_pct": -9.7,
+        "L2_nightly_eur": 162.0, "L2_vs_avg_abs_eur": -21.77, "L2_vs_avg_pct": -11.8,
+        "L3_nightly_eur": 165.14, "L3_vs_avg_abs_eur": -18.63, "L3_vs_avg_pct": -10.1,
+        "note": "All three Stephanie flats sit BELOW the Mellieha 3-bed shoulder average (~EUR 184/nt), by roughly 10-12%. They are NOT the cheapest (C9 EUR 108, C11 EUR 132, C14 EUR 140 undercut them) but they price under the median (EUR 187) and well under the premium maisonettes/houses (C19/C21 EUR 240-250)."
+      }
+    },
+    "peak": {
+      "comps_captured": 9,
+      "comp_ids_used": ["591178909484071270","1146355319382335012","1346715604676835878","1349060452387238508","14733447","694099467814561652","1699964558585414057","1715965482463067634","42724848"],
+      "comp_nightlies_eur": [244.29, 244.57, 214.5, 245.67, 364.75, 275.0, 184.0, 319.71, 469.29],
+      "regional_avg_nightly_eur": 284.64,
+      "median_nightly_eur": 245.67,
+      "min_nightly_eur": 184.0,
+      "max_nightly_eur": 469.29,
+      "sample_size_n": 9,
+      "regional_avg_nightly_ex_outlier_eur": 261.56,
+      "caveat": "Peak nightlies mix nearest-bookable windows of 4/6/7 nights; the 4-night ones (e.g. C24 EUR 365) carry a short-stay premium that inflates the mean. Excluding the EUR 469 penthouse outlier (C28) the mean is ~EUR 262/nt. Stephanie's peak is only a short-window proxy (L2 Aug 6-10 EUR 198.50/nt; L1 & L3 ~EUR 186.67/nt on 3-night windows) because her main August weeks are sold out.",
+      "stephanie": {
+        "L2_nightly_eur": 198.5, "L2_vs_avg_abs_eur": -86.14, "L2_vs_avg_pct": -30.3,
+        "L1_nightly_eur": 186.67, "L3_nightly_eur": 186.67,
+        "note": "Stephanie's August nightlies (~EUR 187-199) sit far BELOW the Mellieha peak comp mean (~EUR 285, or ~EUR 261 ex-outlier) and below the peak median (EUR 246). Caveat: hers are short-window proxies vs comps that are mostly longer windows; still, the gap is large and consistent with her shoulder under-pricing."
+      }
+    },
+    "headline": "Across a 17-comp shoulder sample and 9-comp peak sample, Stephanie's three Mellieha 3-bed flats are consistently priced BELOW the local market: ~10% under the shoulder average and ~30% under the peak average. Room to raise rates, especially in peak."
+  }
+}

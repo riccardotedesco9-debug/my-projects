@@ -1,0 +1,107 @@
+{
+  "captured_at": "2026-06-29",
+  "market": "airbnb.com.mt (EUR)",
+  "note_on_data": "Photo counts are unique listing-image UUIDs found in loaded DOM; gallery lazy-loads so for some listings only the rendered subset enumerated (flagged). License check = presence of Airbnb's listingLicenseTextList field; null on all = no MTA/short-let licence surfaced on any listing in this market view.",
+  "competitors": [
+    {
+      "host": "Peter (Przemek Karol)",
+      "id": "49982133",
+      "title": "Sunshine Apartments Mellieha - 3 bedrooms - Apt 2",
+      "rating": "4.96", "reviews": 48, "superhost": true, "guest_favorite": true,
+      "capacity": "7 guests / 3 bed / 6 beds / 2 bath, 125 sqm, 2nd floor",
+      "description_structure": "Opens with brand line 'Sunshine Holidays Malta - Apartment No 2 - modern, highly finished, spacious (125 sqm)', then room-by-room layout. Sections: The space (states 'fully air-conditioned'), Guest access (self check-in key locker), Other things to note (exhaustive provided-items checklist: linen, towels, soaps, dishwasher tabs, coffee/tea, bottled water; early/late checkout = 50% daily rate).",
+      "photo_count": 33,
+      "photo_notes": "Cover = open-plan kitchen/dining/living. Clean, well-lit, staged interiors. Leads with interior space (no sea view on this unit).",
+      "air_con": "INCLUDED - 'fully air-conditioned', AC in every bedroom. Not coin-op.",
+      "wifi_speed": "46 Mbps (shown)", "elevator": true, "workspace": true, "pool": false,
+      "self_checkin": "Yes - self check-in via lockbox/key locker (+ meet-and-greet when possible)",
+      "crib": true, "amenities_count": 45,
+      "cleaning_fee": "None surfaced", "min_nights": "4 nights (early Jul) -> 5 nights (peak Jul)",
+      "cancellation_policy": "shown only with dates", "house_rules": "Check-in after 3PM, checkout before 10AM, 7 max",
+      "license_shown": false,
+      "host_tenure": "7 yrs hosting, 955 reviews, 4.95 avg, 100% response, identity verified",
+      "category_ratings": "Clean 5.0 / Accuracy 5.0 / Check-in 5.0 / Comms 5.0 / Location 4.7 / Value 4.9"
+    },
+    {
+      "host": "Alison", "id": "6351397", "title": "Villa 3bedroom Apt with shared pool",
+      "rating": "4.95", "reviews": 63, "superhost": true,
+      "capacity": "up to 6 guests / 3 bed",
+      "description_structure": "LEADS WITH THE USP: 'private villa with swimming pool enjoying direct sea views from the pool deck. Modern furnishing. Wifi, BBQ, dine by the pool.' Then 'The space': 3 contemporary apts sharing pool+deck with sea views, tranquil residential Mellieha.",
+      "photo_count": 18,
+      "photo_notes": "Cover = pool/sea-view hero. Bright, modern. Fewest photos but strongest single hook (pool+view).",
+      "air_con": "INCLUDED (listed in What this place offers). Not coin-op.",
+      "wifi_speed": "Wifi listed, no speed", "elevator": "n/a (villa, ground access)", "workspace": false,
+      "pool": "Shared pool with sea views - the lead USP", "self_checkin": "Yes - Self check-in",
+      "crib": true, "amenities_count": 54,
+      "cleaning_fee": "None surfaced", "min_nights": "not surfaced",
+      "cancellation_policy": "shown only with dates", "house_rules": "3PM/10AM, 6 max",
+      "license_shown": false, "host_tenure": "11 yrs hosting"
+    },
+    {
+      "host": "Portia", "id": "619455034023755608", "title": "Beautiful, Modern & Spacious 3 Bedroom Apartment.",
+      "rating": "5.0", "reviews": 44, "superhost": true, "capacity": "up to 6 guests / 3 bed",
+      "description_structure": "Title leads with adjectives (Beautiful, Modern & Spacious). Highlights: Bay view, Garden view, Shared beach access, Dedicated workspace. Premium tech callout (55in HDTV w/ Prime/AppleTV/Chromecast/Disney+/Netflix).",
+      "photo_count": 61,
+      "photo_notes": "Highest photo count of all comps (61). Clearly professional set, leads with bay/garden view + modern interiors.",
+      "air_con": "NOT LISTED - 'Air conditioning' absent from full listing HTML (twice-verified). Only top comp without AC in amenities.",
+      "wifi_speed": "Wifi listed, no speed", "elevator": true, "workspace": true, "pool": false,
+      "self_checkin": "Yes - Self check-in", "crib": "not in visible set", "amenities_count": 59,
+      "cleaning_fee": "None surfaced", "min_nights": "not surfaced",
+      "cancellation_policy": "shown only with dates", "house_rules": "3PM/10AM, 6 max",
+      "license_shown": false, "host_tenure": "4 yrs hosting"
+    },
+    {
+      "host": "Magdalena", "id": "1599473792235351108", "title": "Eden Apartment Mellieha",
+      "rating": "5.0", "reviews": 12, "superhost": true, "capacity": "6 guests / 3 bed / 3 beds / 2 bath",
+      "description_structure": "Plain place-name title. Highlights: Shared beach access, full appliance set (Washer + Dryer), AC, private balcony, luggage dropoff. Clean modern presentation.",
+      "photo_count": 24, "photo_notes": "Professional, modern. Shared beach access featured.",
+      "air_con": "INCLUDED (explicit 'Air conditioning'). Not coin-op.",
+      "wifi_speed": "Wifi listed, no speed", "elevator": false, "workspace": false, "pool": false,
+      "self_checkin": "Yes - Self check-in", "crib": "not listed", "amenities_count": 41,
+      "cleaning_fee": "None surfaced", "min_nights": "not surfaced",
+      "house_rules": "3PM/10AM, 6 max", "license_shown": false, "host_tenure": "3 yrs hosting"
+    },
+    {
+      "host": "Patricia", "id": "591178909484071270", "title": "High-end apartment w/ 360 country & sea views",
+      "rating": "4.97", "reviews": 99, "superhost": true, "capacity": "6 guests / 3 bed / 4 beds / 2 bath",
+      "description_structure": "Title leads with quality+view positioning ('High-end', '360 country & sea views'). Highlights: Bay view, Mountain view, Beachfront shared beach access, Dedicated workspace.",
+      "photo_count": "professional set (gallery lazy-loaded; not fully enumerated)",
+      "photo_notes": "View-led, premium positioning. Beachfront callout.",
+      "air_con": "INCLUDED (Air conditioning present). Not coin-op.",
+      "wifi_speed": "Wifi listed, no speed", "elevator": true, "workspace": true, "pool": false,
+      "self_checkin": "In-person window: 'Check-in 3:00 PM - 10:00 PM' (host-coordinated, NOT lockbox self check-in)",
+      "crib": "not confirmed", "amenities_count": 48,
+      "cleaning_fee": "None surfaced", "min_nights": "not surfaced",
+      "house_rules": "Check-in 3PM-10PM, checkout before 10AM, 6 max", "license_shown": false,
+      "host_tenure": "10 yrs hosting"
+    },
+    {
+      "host": "Marijana", "id": "1357745648662159161", "title": "Apartment in Mellieha, Malta",
+      "rating": "5.0", "reviews": 14, "superhost": true, "capacity": "5 guests / 3 bed / 3 beds / 2 bath",
+      "description_structure": "Generic place-name title. Family-friendly lean: Crib (on request), children's books & toys (0-2yr), standalone high chair. Elevator + AC + Washer highlighted.",
+      "photo_count": "professional set (gallery lazy-loaded; not fully enumerated)",
+      "photo_notes": "Family-oriented amenity callouts in the highlights strip.",
+      "air_con": "INCLUDED (Air conditioning present). Not coin-op.",
+      "wifi_speed": "Wifi listed, no speed", "elevator": true, "workspace": false, "pool": false,
+      "self_checkin": "Yes - Self check-in", "crib": "yes (on request) + high chair + kids books", "amenities_count": 44,
+      "cleaning_fee": "None surfaced", "min_nights": "not surfaced",
+      "house_rules": "3PM/10AM, 5 max", "license_shown": false, "host_tenure": "1 yr hosting"
+    }
+  ],
+  "patterns_to_copy": [
+    "AC is table stakes: 5 of 6 top comps explicitly include AC (and Peter says 'fully air-conditioned' with AC in every bedroom). None charge coin-op/extra for AC. (Portia is the only AC-omitting one and still hits 5.0 - but she's the exception, not the model.)",
+    "Self check-in is the norm: 4 of 6 (Peter, Alison, Magdalena, Marijana) offer lockbox/self check-in. The two without it (Patricia in-person window) still note a clear coordinated check-in. Stephanie's 3 listings show NO self check-in.",
+    "Lead the description with the single biggest USP, not the floor plan: Alison opens with 'pool + direct sea views'; Patricia with 'high-end 360 views'; Portia with bay/garden view + premium tech. They sell the hook in line 1.",
+    "Photo volume + professional quality: top presenters run 24-61 photos (Portia 61, Peter 33, Magdalena 24); pro/staged, view/pool shown early. Average ~30+ across the captured set.",
+    "Superhost: ALL 6 top comps are Superhost. Stephanie is Superhost on NONE.",
+    "Family/comfort signals win 5.0s: Marijana (crib+high chair+kids books) and Magdalena (washer+dryer) lean into completeness; Peter's exhaustive 'what we provide' checklist sets expectations and drives 5.0 accuracy.",
+    "No cleaning fee is universal here (all-in nightly pricing) - a shared market norm, not a differentiator."
+  ],
+  "gaps_vs_stephanie": [
+    "NOT Superhost on any of 3 listings vs all 6 comps Superhost - the single clearest trust gap.",
+    "No self check-in shown on any of Stephanie's 3 (comps mostly self check-in) - friction + perceived lower convenience.",
+    "Generic/feature-flat titles ('Apartment with sea views', 'Apartment with an exceptional view') vs comps leading with a sharp USP.",
+    "Lower headline ratings (4.79 / 4.8 / no-reviews) vs comps' 4.95-5.0.",
+    "AC: Stephanie DOES include AC (split ductless on all 3) - so this is NOT a gap; she should advertise it more prominently as comps do."
+  ]
+}
