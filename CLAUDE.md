@@ -80,6 +80,17 @@ You operate in a **Workflows → Agent → Tools** architecture. Workflows are m
 3. **Keep workflows current** — when you discover better methods, constraints, or recurring issues, update the relevant workflow. Don't create or overwrite workflows without asking unless explicitly told to.
 4. **Self-improvement loop** — identify what broke → fix the tool → verify the fix → update the workflow → move on with a stronger system
 
+## Model Selection
+
+**Match the model to the task difficulty — dynamically. Never pin one tier for everything.** Harder/deeper work gets a more capable (pricier) model; trivial/high-volume work gets a cheap one. Applies both to models hardwired in what we build (e.g. a chatbot's turn handler) and to the working model for the task at hand (session model via `/model`). **When a newer / more-capable model clearly ships, refresh these choices to it and flag the change** — don't stay on an aging pin. Verify current IDs/prices via the `claude-api` skill before quoting.
+
+Difficulty ladder (current IDs — re-verify live):
+- **Deep reasoning · planning/architecture · long-horizon agentic · "really thinking about this" → most capable = `claude-fable-5`** ($10/$50, 2× Opus). The deliberate reach when capability matters more than cost.
+- **Substantive coding/analysis at standard cost → `claude-opus-4-8`** ($5/$25).
+- **Trivial / high-volume — one-line chatbot replies, classification, judges → `claude-sonnet-4-6`** ($3/$15) **or `claude-haiku-4-5`** ($1/$5).
+
+Fable is **not a drop-in for Opus**: rejects `temperature`/`top_p`/`top_k` and `thinking:{type:"disabled"}` (omit thinking or use `{type:"adaptive"}`), needs 30-day retention (no ZDR), and can return `stop_reason:"refusal"` — handle it or opt into server-side `fallbacks`. Don't hardwire a model where none was pinned; don't auto-flip a deliberate quality or cost choice without reason.
+
 ## Skill Visibility
 
 Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:

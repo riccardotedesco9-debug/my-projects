@@ -16,8 +16,11 @@ const RATES: Record<string, { input: number; output: number }> = {
   "claude-haiku-4-5-20251001": { input: 1, output: 5 },
   "claude-haiku-4-5": { input: 1, output: 5 },
   // Claude Opus family
-  "claude-opus-4-7": { input: 15, output: 75 },
-  "claude-opus-4-6": { input: 15, output: 75 },
+  "claude-opus-4-8": { input: 5, output: 25 },
+  "claude-opus-4-7": { input: 5, output: 25 },
+  "claude-opus-4-6": { input: 5, output: 25 },
+  // Claude Fable family (premium tier — 2x Opus)
+  "claude-fable-5": { input: 10, output: 50 },
 };
 const FALLBACK_RATE = { input: 3, output: 15 };
 

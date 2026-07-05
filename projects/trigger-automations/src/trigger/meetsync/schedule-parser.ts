@@ -321,7 +321,7 @@ async function parseMediaWithClaude(apiKey: string, base64Data: string, mediaTyp
   return await callClaude(
     apiKey,
     [mediaBlock, { type: "text", text: getExtractionPrompt(userName, timezone, personContext) }],
-    { model: process.env.MEETSYNC_IMAGE_MODEL ?? "claude-opus-4-7", maxTokens: 12000, adaptiveThinking: true },
+    { model: process.env.MEETSYNC_IMAGE_MODEL ?? "claude-opus-4-8", maxTokens: 12000, adaptiveThinking: true },
   );
 }
 
@@ -331,8 +331,8 @@ interface CallClaudeOptions {
   /**
    * If true, enables adaptive extended thinking with high effort. Opus 4.7+
    * dropped the old `{ type: "enabled", budget_tokens }` contract in favour
-   * of adaptive thinking + `output_config.effort`. Temperature is forced to 1
-   * whenever thinking is on.
+   * of adaptive thinking + `output_config.effort`. These models reject
+   * `temperature`/`top_p`/`top_k` (400), so no sampling params are sent.
    */
   adaptiveThinking?: boolean;
 }
@@ -350,7 +350,7 @@ async function callClaude(
   if (opts.adaptiveThinking) {
     body.thinking = { type: "adaptive" };
     body.output_config = { effort: "high" };
-    body.temperature = 1; // required when thinking is enabled
+    // No temperature/top_p/top_k — adaptive-thinking Opus (4.7+) rejects them (400).
   }
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {

@@ -11,7 +11,7 @@ Conversational Telegram bot that helps people find time to meet. **Shared-hub mo
 - **Webhook gateway**: Cloudflare Worker (`worker/`)
 - **Processing**: Trigger.dev v4 task per turn (`projects/trigger-automations/src/trigger/meetsync/`)
 - **Database**: Cloudflare D1 (SQLite)
-- **AI**: Claude Sonnet for the agentic turn handler; Claude Opus 4.7 + extended thinking for image/PDF schedule parsing, Claude Sonnet for text schedule parsing
+- **AI**: Claude Sonnet for the agentic turn handler; Claude Opus 4.8 + adaptive thinking for image/PDF schedule parsing, Claude Sonnet for text schedule parsing
 - **Calendar**: Google OAuth per user (read primary calendar, write events with attendees)
 
 ## Project Layout
