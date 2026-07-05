@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Spline+Sans+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #1F3864; --teal: #0F766E; --teal-soft: #B2DFDB;
+    --green: #2E7D32; --red: #B91C1C; --gray: #6B7280;
+    --line: #E4E4DE; --paper: #FBFBF8; --card: #FFFFFF;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: 'Outfit', sans-serif; background: var(--paper); color: var(--navy);
+    padding: 14px 14px 18px; font-size: 14px;
+  }
+  .wordmark {
+    font-size: 11px; letter-spacing: .22em; font-weight: 700; color: var(--gray);
+    text-transform: uppercase; margin-bottom: 12px;
+  }
+  .wordmark b { color: var(--teal); }
+
+  .state {
+    border-left: 3px solid var(--gray); background: var(--card);
+    border-radius: 0 8px 8px 0; padding: 10px 12px; margin-bottom: 6px;
+    box-shadow: 0 1px 2px rgba(31,56,100,.06);
+  }
+  .state .status { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 7px; }
+  .state .detail { color: var(--gray); font-size: 12px; margin-top: 2px; min-height: 15px; }
+  .state.running { border-left-color: var(--green); }
+  .state.running .status { color: var(--green); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); flex: none; }
+  .running .dot { background: var(--green); animation: breathe 2s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .35; transform: scale(.8);} }
+
+  .clock {
+    font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
+    font-size: 42px; font-weight: 600; text-align: center; letter-spacing: .01em;
+    padding: 14px 0 10px; color: var(--navy);
+  }
+  .clock.idle { color: var(--line); }
+
+  hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0 14px; }
+
+  label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--gray); margin: 10px 0 4px; }
+  select, input[type=text] {
+    width: 100%; font: 16px 'Outfit', sans-serif; color: var(--navy);
+    padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+  }
+  select:focus, input:focus { outline: none; border-color: var(--teal); }
+
+  .btn {
+    width: 100%; border: 0; border-radius: 10px; padding: 13px 0; margin-top: 12px;
+    font: 600 15px 'Outfit', sans-serif; color: #fff; cursor: pointer;
+    transition: transform .05s ease, filter .15s ease;
+  }
+  .btn:active { transform: scale(.985); }
+  .btn:disabled { filter: grayscale(.6) opacity(.45); cursor: default; }
+  .btn.start { background: var(--green); box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
+  .btn.stop  { background: var(--red);   box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
+
+  .confirm {
+    display: none; margin-top: 12px; padding: 11px 12px; border: 1px solid var(--teal-soft);
+    background: #F0FAF8; border-radius: 8px; font-size: 12.5px; color: var(--navy);
+  }
+  .confirm.show { display: block; }
+  .confirm .row { display: flex; gap: 8px; margin-top: 9px; }
+  .confirm button {
+    flex: 1; padding: 8px 0; border-radius: 7px; border: 1px solid var(--teal);
+    font: 600 12.5px 'Outfit', sans-serif; cursor: pointer;
+  }
+  .confirm .yes { background: var(--teal); color: #fff; }
+  .confirm .no  { background: #fff; color: var(--teal); }
+
+  .msg { margin-top: 12px; min-height: 30px; font-size: 12px; color: var(--gray); line-height: 1.4; }
+  .msg.error { color: var(--red); }
+
+  .foot { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .foot .stats {
+    font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
+    font-size: 11.5px; color: var(--gray);
+  }
+  .foot .links { margin-top: 7px; font-size: 12px; }
+  .foot .links a { color: var(--teal); font-weight: 600; cursor: pointer; text-decoration: none; }
+  .foot .links a:hover { text-decoration: underline; }
+  .foot .links span { color: var(--line); margin: 0 4px; }
+</style>
+</head>
+<body>
+  <div class="wordmark">Hours <b>Tracker</b></div>
+
+  <div class="state" id="state">
+    <div class="status"><span class="dot"></span><span id="statusText">Connecting…</span></div>
+    <div class="detail" id="statusDetail"></div>
+  </div>
+
+  <div class="clock idle" id="clock">0:00:00</div>
+  <hr>
+
+  <label for="client">Client</label>
+  <select id="client"></select>
+  <label for="task">Task</label>
+  <input type="text" id="task" placeholder="What are you working on?">
+
+  <button class="btn start" id="btnStart" disabled>▶&ensp;Start</button>
+  <button class="btn stop" id="btnStop" disabled>■&ensp;Stop &amp; log</button>
+
+  <div class="confirm" id="confirm">
+    <span id="confirmText"></span>
+    <div class="row">
+      <button class="yes" id="confirmYes">Log &amp; switch</button>
+      <button class="no" id="confirmNo">Keep current</button>
+    </div>
+  </div>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="foot">
+    <div class="stats" id="stats">&nbsp;</div>
+    <div class="links">
+      <a id="lnkExport">Export PDF…</a><span>·</span><a id="lnkAdd">Add past session…</a>
+    </div>
+  </div>
+
+<script>
+  var state = null;
+  var skewMs = 0;
+  var uiSeeded = false;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  function boot() {
+    refresh();
+    setInterval(tick, 1000);
+    setInterval(refresh, 30000); // catch menu/phone-driven changes
+    window.addEventListener('focus', refresh);
+  }
+
+  function refresh() {
+    google.script.run.withSuccessHandler(onSnap).withFailureHandler(fail).getTimerSnapshot();
+  }
+
+  function onSnap(s) {
+    state = s;
+    skewMs = s.serverNowMs - Date.now();
+    seedForm(s);
+    render();
+    $('stats').textContent =
+      'Today ' + (s.todayHours || 0).toFixed(2) + ' h · This month ' + (s.monthHours || 0).toFixed(2) + ' h';
+  }
+
+  function seedForm(s) {
+    var sel = $('client');
+    var prev = sel.value;
+    sel.innerHTML = '';
+    s.clients.forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = o.textContent = name;
+      sel.appendChild(o);
+    });
+    // Never clobber what the user is mid-picking; seed once from running
+    // state, then Dashboard cells, then first client.
+    if (!uiSeeded) {
+      sel.value = s.client || s.dbClient || (s.clients[0] || '');
+      if (s.task || s.dbTask) $('task').value = s.task || s.dbTask;
+      uiSeeded = true;
+    } else if (prev && s.clients.indexOf(prev) >= 0) {
+      sel.value = prev;
+    }
+  }
+
+  function render() {
+    var running = state && state.status === 'RUNNING';
+    var box = $('state');
+    box.className = 'state' + (running ? ' running' : '');
+    $('statusText').textContent = running ? 'RUNNING' : 'IDLE';
+    $('statusDetail').textContent = running
+      ? state.client + (state.task ? ' — ' + state.task : '')
+      : 'Ready to start.';
+    $('btnStart').disabled = false;
+    $('btnStop').disabled = !running;
+    $('clock').className = 'clock' + (running ? '' : ' idle');
+    tick();
+  }
+
+  function tick() {
+    if (!state || state.status !== 'RUNNING') { $('clock').textContent = '0:00:00'; return; }
+    var ms = Math.max(0, Date.now() + skewMs - state.startedAtMs);
+    var s = Math.floor(ms / 1000);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    $('clock').textContent = h + ':' + pad(m) + ':' + pad(sec);
+  }
+
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  // Accumulates confirmations (rate warning, switch) across re-tries of one
+  // Start action; reset when the user clicks Start fresh.
+  var startFlags = {};
+
+  function onStart(fresh) {
+    if (fresh) startFlags = {};
+    var client = $('client').value;
+    var task = $('task').value.trim();
+    busy(true);
+    say('Working…', false);
+    hideConfirm();
+    google.script.run
+      .withSuccessHandler(function (res) {
+        busy(false);
+        if (res && res.needsRateConfirm) { showRateConfirm(res); return; }
+        if (res && res.needsConfirm) { showConfirm(res.current, { client: client, task: task }); return; }
+        if (res && res.snapshot) onSnap(res.snapshot); // one round-trip — no second refresh
+        say(res && res.ok ? (res.msg || 'Timing ' + client + '.') : (res && res.msg) || 'Could not start.', !(res && res.ok));
+        if (res && !res.snapshot) refresh();
+      })
+      .withFailureHandler(fail)
+      .startWork(client, task, startFlags);
+  }
+
+  function onStop() {
+    busy(true);
+    say('Stopping…', false);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        busy(false);
+        if (res && res.snapshot) onSnap(res.snapshot); else refresh();
+        say(res && res.msg ? res.msg : '', !(res && res.ok));
+      })
+      .withFailureHandler(fail)
+      .stopAndLog();
+  }
+
+  function showConfirm(current, next) {
+    var from = esc(current.client) + (current.task ? ' — ' + esc(current.task) : '');
+    var to = esc(next.client) + (next.task ? ' — ' + esc(next.task) : '');
+    $('confirmText').innerHTML =
+      "You're timing <b>" + from + '</b>.<br>Log it now and switch to <b>' + to + '</b> — zero gap?';
+    $('confirmYes').textContent = 'Log & switch';
+    $('confirmNo').textContent = 'Keep current';
+    $('confirm').setAttribute('data-mode', 'switch');
+    $('confirm').className = 'confirm show';
+  }
+  function showRateConfirm(res) {
+    $('confirmText').innerHTML =
+      '<b>' + esc(res.client) + '</b> has no €/h rate on the Clients sheet — amounts stay <b>€0</b> ' +
+      'until you add it (it back-fills past rows). Start timing anyway?';
+    $('confirmYes').textContent = 'Start anyway';
+    $('confirmNo').textContent = 'Cancel';
+    $('confirm').setAttribute('data-mode', 'rate');
+    $('confirm').className = 'confirm show';
+  }
+  function hideConfirm() { $('confirm').className = 'confirm'; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function busy(b) {
+    $('btnStart').disabled = b;
+    $('btnStop').disabled = b || !(state && state.status === 'RUNNING');
+  }
+
+  function say(text, isError) {
+    var m = $('msg');
+    m.textContent = text || '';
+    m.className = 'msg' + (isError ? ' error' : '');
+  }
+
+  function fail(err) {
+    busy(false);
+    say(err && err.message ? err.message : 'Something went wrong — try again.', true);
+  }
+
+  $('btnStart').onclick = function () { onStart(true); };
+  $('btnStop').onclick = onStop;
+  $('confirmYes').onclick = function () {
+    if ($('confirm').getAttribute('data-mode') === 'rate') startFlags.confirmNoRate = true;
+    else startFlags.confirmSwitch = true;
+    onStart(false); // keep accumulated flags
+  };
+  $('confirmNo').onclick = function () {
+    var mode = $('confirm').getAttribute('data-mode');
+    hideConfirm();
+    startFlags = {};
+    if (mode === 'switch' && state && state.status === 'RUNNING') {
+      // Switch declined → keep the current session, revert the fields so the
+      // panel never implies you're timing something you're not.
+      if (state.client) $('client').value = state.client;
+      $('task').value = state.task || '';
+      say('Kept timing ' + state.client + (state.task ? ' — ' + state.task : '') + '. Nothing switched.', false);
+    } else if (mode === 'rate') {
+      say('Not started — add the rate on the Clients sheet, then Start.', false);
+    }
+  };
+  $('lnkExport').onclick = function () { google.script.run.showExportDialog(); };
+  $('lnkAdd').onclick = function () { google.script.run.showAddSessionDialog(); };
+  boot();
+</script>
+</body>
+</html>

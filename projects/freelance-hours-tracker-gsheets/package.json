@@ -1,0 +1,21 @@
+{
+  "name": "freelance-hours-tracker-gsheets",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Freelance work-hours tracker on Google Sheets + container-bound Apps Script",
+  "type": "module",
+  "scripts": {
+    "push": "clasp push",
+    "pull": "clasp pull",
+    "open": "clasp open-container",
+    "lint": "eslint src tools",
+    "test": "npm run lint && node tools/run-tests.mjs"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.3.0",
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

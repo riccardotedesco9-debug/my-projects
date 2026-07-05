@@ -1,0 +1,7 @@
+node_modules/
+*.log
+.DS_Store
+# transient headless-secret drop-in, consumed by setup() then deleted — never commit
+src/_local-secrets.js
+# clasp credentials live in the user profile (.clasprc.json), never here.
+# .clasp.json (scriptId) IS committed — it is not a secret.

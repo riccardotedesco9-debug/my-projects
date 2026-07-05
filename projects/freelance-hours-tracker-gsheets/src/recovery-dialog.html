@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Spline+Sans+Mono:wght@600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #1F3864; --teal: #0F766E; --green: #2E7D32; --red: #B91C1C;
+    --gray: #6B7280; --line: #E4E4DE; --paper: #FBFBF8;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Outfit', sans-serif; background: var(--paper); color: var(--navy);
+         padding: 18px 20px; font-size: 14px; }
+  p { line-height: 1.5; }
+  .session {
+    margin: 12px 0; padding: 10px 14px; background: #fff; border-left: 3px solid var(--green);
+    border-radius: 0 8px 8px 0; box-shadow: 0 1px 2px rgba(31,56,100,.06);
+  }
+  .session b { display: block; }
+  .session .since { color: var(--gray); font-size: 12.5px; }
+  .elapsed { font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
+             font-weight: 600; color: var(--green); }
+  .row { display: flex; gap: 8px; margin-top: 16px; }
+  button {
+    flex: 1; padding: 11px 0; border-radius: 9px; cursor: pointer;
+    font: 600 13px 'Outfit', sans-serif; border: 1px solid transparent;
+  }
+  .keep { background: var(--green); color: #fff; box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
+  .log  { background: #fff; color: var(--navy); border-color: var(--line); }
+  .discard { background: none; color: var(--red); border-color: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+  .hint { margin-top: 10px; font-size: 11.5px; color: var(--gray); }
+</style>
+</head>
+<body>
+  <p>The timer was <b>still running</b> when this spreadsheet was last closed — nothing was lost.</p>
+
+  <div class="session">
+    <b id="what">Loading…</b>
+    <span class="since" id="since"></span>
+  </div>
+
+  <div class="row">
+    <button class="keep" id="keep" disabled>Keep timing</button>
+    <button class="log" id="log" disabled>Stop &amp; log now</button>
+    <button class="discard" id="discard" disabled>Discard</button>
+  </div>
+  <div class="hint">Keep timing = the session continues from its original start. Discard cannot be undone.</div>
+
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+  var snap = null;
+  var skewMs = 0;
+
+  google.script.run.withSuccessHandler(function (s) {
+    snap = s;
+    skewMs = s.serverNowMs - Date.now();
+    if (s.status !== 'RUNNING') { google.script.host.close(); return; }
+    $('what').textContent = s.client + (s.task ? ' — ' + s.task : '');
+    tick();
+    setInterval(tick, 1000);
+    ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = false; });
+  }).withFailureHandler(function () {
+    $('what').textContent = 'Could not read the timer state.';
+  }).getTimerSnapshot();
+
+  function tick() {
+    if (!snap) return;
+    var ms = Math.max(0, Date.now() + skewMs - snap.startedAtMs);
+    var s = Math.floor(ms / 1000);
+    var txt = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
+    $('since').innerHTML = 'running for <span class="elapsed">' + txt + '</span>';
+  }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function choose(choice) {
+    ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = true; });
+    google.script.run
+      .withSuccessHandler(function () { google.script.host.close(); })
+      .withFailureHandler(function (err) {
+        // A failed stop/discard must NOT look like success — surface it.
+        $('what').textContent = 'Could not apply that: ' + (err && err.message ? err.message : err);
+        ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = false; });
+      })
+      .recoveryChoice(choice, snap ? snap.startedAtMs : 0);
+  }
+  $('keep').onclick = function () { choose('keep'); };
+  $('log').onclick = function () { choose('log'); };
+  $('discard').onclick = function () {
+    if (this.dataset.armed) { choose('discard'); return; }
+    this.dataset.armed = '1';
+    this.textContent = 'Really discard?';
+  };
+</script>
+</body>
+</html>

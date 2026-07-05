@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #1F3864; --teal: #0F766E; --gray: #6B7280;
+    --line: #E4E4DE; --paper: #FBFBF8; --red: #B91C1C; --green: #2E7D32;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Outfit', sans-serif; background: var(--paper); color: var(--navy);
+         padding: 18px 20px; font-size: 14px; }
+  label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
+          text-transform: uppercase; color: var(--gray); margin: 12px 0 4px; }
+  select {
+    width: 100%; font: 16px 'Outfit', sans-serif; color: var(--navy);
+    padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  }
+  select:focus { outline: none; border-color: var(--teal); }
+  .toggle { display: flex; align-items: center; gap: 9px; margin-top: 16px; font-size: 13.5px; }
+  .toggle input { width: 17px; height: 17px; accent-color: var(--teal); }
+  .toggle small { color: var(--gray); display: block; font-size: 11.5px; }
+  .btn {
+    width: 100%; border: 0; border-radius: 10px; padding: 13px 0; margin-top: 18px;
+    font: 600 15px 'Outfit', sans-serif; color: #fff; background: var(--teal); cursor: pointer;
+    box-shadow: inset 0 -2px 0 rgba(0,0,0,.18);
+  }
+  .btn:disabled { filter: grayscale(.6) opacity(.5); cursor: default; }
+  .out { margin-top: 14px; font-size: 12.5px; line-height: 1.5; color: var(--gray); min-height: 40px; }
+  .out a { color: var(--teal); font-weight: 600; }
+  .out.error { color: var(--red); }
+  .out.done  { color: var(--green); }
+</style>
+</head>
+<body>
+  <label for="client">Client</label>
+  <select id="client"></select>
+
+  <label for="month">Month</label>
+  <select id="month"></select>
+
+  <div class="toggle">
+    <input type="checkbox" id="money" checked>
+    <span>Include rates &amp; € amounts
+      <small>Untick for an hours-only timesheet.</small></span>
+  </div>
+
+  <button class="btn" id="go" disabled>Export PDF</button>
+  <div class="out" id="out"></div>
+
+<script>
+  var $ = function (id) { return document.getElementById(id); };
+  var model = null;
+
+  google.script.run.withSuccessHandler(function (m) {
+    model = m;
+    var cs = $('client');
+    [m.allClients].concat(m.clients).forEach(function (name) {
+      var o = document.createElement('option');
+      o.value = o.textContent = name;
+      cs.appendChild(o);
+    });
+    var ms = $('month');
+    m.months.forEach(function (mm, i) {
+      var o = document.createElement('option');
+      o.value = mm.year + '-' + mm.month;
+      o.textContent = mm.label;
+      if (i === 0) o.selected = true;
+      ms.appendChild(o);
+    });
+    $('go').disabled = false;
+  }).withFailureHandler(function (e) {
+    show('Could not load options: ' + (e && e.message ? e.message : e), 'error');
+  }).getExportModel();
+
+  $('go').onclick = function () {
+    var parts = $('month').value.split('-');
+    $('go').disabled = true;
+    show('Building the report and rendering the PDF…', '');
+    google.script.run
+      .withSuccessHandler(function (res) {
+        $('go').disabled = false;
+        var note = res.rowCount === 0
+          ? ' Heads-up: no sessions matched — the PDF says so explicitly.'
+          : ' ' + res.rowCount + ' sessions, ' + res.totalHours.toFixed(2) + ' h.';
+        show('Saved <b>' + res.name + '</b> to Drive.' + note +
+             (res.usedFallback ? ' (Used the fallback renderer — layout may be simpler.)' : '') +
+             '<br><a href="' + res.url + '" target="_blank" rel="noopener">Open the PDF</a>', 'done');
+      })
+      .withFailureHandler(function (e) {
+        $('go').disabled = false;
+        show('Export failed: ' + (e && e.message ? e.message : e), 'error');
+      })
+      .exportPdf({
+        client: $('client').value,
+        year: Number(parts[0]),
+        month: Number(parts[1]),
+        includeMoney: $('money').checked,
+      });
+  };
+
+  function show(html, cls) {
+    var o = $('out');
+    o.innerHTML = html;
+    o.className = 'out ' + (cls || '');
+  }
+</script>
+</body>
+</html>
