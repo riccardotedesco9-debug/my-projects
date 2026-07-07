@@ -202,8 +202,11 @@ function buildSummarySheet_(ss) {
   // Names are stripped of any " (CHAR 34) and joined with |; the match literal
   // below is DOUBLE-quoted, so apostrophes in a name (e.g. "Paws 'n' Claws")
   // are safe — a single-quoted literal would break on them (GViz has no escape).
+  // Only rows holding a REAL un-ticked checkbox (ISLOGICAL + NOT) count as
+  // excluded — a client with a name but no checkbox yet (added since the last
+  // layout update) is left visible, never silently hidden.
   sh.getRange('X1').setFormula(
-    '=LET(unsel, TEXTJOIN("|", TRUE, ARRAYFORMULA(IF($F$22:$F$32=FALSE, SUBSTITUTE($G$22:$G$32, CHAR(34), ""), ""))), IF(unsel="", "__none__", unsel))'
+    '=LET(unsel, TEXTJOIN("|", TRUE, ARRAYFORMULA(IF(ISLOGICAL($F$22:$F$32)*NOT($F$22:$F$32), SUBSTITUTE($G$22:$G$32, CHAR(34), ""), ""))), IF(unsel="", "__none__", unsel))'
   );
   sh.getRange('X1').setFontColor(CFG.colors.gray).setFontSize(8);
   var clientFilter = "not (Col2 matches \"\"\"&$X$1&\"\"\") and ";
@@ -297,9 +300,19 @@ function buildSummarySheet_(ss) {
   // Pre-ticked, so any client you add is shown by default.
   sectionHeader_(sh.getRange('F21'), 'SHOW CLIENTS');
   sh.getRange('G22').setFormula("=ARRAYFORMULA('" + CFG.sheets.clients + "'!A2:A12)");
-  var boxes = sh.getRange('F22:F32');
-  boxes.insertCheckboxes();
-  boxes.setValue(true);
+  // One checkbox per ACTUAL client (no spam of empty boxes): count down to the
+  // last non-blank client, capped at the 11 visible rows. A client added later
+  // shows by default and gets its own box on the next layout update.
+  var clientCol = ss.getSheetByName(CFG.sheets.clients).getRange('A2:A12').getValues();
+  var nClients = 0;
+  for (var ci = 0; ci < clientCol.length; ci++) {
+    if (String(clientCol[ci][0]).trim() !== '') nClients = ci + 1;
+  }
+  if (nClients > 0) {
+    var boxes = sh.getRange(22, 6, nClients, 1);
+    boxes.insertCheckboxes();
+    boxes.setValue(true);
+  }
   card_(sh.getRange('F21:G32'));
 
   sectionHeader_(sh.getRange('B34'), 'HOURS — MONTH × CLIENT (last 13)');
