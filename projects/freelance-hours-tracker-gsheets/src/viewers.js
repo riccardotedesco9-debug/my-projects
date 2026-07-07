@@ -89,16 +89,16 @@ function buildViewerContent_(viewer, trackerId, client) {
 
   sh.setHiddenGridlines(true);
   sh.getRange('A1:S1000').setFontFamily(CFG.fontFamily);
-  sh.setColumnWidth(1, 24);
-  // B..D stats + tables strip, E spacer, F..J sessions table, K edge.
-  [150, 90, 110, 24, 95, 320, 70, 70, 80, 24].forEach(function (w, i) {
-    sh.setColumnWidth(i + 2, w);
-  });
+  // A margin · B-D stat cards (chart zone floats here) · E gap · F-J sessions
+  // · P-S hidden chart helpers.
+  var widths = { 1: 24, 2: 150, 3: 92, 4: 110, 5: 24, 6: 95, 7: 250, 8: 66, 9: 66, 10: 78, 11: 24 };
+  Object.keys(widths).forEach(function (col) { sh.setColumnWidth(Number(col), widths[col]); });
 
-  sh.getRange('B2:D2').merge();
+  // --- Title + subtitle (span the full width so long names never clip) ---
+  sh.getRange('B2:J2').merge();
   sh.getRange('B2').setValue('HOURS SUMMARY — ' + client.toUpperCase())
     .setFontSize(16).setFontWeight('bold').setFontColor(CFG.colors.navy);
-  sh.getRange('B3:F3').merge();
+  sh.getRange('B3:J3').merge();
   sh.getRange('B3')
     .setValue('Live view · prepared by ' + CFG.ownerName + ' · updates automatically as work is logged')
     .setFontColor(CFG.colors.gray).setFontSize(9).setFontStyle('italic');
@@ -109,60 +109,119 @@ function buildViewerContent_(viewer, trackerId, client) {
   var q = client.replace(/"/g, '');
   var imp = 'IMPORTRANGE("' + trackerId + '", "' + CFG.sheets.log + '!A2:F")';
 
-  // --- Headline stats (computed from the sessions spill below) ---
+  // --- Sessions list (right zone F-J; the SINGLE IMPORTRANGE data source) ---
+  sh.getRange('F5').setValue('SESSIONS').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(10);
+  // Fallback is '' — an empty log also lands here, so it must NOT claim an
+  // access problem; the bottom anchor is the dedicated access indicator.
+  sh.getRange('F6').setFormula(
+    '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6 " +
+      'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc ' +
+      "label Col1 'Date', Col3 'Task', Col4 'Start', Col5 'End', Col6 'Hours'\", 0), \"\")"
+  );
+  // QUERY renders its labels on F6, data from F7 down: F date G task H start I end J hours.
+  sh.getRange('F6:J6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
+    .setBorder(null, null, true, null, false, false, CFG.colors.grayLine, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('F7:F1000').setNumberFormat(CFG.formats.date);
+  sh.getRange('H7:I1000').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
+  sh.getRange('J7:J1000').setNumberFormat(CFG.formats.hours);
+
+  // --- Highlighting, mirroring the Time Log: a long day (8h+ total, amber →
+  // deeper as it climbs) shades the date, an overnight session (end day > start
+  // day) turns the date red, and the Hours column carries a white→teal scale.
+  // First-match-wins, so the combined midnight+busy rules come first. ---
+  var dateRange = sh.getRange('F7:F1000');
+  var busy = function (n) { return 'SUMIF($F$7:$F$1000,$F7,$J$7:$J$1000)>' + n; };
+  var midnight = '$I7<>"", INT($I7)>INT($H7)';
+  var vRule = function (formula, bg, font) {
+    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges([dateRange]);
+    if (bg) b = b.setBackground(bg);
+    if (font) b = b.setFontColor(font);
+    return b.build();
+  };
+  sh.setConditionalFormatRules([
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
+    vRule('=AND(' + midnight + ')', null, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
+    vRule('=AND($F7<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
+    vRule('=AND($F7<>"", ' + busy(8) + ')', CFG.colors.amber, null),
+    SpreadsheetApp.newConditionalFormatRule()
+      .setGradientMinpoint(CFG.colors.white)
+      .setGradientMaxpoint(CFG.colors.tealSoft)
+      .setRanges([sh.getRange('J7:J1000')])
+      .build(),
+  ]);
+
+  // --- Headline stats (left zone; read the sessions spill, hours only).
+  // Values are left-aligned so each number sits directly under its label. ---
   sectionHeader_(sh.getRange('B5'), 'TOTAL HOURS');
-  sh.getRange('B6').setFormula('=IFERROR(ROUND(SUM($J$23:$J$1000), 2), 0)')
-    .setNumberFormat('0.00 "h"').setFontSize(16).setFontWeight('bold').setFontColor(CFG.colors.navy);
+  sh.getRange('B6').setFormula('=IFERROR(ROUND(SUM($J$7:$J$1000), 2), 0)')
+    .setNumberFormat('0.00 "h"').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
+    .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('C5'), 'SESSIONS');
-  sh.getRange('C6').setFormula('=COUNT($F$23:$F$1000)')
-    .setNumberFormat('0').setFontSize(16).setFontWeight('bold').setFontColor(CFG.colors.navy);
+  sh.getRange('C6').setFormula('=COUNT($F$7:$F$1000)')
+    .setNumberFormat('0').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
+    .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('D5'), 'THIS MONTH');
   sh.getRange('D6').setFormula(
-    '=IFERROR(ROUND(SUMIFS($J$23:$J$1000, $F$23:$F$1000, ">="&EOMONTH(TODAY(),-1)+1, ' +
-    '$F$23:$F$1000, "<="&EOMONTH(TODAY(),0)), 2), 0)'
-  ).setNumberFormat('0.00 "h"').setFontSize(16).setFontWeight('bold').setFontColor(CFG.colors.navy);
-  sh.setRowHeight(6, 30);
+    '=IFERROR(ROUND(SUMIFS($J$7:$J$1000, $F$7:$F$1000, ">="&EOMONTH(TODAY(),-1)+1, ' +
+    '$F$7:$F$1000, "<="&EOMONTH(TODAY(),0)), 2), 0)'
+  ).setNumberFormat('0.00 "h"').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
+    .setHorizontalAlignment('left');
+  sh.setRowHeight(6, 28);
   card_(sh.getRange('B5:D6'));
 
-  // --- Hidden chart/table data (N..S): trailing-24-month totals + top tasks ---
-  sh.getRange('N6').setValue('Chart data — do not edit').setFontColor(CFG.colors.gray).setFontSize(8);
-  sh.getRange('N7').setFormula(
-    '=IFERROR(QUERY(' + imp + ", \"select year(Col1), month(Col1)+1, sum(Col6) " +
-      'where Col2 = ""' + q + '"" ' +
-      "and Col1 >= date '\"&TEXT(EOMONTH(TODAY(),-24)+1,\"yyyy-mm-dd\")&\"' " +
-      "group by year(Col1), month(Col1) order by year(Col1), month(Col1) " +
-      "label year(Col1) '', month(Col1)+1 '', sum(Col6) ''\", 0), \"\")"
+  // --- Hidden chart helpers (P-S): rollups computed LOCALLY from the sessions
+  // spill (F=date, G=task, J=hours) — no second IMPORTRANGE, and no GViz
+  // date-function quirks over imported columns (which silently blank out). ---
+  sh.getRange('P2').setValue('Month');
+  sh.getRange('Q2').setValue('Hours');
+  // EOMONTH over the WHOLE column keeps Col1 a single date type (empty rows
+  // harmlessly become 1899-12-31); a mixed date/blank column makes GViz QUERY
+  // silently return nothing. Filter the 1899 blanks out by date.
+  sh.getRange('P3').setFormula(
+    '=IFERROR(QUERY({ARRAYFORMULA(EOMONTH($F$7:$F$1000, 0)), $J$7:$J$1000}, ' +
+      "\"select Col1, sum(Col2) where Col1 > date '1900-01-01' " +
+      "group by Col1 order by Col1 label Col1 '', sum(Col2) ''\", 0), \"\")"
   );
-  sh.getRange('R7').setFormula(
-    '=IFERROR(QUERY(' + imp + ", \"select Col3, sum(Col6) " +
-      'where Col2 = ""' + q + '"" group by Col3 ' +
-      "order by sum(Col6) desc limit 8 " +
-      "label Col3 '', sum(Col6) ''\", 0), \"\")"
+  sh.getRange('P3:P26').setNumberFormat(CFG.formats.monthShort);
+  sh.getRange('Q3:Q26').setNumberFormat(CFG.formats.hours);
+  sh.getRange('R2').setValue('Task');
+  sh.getRange('S2').setValue('Hours');
+  sh.getRange('R3').setFormula(
+    '=IFERROR(QUERY({$G$7:$G$1000, $J$7:$J$1000}, ' +
+      "\"select Col1, sum(Col2) where Col2 > 0 group by Col1 " +
+      "order by sum(Col2) desc limit 8 label Col1 '', sum(Col2) ''\", 0), \"\")"
   );
-  sh.hideColumns(14, 6); // N..S — working data, not part of the page
+  sh.getRange('S3:S10').setNumberFormat(CFG.formats.hours);
+  // Pie legend labels "Task — X.Xh": every slice's hours read off the legend,
+  // even when the slice itself is too small to carry a label.
+  sh.getRange('T3').setFormula(
+    '=ARRAYFORMULA(IF($R$3:$R$10="", "", $R$3:$R$10 & " — " & TEXT($S$3:$S$10, "0.0") & "h"))'
+  );
+  sh.hideColumns(16, 5); // P-T — working data, off the page
 
-  // --- Charts band (rows 8-19 stay empty cells; the charts float there) ---
+  // --- Charts, stacked in the left zone beside the sessions ---
   sh.insertChart(
-    sh.newChart()
-      .setChartType(Charts.ChartType.COLUMN)
-      .addRange(sh.getRange('B22:C46'))
-      .setNumHeaders(1)
+    sh.newChart().setChartType(Charts.ChartType.COLUMN)
+      .addRange(sh.getRange('P2:Q26')).setNumHeaders(1)
       .setOption('title', 'Hours by month')
       .setOption('legend', { position: 'none' })
       .setOption('colors', [CFG.colors.teal])
       .setOption('backgroundColor', 'white')
-      .setOption('width', 420)
-      .setOption('height', 230)
-      .setPosition(8, 2, 0, 0)
-      .build()
+      .setOption('width', 368).setOption('height', 200)
+      .setPosition(8, 2, 0, 4).build()
   );
+  // Pie, matching the timesheet report's breakdown — same navy/teal/gold ramp,
+  // legend on the right, % on the slices. The legend labels (T) carry each
+  // task's hours, so the smallest slices stay fully readable.
   sh.insertChart(
-    sh.newChart()
-      .setChartType(Charts.ChartType.PIE)
-      .addRange(sh.getRange('B50:C58'))
-      .setNumHeaders(1)
+    sh.newChart().setChartType(Charts.ChartType.PIE)
+      .addRange(sh.getRange('T3:T10')) // labels: "Task — X.Xh"
+      .addRange(sh.getRange('S3:S10')) // values: hours
       .setOption('title', 'Where the time goes')
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 10 } })
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 9 } })
       .setOption('pieSliceText', 'percentage')
       .setOption('colors', [
         CFG.colors.teal, CFG.colors.navy, CFG.colors.gold, CFG.colors.tealSoft,
@@ -170,47 +229,20 @@ function buildViewerContent_(viewer, trackerId, client) {
       ])
       .setOption('pieSliceBorderColor', 'white')
       .setOption('backgroundColor', 'white')
-      .setOption('width', 420)
-      .setOption('height', 230)
-      .setPosition(8, 7, 0, 0)
-      .build()
+      .setOption('width', 368).setOption('height', 232)
+      .setPosition(19, 2, 0, 4).build()
   );
 
-  // --- The numbers behind the charts (left strip) ---
-  sectionHeader_(sh.getRange('B21'), 'HOURS BY MONTH');
-  sh.getRange('B22').setValue('Month').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('C22').setValue('Hours').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('B23').setFormula('=ARRAYFORMULA(IF($N$7:$N$30="",, DATE($N$7:$N$30, $O$7:$O$30, 1)))');
-  sh.getRange('B23:B46').setNumberFormat(CFG.formats.monthShort);
-  sh.getRange('C23').setFormula('=ARRAYFORMULA(IF($N$7:$N$30="",, $P$7:$P$30))');
-  sh.getRange('C23:C46').setNumberFormat(CFG.formats.hours);
-  card_(sh.getRange('B21:C47'));
-  sectionHeader_(sh.getRange('B49'), 'WHERE THE TIME GOES');
-  sh.getRange('B50').setValue('Task').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('C50').setValue('Hours').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('B51').setFormula('=ARRAYFORMULA(IF($R$7:$R$14="",, $R$7:$R$14))');
-  sh.getRange('C51').setFormula('=ARRAYFORMULA(IF($R$7:$R$14="",, $S$7:$S$14))');
-  sh.getRange('C51:C58').setNumberFormat(CFG.formats.hours);
-  card_(sh.getRange('B49:C59'));
-
-  // --- Sessions list (right strip; latest first) ---
-  sh.getRange('F21').setValue('SESSIONS').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(10);
-  // Fallback is '' — an empty log also lands here, so it must NOT claim an
-  // access problem; the H2 anchor is the dedicated access indicator.
-  sh.getRange('F22').setFormula(
-    '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6 " +
-      'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc ' +
-      "label Col1 'Date', Col3 'Task', Col4 'Start', Col5 'End', Col6 'Hours'\", 0), \"\")"
-  );
-  // Sessions spill starts at F22 (header) → F23 down: F date, G task, H start, I end, J hours.
-  sh.getRange('F23:F1000').setNumberFormat(CFG.formats.date);
-  sh.getRange('H23:I1000').setNumberFormat(CFG.formats.time);
-  sh.getRange('J23:J1000').setNumberFormat(CFG.formats.hours);
-
-  // Bare IMPORTRANGE anchor: the "Allow access" prompt only appears on an
-  // unwrapped call — IFERROR-wrapped formulas would hide it forever.
-  sh.getRange('H2').setFormula('=' + imp.replace(CFG.sheets.log + '!A2:F', CFG.sheets.log + '!A1'));
-  sh.getRange('H2').setFontColor(CFG.colors.grayLine).setFontSize(8);
-  sh.getRange('G2').setValue('if #REF appears → click it, then "Allow access"')
-    .setFontColor(CFG.colors.grayLine).setFontSize(8).setHorizontalAlignment('right');
+  // --- One-time setup anchor, tucked below the left zone. The bare
+  // (un-IFERROR'd) IMPORTRANGE is the only cell that can raise the "Allow
+  // access" prompt; the owner grants it once. Both the anchor and its hint
+  // VANISH the moment access is granted: the ";;;" format hides the imported
+  // value (an un-granted #REF error ignores number formats, so the prompt is
+  // never hidden), and the hint is an ISERROR formula that blanks once the
+  // anchor resolves. So a granted, client-facing view shows nothing here. ---
+  sh.getRange('B33').setFormula('=' + imp.replace(CFG.sheets.log + '!A2:F', CFG.sheets.log + '!A1'))
+    .setNumberFormat(';;;').setFontColor(CFG.colors.grayLine).setFontSize(8);
+  sh.getRange('C33').setFormula(
+    '=IF(ISERROR($B$33), "One-time setup — if the cell on the left shows an error, click it and choose ""Allow access"".", "")'
+  ).setFontColor(CFG.colors.grayLine).setFontSize(8);
 }
