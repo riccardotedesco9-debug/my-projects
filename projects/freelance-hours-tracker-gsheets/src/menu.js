@@ -20,7 +20,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Export timesheet PDF…', 'showExportDialog')
     .addItem('Prepare monthly drafts now', 'monthlyEmailJob')
-    .addItem('Create client view…', 'createClientViewerPrompt')
+    .addItem('Client views…', 'showClientViewDialog')
     .addSeparator()
     .addSubMenu(
       ui.createMenu('Maintenance')

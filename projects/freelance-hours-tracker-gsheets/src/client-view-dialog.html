@@ -1,0 +1,87 @@
+<!-- client-view-dialog.html — pick a client, create/refresh their live
+     view-only Summary file, and copy the share link. -->
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font: 13px/1.5 'Outfit', Arial, sans-serif; background: #F7F7F4; color: #1F2937; padding: 16px; }
+  h3 { color: #1F3864; font-size: 14px; margin-bottom: 4px; }
+  p.sub { color: #6B7280; font-size: 11px; margin-bottom: 14px; }
+  label { display: block; font-size: 11px; font-weight: 600; color: #6B7280; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: .04em; }
+  select, input[type=text] { width: 100%; font-size: 16px; padding: 8px; border: 1px solid #D1D5DB; border-radius: 6px; background: #fff; font-family: inherit; }
+  button { width: 100%; margin-top: 14px; padding: 10px; font-size: 14px; font-weight: 600; font-family: inherit; color: #fff; background: #0F766E; border: 0; border-radius: 6px; cursor: pointer; }
+  button:disabled { background: #9CA3AF; cursor: default; }
+  #out { margin-top: 14px; display: none; }
+  #status { font-size: 12px; font-weight: 600; color: #2E7D32; margin-bottom: 6px; }
+  #link { margin-bottom: 6px; }
+  a#open { font-size: 12px; color: #0F766E; font-weight: 600; }
+  p.hint { margin-top: 14px; font-size: 10px; color: #6B7280; }
+  #err { margin-top: 10px; font-size: 12px; color: #B91C1C; display: none; }
+</style>
+
+<h3>Live client views</h3>
+<p class="sub">One view-only file per client: their hours summary, charts and sessions — never rates, € or other clients.</p>
+
+<label for="client">Client</label>
+<select id="client"><option>Loading…</option></select>
+<button id="go" disabled>Create / refresh live view</button>
+
+<div id="out">
+  <div id="status"></div>
+  <input type="text" id="link" readonly onclick="this.select()">
+  <a id="open" target="_blank" rel="noopener">Open it ↗</a>
+</div>
+<div id="err"></div>
+
+<p class="hint">Send the link as-is — anyone with it can only view. One-time step per new file: open it once yourself and click "Allow access" on the small anchor cell so the live data flows.</p>
+
+<script>
+  var sel = document.getElementById('client');
+  var go = document.getElementById('go');
+
+  google.script.run
+    .withSuccessHandler(function (model) {
+      sel.innerHTML = '';
+      if (!model.clients.length) {
+        sel.innerHTML = '<option>No clients yet — add one on the Clients sheet</option>';
+        return;
+      }
+      model.clients.forEach(function (c) {
+        var opt = document.createElement('option');
+        opt.value = c.name;
+        opt.textContent = c.name + (c.hasView ? '  ·  view exists (refresh)' : '  ·  no view yet');
+        sel.appendChild(opt);
+      });
+      go.disabled = false;
+    })
+    .withFailureHandler(function (e) { showErr(e); })
+    .getClientViewModel();
+
+  go.onclick = function () {
+    go.disabled = true;
+    go.textContent = 'Working… (a few seconds)';
+    document.getElementById('out').style.display = 'none';
+    document.getElementById('err').style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        go.disabled = false;
+        go.textContent = 'Create / refresh live view';
+        if (!res.ok) return showErr({ message: res.msg });
+        document.getElementById('status').textContent =
+          (res.created ? 'Created' : 'Refreshed') + ' the live view for ' + res.client + ' — link ready:';
+        document.getElementById('link').value = res.url;
+        document.getElementById('open').href = res.url;
+        document.getElementById('out').style.display = 'block';
+      })
+      .withFailureHandler(function (e) {
+        go.disabled = false;
+        go.textContent = 'Create / refresh live view';
+        showErr(e);
+      })
+      .createClientView(sel.value);
+  };
+
+  function showErr(e) {
+    var el = document.getElementById('err');
+    el.textContent = 'Error: ' + (e && e.message ? e.message : e);
+    el.style.display = 'block';
+  }
+</script>

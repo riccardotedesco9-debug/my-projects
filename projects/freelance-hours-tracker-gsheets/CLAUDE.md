@@ -33,11 +33,13 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
    re-prices rows via the live lookup formula; overtype any row's Rate to pin a one-off.
 9. **1st of each month:** a trigger builds last month's PDF per active client and leaves a
    **Gmail draft** to them for your review — you press send.
-10. **Live client views:** ⏱ Tracker → *Create client view…* makes a view-only spreadsheet per
-    client that opens on a client-facing **Summary** page — headline totals (total hours,
-    sessions, this month), an hours-by-month chart, and the session list. Hours ONLY: it
-    imports Log!A2:F filtered to that client, so rates/€ and other clients physically can't
-    appear. Share the link it hands back (view-only is already set).
+10. **Live client views:** ⏱ Tracker → *Client views…* — pick any client from the dropdown
+    (new clients appear automatically; existing views say "refresh"), one button creates or
+    refreshes their view-only file and hands back the share link. The file opens on a
+    client-facing **Summary** dashboard: headline stats (total hours, sessions, this month),
+    an hours-by-month column chart + a "Where the time goes" top-tasks pie, the tables
+    behind them, and the latest-first session list. Hours ONLY: it imports Log!A2:F filtered
+    to that client, so rates/€ and other clients physically can't appear.
 
 The **sidebar is the control surface** (ticking clock, Start/Stop, zero-gap confirm, today +
 month footer, export/add-session shortcuts). The Dashboard's one button opens it; the status
