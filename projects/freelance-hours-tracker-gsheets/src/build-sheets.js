@@ -15,6 +15,17 @@ function trimGrid_(sh, target) {
   return safe;
 }
 
+/**
+ * Trims the derived sheets (Dashboard / Summary / Report) from Google's default
+ * 1000 rows down to just above their content — no long empty scroll. Data-safe
+ * via trimGrid_ (never cuts below content); the Report re-grows to fit on export.
+ */
+function trimDerivedGrids_(ss) {
+  trimGrid_(ss.getSheetByName(CFG.sheets.dashboard), 50);
+  trimGrid_(ss.getSheetByName(CFG.sheets.summary), 80);
+  trimGrid_(ss.getSheetByName(CFG.sheets.report), 60);
+}
+
 function buildClientsSheet_(ss) {
   var sh = ss.getSheetByName(CFG.sheets.clients);
   trimGrid_(sh, 220); // trim the empty tail (a fresh sheet ships with ~1000 rows)

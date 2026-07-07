@@ -21,7 +21,7 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
   // An hours-only timesheet omits fixed-fee project rows (they carry no hours).
   if (!includeMoney) rows = rows.filter(function (r) { return !r.fixed; });
 
-  var body = sh.getRange(3, 1, Math.max(sh.getMaxRows() - 2, 1), 9);
+  var body = sh.getRange(3, 1, Math.max(sh.getMaxRows() - 2, 1), 10); // incl. col J pie-legend helper
   body.clear();
   // clear() does NOT unmerge: without this, toggling includeMoney between
   // exports throws when the new 'Generated:' merge overlaps the stale one.
@@ -30,6 +30,12 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
   sh.getCharts().forEach(function (ch) {
     sh.removeChart(ch);
   });
+
+  // The report shell is trimmed small (not the 1000-row default) — grow the grid
+  // to hold THIS report before writing into it. ~40 rows headroom covers the
+  // breakdown table, pie and signature.
+  var needed = 12 + rows.length + 40;
+  if (sh.getMaxRows() < needed) sh.insertRowsAfter(sh.getMaxRows(), needed - sh.getMaxRows());
 
   sh.getRange('B3').setValue('TIMESHEET').setFontSize(22).setFontWeight('bold').setFontColor(CFG.colors.navy);
 
@@ -194,7 +200,15 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
       sh.getRange(r, 7).setValue(groups[i].amount || 0).setNumberFormat(CFG.formats.euro).setHorizontalAlignment('right');
       totalAmount += groups[i].amount || 0;
     }
+    // Hidden pie-legend label (col J): "Type of work   €Amount" (or "…  Xh" in
+    // hours mode) so the amount shows beside each name in the legend. Column J is
+    // hidden below, so it never appears in the exported PDF.
+    var vNum = includeMoney ? (groups[i].amount || 0) : groups[i].hours;
+    var vp = (Math.round(vNum * 100) / 100).toFixed(2).split('.');
+    vp[0] = vp[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    sh.getRange(r, 10).setValue(literal_(groups[i].label + (includeMoney ? '   €' + vp.join('.') : '   ' + vp.join('.') + ' h')));
   }
+  sh.hideColumns(10); // the pie-legend helper column
 
   var totalRowN = head + 1 + groups.length;
   sh.getRange(totalRowN, 2, 1, cols).setBorder(true, null, null, null, false, false, CFG.colors.navy, SpreadsheetApp.BorderStyle.SOLID);
@@ -221,7 +235,7 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
     var chart = sh
       .newChart()
       .setChartType(Charts.ChartType.PIE)
-      .addRange(sh.getRange(head + 1, 2, groups.length, 1)) // labels = full work-type names (B)
+      .addRange(sh.getRange(head + 1, 10, groups.length, 1)) // labels = "name   €amount" (hidden col J)
       .addRange(sh.getRange(head + 1, valueCol, groups.length, 1)) // values
       .setOption('legend', { position: 'right', textStyle: { fontSize: 10 } })
       .setOption('pieSliceText', 'percentage') // % on slices; full names in the legend

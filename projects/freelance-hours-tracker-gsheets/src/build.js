@@ -191,6 +191,7 @@ function rebuildOnce_(ss) {
   buildReportShell_(ss);
   buildDashboardSheet_(ss);
   buildSummarySheet_(ss);
+  trimDerivedGrids_(ss); // shrink the 1000-row default down to content
 
   refreshStatusBanner_({ ss: ss, prefix: '', silent: true }, idleState_());
   SpreadsheetApp.flush();
@@ -276,6 +277,7 @@ function updateLayout_(ss) {
   buildDashboardSheet_(ss);
   ss.insertSheet(CFG.sheets.summary);
   buildSummarySheet_(ss);
+  trimDerivedGrids_(ss); // shrink the 1000-row default down to content
 
   // Reformat the DATA sheets in place — every row is preserved. buildLogSheet_
   // clears prior banding first so it's safe to re-run; buildClientsSheet_ only

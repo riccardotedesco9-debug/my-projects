@@ -63,6 +63,8 @@ function sectionBuildSpec_(S, env) {
   S.t('summary client filter present (F22 checkboxes)', !!cliBox && cliBox.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
   S.t('summary client checkboxes default ticked (all shown)', summary.getRange('F22').getValue(), true);
   S.t('summary totals QUERY filters by the client checklist (X1)', summary.getRange('B5').getFormula().indexOf('$X$1') >= 0, true);
+  S.t('summary grid trimmed to content (not the 1000 default)', summary.getMaxRows(), Math.max(80, summary.getLastRow()));
+  S.t('dashboard grid trimmed to content (not the 1000 default)', ss.getSheetByName(CFG.sheets.dashboard).getMaxRows(), Math.max(50, ss.getSheetByName(CFG.sheets.dashboard).getLastRow()));
   S.t('report shell starts chartless', env.repSh.getCharts().length, 0);
 
   // --- Empty-tracker behavior (zero rows anywhere) ---
