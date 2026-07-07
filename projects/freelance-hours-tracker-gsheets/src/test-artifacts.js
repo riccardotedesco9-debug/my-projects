@@ -59,15 +59,28 @@ function sectionViewer_(S, env) {
   S.t('viewer: two charts (hours-by-month column + task pie)', sh.getCharts().length, 2);
   S.t('viewer: pie legend labels embed each task\'s hours', sh.getRange('T3').getFormula().indexOf('TEXT($S$3') > 0, true);
   S.t('viewer: chart-helper columns hidden (P-T)', sh.isColumnHiddenByUser(16) && sh.isColumnHiddenByUser(20), true);
-  // Time-Log-style highlighting carried into the client list: busy-day amber,
-  // midnight-crossing red, and the hours colour scale.
-  var vDump = sh.getConditionalFormatRules().map(function (r) {
+  // Time-Log-style highlighting carried into the client list: the amber busy-day
+  // flag + midnight-crossing red live on the DATE column ONLY; the HOURS column
+  // carries the green scale (never amber). Assert both the rule CONTENTS and the
+  // COLUMNS they sit on, so amber can't silently bleed back onto hours.
+  var vRules = sh.getConditionalFormatRules();
+  var vDump = vRules.map(function (r) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';
   }).join(' | ');
   S.t('viewer: busy-day highlight rule present', vDump.indexOf('>8') >= 0, true);
   S.t('viewer: midnight-crossing red rule present', vDump.indexOf('INT($I7)') >= 0, true);
   S.t('viewer: hours colour scale present', vDump.indexOf('[gradient]') >= 0, true);
+  var boolCols = {}, gradOnHours = false;
+  vRules.forEach(function (r) {
+    if (r.getBooleanCondition()) {
+      r.getRanges().forEach(function (rg) { boolCols[rg.getColumn()] = true; });
+    } else if (r.getRanges().some(function (rg) { return rg.getColumn() === 10; })) {
+      gradOnHours = true; // gradient on Hours (col J)
+    }
+  });
+  S.t('viewer: amber/red rules sit on the DATE column only (col F, never hours)', Object.keys(boolCols).join(','), '6');
+  S.t('viewer: green hours scale sits on the HOURS column (col J)', gradOnHours, true);
   // Privacy: the ONLY data import is the sessions QUERY, pulling A2:F
   // (date..hours) — never Rate (G) / Amount (H) or another client. The local
   // rollups touch only date/task/hours columns of that spill.

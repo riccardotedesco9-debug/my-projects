@@ -21,7 +21,10 @@ function sectionReconcile_(S, env) {
 
   // --- Independent JS aggregation (mirrors the formulas' windows, including
   // the "client is not null" guard the Summary QUERYs carry) ---
-  var js = { today: 0, week: 0, month: 0, monthEarn: 0, win13h: 0, win13e: 0, petMonth: 0 };
+  // Totals/by-client/chart follow the Summary's C3 window selector (months);
+  // the matrices stay on a fixed 13-month grid. Default to 13 if C3 is unset.
+  var winMonths = Number(ss.getSheetByName(CFG.sheets.summary).getRange('F2').getValue()) || 13;
+  var js = { today: 0, week: 0, month: 0, monthEarn: 0, winH: 0, winE: 0, petMonth: 0 };
   var buckets = {};
   var clientSet = {};
   vals.forEach(function (v) {
@@ -39,10 +42,10 @@ function sectionReconcile_(S, env) {
       js.monthEarn += amount;
       if (client === 'Pet Centre') js.petMonth += hours;
     }
-    if (ymOf(date) >= curYm - 13) {
-      js.win13h += hours;
-      js.win13e += amount;
-      buckets[ymOf(date)] = true;
+    if (ymOf(date) >= curYm - 13) buckets[ymOf(date)] = true; // matrix (fixed 13-mo grid)
+    if (ymOf(date) >= curYm - winMonths) {
+      js.winH += hours;
+      js.winE += amount;
     }
   });
   // Preconditions: the fixed read windows below can hold 14 month-buckets /
@@ -59,13 +62,13 @@ function sectionReconcile_(S, env) {
   var vEarn = Number(dash.getRange('C21').getValue());
   var byClient = dash.getRange('E19:G28').getValues();
   var snap = buildSnapshot_(env.ctx, idleState_());
-  var vC5 = Number(summary.getRange('C5').getValue());
-  var vC6 = Number(summary.getRange('C6').getValue());
-  var hdr = summary.getRange('B17:N17').getValues()[0].map(String).join('|');
-  var matrix = summary.getRange('B18:N31').getValues();
-  var eMatrix = summary.getRange('B36:N49').getValues();
-  var q = summary.getRange('Q3:Q26').getValues();
-  var rVals = summary.getRange('R3:R26').getValues().map(function (r) { return r[0]; }).filter(function (v) { return v !== '' && v !== null; });
+  var vSumHours = Number(summary.getRange('B5').getValue());
+  var vSumEarn = Number(summary.getRange('E5').getValue());
+  var hdr = summary.getRange('B35:N35').getValues()[0].map(String).join('|');
+  var matrix = summary.getRange('B36:N49').getValues();
+  var eMatrix = summary.getRange('B54:N67').getValues();
+  var q = summary.getRange('U3:U26').getValues();
+  var rVals = summary.getRange('V3:V26').getValues().map(function (r) { return r[0]; }).filter(function (v) { return v !== '' && v !== null; });
   var chartCount = summary.getCharts().length;
   var dayRolled = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd') !== todayKey;
   var monthRolled = Utilities.formatDate(new Date(), tz, 'yyyy-MM') !== monthKey;
@@ -89,8 +92,8 @@ function sectionReconcile_(S, env) {
     var petRow = byClient.filter(function (r) { return String(r[0]) === 'Pet Centre'; })[0];
     S.t('by-client card lists Pet Centre', !!petRow, true);
     if (petRow) S.near('by-client card: Pet Centre hours', Number(petRow[1]), js.petMonth, 0.02);
-    S.near('Summary total hours == raw log window', vC5, js.win13h, 0.05);
-    S.near('Summary total earnings == raw log window', vC6, js.win13e, 0.05);
+    S.near('Summary total hours == raw log window (F2 selector)', vSumHours, js.winH, 0.05);
+    S.near('Summary total earnings == raw log window (F2 selector)', vSumEarn, js.winE, 0.05);
     S.t('hours matrix headers carry the clients', hdr.indexOf('Pet Centre') >= 0 && hdr.indexOf("Paws 'n' Claws") >= 0, true);
     var monthRow = matrix.filter(function (r) { return r[0] instanceof Date && ymOf(r[0]) === curYm; })[0];
     S.t('hours matrix has a row for this month', !!monthRow, true);
@@ -105,9 +108,9 @@ function sectionReconcile_(S, env) {
       S.near('earnings matrix row sums to this month\'s €', eSum, js.monthEarn, 0.05);
     }
     var qSum = q.reduce(function (a, r) { return a + (Number(r[0]) || 0); }, 0);
-    S.near('chart data: per-month € sums to the window total', qSum, js.win13e, 0.05);
+    S.near('chart data: per-month € sums to the window total', qSum, js.winE, 0.05);
     S.t('cumulative column is populated', rVals.length > 0, true);
-    if (rVals.length) S.near('cumulative line ends at the grand total', Number(rVals[rVals.length - 1]), js.win13e, 0.05);
+    if (rVals.length) S.near('cumulative line ends at the grand total', Number(rVals[rVals.length - 1]), js.winE, 0.05);
   }
 
   // --- Window-independent shape checks ---

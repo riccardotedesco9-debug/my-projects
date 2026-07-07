@@ -39,19 +39,29 @@ function sectionBuildSpec_(S, env) {
   S.t('rule 4 = plain midnight (no busy clause)', dump[3].indexOf('INT($E2)') >= 0 && dump[3].indexOf('SUMIF') < 0, true);
   S.t('rule 7 = plain busy >8h (no midnight clause)', dump[6].indexOf('>8') >= 0 && dump[6].indexOf('INT($E2)') < 0, true);
   S.t('rule 8 = hours gradient', dump[7], '[gradient]');
+  S.t('log has a click-to-sort/filter on its headers', !!log.getFilter(), true);
 
   // --- Clients / Settings / Summary / Report spec ---
   S.t('clients headers', env.clientsSh.getRange(1, 1, 1, 3).getValues()[0].join('|'), CFG.clients.headers.join('|'));
   S.t('seed client 1', String(env.clientsSh.getRange(2, 1).getValue()), 'Pet Centre');
   S.t('seed client 2', String(env.clientsSh.getRange(3, 1).getValue()), 'Splash Store');
+  S.t('clients sheet has a click-to-sort/filter on its headers', !!env.clientsSh.getFilter(), true);
   var settings = ss.getSheetByName(CFG.sheets.settings);
   S.t('settings hidden', settings.isSheetHidden(), true);
   S.t('settings mirror idle', String(settings.getRange('C4').getValue()), 'IDLE');
   S.t('settings schema stamped', String(settings.getRange('C9').getValue()), CFG.schemaVersion);
   var summary = ss.getSheetByName(CFG.sheets.summary);
   S.t('summary ships its 2 charts', summary.getCharts().length, 2);
-  S.t('summary chart data is a live QUERY', summary.getRange('P2').getFormula().indexOf('QUERY') >= 0, true);
-  S.t('summary cumulative is a live SCAN', summary.getRange('R3').getFormula().indexOf('SCAN') >= 0, true);
+  S.t('summary chart data is a live QUERY', summary.getRange('T2').getFormula().indexOf('QUERY') >= 0, true);
+  S.t('summary cumulative is a live SCAN', summary.getRange('V3').getFormula().indexOf('SCAN') >= 0, true);
+  var winCtrl = summary.getRange('F2').getDataValidation();
+  S.t('summary window selector present (F2 dropdown)', !!winCtrl && winCtrl.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST, true);
+  S.t('summary window default is a valid months value', [3, 6, 12, 24].indexOf(Number(summary.getRange('F2').getValue())) >= 0, true);
+  S.t('summary totals QUERY references the F2 selector', summary.getRange('B5').getFormula().indexOf('$F$2') >= 0, true);
+  var cliBox = summary.getRange('F22').getDataValidation();
+  S.t('summary client filter present (F22 checkboxes)', !!cliBox && cliBox.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
+  S.t('summary client checkboxes default ticked (all shown)', summary.getRange('F22').getValue(), true);
+  S.t('summary totals QUERY filters by the client checklist (X1)', summary.getRange('B5').getFormula().indexOf('$X$1') >= 0, true);
   S.t('report shell starts chartless', env.repSh.getCharts().length, 0);
 
   // --- Empty-tracker behavior (zero rows anywhere) ---
@@ -66,7 +76,7 @@ function sectionBuildSpec_(S, env) {
   SpreadsheetApp.flush();
   S.t('dashboard Today reads 0.00 on empty log', Number(ss.getRangeByName(CFG.named.dbToday).getValue()), 0);
   S.t('by-client card degrades to a dash', String(ss.getRangeByName(CFG.named.dbClient).getSheet().getRange('E18').getValue()), '—');
-  S.t('summary totals read 0 on empty log', Number(summary.getRange('C5').getValue()), 0);
+  S.t('summary totals read 0 on empty log', Number(summary.getRange('B5').getValue()), 0);
   var snap = buildSnapshot_(env.ctx, idleState_());
   S.t('snapshot on empty tracker: 0 hours today', snap.todayHours, 0);
 

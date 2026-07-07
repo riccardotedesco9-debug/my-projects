@@ -32,7 +32,7 @@ function sectionReports_(S, env) {
 
   var bodyTasks = function (meta) {
     if (meta.rowCount === 0) return [];
-    return rep.getRange(10, 4, meta.rowCount, 1).getValues().map(function (r) { return String(r[0]); });
+    return rep.getRange(12, 4, meta.rowCount, 1).getValues().map(function (r) { return String(r[0]); });
   };
 
   // --- Month window semantics ---
@@ -71,10 +71,10 @@ function sectionReports_(S, env) {
   S.t('current month rowCount matches mirror', cur.rowCount, curMirror.count);
   S.near('totalHours excludes fixed-fee hours', cur.totalHours, curMirror.hours, 0.02);
   S.near('totalAmount includes fixed-fee €', cur.totalAmount, curMirror.amount, 0.02);
-  S.t('TOTAL € cell equals meta.totalAmount', Number(rep.getRange(10 + cur.rowCount, 9).getValue()), cur.totalAmount);
-  var clients = rep.getRange(10, 3, cur.rowCount, 1).getValues().map(function (r) { return String(r[0]); });
+  S.t('TOTAL € cell equals meta.totalAmount', Number(rep.getRange(12 + cur.rowCount, 9).getValue()), cur.totalAmount);
+  var clients = rep.getRange(12, 3, cur.rowCount, 1).getValues().map(function (r) { return String(r[0]); });
   S.t('per-client report leaks no other client', clients.filter(function (n) { return n !== 'Pet Centre'; }).join(','), '');
-  var body = rep.getRange(10, 2, cur.rowCount, 8).getValues();
+  var body = rep.getRange(12, 2, cur.rowCount, 8).getValues();
   // The injection defense must hold on the RENDERED report too, not just the
   // log — this is what actually reaches the client's PDF.
   var injIdx = -1;
@@ -82,12 +82,12 @@ function sectionReports_(S, env) {
     if (String(r[2]) === '=SUM(1,2)') injIdx = i;
   });
   S.t('injected task renders as literal text on the report', injIdx >= 0, true);
-  if (injIdx >= 0) S.t('…and is not a live formula there', rep.getRange(10 + injIdx, 4).getFormula(), '');
+  if (injIdx >= 0) S.t('…and is not a live formula there', rep.getRange(12 + injIdx, 4).getFormula(), '');
   var feeLine = body.filter(function (r) { return String(r[2]) === 'Logo design'; })[0];
   S.t('fee row renders: Rate = "Fixed"', feeLine ? String(feeLine[6]) : '(row missing)', 'Fixed');
   S.t('fee row renders: blank Start + Hours', feeLine ? String(feeLine[3]) + String(feeLine[5]) : 'x', '');
   S.t('fee row renders: the agreed €250', feeLine ? Number(feeLine[7]) : 0, 250);
-  var dates = rep.getRange(10, 2, cur.rowCount, 1).getValues();
+  var dates = rep.getRange(12, 2, cur.rowCount, 1).getValues();
   var sorted = true;
   for (var i = 1; i < dates.length; i++) {
     if (dates[i][0] instanceof Date && dates[i - 1][0] instanceof Date && dates[i][0].getTime() < dates[i - 1][0].getTime()) sorted = false;
@@ -103,13 +103,13 @@ function sectionReports_(S, env) {
   S.t('identical rebuild → identical meta', cur2.rowCount === cur.rowCount && cur2.totalHours === cur.totalHours && cur2.totalAmount === cur.totalAmount, true);
   S.t('regeneration keeps exactly ONE pie', rep.getCharts().length, 1);
   var hoursOnly = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, false, { forceFallback: true });
-  var hdr = rep.getRange(9, 2, 1, 8).getValues()[0].join('|');
+  var hdr = rep.getRange(11, 2, 1, 8).getValues()[0].join('|');
   S.t('hours-only: no Rate/Amount columns', hdr.indexOf('Rate') < 0 && hdr.indexOf('Amount') < 0, true);
   S.t('hours-only: table ends at column G', hoursOnly.lastCol, 7);
   S.t('hours-only: fixed-fee rows excluded', hoursOnly.rowCount, cur.rowCount - curMirror.fixed);
   // Scan the FULL vertical extent the money build wrote (body + TOTAL +
   // breakdown + signature zone), not just the shorter hours-only body.
-  var stale = rep.getRange(10, 9, cur.signatureRow - 10 + 1, 1).getValues().filter(function (r) { return r[0] !== ''; });
+  var stale = rep.getRange(12, 9, cur.signatureRow - 12 + 1, 1).getValues().filter(function (r) { return r[0] !== ''; });
   S.t('money→hours-only toggle leaves no stale € column', stale.length, 0);
   S.t('hours-only still draws its pie (by hours)', rep.getCharts().length, 1);
 
@@ -118,10 +118,11 @@ function sectionReports_(S, env) {
   S.t('fixed-only month: one row', feb.rowCount, 1);
   S.t('fixed-only month: zero hours', feb.totalHours, 0);
   S.t('fixed-only month: € carried', feb.totalAmount, 100);
-  S.t('fixed-only month: share cell is 0, not an error', Number(rep.getRange(10 + feb.rowCount + 3 + 2, 6).getValue()), 0);
+  // First breakdown group row = bodyTop(12) + rows + gap-to-breakdown(4) + (label, spacer, header)(3).
+  S.t('fixed-only month: share cell is 0, not an error', Number(rep.getRange(12 + feb.rowCount + 4 + 3, 6).getValue()), 0);
   S.t('fixed-only month: single group → no pie', rep.getCharts().length, 0);
   var febHours = buildReportCtx_(ctx, "Paws 'n' Claws", env.y + 1, 2, false, { forceFallback: true });
-  S.t('fixed-only month, hours-only: empty timesheet', febHours.rowCount === 0 && String(rep.getRange('B10').getValue()) === MSG.noSessions, true);
+  S.t('fixed-only month, hours-only: empty timesheet', febHours.rowCount === 0 && String(rep.getRange('B12').getValue()) === MSG.noSessions, true);
 }
 
 /** Independent JS mirror of collectReportRows_ filter semantics (the oracle). */

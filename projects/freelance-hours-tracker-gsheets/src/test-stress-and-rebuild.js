@@ -148,6 +148,7 @@ function sectionUpdateLayout_(S, env) {
   S.t('all named ranges re-registered', missing.join(','), '');
   S.t('summary charts not duplicated', env.ss.getSheetByName(CFG.sheets.summary).getCharts().length, 2);
   S.t('log banding not duplicated', log.getBandings().length, 1);
+  S.t('log filter survives the update (idempotent, not doubled)', !!log.getFilter(), true);
   var dump = log.getConditionalFormatRules().map(function (r) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';

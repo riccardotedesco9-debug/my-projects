@@ -57,7 +57,9 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
 
   var headers = ['Date', 'Client', 'Task', 'Start', 'End', 'Hours'];
   if (includeMoney) headers = headers.concat(['Rate', 'Amount']);
-  sh.getRange(9, 2, 1, headers.length)
+  // Header sits two rows below the info block (rows 9-10 breathe) so the navy
+  // bar isn't jammed against the Client / ID lines above it.
+  sh.getRange(11, 2, 1, headers.length)
     .setValues([headers])
     .setBackground(CFG.colors.navy)
     .setFontColor(CFG.colors.white)
@@ -66,7 +68,7 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
 
   var totalHours = 0;
   var totalAmount = 0;
-  var bodyTop = 10;
+  var bodyTop = 12;
   var lastRow;
 
   if (rows.length === 0) {
@@ -112,13 +114,14 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
       .setFontWeight('bold');
   }
 
-  // Work breakdown comes right after the totals…
+  // Work breakdown, set below the session TOTAL so the two tables read as
+  // separate sections without a cramped seam (3 blank rows between).
   var breakdown = [];
   var afterBreakdown = totalRow + 2;
   if (rows.length > 0) {
     var yyyymm = isYear ? year + '-full' : year + '-' + (month < 10 ? '0' : '') + month;
     breakdown = consolidateTasks_(ctx, clientOrAll, yyyymm, rows, { forceFallback: !!opts.forceFallback });
-    afterBreakdown = renderBreakdown_(sh, totalRow + 3, breakdown, totalHours, includeMoney);
+    afterBreakdown = renderBreakdown_(sh, totalRow + 4, breakdown, totalHours, includeMoney);
   }
 
   // …and the automatic electronic signature closes the page at the bottom:
@@ -163,7 +166,9 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
 function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
   sh.getRange(top, 2).setValue('WORK BREAKDOWN').setFontWeight('bold').setFontColor(CFG.colors.navy);
 
-  var head = top + 1;
+  // Blank row (top+1) between the heading and the navy table header, so the
+  // bold section title breathes above its table instead of sitting on the bar.
+  var head = top + 2;
   var cols = includeMoney ? 6 : 5; // B..F (Share) [..G Amount]
   sh.getRange(head, 2, 1, cols)
     .setBackground(CFG.colors.navy)
@@ -198,6 +203,15 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
   }
 
   if (groups.length > 1) {
+    // Title as a styled sheet CELL above the pie (navy bold, matching the
+    // section headings) — Sheets' embedded-chart renderer ignores titleTextStyle
+    // colour, so the pie's own title can't be navy; a cell can. The chart itself
+    // is titleless and sits one row below the heading.
+    sh.getRange(totalRowN + 2, 2)
+      .setValue(includeMoney ? 'Cost by work type' : 'Hours by work type')
+      .setFontWeight('bold')
+      .setFontColor(CFG.colors.navy);
+    var chartTop = totalRowN + 3;
     // Pie by € when money is shown, else by hours. Google pies force the legend
     // and the on-slice text to share one label source, so: full work-type names
     // go in the legend (the key you need), and slices show percentages.
@@ -209,7 +223,7 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
       .addRange(sh.getRange(head + 1, valueCol, groups.length, 1)) // values
       .setOption('legend', { position: 'right', textStyle: { fontSize: 10 } })
       .setOption('pieSliceText', 'percentage') // % on slices; full names in the legend
-      .setOption('title', includeMoney ? 'Earnings by work type' : 'Hours by work type')
+      .setOption('title', '') // titled by the navy cell above
       .setOption('colors', [
         CFG.colors.teal,
         CFG.colors.navy,
@@ -221,11 +235,11 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
       .setOption('pieSliceBorderColor', 'white')
       .setOption('backgroundColor', 'white')
       .setOption('width', 520)
-      .setOption('height', 240)
-      .setPosition(totalRowN + 2, 2, 0, 0) // below the table → full width, always renders on A4
+      .setOption('height', 250)
+      .setPosition(chartTop, 2, 0, 0) // below the heading → full width, always renders on A4
       .build();
     sh.insertChart(chart);
-    return totalRowN + 2 + 14;
+    return chartTop + 14; // heading row + pie zone
   }
 
   return totalRowN + 1;

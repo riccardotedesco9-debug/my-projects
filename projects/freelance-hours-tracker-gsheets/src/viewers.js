@@ -127,31 +127,31 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('H7:I500').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
   sh.getRange('J7:J500').setNumberFormat(CFG.formats.hours);
 
-  // --- Highlighting per the Time Log's principles, on the RELEVANT columns
-  // only (never the whole row): a long day (8h+ for this client) shades its
-  // DATE + HOURS cells amber, deeper as it climbs; an overnight session turns
-  // its DATE red; and ordinary rows keep a white→teal scale on Hours. First-
-  // match-wins, so the combined midnight+busy rules come first. $F/$H/$I lock
-  // the column, so each cell — date or hours — tests its own row's day. ---
+  // --- Highlighting, mirroring the Time Log exactly: the amber busy-day flag
+  // lives on the DATE column ONLY (deeper as the day's total climbs), an
+  // overnight session turns its DATE red, and the HOURS column carries the
+  // white→teal (green) scale — never amber. First-match-wins, so the combined
+  // midnight+busy rules come first. $F/$H/$I lock the column so each date cell
+  // tests its own row's day. Amber and the green scale sit on separate columns,
+  // so they never fight (and no multi-range relative-ref quirk). ---
   var dateCol = sh.getRange('F7:F500');
   var hoursCol = sh.getRange('J7:J500');
-  var dateAndHours = [dateCol, hoursCol];
   var busy = function (n) { return 'SUMIF($F$7:$F$500,$F7,$J$7:$J$500)>' + n; };
   var midnight = '$I7<>"", INT($I7)>INT($H7)';
-  var vRule = function (formula, ranges, bg, font) {
-    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges(ranges);
+  var vRule = function (formula, bg, font) {
+    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges([dateCol]);
     if (bg) b = b.setBackground(bg);
     if (font) b = b.setFontColor(font);
     return b.build();
   };
   sh.setConditionalFormatRules([
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', dateAndHours, CFG.colors.amberDeep, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', dateAndHours, CFG.colors.amberMid, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', dateAndHours, CFG.colors.amber, CFG.colors.red),
-    vRule('=AND(' + midnight + ')', [dateCol], null, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + busy(12) + ')', dateAndHours, CFG.colors.amberDeep, null),
-    vRule('=AND($F7<>"", ' + busy(10) + ')', dateAndHours, CFG.colors.amberMid, null),
-    vRule('=AND($F7<>"", ' + busy(8) + ')', dateAndHours, CFG.colors.amber, null),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
+    vRule('=AND(' + midnight + ')', null, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
+    vRule('=AND($F7<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
+    vRule('=AND($F7<>"", ' + busy(8) + ')', CFG.colors.amber, null),
     SpreadsheetApp.newConditionalFormatRule()
       .setGradientMinpoint(CFG.colors.white)
       .setGradientMaxpoint(CFG.colors.tealSoft)
@@ -203,15 +203,15 @@ function buildViewerContent_(viewer, trackerId, client) {
       "order by sum(Col2) desc limit 8 label Col1 '', sum(Col2) ''\", 0), \"\")"
   );
   sh.getRange('S3:S10').setNumberFormat(CFG.formats.hours);
-  // Pie legend labels "Task — X.Xh · Y%": every slice's hours AND share read
-  // off the legend, even when the slice itself is too small to carry a label.
-  // (% is relative to the plotted top-8, matching the on-slice percentages.)
+  // Pie legend labels "Task — X.Xh": the legend carries the hours; the % lives
+  // on the slice itself (no duplication). Short labels also mean the right-side
+  // legend never clips, freeing width for a bigger pie.
   sh.getRange('T3').setFormula(
-    '=ARRAYFORMULA(IF($R$3:$R$10="", "", $R$3:$R$10 & " — " & TEXT($S$3:$S$10, "0.0") & "h · " & TEXT($S$3:$S$10/SUM($S$3:$S$10), "0%")))'
+    '=ARRAYFORMULA(IF($R$3:$R$10="", "", $R$3:$R$10 & " — " & TEXT($S$3:$S$10, "0.0") & "h"))'
   );
   sh.hideColumns(16, 5); // P-T — working data, off the page
 
-  // --- Charts, stacked in the left zone beside the sessions ---
+  // --- Charts, stacked flush-left (cols A-E, clear of the sessions in F+) ---
   sh.insertChart(
     sh.newChart().setChartType(Charts.ChartType.COLUMN)
       .addRange(sh.getRange('P2:Q26')).setNumHeaders(1)
@@ -219,12 +219,13 @@ function buildViewerContent_(viewer, trackerId, client) {
       .setOption('legend', { position: 'none' })
       .setOption('colors', [CFG.colors.teal])
       .setOption('backgroundColor', 'white')
-      .setOption('width', 368).setOption('height', 200)
-      .setPosition(8, 2, 0, 4).build()
+      .setOption('width', 400).setOption('height', 200)
+      .setPosition(8, 1, 0, 0).build()
   );
-  // Pie, matching the timesheet report's breakdown — same navy/teal/gold ramp,
-  // legend on the right, % on the slices. The legend labels (T) carry each
-  // task's hours, so the smallest slices stay fully readable.
+  // Pie, matching the timesheet report's breakdown — same navy/teal/gold ramp.
+  // Legend on the right carries each task's HOURS ("Task — X.Xh"); the % sits
+  // on the slice. The taller 280px frame + short (un-clipped) labels give the
+  // pie a big radius, so even the thinner slices have room for their on-slice %.
   sh.insertChart(
     sh.newChart().setChartType(Charts.ChartType.PIE)
       .addRange(sh.getRange('T3:T10')) // labels: "Task — X.Xh"
@@ -238,8 +239,8 @@ function buildViewerContent_(viewer, trackerId, client) {
       ])
       .setOption('pieSliceBorderColor', 'white')
       .setOption('backgroundColor', 'white')
-      .setOption('width', 368).setOption('height', 232)
-      .setPosition(19, 2, 0, 4).build()
+      .setOption('width', 400).setOption('height', 280)
+      .setPosition(19, 1, 0, 0).build()
   );
 
   // --- One-time setup anchor, tucked below the left zone. The bare

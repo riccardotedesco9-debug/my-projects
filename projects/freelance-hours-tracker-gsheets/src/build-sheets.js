@@ -37,6 +37,12 @@ function buildClientsSheet_(ss) {
     .setFontColor(CFG.colors.gray)
     .setFontSize(9)
     .setWrap(true);
+
+  // Same click-to-sort/filter headers as the Time Log, on the Name/Rate/Email
+  // table (A:C — the E-column note is separate). Idempotent for updateLayout.
+  var oldFilter = sh.getFilter();
+  if (oldFilter) oldFilter.remove();
+  sh.getRange(1, 1, 200, 3).createFilter();
 }
 
 function buildLogSheet_(ss) {
@@ -113,6 +119,15 @@ function buildLogSheet_(ss) {
   Object.keys(widths).forEach(function (col) {
     sh.setColumnWidth(Number(col), widths[col]);
   });
+
+  // Excel-style clickable headers: one basic filter puts a sort/filter dropdown
+  // on every column header (Sort A→Z / Z→A, filter by value) — click the Date
+  // header to flip oldest/newest, exactly like a spreadsheet filter. Idempotent
+  // for updateLayout: createFilter throws if one already exists, so drop the
+  // prior filter first. Sorting re-orders whole rows, so per-row formulas follow.
+  var oldFilter = sh.getFilter();
+  if (oldFilter) oldFilter.remove();
+  sh.getRange(1, 1, n, CFG.log.lastCol).createFilter();
 }
 
 /** A date-cell conditional rule with an optional background and/or font color. */
