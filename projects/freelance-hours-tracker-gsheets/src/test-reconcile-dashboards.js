@@ -21,8 +21,9 @@ function sectionReconcile_(S, env) {
 
   // --- Independent JS aggregation (mirrors the formulas' windows, including
   // the "client is not null" guard the Summary QUERYs carry) ---
-  // Totals/by-client/chart follow the Summary's C3 window selector (months);
-  // the matrices stay on a fixed 13-month grid. Default to 13 if C3 is unset.
+  // Totals/by-client/chart follow the Summary's F2 window selector (months);
+  // the matrices stay on a fixed 13-month grid. Mirrors whatever F2 holds; the
+  // || 13 is only a fallback if F2 is somehow unset (build default is 12).
   var winMonths = Number(ss.getSheetByName(CFG.sheets.summary).getRange('F2').getValue()) || 13;
   var js = { today: 0, week: 0, month: 0, monthEarn: 0, winH: 0, winE: 0, petMonth: 0 };
   var buckets = {};
@@ -120,4 +121,22 @@ function sectionReconcile_(S, env) {
   }
   S.t('cumulative line never goes down', mono, true);
   S.t('summary still carries its 2 charts', chartCount, 2);
+
+  // Client-filter guard: unticking a client whose name has an apostrophe
+  // ("Paws 'n' Claws") must NOT error the not-matches QUERY and blank the whole
+  // summary (it did with a single-quoted GViz literal; double-quoted, it holds).
+  // Exercises the exclusion path the default-all-ticked checks never touch.
+  var cliNames = summary.getRange('G22:G32').getValues().map(function (r) { return String(r[0]); });
+  var apoRow = -1;
+  for (var ai = 0; ai < cliNames.length; ai++) { if (cliNames[ai].indexOf("'") >= 0) { apoRow = ai; break; } }
+  if (apoRow >= 0) {
+    var box = summary.getRange(22 + apoRow, 6); // F column checkbox for that client
+    box.setValue(false);
+    SpreadsheetApp.flush();
+    S.t('untick apostrophe client: summary stays live (not error-blanked to 0)', Number(summary.getRange('E5').getValue()) > 0, true);
+    box.setValue(true); // restore
+    SpreadsheetApp.flush();
+  } else {
+    S.warn('no apostrophe client present to exercise the client-filter guard', false, 'seed one to cover H1');
+  }
 }

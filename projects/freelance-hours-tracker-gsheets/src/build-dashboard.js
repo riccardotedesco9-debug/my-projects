@@ -199,11 +199,14 @@ function buildSummarySheet_(ss) {
   // (not-matches). All ticked (the default) → "__none__" → nothing excluded →
   // all clients. Excluding (rather than including) means clients beyond the
   // visible rows still show by default and are never silently dropped.
+  // Names are stripped of any " (CHAR 34) and joined with |; the match literal
+  // below is DOUBLE-quoted, so apostrophes in a name (e.g. "Paws 'n' Claws")
+  // are safe — a single-quoted literal would break on them (GViz has no escape).
   sh.getRange('X1').setFormula(
-    '=LET(unsel, TEXTJOIN("|", TRUE, ARRAYFORMULA(IF($F$22:$F$32=FALSE, $G$22:$G$32, ""))), IF(unsel="", "__none__", unsel))'
+    '=LET(unsel, TEXTJOIN("|", TRUE, ARRAYFORMULA(IF($F$22:$F$32=FALSE, SUBSTITUTE($G$22:$G$32, CHAR(34), ""), ""))), IF(unsel="", "__none__", unsel))'
   );
   sh.getRange('X1').setFontColor(CFG.colors.gray).setFontSize(8);
-  var clientFilter = "not (Col2 matches '\"&$X$1&\"') and ";
+  var clientFilter = "not (Col2 matches \"\"\"&$X$1&\"\"\") and ";
   var whereWin =
     "where Col2 is not null and " + clientFilter + "Col1 >= date '\"&TEXT(EOMONTH(TODAY(),-$F$2),\"yyyy-mm-dd\")&\"' ";
   var whereWin13 =
@@ -275,14 +278,17 @@ function buildSummarySheet_(ss) {
   // from column B; the chart data is parked far out at T–V, leaving the matrices
   // room to grow to ~17 client columns before anything can collide. ----
   sectionHeader_(sh.getRange('B21'), 'BY CLIENT');
+  // limit 10 keeps the spill within the card (rows 23-32) so it can never reach
+  // the HOURS matrix header at B34 and #REF the whole table (top 10 by earnings;
+  // every client still counts in the KPIs, charts and matrices).
   sh.getRange('B22').setFormula(
     '=IFERROR(QUERY(' + virtual + ", \"select Col2, sum(Col3), sum(Col4) " + whereWin +
-      "group by Col2 order by sum(Col4) desc " +
+      "group by Col2 order by sum(Col4) desc limit 10 " +
       "label Col2 'Client', sum(Col3) 'Hours', sum(Col4) 'Earnings'\", 0), \"—\")"
   );
   sh.getRange('B22:D22').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('C23:C31').setNumberFormat(CFG.formats.hours);
-  sh.getRange('D23:D31').setNumberFormat(CFG.formats.euro);
+  sh.getRange('C23:C32').setNumberFormat(CFG.formats.hours);
+  sh.getRange('D23:D32').setNumberFormat(CFG.formats.euro);
   card_(sh.getRange('B21:D32'));
 
   // Client filter checklist beside the by-client summary — UNTICK a client to
@@ -328,8 +334,8 @@ function buildSummarySheet_(ss) {
       .build();
   };
   sh.setConditionalFormatRules([
-    greenScale('C23:C31'), // by-client hours
-    greenScale('D23:D31'), // by-client earnings
+    greenScale('C23:C32'), // by-client hours
+    greenScale('D23:D32'), // by-client earnings
     greenScale('C36:S49'), // hours matrix
     greenScale('C54:S67'), // earnings matrix
   ]);
