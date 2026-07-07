@@ -139,6 +139,7 @@ function sectionUpdateLayout_(S, env) {
 
   S.t('every log row preserved', log.getLastRow(), rowsBefore);
   S.t('still 6 sheets', env.ss.getSheets().length, 6);
+  S.t('settings mirror stays hidden after the update', env.ss.getSheetByName(CFG.sheets.settings).isSheetHidden(), true);
   var after = env.clientsSh.getRange(2, 1, 1, 3).getValues()[0];
   S.t('client name preserved', String(after[0]), String(clientRow[0]));
   S.t('client rate preserved', Number(after[1]), Number(clientRow[1]));
