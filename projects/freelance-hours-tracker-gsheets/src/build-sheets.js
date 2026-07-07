@@ -13,8 +13,12 @@ function buildClientsSheet_(ss) {
   sh.setFrozenRows(1);
 
   // Seed the two starter clients ONLY on a fresh sheet — never clobber real
-  // client data during a non-destructive layout update.
-  var hasClients = sh.getLastRow() >= 2 && String(sh.getRange(2, 1).getValue()).trim() !== '';
+  // client data during a non-destructive layout update. Scan the WHOLE name
+  // column: a cleared row 2 with real clients below is a valid state, and
+  // re-seeding over it would re-price that client's history to €0.
+  var lastClientRow = sh.getLastRow();
+  var hasClients = lastClientRow >= 2 && sh.getRange(2, 1, lastClientRow - 1, 1).getValues()
+    .some(function (r) { return String(r[0] || '').trim() !== ''; });
   if (!hasClients) {
     var seed = CFG.clients.seed.map(function (n) {
       return [n, '', ''];

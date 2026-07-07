@@ -174,6 +174,15 @@ function sectionUpdateLayout_(S, env) {
 
   var sweep = sweepLogInvariants_(ctx);
   S.t('every data invariant survived the update', sweep.violations.slice(0, 5).join(' ; '), '');
+
+  // Seed guard: a blank row 2 with real clients below must NOT re-seed —
+  // re-seeding would overwrite a real client and re-price its history to €0.
+  var petRow = env.clientsSh.getRange(2, 1, 1, 3).getValues()[0];
+  env.clientsSh.getRange(2, 1, 1, 3).clearContent();
+  buildClientsSheet_(env.ss);
+  S.t('seed guard: blank row 2 + real clients below → no re-seed', String(env.clientsSh.getRange(2, 1).getValue()), '');
+  S.t('seed guard: clients below the blank row untouched', String(env.clientsSh.getRange(4, 1).getValue()), "Paws 'n' Claws");
+  env.clientsSh.getRange(2, 1, 1, 3).setValues([petRow]);
 }
 
 function sectionRebuild_(S, env) {
