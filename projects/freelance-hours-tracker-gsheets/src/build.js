@@ -306,8 +306,8 @@ function applyTabColorsAndOrder_(ss) {
     ss.moveActiveSheet(i + 1);
   });
   // Reordering activates each sheet in turn, which un-hides the internal
-  // Settings mirror. Land back on the Dashboard, then re-hide Settings — you
-  // can't hide the active sheet, so switch away from it first.
+  // Settings mirror. Re-hide it, and land the user on the Dashboard rather
+  // than on Settings (the last sheet the loop left active).
   var dash = ss.getSheetByName(CFG.sheets.dashboard);
   if (dash) ss.setActiveSheet(dash);
   var settings = ss.getSheetByName(CFG.sheets.settings);
