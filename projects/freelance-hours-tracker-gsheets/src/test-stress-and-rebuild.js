@@ -149,6 +149,7 @@ function sectionUpdateLayout_(S, env) {
   S.t('summary charts not duplicated', env.ss.getSheetByName(CFG.sheets.summary).getCharts().length, 2);
   S.t('log banding not duplicated', log.getBandings().length, 1);
   S.t('log filter survives the update (idempotent, not doubled)', !!log.getFilter(), true);
+  S.t('log grid trimmed to the horizon after update (no bloat, no data lost)', log.getMaxRows(), Math.max(CFG.log.formatRows, log.getLastRow()));
   var dump = log.getConditionalFormatRules().map(function (r) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';

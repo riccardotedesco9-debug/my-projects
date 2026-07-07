@@ -48,8 +48,10 @@ var CFG = {
     lastCol: 8,
     headers: ['Date', 'Client', 'Task', 'Start', 'End', 'Hours', 'Rate', 'Amount'],
     cols: { date: 1, client: 2, task: 3, start: 4, end: 5, hours: 6, rate: 7, amount: 8 },
-    // Conditional formats + banding are applied through this many rows.
-    formatRows: 5000,
+    // The log grid is sized to this many rows (was 5000 — a huge empty scroll).
+    // The grid grows past it automatically as you log, and never shrinks below
+    // your data; conditional formats + banding cover exactly this range.
+    formatRows: 500,
   },
 
   // Clients sheet: Client | Rate | Email, header row 1.

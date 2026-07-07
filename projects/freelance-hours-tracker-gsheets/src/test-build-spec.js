@@ -26,6 +26,7 @@ function sectionBuildSpec_(S, env) {
   S.t('log header frozen', log.getFrozenRows(), 1);
   S.t('log has exactly one banding', log.getBandings().length, 1);
   S.t('log grid grown to the format horizon', log.getMaxRows() >= CFG.log.formatRows, true);
+  S.t('log grid trimmed to the horizon, not a bloated tail', log.getMaxRows(), Math.max(CFG.log.formatRows, log.getLastRow()));
   var colVal = log.getRange(2, CFG.log.cols.client).getDataValidation();
   S.t('log client column validated + strict', !!colVal && colVal.getAllowInvalid() === false, true);
   var dump = log.getConditionalFormatRules().map(function (r) {
@@ -68,8 +69,8 @@ function sectionBuildSpec_(S, env) {
   S.t('sort on empty log is a graceful no-op', sortLogByDate_(env.ctx), false);
   var meta = buildReportCtx_(env.ctx, 'Pet Centre', env.y + 1, 3, true, { forceFallback: true });
   S.t('empty report: zero rows', meta.rowCount, 0);
-  S.t('empty report: says so in the body', String(env.repSh.getRange('B10').getValue()), MSG.noSessions);
-  S.t('empty report: TOTAL 0.00', Number(env.repSh.getRange(11, 7).getValue()), 0);
+  S.t('empty report: says so in the body', String(env.repSh.getRange('B12').getValue()), MSG.noSessions);
+  S.t('empty report: TOTAL 0.00', Number(env.repSh.getRange(13, 7).getValue()), 0);
   S.t('empty report: still signed', String(env.repSh.getRange(meta.signatureRow, 2).getValue()), CFG.ownerName);
   S.t('empty report: still sealed', /^Document verification: [0-9A-F]{40}$/.test(String(env.repSh.getRange(meta.signatureRow + 2, 2).getValue())), true);
   S.t('empty report: no pie', env.repSh.getCharts().length, 0);

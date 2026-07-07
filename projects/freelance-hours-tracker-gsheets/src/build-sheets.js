@@ -2,8 +2,22 @@
 // shell. (Dashboard + Summary live in build-dashboard.js.) Only rebuild_()
 // calls these.
 
+/**
+ * Resizes a sheet's grid to `target` rows — grows a small grid, trims the empty
+ * tail off a bloated one — but NEVER below the last row holding data, so a
+ * logged row can never be deleted. Returns the resulting row count.
+ */
+function trimGrid_(sh, target) {
+  var safe = Math.max(target, sh.getLastRow());
+  var maxR = sh.getMaxRows();
+  if (maxR < safe) sh.insertRowsAfter(maxR, safe - maxR);
+  else if (maxR > safe) sh.deleteRows(safe + 1, maxR - safe);
+  return safe;
+}
+
 function buildClientsSheet_(ss) {
   var sh = ss.getSheetByName(CFG.sheets.clients);
+  trimGrid_(sh, 220); // trim the empty tail (a fresh sheet ships with ~1000 rows)
   sh.getRange(1, 1, 220, 5).setFontFamily(CFG.fontFamily);
   sh.getRange(1, 1, 1, 3)
     .setValues([CFG.clients.headers])
@@ -48,11 +62,11 @@ function buildClientsSheet_(ss) {
 function buildLogSheet_(ss) {
   var sh = ss.getSheetByName(CFG.sheets.log);
   var c = CFG.log.cols;
-  var n = CFG.log.formatRows;
 
-  // A fresh sheet ships with 1,000 rows — every n-row range below would
-  // throw "outside the dimensions of the sheet" without this grow step.
-  if (sh.getMaxRows() < n) sh.insertRowsAfter(sh.getMaxRows(), n - sh.getMaxRows());
+  // Size the grid to the format horizon (trims a bloated 5000-row grid down, or
+  // grows a fresh one up) — but never below the data. Everything below formats
+  // to exactly this many rows.
+  var n = trimGrid_(sh, CFG.log.formatRows);
   // Clear any prior banding so this is safe to re-run on an existing (data-
   // filled) log during a non-destructive layout update — applyRowBanding would
   // otherwise throw over existing banding.

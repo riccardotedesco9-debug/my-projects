@@ -118,8 +118,8 @@ function sectionReports_(S, env) {
   S.t('fixed-only month: one row', feb.rowCount, 1);
   S.t('fixed-only month: zero hours', feb.totalHours, 0);
   S.t('fixed-only month: € carried', feb.totalAmount, 100);
-  // First breakdown group row = bodyTop(12) + rows + gap-to-breakdown(4) + (label, spacer, header)(3).
-  S.t('fixed-only month: share cell is 0, not an error', Number(rep.getRange(12 + feb.rowCount + 4 + 3, 6).getValue()), 0);
+  // First breakdown group row = bodyTop(12) + rows + gap-to-breakdown(4) + (label, header)(2).
+  S.t('fixed-only month: share cell is 0, not an error', Number(rep.getRange(12 + feb.rowCount + 4 + 2, 6).getValue()), 0);
   S.t('fixed-only month: single group → no pie', rep.getCharts().length, 0);
   var febHours = buildReportCtx_(ctx, "Paws 'n' Claws", env.y + 1, 2, false, { forceFallback: true });
   S.t('fixed-only month, hours-only: empty timesheet', febHours.rowCount === 0 && String(rep.getRange('B12').getValue()) === MSG.noSessions, true);

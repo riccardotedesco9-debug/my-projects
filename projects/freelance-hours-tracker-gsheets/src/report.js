@@ -57,8 +57,10 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
 
   var headers = ['Date', 'Client', 'Task', 'Start', 'End', 'Hours'];
   if (includeMoney) headers = headers.concat(['Rate', 'Amount']);
-  // Header sits two rows below the info block (rows 9-10 breathe) so the navy
-  // bar isn't jammed against the Client / ID lines above it.
+  // A "SESSIONS" section heading at row 10 (blank row 9 breathes above it), then
+  // the navy column bar at row 11 — mirrors the WORK BREAKDOWN heading-over-table
+  // layout so every section is titled.
+  sh.getRange(10, 2).setValue('SESSIONS').setFontWeight('bold').setFontColor(CFG.colors.navy);
   sh.getRange(11, 2, 1, headers.length)
     .setValues([headers])
     .setBackground(CFG.colors.navy)
@@ -166,9 +168,9 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
 function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
   sh.getRange(top, 2).setValue('WORK BREAKDOWN').setFontWeight('bold').setFontColor(CFG.colors.navy);
 
-  // Blank row (top+1) between the heading and the navy table header, so the
-  // bold section title breathes above its table instead of sitting on the bar.
-  var head = top + 2;
+  // Heading sits directly above the navy table header (no floating gap), matching
+  // the SESSIONS heading-over-bar and the pie's title-over-chart.
+  var head = top + 1;
   var cols = includeMoney ? 6 : 5; // B..F (Share) [..G Amount]
   sh.getRange(head, 2, 1, cols)
     .setBackground(CFG.colors.navy)
