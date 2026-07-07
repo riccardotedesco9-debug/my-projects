@@ -88,7 +88,7 @@ function buildViewerContent_(viewer, trackerId, client) {
   viewer.deleteSheet(tmp);
 
   sh.setHiddenGridlines(true);
-  sh.getRange('A1:S1000').setFontFamily(CFG.fontFamily);
+  sh.getRange('A1:S500').setFontFamily(CFG.fontFamily);
   // A margin · B-D stat cards (chart zone floats here) · E gap · F-J sessions
   // · P-S hidden chart helpers.
   var widths = { 1: 24, 2: 150, 3: 92, 4: 110, 5: 24, 6: 95, 7: 250, 8: 66, 9: 66, 10: 78, 11: 24 };
@@ -113,60 +113,66 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('F5').setValue('SESSIONS').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(10);
   // Fallback is '' — an empty log also lands here, so it must NOT claim an
   // access problem; the bottom anchor is the dedicated access indicator.
+  // limit 480 keeps the spill inside the 500-row grid (below); a client with
+  // more than that shows their most recent 480 sessions.
   sh.getRange('F6').setFormula(
     '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6 " +
-      'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc ' +
+      'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc limit 480 ' +
       "label Col1 'Date', Col3 'Task', Col4 'Start', Col5 'End', Col6 'Hours'\", 0), \"\")"
   );
   // QUERY renders its labels on F6, data from F7 down: F date G task H start I end J hours.
   sh.getRange('F6:J6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
     .setBorder(null, null, true, null, false, false, CFG.colors.grayLine, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('F7:F1000').setNumberFormat(CFG.formats.date);
-  sh.getRange('H7:I1000').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
-  sh.getRange('J7:J1000').setNumberFormat(CFG.formats.hours);
+  sh.getRange('F7:F500').setNumberFormat(CFG.formats.date);
+  sh.getRange('H7:I500').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
+  sh.getRange('J7:J500').setNumberFormat(CFG.formats.hours);
 
-  // --- Highlighting, mirroring the Time Log: a long day (8h+ total, amber →
-  // deeper as it climbs) shades the date, an overnight session (end day > start
-  // day) turns the date red, and the Hours column carries a white→teal scale.
-  // First-match-wins, so the combined midnight+busy rules come first. ---
-  var dateRange = sh.getRange('F7:F1000');
-  var busy = function (n) { return 'SUMIF($F$7:$F$1000,$F7,$J$7:$J$1000)>' + n; };
+  // --- Highlighting per the Time Log's principles, on the RELEVANT columns
+  // only (never the whole row): a long day (8h+ for this client) shades its
+  // DATE + HOURS cells amber, deeper as it climbs; an overnight session turns
+  // its DATE red; and ordinary rows keep a white→teal scale on Hours. First-
+  // match-wins, so the combined midnight+busy rules come first. $F/$H/$I lock
+  // the column, so each cell — date or hours — tests its own row's day. ---
+  var dateCol = sh.getRange('F7:F500');
+  var hoursCol = sh.getRange('J7:J500');
+  var dateAndHours = [dateCol, hoursCol];
+  var busy = function (n) { return 'SUMIF($F$7:$F$500,$F7,$J$7:$J$500)>' + n; };
   var midnight = '$I7<>"", INT($I7)>INT($H7)';
-  var vRule = function (formula, bg, font) {
-    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges([dateRange]);
+  var vRule = function (formula, ranges, bg, font) {
+    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges(ranges);
     if (bg) b = b.setBackground(bg);
     if (font) b = b.setFontColor(font);
     return b.build();
   };
   sh.setConditionalFormatRules([
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
-    vRule('=AND(' + midnight + ')', null, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
-    vRule('=AND($F7<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
-    vRule('=AND($F7<>"", ' + busy(8) + ')', CFG.colors.amber, null),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', dateAndHours, CFG.colors.amberDeep, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', dateAndHours, CFG.colors.amberMid, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', dateAndHours, CFG.colors.amber, CFG.colors.red),
+    vRule('=AND(' + midnight + ')', [dateCol], null, CFG.colors.red),
+    vRule('=AND($F7<>"", ' + busy(12) + ')', dateAndHours, CFG.colors.amberDeep, null),
+    vRule('=AND($F7<>"", ' + busy(10) + ')', dateAndHours, CFG.colors.amberMid, null),
+    vRule('=AND($F7<>"", ' + busy(8) + ')', dateAndHours, CFG.colors.amber, null),
     SpreadsheetApp.newConditionalFormatRule()
       .setGradientMinpoint(CFG.colors.white)
       .setGradientMaxpoint(CFG.colors.tealSoft)
-      .setRanges([sh.getRange('J7:J1000')])
+      .setRanges([hoursCol])
       .build(),
   ]);
 
   // --- Headline stats (left zone; read the sessions spill, hours only).
   // Values are left-aligned so each number sits directly under its label. ---
   sectionHeader_(sh.getRange('B5'), 'TOTAL HOURS');
-  sh.getRange('B6').setFormula('=IFERROR(ROUND(SUM($J$7:$J$1000), 2), 0)')
+  sh.getRange('B6').setFormula('=IFERROR(ROUND(SUM($J$7:$J$500), 2), 0)')
     .setNumberFormat('0.00 "h"').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
     .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('C5'), 'SESSIONS');
-  sh.getRange('C6').setFormula('=COUNT($F$7:$F$1000)')
+  sh.getRange('C6').setFormula('=COUNT($F$7:$F$500)')
     .setNumberFormat('0').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
     .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('D5'), 'THIS MONTH');
   sh.getRange('D6').setFormula(
-    '=IFERROR(ROUND(SUMIFS($J$7:$J$1000, $F$7:$F$1000, ">="&EOMONTH(TODAY(),-1)+1, ' +
-    '$F$7:$F$1000, "<="&EOMONTH(TODAY(),0)), 2), 0)'
+    '=IFERROR(ROUND(SUMIFS($J$7:$J$500, $F$7:$F$500, ">="&EOMONTH(TODAY(),-1)+1, ' +
+    '$F$7:$F$500, "<="&EOMONTH(TODAY(),0)), 2), 0)'
   ).setNumberFormat('0.00 "h"').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
     .setHorizontalAlignment('left');
   sh.setRowHeight(6, 28);
@@ -179,10 +185,12 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('Q2').setValue('Hours');
   // EOMONTH over the WHOLE column keeps Col1 a single date type (empty rows
   // harmlessly become 1899-12-31); a mixed date/blank column makes GViz QUERY
-  // silently return nothing. Filter the 1899 blanks out by date.
+  // silently return nothing. The trailing-24-month floor drops the 1899 blanks
+  // AND, for a long-running client, keeps the chart on RECENT months (bounded
+  // to the P3:Q26 helper) instead of the oldest 24.
   sh.getRange('P3').setFormula(
-    '=IFERROR(QUERY({ARRAYFORMULA(EOMONTH($F$7:$F$1000, 0)), $J$7:$J$1000}, ' +
-      "\"select Col1, sum(Col2) where Col1 > date '1900-01-01' " +
+    '=IFERROR(QUERY({ARRAYFORMULA(EOMONTH($F$7:$F$500, 0)), $J$7:$J$500}, ' +
+      "\"select Col1, sum(Col2) where Col1 >= date '\"&TEXT(EOMONTH(TODAY(),-23)+1,\"yyyy-mm-dd\")&\"' " +
       "group by Col1 order by Col1 label Col1 '', sum(Col2) ''\", 0), \"\")"
   );
   sh.getRange('P3:P26').setNumberFormat(CFG.formats.monthShort);
@@ -190,15 +198,16 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('R2').setValue('Task');
   sh.getRange('S2').setValue('Hours');
   sh.getRange('R3').setFormula(
-    '=IFERROR(QUERY({$G$7:$G$1000, $J$7:$J$1000}, ' +
+    '=IFERROR(QUERY({$G$7:$G$500, $J$7:$J$500}, ' +
       "\"select Col1, sum(Col2) where Col2 > 0 group by Col1 " +
       "order by sum(Col2) desc limit 8 label Col1 '', sum(Col2) ''\", 0), \"\")"
   );
   sh.getRange('S3:S10').setNumberFormat(CFG.formats.hours);
-  // Pie legend labels "Task — X.Xh": every slice's hours read off the legend,
-  // even when the slice itself is too small to carry a label.
+  // Pie legend labels "Task — X.Xh · Y%": every slice's hours AND share read
+  // off the legend, even when the slice itself is too small to carry a label.
+  // (% is relative to the plotted top-8, matching the on-slice percentages.)
   sh.getRange('T3').setFormula(
-    '=ARRAYFORMULA(IF($R$3:$R$10="", "", $R$3:$R$10 & " — " & TEXT($S$3:$S$10, "0.0") & "h"))'
+    '=ARRAYFORMULA(IF($R$3:$R$10="", "", $R$3:$R$10 & " — " & TEXT($S$3:$S$10, "0.0") & "h · " & TEXT($S$3:$S$10/SUM($S$3:$S$10), "0%")))'
   );
   sh.hideColumns(16, 5); // P-T — working data, off the page
 
@@ -221,7 +230,7 @@ function buildViewerContent_(viewer, trackerId, client) {
       .addRange(sh.getRange('T3:T10')) // labels: "Task — X.Xh"
       .addRange(sh.getRange('S3:S10')) // values: hours
       .setOption('title', 'Where the time goes')
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 9 } })
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 8 } })
       .setOption('pieSliceText', 'percentage')
       .setOption('colors', [
         CFG.colors.teal, CFG.colors.navy, CFG.colors.gold, CFG.colors.tealSoft,
@@ -245,4 +254,12 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('C33').setFormula(
     '=IF(ISERROR($B$33), "One-time setup — if the cell on the left shows an error, click it and choose ""Allow access"".", "")'
   ).setFontColor(CFG.colors.grayLine).setFontSize(8);
+
+  // Trim the grid so the view isn't a long scroll of empty cells: 500 rows
+  // (holds the ≤480 sessions + helpers), and columns only through the hidden
+  // helpers (T = 20). New sheets start at 1000×26.
+  var extraRows = sh.getMaxRows() - 500;
+  if (extraRows > 0) sh.deleteRows(501, extraRows);
+  var extraCols = sh.getMaxColumns() - 20;
+  if (extraCols > 0) sh.deleteColumns(21, extraCols);
 }

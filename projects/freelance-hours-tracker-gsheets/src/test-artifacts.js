@@ -50,7 +50,8 @@ function sectionViewer_(S, env) {
   S.t('viewer: sessions QUERY is IFERROR-wrapped (empty log ≠ access error)', sessions.indexOf('=IFERROR(QUERY(IMPORTRANGE') === 0, true);
   S.t('viewer: apostrophe client survives the GViz literal', sessions.indexOf("Paws 'n' Claws") > 0, true);
   S.t('viewer: sessions import pulls A2:F (the single data import)', sessions.indexOf('A2:F') > 0, true);
-  S.t('viewer: headline total-hours stat wired', sh.getRange('B6').getFormula().indexOf('SUM($J$7:$J$1000)') > 0, true);
+  S.t('viewer: headline total-hours stat wired', sh.getRange('B6').getFormula().indexOf('SUM($J$7:$J$500)') > 0, true);
+  S.t('viewer: grid trimmed for scrolling (≤500 rows)', sh.getMaxRows() <= 500, true);
   // The rollups feeding the two charts are LOCAL (no import) — that's the fix
   // for the empty "hours by month" chart, and it keeps them money-blind.
   S.t('viewer: hours-by-month rolls up locally via EOMONTH (no import)', monthly.indexOf('EOMONTH') > 0 && monthly.indexOf('IMPORTRANGE') < 0, true);
