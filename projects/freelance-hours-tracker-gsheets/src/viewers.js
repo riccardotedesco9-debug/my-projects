@@ -41,9 +41,12 @@ function viewerTitle_(client) {
 function createClientViewer_(ctx, client) {
   var title = viewerTitle_(client);
   var folder = getViewersFolder_();
-  // Drive-wide title lookup (not folder-scoped): a file that ever drifted out
-  // of Client Views/ is reused and re-filed below, never duplicated.
-  var existing = DriveApp.getFilesByName(title);
+  // Prefer the correctly-filed copy in Client Views/; only fall back to a
+  // Drive-wide lookup when it isn't there, so a file that drifted out of the
+  // folder is reused (and re-filed below) instead of duplicated — without
+  // reaching for an unrelated same-titled file in the common case.
+  var inFolder = folder.getFilesByName(title);
+  var existing = inFolder.hasNext() ? inFolder : DriveApp.getFilesByName(title);
   var created = !existing.hasNext();
   var viewer = created
     ? SpreadsheetApp.create(title)
