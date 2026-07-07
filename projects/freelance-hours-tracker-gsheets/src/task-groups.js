@@ -39,7 +39,7 @@ function consolidateTasks_(ctx, client, yyyymm, rows, opts) {
   }
 }
 
-/** Normalizes (trim/lowercase) and sums hours per unique task string. */
+/** Normalizes (trim/lowercase) and sums hours + € per unique task string. */
 function uniqueTasksWithHours_(rows) {
   var byKey = {};
   var order = [];
@@ -47,38 +47,53 @@ function uniqueTasksWithHours_(rows) {
     var label = String(r.task || '').trim() || 'Untitled work';
     var key = label.toLowerCase();
     if (!(key in byKey)) {
-      byKey[key] = { task: label, hours: 0 };
+      byKey[key] = { task: label, hours: 0, amount: 0 };
       order.push(key);
     }
     byKey[key].hours += r.hours;
+    byKey[key].amount += r.amount || 0;
   });
   return order.map(function (k) {
-    return { task: byKey[k].task, hours: Math.round(byKey[k].hours * 100) / 100 };
+    return {
+      task: byKey[k].task,
+      hours: Math.round(byKey[k].hours * 100) / 100,
+      amount: Math.round(byKey[k].amount * 100) / 100,
+    };
   });
 }
 
 function fallbackGroups_(tasks) {
   return tasks
-    .map(function (t) { return { label: t.task, hours: t.hours }; })
+    .map(function (t) { return { label: t.task, hours: t.hours, amount: t.amount }; })
     .sort(function (a, b) { return b.hours - a.hours; });
 }
 
-/** Maps AI groups back onto hours; anything unassigned keeps its own slice. */
+/** Maps AI groups back onto hours + €; anything unassigned keeps its own slice. */
 function applyGroups_(groups, tasks) {
   var assigned = {};
   var out = [];
   (Array.isArray(groups) ? groups : []).forEach(function (g) {
     var hours = 0;
+    var amount = 0;
     (g.members || []).forEach(function (i) {
       if (tasks[i] && !assigned[i]) {
         assigned[i] = true;
         hours += tasks[i].hours;
+        amount += tasks[i].amount;
       }
     });
-    if (hours > 0) out.push({ label: String(g.label || 'Other work'), hours: Math.round(hours * 100) / 100 });
+    // hours OR amount: a group of only fixed-fee tasks has 0 h but real € —
+    // dropping it would silently lose that money from the breakdown table.
+    if (hours > 0 || amount > 0) {
+      out.push({
+        label: String(g.label || 'Other work'),
+        hours: Math.round(hours * 100) / 100,
+        amount: Math.round(amount * 100) / 100,
+      });
+    }
   });
   tasks.forEach(function (t, i) {
-    if (!assigned[i]) out.push({ label: t.task, hours: t.hours });
+    if (!assigned[i]) out.push({ label: t.task, hours: t.hours, amount: t.amount });
   });
   return out.sort(function (a, b) { return b.hours - a.hours; });
 }

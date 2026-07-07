@@ -159,72 +159,126 @@ function buildSummarySheet_(ss) {
   var log = "'" + CFG.sheets.log + "'";
   sh.setHiddenGridlines(true);
   sh.setColumnWidth(1, 24);
-  sh.setColumnWidth(2, 110);
-  for (var col = 3; col <= 14; col++) sh.setColumnWidth(col, 92);
+  sh.setColumnWidth(2, 120);
+  for (var col = 3; col <= 14; col++) sh.setColumnWidth(col, 96);
 
-  sh.getRange('A1:N75').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
+  sh.getRange('A1:N80').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
   sh.getRange('B2').setValue('SUMMARY').setFontSize(18).setFontWeight('bold').setFontColor(CFG.colors.navy);
 
-  // Month × client matrices as QUERY pivots over a virtual range:
-  // Col1 = month bucket (EOMONTH of the session date), Col2 = client,
-  // Col3 = hours, Col4 = amount. Clients grow right without caps; months are
-  // windowed to the trailing 13 so the spill can never collide with the
-  // fixed-position section below it (a collision #REFs and IFERROR would
-  // silently mask the whole matrix as '—').
+  // Everything aggregates a virtual range: Col1 = month bucket (EOMONTH of the
+  // session date), Col2 = client, Col3 = hours, Col4 = amount. Clients grow
+  // right without caps; months are windowed to the trailing 13 so a spill can
+  // never collide with the fixed section below it.
   var virtual =
     '{ARRAYFORMULA(EOMONTH(' + log + '!$A$2:$A,0)), ' + log + '!$B$2:$B, ' +
     log + '!$F$2:$F, ' + log + '!$H$2:$H}';
-  var window13 = "and Col1 >= date '\"&TEXT(EOMONTH(TODAY(),-13),\"yyyy-mm-dd\")&\"' ";
+  var whereWin =
+    "where Col2 is not null and Col1 >= date '\"&TEXT(EOMONTH(TODAY(),-13),\"yyyy-mm-dd\")&\"' ";
+  var q = function (sel) {
+    return '=IFERROR(QUERY(' + virtual + ", \"" + sel + "\", 0), 0)";
+  };
 
-  sectionHeader_(sh.getRange('B4'), 'HOURS — MONTH × CLIENT (LAST 13 MONTHS)');
-  sh.getRange('B5').setFormula(
-    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col3) where Col2 is not null " + window13 +
+  // ---- Headline totals (last 13 months) ----
+  sectionHeader_(sh.getRange('B4'), 'TOTALS — LAST 13 MONTHS');
+  sh.getRange('B5').setValue('Total hours').setFontColor(CFG.colors.gray);
+  sh.getRange('C5').setFormula(q('select sum(Col3) ' + whereWin + "label sum(Col3) ''"))
+    .setNumberFormat('0.00 "h"').setFontWeight('bold').setFontSize(13).setFontColor(CFG.colors.navy);
+  sh.getRange('B6').setValue('Total earnings').setFontColor(CFG.colors.gray);
+  sh.getRange('C6').setFormula(q('select sum(Col4) ' + whereWin + "label sum(Col4) ''"))
+    .setNumberFormat(CFG.formats.euro).setFontWeight('bold').setFontSize(13).setFontColor(CFG.colors.navy);
+  card_(sh.getRange('B4:C7'));
+
+  // ---- Per-client totals (last 13 months) ----
+  sectionHeader_(sh.getRange('E4'), 'BY CLIENT — LAST 13 MONTHS');
+  sh.getRange('E5').setFormula(
+    '=IFERROR(QUERY(' + virtual + ", \"select Col2, sum(Col3), sum(Col4) " + whereWin +
+      "group by Col2 order by sum(Col4) desc " +
+      "label Col2 'Client', sum(Col3) 'Hours', sum(Col4) 'Earnings'\", 0), \"—\")"
+  );
+  sh.getRange('E5:G5').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('F6:F14').setNumberFormat(CFG.formats.hours);
+  sh.getRange('G6:G14').setNumberFormat(CFG.formats.euro);
+  card_(sh.getRange('E4:G14'));
+
+  // ---- Month × client matrices ----
+  sectionHeader_(sh.getRange('B16'), 'HOURS — MONTH × CLIENT');
+  sh.getRange('B17').setFormula(
+    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col3) " + whereWin +
       "group by Col1 pivot Col2 label Col1 'Month'\", 0), \"—\")"
   );
-  sh.getRange('B5:N5').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('B6:B22').setNumberFormat(CFG.formats.monthShort);
-  sh.getRange('C6:N22').setNumberFormat('0.00;;');
-  card_(sh.getRange('B4:N22'));
+  sh.getRange('B17:N17').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('B18:B31').setNumberFormat(CFG.formats.monthShort);
+  sh.getRange('C18:N31').setNumberFormat('0.00;;');
+  card_(sh.getRange('B16:N32'));
 
-  sectionHeader_(sh.getRange('B24'), 'EARNINGS — MONTH × CLIENT (LAST 13 MONTHS)');
-  sh.getRange('B25').setFormula(
-    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col4) where Col2 is not null " + window13 +
+  sectionHeader_(sh.getRange('B34'), 'EARNINGS — MONTH × CLIENT');
+  sh.getRange('B35').setFormula(
+    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col4) " + whereWin +
       "group by Col1 pivot Col2 label Col1 'Month'\", 0), \"—\")"
   );
-  sh.getRange('B25:N25').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('B26:B42').setNumberFormat(CFG.formats.monthShort);
-  sh.getRange('C26:N42').setNumberFormat(CFG.formats.euroBlankZero);
-  card_(sh.getRange('B24:N42'));
+  sh.getRange('B35:N35').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('B36:B49').setNumberFormat(CFG.formats.monthShort);
+  sh.getRange('C36:N49').setNumberFormat(CFG.formats.euroBlankZero);
+  card_(sh.getRange('B34:N50'));
 
-  // Heat shading (white → soft teal) over both matrices.
   sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule()
       .setGradientMinpoint(CFG.colors.white)
       .setGradientMaxpoint(CFG.colors.tealSoft)
-      .setRanges([sh.getRange('C6:N22'), sh.getRange('C26:N42')])
+      .setRanges([sh.getRange('C18:N31'), sh.getRange('C36:N49')])
       .build(),
   ]);
 
-  // Chart series: earnings total per month (kept out of the matrices so the
-  // chart range stays fixed).
-  sh.getRange('B45').setValue('Chart data').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('B46').setFormula(
-    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col4) where Col2 is not null " + window13 +
+  // ---- Chart data: P Month | Q per-month € | R cumulative € ----
+  // Tucked off to the right (columns P–R), out of the visible flow, so the
+  // charts below/right float over clean space instead of over raw numbers.
+  for (var dc = 16; dc <= 18; dc++) sh.setColumnWidth(dc, 96);
+  sh.getRange('P1').setValue('Chart data — do not edit').setFontColor(CFG.colors.gray).setFontSize(8);
+  sh.getRange('P2').setFormula(
+    '=IFERROR(QUERY(' + virtual + ", \"select Col1, sum(Col4) " + whereWin +
       "group by Col1 label Col1 'Month', sum(Col4) 'Earnings (€)'\", 0), \"—\")"
   );
-  sh.getRange('B47:B70').setNumberFormat(CFG.formats.monthShort);
-  sh.getRange('C47:C70').setNumberFormat(CFG.formats.euroBlankZero);
+  sh.getRange('R2').setValue('Cumulative (€)');
+  // Running total of the per-month earnings (blanks = 0) so the line climbs
+  // from the first month to the grand total — the "how am I doing" trajectory.
+  sh.getRange('R3').setFormula('=IFERROR(SCAN(0, Q3:Q26, LAMBDA(a, v, a + N(v))), "")');
+  sh.getRange('P3:P26').setNumberFormat(CFG.formats.monthShort);
+  sh.getRange('Q3:R26').setNumberFormat(CFG.formats.euroBlankZero);
 
-  var chart = sh
-    .newChart()
-    .setChartType(Charts.ChartType.COLUMN)
-    .addRange(sh.getRange('B46:C70'))
-    .setNumHeaders(1)
-    .setOption('title', 'Earnings by month (€)')
-    .setOption('legend', { position: 'none' })
-    .setOption('colors', [CFG.colors.teal])
-    .setOption('backgroundColor', CFG.colors.white)
-    .setPosition(45, 5, 0, 0)
-    .build();
-  sh.insertChart(chart);
+  // Cumulative earnings line (with point markers) — the headline visual, in the
+  // open space top-right beside the totals cards.
+  sh.insertChart(
+    sh
+      .newChart()
+      .setChartType(Charts.ChartType.LINE)
+      .addRange(sh.getRange('P2:P26')) // months
+      .addRange(sh.getRange('R2:R26')) // cumulative €
+      .setNumHeaders(1)
+      .setOption('title', 'Cumulative earnings (€)')
+      .setOption('legend', { position: 'none' })
+      .setOption('pointSize', 5)
+      .setOption('colors', [CFG.colors.teal])
+      .setOption('backgroundColor', CFG.colors.white)
+      .setOption('width', 500)
+      .setOption('height', 250)
+      .setPosition(3, 9, 0, 0)
+      .build()
+  );
+
+  // Earnings-by-month bars, below the matrices (now over clean space).
+  sh.insertChart(
+    sh
+      .newChart()
+      .setChartType(Charts.ChartType.COLUMN)
+      .addRange(sh.getRange('P2:Q26'))
+      .setNumHeaders(1)
+      .setOption('title', 'Earnings by month (€)')
+      .setOption('legend', { position: 'none' })
+      .setOption('colors', [CFG.colors.navy])
+      .setOption('backgroundColor', CFG.colors.white)
+      .setOption('width', 520)
+      .setOption('height', 260)
+      .setPosition(52, 2, 0, 0)
+      .build()
+  );
 }

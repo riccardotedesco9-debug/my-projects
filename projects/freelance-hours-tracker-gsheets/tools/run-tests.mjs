@@ -35,10 +35,25 @@ try {
 }
 
 const icon = (ok) => (ok ? '✔' : '✘');
+let section = '';
 for (const r of verdict.results) {
-  const line = `${icon(r.ok)} ${r.name}`;
-  if (r.ok) console.log(`\x1b[32m${line}\x1b[0m`);
-  else console.log(`\x1b[31m${line}\x1b[0m  [expected ${r.expected} | actual ${r.actual}]`);
+  if (r.section && r.section !== section) {
+    section = r.section;
+    console.log(`\n\x1b[1m${section}\x1b[0m`);
+  }
+  if (r.level === 'info') {
+    console.log(`\x1b[36mℹ ${r.name}: ${r.actual}\x1b[0m`);
+  } else if (r.level === 'warn') {
+    if (!r.ok) console.log(`\x1b[33m⚠ ${r.name} — ${r.actual}\x1b[0m`);
+  } else if (r.ok) {
+    console.log(`\x1b[32m${icon(true)} ${r.name}\x1b[0m`);
+  } else {
+    console.log(`\x1b[31m${icon(false)} ${r.name}\x1b[0m  [expected ${r.expected} | actual ${r.actual}]`);
+  }
 }
-console.log(`\n${verdict.failed === 0 ? '✅' : '❌'} ${verdict.passed}/${verdict.total} assertions passed`);
+const warn = verdict.warned ? ` · ⚠ ${verdict.warned} warning(s)` : '';
+const skipped = verdict.skippedSections
+  ? ` · ⏭ ${verdict.skippedSections} section(s) SKIPPED on time budget — rerun to cover them`
+  : '';
+console.log(`\n${verdict.failed === 0 ? '✅' : '❌'} ${verdict.passed}/${verdict.total} assertions passed${warn}${skipped}`);
 process.exit(verdict.failed === 0 ? 0 : 1);

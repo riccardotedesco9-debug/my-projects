@@ -30,7 +30,9 @@ var CFG = {
     gray: '#6B7280',
     grayFill: '#F3F4F6',
     grayLine: '#D1D5DB',
-    amber: '#FEF3C7',
+    amber: '#FEF3C7', // busy-day shading, light → deep as the day's hours climb
+    amberMid: '#FDE68A',
+    amberDeep: '#FCD34D',
     gold: '#B45309',
     white: '#FFFFFF',
     paper: '#F7F7F4', // warm canvas behind the Dashboard/Summary cards

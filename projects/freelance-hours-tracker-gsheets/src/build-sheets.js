@@ -12,10 +12,15 @@ function buildClientsSheet_(ss) {
     .setFontWeight('bold');
   sh.setFrozenRows(1);
 
-  var seed = CFG.clients.seed.map(function (n) {
-    return [n, '', ''];
-  });
-  sh.getRange(2, 1, seed.length, 3).setValues(seed);
+  // Seed the two starter clients ONLY on a fresh sheet — never clobber real
+  // client data during a non-destructive layout update.
+  var hasClients = sh.getLastRow() >= 2 && String(sh.getRange(2, 1).getValue()).trim() !== '';
+  if (!hasClients) {
+    var seed = CFG.clients.seed.map(function (n) {
+      return [n, '', ''];
+    });
+    sh.getRange(2, 1, seed.length, 3).setValues(seed);
+  }
   sh.getRange(2, CFG.clients.cols.rate, 200, 1).setNumberFormat(CFG.formats.euro);
 
   sh.setColumnWidth(CFG.clients.cols.name, 180);
@@ -38,6 +43,10 @@ function buildLogSheet_(ss) {
   // A fresh sheet ships with 1,000 rows — every n-row range below would
   // throw "outside the dimensions of the sheet" without this grow step.
   if (sh.getMaxRows() < n) sh.insertRowsAfter(sh.getMaxRows(), n - sh.getMaxRows());
+  // Clear any prior banding so this is safe to re-run on an existing (data-
+  // filled) log during a non-destructive layout update — applyRowBanding would
+  // otherwise throw over existing banding.
+  sh.getBandings().forEach(function (b) { b.remove(); });
 
   sh.getRange(1, 1, 1, CFG.log.lastCol)
     .setValues([CFG.log.headers])
@@ -70,29 +79,44 @@ function buildLogSheet_(ss) {
     .build();
   sh.getRange(2, c.client, body, 1).setDataValidation(rule);
 
-  // Conditional formats: >8h/day amber rows, midnight-crossing red dates,
-  // hours magnitude as a white→teal gradient (Sheets has no data bars).
-  var over8 = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=AND($A2<>"", SUMIF($A:$A,$A2,$F:$F)>8)')
-    .setBackground(CFG.colors.amber)
-    .setRanges([sh.getRange(2, 1, body, CFG.log.lastCol)])
-    .build();
-  var midnight = SpreadsheetApp.newConditionalFormatRule()
-    .whenFormulaSatisfied('=AND($E2<>"", INT($E2)>INT($D2))')
-    .setFontColor(CFG.colors.red)
-    .setRanges([sh.getRange(2, c.date, body, 1)])
-    .build();
+  // Conditional formats on the DATE cell. Google Sheets applies only the FIRST
+  // matching rule per cell, so a busy day that ALSO crosses midnight would lose
+  // one of its two cues. To keep BOTH, the "midnight + busy" cases are their own
+  // rules that set red font AND amber background together, and come first; plain
+  // busy and plain midnight follow. Busiest shade wins via order (>12 → >10 →
+  // >8). Busy shading sits only on the date cell, so the Hours colour-scale
+  // (below) is never covered.
+  var dateRange = sh.getRange(2, c.date, body, 1);
+  var busy = function (n) { return 'SUMIF($A:$A,$A2,$F:$F)>' + n; };
+  var midnight = '$E2<>"", INT($E2)>INT($D2)';
   var hoursScale = SpreadsheetApp.newConditionalFormatRule()
     .setGradientMinpoint(CFG.colors.white)
     .setGradientMaxpoint(CFG.colors.tealSoft)
     .setRanges([sh.getRange(2, c.hours, body, 1)])
     .build();
-  sh.setConditionalFormatRules([midnight, over8, hoursScale]);
+  sh.setConditionalFormatRules([
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
+    dateRule_(dateRange, '=AND(' + midnight + ')', null, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(8) + ')', CFG.colors.amber, null),
+    hoursScale,
+  ]);
 
   var widths = { 1: 95, 2: 150, 3: 260, 4: 70, 5: 70, 6: 70, 7: 95, 8: 105 };
   Object.keys(widths).forEach(function (col) {
     sh.setColumnWidth(Number(col), widths[col]);
   });
+}
+
+/** A date-cell conditional rule with an optional background and/or font color. */
+function dateRule_(range, formula, bg, font) {
+  var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges([range]);
+  if (bg) b = b.setBackground(bg);
+  if (font) b = b.setFontColor(font);
+  return b.build();
 }
 
 function buildSettingsSheet_(ss) {

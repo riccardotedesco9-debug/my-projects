@@ -38,7 +38,7 @@
   <label for="client">Client</label>
   <select id="client"></select>
 
-  <label for="month">Month</label>
+  <label for="month">Period</label>
   <select id="month"></select>
 
   <div class="toggle">
@@ -63,9 +63,9 @@
       cs.appendChild(o);
     });
     var ms = $('month');
-    m.months.forEach(function (mm, i) {
+    m.periods.forEach(function (mm, i) {
       var o = document.createElement('option');
-      o.value = mm.year + '-' + mm.month;
+      o.value = mm.year + '-' + mm.month; // month 0 = whole year
       o.textContent = mm.label;
       if (i === 0) o.selected = true;
       ms.appendChild(o);
@@ -83,8 +83,8 @@
       .withSuccessHandler(function (res) {
         $('go').disabled = false;
         var note = res.rowCount === 0
-          ? ' Heads-up: no sessions matched — the PDF says so explicitly.'
-          : ' ' + res.rowCount + ' sessions, ' + res.totalHours.toFixed(2) + ' h.';
+          ? ' Heads-up: nothing matched — the PDF says so explicitly.'
+          : ' ' + res.rowCount + ' entries, ' + res.totalHours.toFixed(2) + ' h.';
         show('Saved <b>' + res.name + '</b> to Drive.' + note +
              (res.usedFallback ? ' (Used the fallback renderer — layout may be simpler.)' : '') +
              '<br><a href="' + res.url + '" target="_blank" rel="noopener">Open the PDF</a>', 'done');

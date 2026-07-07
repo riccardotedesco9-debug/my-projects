@@ -61,6 +61,77 @@ function rebuildActive() {
   notify_(makeCtx_(), 'Fresh tracker built.');
 }
 
+/**
+ * Dev/demo one-tap: fills the tracker with a rich, realistic dataset — three
+ * clients, ~5 months of history, clustered task names (so the AI breakdown +
+ * pie have something to group), and deliberate amber-day / midnight-crossing
+ * rows — so you can see the dashboard, summary, chart, and PDF export in full.
+ * Clears any prior demo rows first, so re-running stays clean. Run from the
+ * editor (build.gs). "Rebuild tracker" (Maintenance menu) wipes it for real use.
+ */
+function seedDemoData() {
+  var ctx = makeCtx_();
+  var ss = ctx.ss;
+  var HOUR = 3600000;
+
+  // Three demo clients (shows the dynamic, no-cap dashboard + summary) + rates + emails.
+  var demoClients = [
+    ['Pet Centre', 18, 'petcentre.demo@example.com'],
+    ['Splash Store', 15, 'splashstore.demo@example.com'],
+    ['Coastline Cafe', 14, 'coastline.demo@example.com'],
+  ];
+  ss.getSheetByName(CFG.sheets.clients).getRange(2, 1, demoClients.length, 3).setValues(demoClients);
+
+  // Task pools with intentional clusters (same TYPE, different wording) so the
+  // export's AI grouping collapses them into a few named slices.
+  var pools = {
+    'Pet Centre': ['Restock shelves', 'Stock inventory', 'Shelf restocking', 'Inventory count',
+      'Grooming assist', 'Dog grooming', 'Reception cover', 'Front desk cover', 'Clean kennels'],
+    'Splash Store': ['Cashier duty', 'Till operation', 'Stock check', 'Restock delivery',
+      'Float duty', 'Cash handling', 'Store cleaning', 'Closing shift'],
+    'Coastline Cafe': ['Barista shift', 'Coffee service', 'Table service', 'Waiting tables',
+      'Food prep', 'Morning prep + open', 'Close + clean'],
+  };
+
+  // Clear any prior sessions so re-running doesn't stack duplicates.
+  var logSh = ss.getSheetByName(CFG.sheets.log);
+  if (logSh.getLastRow() >= CFG.log.firstDataRow) {
+    logSh.getRange(CFG.log.firstDataRow, 1, logSh.getLastRow() - 1, CFG.log.lastCol).clearContent();
+  }
+
+  var now = new Date();
+  var rows = [];
+  for (var mBack = 0; mBack <= 4; mBack++) {
+    demoClients.forEach(function (c) {
+      var pool = pools[c[0]];
+      var sessions = 3 + Math.floor(Math.random() * 3); // 3–5 per client per month
+      for (var i = 0; i < sessions; i++) {
+        var day = 1 + Math.floor(Math.random() * 26);
+        var startMin = [0, 15, 30][Math.floor(Math.random() * 3)];
+        var start = new Date(now.getFullYear(), now.getMonth() - mBack, day, 8 + Math.floor(Math.random() * 8), startMin, 0);
+        var end = new Date(start.getTime() + (2 + Math.floor(Math.random() * 5)) * HOUR); // 2–6h
+        rows.push({ start: start.getTime(), end: end.getTime(), client: c[0], task: pool[Math.floor(Math.random() * pool.length)] });
+      }
+    });
+  }
+
+  // Two showcase rows this month: an 8h+ single day (amber) and a session
+  // crossing midnight (red date).
+  var amberDay = new Date(now.getFullYear(), now.getMonth(), Math.min(now.getDate(), 20), 9, 0, 0);
+  rows.push({ start: amberDay.getTime(), end: amberDay.getTime() + 4.5 * HOUR, client: 'Pet Centre', task: 'Stock inventory' });
+  rows.push({ start: amberDay.getTime() + 5 * HOUR, end: amberDay.getTime() + 9.5 * HOUR, client: 'Pet Centre', task: 'Restock shelves' });
+  var lateNight = new Date(now.getFullYear(), now.getMonth(), Math.min(now.getDate(), 18), 22, 0, 0);
+  rows.push({ start: lateNight.getTime(), end: lateNight.getTime() + 3.5 * HOUR, client: 'Splash Store', task: 'Closing shift' });
+
+  rows.sort(function (a, b) { return a.start - b.start; });
+  rows.forEach(function (r) {
+    appendLogRow_(ctx, r.start, r.end, r.client, r.task);
+  });
+  SpreadsheetApp.flush();
+  logSh.activate();
+  notify_(ctx, 'Seeded ' + rows.length + ' demo sessions across 3 clients / 5 months. Rebuild tracker to clear.');
+}
+
 /** Builds a throwaway tracker for the smoke test. Caller must trash it. */
 function buildThrowawaySpreadsheet_() {
   var stamp = Utilities.formatDate(new Date(), 'Europe/Malta', 'yyyyMMdd-HHmmss');
@@ -150,6 +221,70 @@ function withSpreadsheetRetry_(fn) {
     Utilities.sleep(1500);
     return fn();
   }
+}
+
+/**
+ * NON-DESTRUCTIVE update: re-applies the latest layout/formatting WITHOUT
+ * wiping your logged data. The Dashboard, Summary, Report and Settings sheets
+ * hold no user data, so they're recreated wholesale; the Time Log and Clients
+ * sheets (your data) are only reformatted in place. Run this after a code
+ * update that changes the sheet layout — your sessions/rates/emails stay put.
+ */
+function updateLayout() {
+  var ss = SpreadsheetApp.getActive();
+  updateLayout_(ss);
+  ensureTriggers_(ss);
+  ensureDriveTree_(ss);
+  notify_(makeCtx_(), 'Layout updated to the latest version — your logged data is untouched.');
+}
+
+function updateLayout_(ss) {
+  ss.setSpreadsheetLocale('en_GB');
+  ss.setSpreadsheetTimeZone('Europe/Malta');
+
+  // Derived sheets carry no user data — delete + recreate them (deleting a
+  // sheet also drops its named ranges, which the rebuilders below re-create).
+  ['dashboard', 'summary', 'report', 'settings'].forEach(function (key) {
+    var old = ss.getSheetByName(CFG.sheets[key]);
+    if (old) ss.deleteSheet(old);
+  });
+  ss.insertSheet(CFG.sheets.settings);
+  buildSettingsSheet_(ss);
+  ss.insertSheet(CFG.sheets.report);
+  buildReportShell_(ss);
+  ss.insertSheet(CFG.sheets.dashboard);
+  buildDashboardSheet_(ss);
+  ss.insertSheet(CFG.sheets.summary);
+  buildSummarySheet_(ss);
+
+  // Reformat the DATA sheets in place — every row is preserved. buildLogSheet_
+  // clears prior banding first so it's safe to re-run; buildClientsSheet_ only
+  // seeds starter clients when the sheet is empty, so real clients are kept.
+  buildLogSheet_(ss);
+  buildClientsSheet_(ss);
+
+  applyTabColorsAndOrder_(ss);
+  var ctx = makeCtx_({ ss: ss });
+  refreshStatusBanner_(ctx, getTimerState_(ctx)); // keep a running timer's banner
+  SpreadsheetApp.flush();
+}
+
+/** Sets the canonical tab colours + left-to-right order for all six sheets. */
+function applyTabColorsAndOrder_(ss) {
+  [
+    [CFG.sheets.dashboard, CFG.colors.navy],
+    [CFG.sheets.log, CFG.colors.teal],
+    [CFG.sheets.report, CFG.colors.gold],
+    [CFG.sheets.summary, CFG.colors.teal],
+    [CFG.sheets.clients, CFG.colors.gray],
+    [CFG.sheets.settings, CFG.colors.gray],
+  ].forEach(function (t, i) {
+    var sh = ss.getSheetByName(t[0]);
+    if (!sh) return;
+    sh.setTabColor(t[1]);
+    ss.setActiveSheet(sh);
+    ss.moveActiveSheet(i + 1);
+  });
 }
 
 // ---------- Triggers ----------

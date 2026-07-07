@@ -142,8 +142,9 @@ function fallbackPdfBlob_(ctx) {
 }
 
 function timesheetFilename_(client, year, month) {
-  var mm = (month < 10 ? '0' : '') + month;
-  return 'Timesheet_' + year + '-' + mm + '_' + sanitize_(String(client)) + '_' + sanitize_(CFG.ownerName) + '.pdf';
+  // month 0 → whole-year export, so the filename is just the year.
+  var period = month ? year + '-' + (month < 10 ? '0' : '') + month : String(year);
+  return 'Timesheet_' + period + '_' + sanitize_(String(client)) + '_' + sanitize_(CFG.ownerName) + '.pdf';
 }
 
 /** "Pet Centre" → "PetCentre"; "All Clients" → "AllClients". */

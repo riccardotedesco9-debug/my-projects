@@ -10,9 +10,13 @@ function onOpen() {
   ui.createMenu('⏱ Tracker')
     .addItem('Open timer panel', 'showSidebar')
     .addItem('Add past session…', 'showAddSessionDialog')
+    .addItem('Add project fee…', 'showAddProjectDialog')
     .addSeparator()
     .addItem('▶ Start (Dashboard client/task)', 'startWorkFromSheet')
     .addItem('■ Stop & log', 'stopAndLogFromSheet')
+    .addSeparator()
+    .addItem('Delete selected session(s)', 'deleteSelectedLogRows')
+    .addItem('Sort Time Log by date', 'sortLogByDate')
     .addSeparator()
     .addItem('Export timesheet PDF…', 'showExportDialog')
     .addItem('Prepare monthly drafts now', 'monthlyEmailJob')
@@ -20,10 +24,18 @@ function onOpen() {
     .addSeparator()
     .addSubMenu(
       ui.createMenu('Maintenance')
-        .addItem('Run smoke test', 'showSmokeTestDialog')
-        .addItem('Rebuild tracker (destructive)', 'rebuildActive')
+        .addItem('Update layout (keeps your data)', 'updateLayout')
+        .addItem('Run health check + smoke test (~4 min)', 'showSmokeTestDialog')
+        .addItem('Rebuild tracker (wipes data)', 'rebuildActive')
     )
     .addToUi();
+}
+
+function showAddProjectDialog() {
+  var html = HtmlService.createHtmlOutputFromFile('add-project-dialog')
+    .setWidth(400)
+    .setHeight(440);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Add project fee');
 }
 
 function showAddSessionDialog() {
@@ -68,39 +80,66 @@ function showExportDialog() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Export timesheet PDF');
 }
 
-/** Model for the export dialog: clients + last 12 months (labels built server-side). */
+/** Model for the export dialog: clients + last 12 months + full-year options
+ *  (month 0 = whole year). Labels built server-side. */
 function getExportModel() {
   var ctx = makeCtx_();
   var tz = ctx.ss.getSpreadsheetTimeZone();
-  var months = [];
+  var periods = [];
   var now = new Date();
   for (var i = 0; i < 12; i++) {
     var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({
+    periods.push({
       year: d.getFullYear(),
       month: d.getMonth() + 1,
       label: Utilities.formatDate(d, tz, 'MMMM yyyy'),
     });
   }
-  return { clients: getClientNames_(ctx), allClients: CFG.allClients, months: months };
+  periods.push({ year: now.getFullYear(), month: 0, label: now.getFullYear() + ' — full year' });
+  periods.push({ year: now.getFullYear() - 1, month: 0, label: now.getFullYear() - 1 + ' — full year' });
+  return { clients: getClientNames_(ctx), allClients: CFG.allClients, periods: periods };
 }
 
-/** Runs the full smoke suite and shows the JSON verdict in a dialog. */
+/**
+ * Runs the full health-check + stress suite and renders the verdict grouped
+ * by section: ✔/✘ assertions, ⚠ warnings (non-fatal findings), ℹ info lines,
+ * per-section timing. Expect a ~3-5 minute run — it rebuilds a throwaway
+ * tracker and drives every feature end to end.
+ */
 function showSmokeTestDialog() {
   var result = runSmokeTest();
   var esc = function (s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   };
-  var summary = (result.failed === 0 ? '✅ ' : '❌ ') + result.passed + '/' + result.total + ' assertions passed';
-  var lines = result.results
-    .map(function (r) {
-      return (r.ok ? '✔ ' : '✘ ') + esc(r.name) + (r.ok ? '' : '  [expected ' + esc(r.expected) + ' | actual ' + esc(r.actual) + ']');
-    })
-    .join('\n');
+  var mins = Math.floor(result.elapsedMs / 60000);
+  var secs = Math.round((result.elapsedMs % 60000) / 1000);
+  var head = (result.failed === 0 ? '✅ ' : '❌ ') + result.passed + '/' + result.total + ' checks passed';
+  if (result.warned) head += ' · ⚠ ' + result.warned + ' warning' + (result.warned === 1 ? '' : 's');
+  if (result.skippedSections) head += ' · ⏭ ' + result.skippedSections + ' section(s) skipped (time budget)';
+  head += ' · ' + mins + 'm ' + secs + 's';
+
+  var out = [head, ''];
+  result.sections.forEach(function (sec) {
+    var mark = sec.failed > 0 ? '✘' : sec.warned > 0 ? '⚠' : '✔';
+    out.push(mark + ' ' + sec.name.toUpperCase() + ' — ' + sec.passed + '/' + (sec.passed + sec.failed) +
+      (sec.warned ? ' · ' + sec.warned + ' warn' : '') + ' · ' + Math.round(sec.ms / 1000) + 's');
+    result.results.forEach(function (r) {
+      if (r.section !== sec.name) return;
+      if (r.level === 'info') {
+        out.push('   ℹ ' + esc(r.name) + ': ' + esc(r.actual));
+      } else if (r.level === 'warn') {
+        if (!r.ok) out.push('   ⚠ ' + esc(r.name) + ' — ' + esc(r.actual));
+      } else {
+        out.push('   ' + (r.ok ? '✔ ' : '✘ ') + esc(r.name) + (r.ok ? '' : '  [expected ' + esc(r.expected) + ' | actual ' + esc(r.actual) + ']'));
+      }
+    });
+    out.push('');
+  });
+
   var html = HtmlService.createHtmlOutput(
-    '<pre style="font: 12px/1.5 monospace; white-space: pre-wrap;">' + summary + '\n\n' + lines + '</pre>'
+    '<pre style="font: 12px/1.5 monospace; white-space: pre-wrap;">' + out.join('\n') + '</pre>'
   )
-    .setWidth(560)
-    .setHeight(420);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Smoke test');
+    .setWidth(660)
+    .setHeight(480);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Health check & smoke test');
 }

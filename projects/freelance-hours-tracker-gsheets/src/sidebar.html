@@ -120,7 +120,7 @@
   <div class="foot">
     <div class="stats" id="stats">&nbsp;</div>
     <div class="links">
-      <a id="lnkExport">Export PDF…</a><span>·</span><a id="lnkAdd">Add past session…</a>
+      <a id="lnkExport">Export PDF…</a><span>·</span><a id="lnkAdd">Add past session…</a><span>·</span><a id="lnkFee">Add project fee…</a>
     </div>
   </div>
 
@@ -297,6 +297,7 @@
   };
   $('lnkExport').onclick = function () { google.script.run.showExportDialog(); };
   $('lnkAdd').onclick = function () { google.script.run.showAddSessionDialog(); };
+  $('lnkFee').onclick = function () { google.script.run.showAddProjectDialog(); };
   boot();
 </script>
 </body>

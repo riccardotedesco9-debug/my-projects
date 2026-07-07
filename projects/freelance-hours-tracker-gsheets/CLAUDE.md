@@ -55,9 +55,20 @@ banner (gray IDLE / green RUNNING) is the on-sheet feedback; checkboxes cover th
 - Source of truth: `src/` (pushed by clasp; kebab-case, one concern per file, `_`-suffixed
   privates). `src/build.js` → `rebuild_()` is the **authoritative layout spec**.
 - `npm run push` = `clasp push` · `npm run open` = open the container Sheet ·
-  `npm test` = eslint + `tools/run-tests.mjs` (drives `runSmokeTest()` — the real functions
-  on a throwaway spreadsheet; asserts CONTENT, never existence).
-- The in-sheet menu also has *Run Smoke Test* (same suite, JSON in a dialog) — works even
+  `npm test` = eslint + `tools/run-tests.mjs` (drives `runSmokeTest()`).
+- **`runSmokeTest()` is a full health check + stress suite** (~330 checks, 15 sections,
+  ~3-5 min): section 1 is a READ-ONLY production health check (structure, named ranges,
+  triggers, Script Properties, Drive tree, a full data-integrity sweep of the real log +
+  dashboard/summary reconciliation); everything else drives the REAL functions on a
+  throwaway spreadsheet — timer state machine incl. corrupted-state/crash/lock tests,
+  checkbox onEdit paths, log math (DST, unicode, formula-injection, grid edge), manual/fee
+  refusal matrices, report period windows vs an independent JS mirror, breakdown/seal/PDF/
+  viewer/drafts artifacts, a 150-row bulk stress + full-log invariant sweep, updateLayout
+  preservation, and a disaster-recovery rebuild. Asserts CONTENT, never existence; each
+  section is throw-isolated + timed; self-limits to the Apps Script 6-min ceiling.
+  Test harness lives in `src/test-runner.js`; sections in `src/test-*.js`.
+- The in-sheet menu runs the same suite: ⏱ Tracker → Maintenance → *Run health check +
+  smoke test* (section-grouped verdict with ⚠ warnings + ℹ info in a dialog) — works even
   without the optional GCP project wiring for `clasp run-function`.
 - **Manual steps (one-time):** ① enable Apps Script API + `clasp login`; ② run `setup()` once
   in the editor and click the consent screen; ③ click "Allow access" once inside each client

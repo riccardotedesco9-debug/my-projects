@@ -60,10 +60,13 @@ function addManualSessionCtx_(ctx, p) {
   var task = String(p.task || '').trim();
   if (!client) return { ok: false, msg: MSG.pickClient };
   if (!clientExists_(ctx, client)) return { ok: false, msg: MSG.unknownClient(client) };
-  var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(p.dateIso || ''));
+  var d = parseDateIso_(p.dateIso);
   var s = /^(\d{1,2}):(\d{2})$/.exec(String(p.startHm || ''));
   var e = /^(\d{1,2}):(\d{2})$/.exec(String(p.endHm || ''));
   if (!d || !s || !e) return { ok: false, msg: 'Fill in the date, start and end times.' };
+  if (+s[1] > 23 || +s[2] > 59 || +e[1] > 23 || +e[2] > 59) {
+    return { ok: false, msg: 'Times must be real clock times (00:00–23:59).' };
+  }
   // Built in the script timezone (Europe/Malta) — same clock the timer uses.
   var startMs = new Date(+d[1], +d[2] - 1, +d[3], +s[1], +s[2], 0).getTime();
   var endMs = new Date(+d[1], +d[2] - 1, +d[3] + (p.nextDay ? 1 : 0), +e[1], +e[2], 0).getTime();
@@ -195,7 +198,7 @@ function appendLogRow_(ctx, startMs, endMs, client, task) {
   var r = Math.max(sh.getLastRow() + 1, CFG.log.firstDataRow);
   if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 50); // never write past the grid
 
-  sh.getRange(r, c.client, 1, 2).setValues([[client, task]]);
+  sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
   sh.getRange(r, c.start, 1, 2)
     .setValues([[new Date(startMs), new Date(endMs)]])
     .setNumberFormat(CFG.formats.time);
@@ -221,31 +224,106 @@ function appendLogRow_(ctx, startMs, endMs, client, task) {
 }
 
 /**
+ * Logs a fixed-price project as one line: an agreed € amount, no hours/rate.
+ * payload: {client, description, dateIso 'yyyy-mm-dd', amount}.
+ */
+function addProjectFee(payload) {
+  return addProjectFeeCtx_(makeCtx_(), payload || {});
+}
+
+function addProjectFeeCtx_(ctx, p) {
+  var client = String(p.client || '').trim();
+  var desc = String(p.description || '').trim();
+  if (!client) return { ok: false, msg: MSG.pickClient };
+  if (!clientExists_(ctx, client)) return { ok: false, msg: MSG.unknownClient(client) };
+  if (!desc) return { ok: false, msg: 'Describe the project.' };
+  var d = parseDateIso_(p.dateIso);
+  if (!d) return { ok: false, msg: 'Pick a date.' };
+  var amount = Number(p.amount);
+  if (!isFinite(amount) || amount <= 0) return { ok: false, msg: 'Enter the agreed amount (€).' };
+  amount = Math.round(amount * 100) / 100;
+  var dateMs = new Date(+d[1], +d[2] - 1, +d[3]).getTime();
+  return withLock_(function () {
+    appendFixedRow_(ctx, dateMs, client, desc, amount);
+    return { ok: true, amount: amount };
+  });
+}
+
+/**
+ * Appends a fixed-fee project row: Date + Client + Task + a literal Amount,
+ * with Start/End/Hours/Rate left blank (it isn't hourly). The report flags a
+ * no-Start row as a fixed-fee project.
+ */
+function appendFixedRow_(ctx, dateMs, client, task, amount) {
+  var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+  var c = CFG.log.cols;
+  var r = Math.max(sh.getLastRow() + 1, CFG.log.firstDataRow);
+  if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 50);
+  sh.getRange(r, c.date).setValue(new Date(dateMs)).setNumberFormat(CFG.formats.date);
+  sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
+  sh.getRange(r, c.amount).setValue(amount).setNumberFormat(CFG.formats.euro);
+  return r;
+}
+
+/**
+ * setValues interprets a string starting with '=' as a live formula (documented
+ * USER_ENTERED-style parsing) — a task named "=SUM meeting" would silently
+ * become one. '+' is prefixed defensively for parity with UI typing. The
+ * leading apostrophe is the text-input marker: the stored value carries no
+ * apostrophe. Used on every write of free-typed text (log AND report).
+ */
+function literal_(s) {
+  s = String(s);
+  return /^[=+]/.test(s) ? "'" + s : s;
+}
+
+/**
  * Crash-recovery dialog callback: 'keep' | 'log' | 'discard'.
  * expectedStartMs guards 'discard' against acting on a DIFFERENT session than
  * the one the dialog displayed (e.g. a phone checkbox started a new one).
  */
 function recoveryChoice(choice, expectedStartMs) {
-  var ctx = makeCtx_();
-  if (choice === 'log') {
-    var res = stopAndLogCtx_(ctx);
-    notify_(ctx, res.msg);
-  } else if (choice === 'discard') {
-    var current = getTimerState_(ctx);
-    if (expectedStartMs && current.startedAtMs !== expectedStartMs) {
-      notify_(ctx, 'Not discarded — a different session is running now.');
-    } else {
-      discardRunningSession_(ctx);
-      notify_(ctx, 'Session discarded.');
-    }
-  }
-  // 'keep': nothing to do — state is already RUNNING and authoritative.
+  recoveryChoiceCtx_(makeCtx_(), choice, expectedStartMs);
   try {
     showSidebar();
   } catch (e) {
     // No UI context (e.g. mobile) — sidebar will appear on next desktop open.
   }
   return getTimerSnapshot();
+}
+
+function recoveryChoiceCtx_(ctx, choice, expectedStartMs) {
+  if (choice === 'log') {
+    var res = stopAndLogCtx_(ctx);
+    notify_(ctx, res.msg);
+    return res;
+  }
+  if (choice === 'discard') {
+    var current = getTimerState_(ctx);
+    if (expectedStartMs && current.startedAtMs !== expectedStartMs) {
+      notify_(ctx, 'Not discarded — a different session is running now.');
+      return { ok: false, msg: 'different session running' };
+    }
+    discardRunningSession_(ctx);
+    notify_(ctx, 'Session discarded.');
+    return { ok: true };
+  }
+  // 'keep': nothing to do — state is already RUNNING and authoritative.
+  return { ok: true };
+}
+
+/**
+ * Strict 'yyyy-mm-dd' parse: shape, real month/day ranges, AND a round-trip
+ * check so rollover dates (2026-02-31 → Mar 3) are refused, not silently
+ * shifted into a different month. Returns the regex match array or null.
+ */
+function parseDateIso_(dateIso) {
+  var d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateIso || ''));
+  if (!d) return null;
+  if (+d[2] < 1 || +d[2] > 12 || +d[3] < 1 || +d[3] > 31) return null;
+  var probe = new Date(+d[1], +d[2] - 1, +d[3]);
+  if (probe.getMonth() !== +d[2] - 1 || probe.getDate() !== +d[3]) return null;
+  return d;
 }
 
 function colLetter_(col) {

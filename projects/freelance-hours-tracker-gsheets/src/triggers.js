@@ -6,7 +6,9 @@
 //  2. Monthly Gmail drafts: 1st of month, one draft per client with activity.
 
 function onEditInstallable(e) {
-  if (!e || !e.range || e.value !== 'TRUE') return; // only fresh ticks; our own reset writes FALSE
+  // Only fresh ticks act; our own reset writes FALSE. Sheets delivers checkbox
+  // values as the string 'TRUE' today — accept boolean true too, defensively.
+  if (!e || !e.range || (e.value !== 'TRUE' && e.value !== true)) return;
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.sheets.dashboard) return;
 
@@ -95,7 +97,12 @@ function monthlyEmailJobCtx_(ctx, opts) {
       var draft = GmailApp.createDraft(emails[name], subject, draftBody_(name, monthLabel, res.meta), {
         attachments: [res.blob],
       });
-      drafted.push({ client: name, email: emails[name], subject: subject, draft: draft });
+      // attachmentName/Bytes let the smoke suite verify the attachment contract
+      // without needing a Gmail read scope.
+      drafted.push({
+        client: name, email: emails[name], subject: subject, draft: draft,
+        attachmentName: res.name, attachmentBytes: res.sizeBytes,
+      });
     } catch (err) {
       failed.push({ client: name, error: String((err && err.message) || err) });
     }
