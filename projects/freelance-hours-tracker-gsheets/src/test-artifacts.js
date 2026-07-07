@@ -39,24 +39,29 @@ function sectionViewer_(S, env) {
 
   buildViewerContent_(scratch, env.ss.getId(), "Paws 'n' Claws");
   S.t('viewer: exactly one sheet', scratch.getSheets().length, 1);
-  S.t('viewer: sheet named Hours', scratch.getSheets()[0].getName(), 'Hours');
+  S.t('viewer: lands on the Summary page', scratch.getSheets()[0].getName(), 'Summary');
   var sh = scratch.getSheets()[0];
   var anchor = sh.getRange('H2').getFormula();
   S.t('viewer: bare IMPORTRANGE anchor (Allow-access prompt surface)', anchor.indexOf('=IMPORTRANGE') === 0 && anchor.indexOf('IFERROR') < 0, true);
   S.t('viewer: anchor points at Log!A1', anchor.indexOf(CFG.sheets.log + '!A1') > 0, true);
-  var totals = sh.getRange('B6').getFormula();
+  var monthly = sh.getRange('N7').getFormula();
   var sessions = sh.getRange('F6').getFormula();
-  S.t('viewer: totals QUERY is IFERROR-wrapped (empty log ≠ access error)', totals.indexOf('=IFERROR(QUERY(IMPORTRANGE') === 0, true);
+  S.t('viewer: monthly QUERY is IFERROR-wrapped (empty log ≠ access error)', monthly.indexOf('=IFERROR(QUERY(IMPORTRANGE') === 0, true);
   S.t('viewer: apostrophe client survives the GViz literal', sessions.indexOf("Paws 'n' Claws") > 0, true);
+  S.t('viewer: headline total-hours stat wired', sh.getRange('B6').getFormula().indexOf('SUM($J$7:$J$1000)') > 0, true);
+  S.t('viewer: hours-by-month table wired', sh.getRange('B10').getFormula().indexOf('ARRAYFORMULA') === 0, true);
+  S.t('viewer: hours-by-month chart present', sh.getCharts().length, 1);
+  S.t('viewer: chart data columns hidden', sh.isColumnHiddenByUser(14), true);
   // Strip the embedded Drive ID first — a random ID containing "Col7" must
   // not trip the privacy probe.
-  var probe = (totals + sessions).split(env.ss.getId()).join('');
+  var probe = (monthly + sessions).split(env.ss.getId()).join('');
   var moneyLeak = /A2:[GH]|Col7|Col8/.test(probe);
-  S.t('viewer: imports A2:F only — Rate/€ can never leak', totals.indexOf('A2:F') > 0 && sessions.indexOf('A2:F') > 0 && !moneyLeak, true);
+  S.t('viewer: imports A2:F only — Rate/€ can never leak', monthly.indexOf('A2:F') > 0 && sessions.indexOf('A2:F') > 0 && !moneyLeak, true);
   S.t('viewer: locale en_GB', scratch.getSpreadsheetLocale(), 'en_GB');
   S.t('viewer: timezone Malta', scratch.getSpreadsheetTimeZone(), 'Europe/Malta');
   buildViewerContent_(scratch, env.ss.getId(), "Paws 'n' Claws");
   S.t('viewer rebuild is idempotent (still one sheet)', scratch.getSheets().length, 1);
+  S.t('viewer rebuild is idempotent (still one chart)', scratch.getSheets()[0].getCharts().length, 1);
 }
 
 function sectionDrafts_(S, env) {

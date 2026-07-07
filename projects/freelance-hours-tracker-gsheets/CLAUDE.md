@@ -34,7 +34,10 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
 9. **1st of each month:** a trigger builds last month's PDF per active client and leaves a
    **Gmail draft** to them for your review — you press send.
 10. **Live client views:** ⏱ Tracker → *Create client view…* makes a view-only spreadsheet per
-    client (their sessions + hours ONLY, never money) you can share as a link.
+    client that opens on a client-facing **Summary** page — headline totals (total hours,
+    sessions, this month), an hours-by-month chart, and the session list. Hours ONLY: it
+    imports Log!A2:F filtered to that client, so rates/€ and other clients physically can't
+    appear. Share the link it hands back (view-only is already set).
 
 The **sidebar is the control surface** (ticking clock, Start/Stop, zero-gap confirm, today +
 month footer, export/add-session shortcuts). The Dashboard's one button opens it; the status
