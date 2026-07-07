@@ -57,7 +57,7 @@ function sectionTimer_(S, env) {
   S.t('banner back to idle', String(env.ss.getRangeByName(CFG.named.dbStatus).getValue()), 'IDLE — ready to start');
   S.t('mirror started-at cleared on stop', String(env.ss.getRangeByName(CFG.named.stStartedAt).getValue()), '');
   S.t('two rows logged', log.getLastRow() - 1, 2);
-  // Batch the row-content + format reads into two round-trips instead of ~18
+  // Batch the row-content + format reads into three round-trips instead of ~18
   // (every getValue/getNumberFormat is a server hop — the suite's biggest cost).
   var v2 = log.getRange(2, 1, 1, CFG.log.lastCol).getValues()[0];
   var f2 = log.getRange(2, 1, 1, CFG.log.lastCol).getNumberFormats()[0];
