@@ -25,7 +25,8 @@ function onOpen() {
     .addSubMenu(
       ui.createMenu('Maintenance')
         .addItem('Update layout (keeps your data)', 'updateLayout')
-        .addItem('Run health check + smoke test (~4 min)', 'showSmokeTestDialog')
+        .addItem('Quick health check (~1 min)', 'showQuickHealthDialog')
+        .addItem('Full test suite (~4 min)', 'showSmokeTestDialog')
         .addItem('Check AI grouping', 'checkAiGrouping')
         .addItem('Rebuild tracker (wipes data)', 'rebuildActive')
     )
@@ -103,12 +104,24 @@ function getExportModel() {
 
 /**
  * Runs the full health-check + stress suite and renders the verdict grouped
- * by section: ✔/✘ assertions, ⚠ warnings (non-fatal findings), ℹ info lines,
- * per-section timing. Expect a ~3-5 minute run — it rebuilds a throwaway
- * tracker and drives every feature end to end.
+ * by section. Expect a ~3-5 minute run — it rebuilds a throwaway tracker and
+ * drives every feature end to end. On a slow-Sheets day it self-limits: the
+ * tail sections skip (⏭) so cleanup always runs inside the 6-minute ceiling.
  */
 function showSmokeTestDialog() {
-  var result = runSmokeTest();
+  renderSuiteDialog_(runSmokeTest(), 'Health check & smoke test');
+}
+
+/**
+ * Runs ONLY the read-only production health check (~1 min, always finishes) —
+ * the everyday "how are things?" instrument. Never writes to the tracker.
+ */
+function showQuickHealthDialog() {
+  renderSuiteDialog_(runQuickHealthCheck(), 'Quick health check');
+}
+
+/** Renders a suite verdict (full or quick) into a section-grouped dialog. */
+function renderSuiteDialog_(result, title) {
   var esc = function (s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   };
@@ -116,7 +129,7 @@ function showSmokeTestDialog() {
   var secs = Math.round((result.elapsedMs % 60000) / 1000);
   var head = (result.failed === 0 ? '✅ ' : '❌ ') + result.passed + '/' + result.total + ' checks passed';
   if (result.warned) head += ' · ⚠ ' + result.warned + ' warning' + (result.warned === 1 ? '' : 's');
-  if (result.skippedSections) head += ' · ⏭ ' + result.skippedSections + ' section(s) skipped (time budget)';
+  if (result.skippedSections) head += ' · ⏭ ' + result.skippedSections + ' section(s) skipped (slow Sheets — rerun)';
   head += ' · ' + mins + 'm ' + secs + 's';
 
   var out = [head, ''];
@@ -142,5 +155,5 @@ function showSmokeTestDialog() {
   )
     .setWidth(660)
     .setHeight(480);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Health check & smoke test');
+  SpreadsheetApp.getUi().showModalDialog(html, title);
 }

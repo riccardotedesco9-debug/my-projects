@@ -43,11 +43,13 @@ function sectionTimer_(S, env) {
   S.t('snapshot: clients list from Clients sheet', snap.clients.length === 3 && snap.clients.indexOf("Paws 'n' Claws") >= 0, true);
 
   // --- Zero-gap switch → stop → row content + every column format ---
-  Utilities.sleep(1500);
+  // Short sleeps only need to make each session's duration measurably nonzero;
+  // the assertions read the stored times, not the sleep length.
+  Utilities.sleep(600);
   var r2 = startWorkCtx_(ctx, 'Splash Store', 'Restock', {}); // silent → auto zero-gap switch
   S.t('switch ok', r2.ok, true);
   S.t('switched to Splash Store', getTimerState_(ctx).client, 'Splash Store');
-  Utilities.sleep(1200);
+  Utilities.sleep(600);
   var r3 = stopAndLogCtx_(ctx);
   S.t('stop ok', r3.ok, true);
   S.t('stop message uses MSG.logged', r3.msg, MSG.logged(r3.loggedHours, 'Splash Store'));
@@ -55,23 +57,28 @@ function sectionTimer_(S, env) {
   S.t('banner back to idle', String(env.ss.getRangeByName(CFG.named.dbStatus).getValue()), 'IDLE — ready to start');
   S.t('mirror started-at cleared on stop', String(env.ss.getRangeByName(CFG.named.stStartedAt).getValue()), '');
   S.t('two rows logged', log.getLastRow() - 1, 2);
-  var start1 = log.getRange(2, c.start).getValue();
-  var end1 = log.getRange(2, c.end).getValue();
-  var start2 = log.getRange(3, c.start).getValue();
+  // Batch the row-content + format reads into two round-trips instead of ~18
+  // (every getValue/getNumberFormat is a server hop — the suite's biggest cost).
+  var v2 = log.getRange(2, 1, 1, CFG.log.lastCol).getValues()[0];
+  var f2 = log.getRange(2, 1, 1, CFG.log.lastCol).getNumberFormats()[0];
+  var start1 = v2[c.start - 1];
+  var end1 = v2[c.end - 1];
+  var row3 = log.getRange(3, 1, 1, CFG.log.lastCol).getValues()[0];
+  var start2 = row3[c.start - 1];
   S.t('zero-gap: row1.End === row2.Start (exact ms)', end1.getTime(), start2.getTime());
-  S.t('row1 client', String(log.getRange(2, c.client).getValue()), 'Pet Centre');
-  S.t('row1 task', String(log.getRange(2, c.task).getValue()), 'Grooming records');
-  S.t('row1 rate 45 via live lookup', Number(log.getRange(2, c.rate).getValue()), 45);
-  var h1 = Number(log.getRange(2, c.hours).getValue());
+  S.t('row1 client', String(v2[c.client - 1]), 'Pet Centre');
+  S.t('row1 task', String(v2[c.task - 1]), 'Grooming records');
+  S.t('row1 rate 45 via live lookup', Number(v2[c.rate - 1]), 45);
+  var h1 = Number(v2[c.hours - 1]);
   S.t('row1 hours = ROUND((end-start)*24,2)', h1, Math.round(((end1 - start1) / 3600000) * 100) / 100);
-  S.t('row1 amount = hours×rate', Number(log.getRange(2, c.amount).getValue()), Math.round(h1 * 45 * 100) / 100);
-  S.t('row1 date == start day', dayFmt(log.getRange(2, c.date).getValue()), dayFmt(start1));
-  S.t('start keeps hh:mm format', log.getRange(2, c.start).getNumberFormat(), 'hh:mm');
-  S.t('end keeps hh:mm format', log.getRange(2, c.end).getNumberFormat(), 'hh:mm');
-  S.t('date format dd/mm/yyyy', log.getRange(2, c.date).getNumberFormat(), CFG.formats.date);
-  S.t('hours format 0.00', log.getRange(2, c.hours).getNumberFormat(), CFG.formats.hours);
-  S.t('amount format €', log.getRange(2, c.amount).getNumberFormat(), CFG.formats.euro);
-  S.t('row2 blank-rate client → rate 0', Number(log.getRange(3, c.rate).getValue()), 0);
+  S.t('row1 amount = hours×rate', Number(v2[c.amount - 1]), Math.round(h1 * 45 * 100) / 100);
+  S.t('row1 date == start day', dayFmt(v2[c.date - 1]), dayFmt(start1));
+  S.t('start keeps hh:mm format', f2[c.start - 1], 'hh:mm');
+  S.t('end keeps hh:mm format', f2[c.end - 1], 'hh:mm');
+  S.t('date format dd/mm/yyyy', f2[c.date - 1], CFG.formats.date);
+  S.t('hours format 0.00', f2[c.hours - 1], CFG.formats.hours);
+  S.t('amount format €', f2[c.amount - 1], CFG.formats.euro);
+  S.t('row2 blank-rate client → rate 0', Number(row3[c.rate - 1]), 0);
 
   // --- Stop when idle: refused, nothing logged ---
   var rows = log.getLastRow();
@@ -149,12 +156,12 @@ function sectionTimer_(S, env) {
   // --- Switch semantics (the reported "wrong task saved" concern) ---
   var swBase = log.getLastRow();
   startWorkCtx_(ctx, 'Pet Centre', 'Alpha task', {});
-  Utilities.sleep(1100);
+  Utilities.sleep(600);
   var swRes = startWorkCtx_(ctx, 'Pet Centre', 'Beta task', {}); // silent → auto zero-gap switch
   S.t('same-client task switch ok', swRes.ok, true);
   S.t('logged session keeps the OLD task (Alpha)', String(log.getRange(swBase + 1, c.task).getValue()), 'Alpha task');
   S.t('running session is the NEW task (Beta)', getTimerState_(ctx).task, 'Beta task');
-  Utilities.sleep(1100);
+  Utilities.sleep(600);
   stopAndLogCtx_(ctx);
   S.t('stop logs the NEW task (Beta)', String(log.getRange(swBase + 2, c.task).getValue()), 'Beta task');
   S.t('exactly two rows added by the switch pair', log.getLastRow(), swBase + 2);

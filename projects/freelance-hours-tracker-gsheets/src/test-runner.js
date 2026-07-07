@@ -63,6 +63,26 @@ function runSmokeTest() {
   cleanS.warn('production timer state unchanged during the run', prodStateAfter === prodStateRaw,
     'state changed mid-run (concurrent use, or a suite leak)');
 
+  return tallySuite_(suite, suiteStart);
+}
+
+/**
+ * The read-only production health check ALONE — the everyday "how are things?"
+ * instrument. ~30-60s, always finishes (no throwaway build, no stress), safe to
+ * run anytime: it never writes to the tracker. Returns the same result shape as
+ * runSmokeTest so the dialog renders it identically.
+ */
+function runQuickHealthCheck() {
+  var suiteStart = Date.now();
+  var suite = { results: [], sections: [], startMs: suiteStart };
+  runSection_(suite, 'Production health check', function (S) {
+    sectionProdHealth_(S, makeCtx_({ silent: true }));
+  });
+  return tallySuite_(suite, suiteStart);
+}
+
+/** Rolls section results into the headline verdict object. */
+function tallySuite_(suite, suiteStart) {
   var passed = 0;
   var failed = 0;
   var warned = 0;
