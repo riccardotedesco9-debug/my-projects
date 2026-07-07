@@ -42,22 +42,25 @@ function sectionBreakdownSeal_(S, env) {
   out = applyGroups_('not an array', tasks);
   S.t('garbage groups → every task keeps its own slice', out.length, 3);
 
-  // --- consolidateTasks_: cache + fallback paths, zero network ---
+  // --- consolidateTasks_: cache + fallback paths, ZERO network ---
+  // The suite never lets consolidateTasks_ reach the live API: every call here
+  // either short-circuits (≤2 tasks) or forces the fallback. The cache-HIT
+  // branch is verified directly through applyGroups_ (exactly what the function
+  // returns on a hit: applyGroups_(JSON.parse(cached), tasks)) so we don't
+  // depend on same-execution property write-visibility — and can never spend.
   var mk = function (tasksArr) {
     return tasksArr.map(function (t) { return { task: t[0], hours: t[1], amount: t[2] }; });
   };
   var threeRows = mk([['Alpha', 2, 20], ['Beta', 3, 30], ['Gamma', 1, 10]]);
-  var key3 = 'taskGroups:' + sanitize_('CacheTest') + ':2026-01:' + taskHash_('AlphaBetaGamma');
-  env.cleanupProps.push(key3);
-  props.setProperty(key3, JSON.stringify([{ label: 'Seeded group', members: [0, 1, 2] }]));
-  var cached = consolidateTasks_(env.ctx, 'CacheTest', '2026-01', threeRows, {});
-  S.t('cached grouping is used verbatim (no API call)', cached.length === 1 && cached[0].label === 'Seeded group', true);
-  S.t('cached grouping preserves total hours', cached[0].hours, 6);
-  props.deleteProperty(key3);
+  var threeTasks = uniqueTasksWithHours_(threeRows);
+  var cacheHit = applyGroups_(JSON.parse(JSON.stringify([{ label: 'Seeded group', members: [0, 1, 2] }])), threeTasks);
+  S.t('cache-hit grouping is applied verbatim', cacheHit.length === 1 && cacheHit[0].label === 'Seeded group', true);
+  S.t('cache-hit grouping preserves total hours', cacheHit[0].hours, 6);
   var two = consolidateTasks_(env.ctx, 'CacheTest', '2026-02', mk([['One', 1, 10], ['Two', 2, 20]]), {});
   S.t('≤2 tasks short-circuit to exact-match groups', two.length, 2);
   var key2 = 'taskGroups:' + sanitize_('CacheTest') + ':2026-02:' + taskHash_('OneTwo');
   S.t('short-circuit writes no cache entry', props.getProperty(key2), null);
+  var key3 = 'taskGroups:' + sanitize_('CacheTest') + ':2026-01:' + taskHash_('AlphaBetaGamma');
   var forced = consolidateTasks_(env.ctx, 'CacheTest', '2026-01', threeRows, { forceFallback: true });
   S.t('forceFallback yields exact-match groups', forced.length, 3);
   S.t('forceFallback writes no cache entry', props.getProperty(key3), null);

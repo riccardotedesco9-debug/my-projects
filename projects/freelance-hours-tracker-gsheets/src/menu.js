@@ -26,6 +26,7 @@ function onOpen() {
       ui.createMenu('Maintenance')
         .addItem('Update layout (keeps your data)', 'updateLayout')
         .addItem('Run health check + smoke test (~4 min)', 'showSmokeTestDialog')
+        .addItem('Check AI grouping', 'checkAiGrouping')
         .addItem('Rebuild tracker (wipes data)', 'rebuildActive')
     )
     .addToUi();

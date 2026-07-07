@@ -5,7 +5,45 @@
 // API key, the call fails, or a caller forces it (tests). Results are cached
 // per client+month+taskset so re-exports are stable and don't re-bill.
 
-var TASKGROUPS_MODEL = 'claude-haiku-4-5'; // classification = smallest model
+// Classification = smallest model. The dated ID is the canonical, always-valid
+// form — a bare "claude-haiku-4-5" 404s on the Messages API, which silently
+// drops every grouping to the exact-match fallback.
+var TASKGROUPS_MODEL = 'claude-haiku-4-5-20251001';
+
+/**
+ * One-tap diagnostic (menu: Maintenance → Check AI grouping): makes ONE real
+ * grouping call and reports exactly why it works or falls back — so a wrong
+ * model ID, an unfunded key, or a missing key is named, not silently swallowed.
+ */
+function checkAiGrouping() {
+  var ui = SpreadsheetApp.getUi();
+  var key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
+  if (!key) {
+    ui.alert('AI grouping', 'No ANTHROPIC_API_KEY set — timesheets use the exact-match fallback (raw task names, still grouped by identical text). Add the key in Project Settings → Script Properties to enable AI grouping.', ui.ButtonSet.OK);
+    return;
+  }
+  var sample = [
+    { task: 'Restock shelves', hours: 2 }, { task: 'Inventory count', hours: 1 },
+    { task: 'Dog grooming', hours: 3 }, { task: 'Reception cover', hours: 1 },
+  ];
+  try {
+    var resp = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', {
+      method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      payload: JSON.stringify({ model: TASKGROUPS_MODEL, max_tokens: 400, messages: [{ role: 'user', content: 'Reply ONLY with a JSON array [{"label":"...","members":[0]}] grouping these by type: ' + JSON.stringify(sample) }] }),
+    });
+    var code = resp.getResponseCode();
+    if (code === 200) {
+      var groups = callClaudeForGroups_(key, sample.map(function (t) { return { task: t.task, hours: t.hours }; }));
+      ui.alert('AI grouping ✓ working', 'Model ' + TASKGROUPS_MODEL + ' responded. Sample grouped into ' + groups.length + ' types:\n\n' + groups.map(function (g) { return '• ' + g.label; }).join('\n'), ui.ButtonSet.OK);
+    } else {
+      var hint = code === 404 ? 'model ID not found' : code === 401 ? 'invalid API key' : code === 400 ? 'bad request / credit balance too low' : code === 429 ? 'rate limited' : 'API error';
+      ui.alert('AI grouping ✗ falling back', 'The API returned ' + code + ' (' + hint + '). Timesheets still group by exact task text; fix the key/credits to get AI grouping.\n\n' + String(resp.getContentText()).slice(0, 300), ui.ButtonSet.OK);
+    }
+  } catch (e) {
+    ui.alert('AI grouping ✗', 'Call failed: ' + e + '\n\nTimesheets fall back to exact-match grouping.', ui.ButtonSet.OK);
+  }
+}
 
 /** Returns [{label, hours}] sorted by hours desc. Never throws. */
 function consolidateTasks_(ctx, client, yyyymm, rows, opts) {
