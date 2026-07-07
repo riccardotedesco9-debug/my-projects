@@ -28,6 +28,7 @@ function onOpen() {
         .addItem('Quick health check (~1 min)', 'showQuickHealthDialog')
         .addItem('Full test suite (~4 min)', 'showSmokeTestDialog')
         .addItem('Check AI grouping', 'checkAiGrouping')
+        .addItem('Load demo data (sample clients + sessions)', 'loadDemoData')
         .addItem('Rebuild tracker (wipes data)', 'rebuildActive')
     )
     .addToUi();

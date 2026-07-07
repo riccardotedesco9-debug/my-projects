@@ -13,12 +13,11 @@ function showClientViewDialog() {
 /** Dialog model: every client + whether its live view file already exists. */
 function getClientViewModel() {
   var ctx = makeCtx_();
-  var folder = getViewersFolder_();
   return {
     clients: getClientNames_(ctx).map(function (name) {
       return {
         name: name,
-        hasView: folder.getFilesByName('Hours — ' + name + ' — ' + CFG.ownerName).hasNext(),
+        hasView: DriveApp.getFilesByName(viewerTitle_(name)).hasNext(),
       };
     }),
   };
@@ -33,11 +32,18 @@ function createClientView(name) {
   return { ok: true, url: res.url, created: res.created, client: name };
 }
 
+/** A client's live-view file title — the one stable name we look it up by. */
+function viewerTitle_(client) {
+  return 'Hours — ' + client + ' — ' + CFG.ownerName;
+}
+
 /** Creates (or rebuilds in place) the viewer spreadsheet for one client. */
 function createClientViewer_(ctx, client) {
-  var title = 'Hours — ' + client + ' — ' + CFG.ownerName;
+  var title = viewerTitle_(client);
   var folder = getViewersFolder_();
-  var existing = folder.getFilesByName(title);
+  // Drive-wide title lookup (not folder-scoped): a file that ever drifted out
+  // of Client Views/ is reused and re-filed below, never duplicated.
+  var existing = DriveApp.getFilesByName(title);
   var created = !existing.hasNext();
   var viewer = created
     ? SpreadsheetApp.create(title)
@@ -45,11 +51,16 @@ function createClientViewer_(ctx, client) {
 
   buildViewerContent_(viewer, ctx.ss.getId(), client);
 
+  // Always keep it filed under Client Views/ — new files are born in My Drive
+  // root, and a refresh re-homes one that got moved out. Sharing is set once.
   var file = DriveApp.getFileById(viewer.getId());
-  if (created) {
-    file.moveTo(folder);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var filed = false;
+  var parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === folder.getId()) filed = true;
   }
+  if (!filed) file.moveTo(folder);
+  if (created) file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
   return { url: viewer.getUrl(), id: viewer.getId(), created: created };
 }
 

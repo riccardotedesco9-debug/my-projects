@@ -66,8 +66,9 @@ function rebuildActive() {
  * clients, ~5 months of history, clustered task names (so the AI breakdown +
  * pie have something to group), and deliberate amber-day / midnight-crossing
  * rows — so you can see the dashboard, summary, chart, and PDF export in full.
- * Clears any prior demo rows first, so re-running stays clean. Run from the
- * editor (build.gs). "Rebuild tracker" (Maintenance menu) wipes it for real use.
+ * Clears any prior demo rows first, so re-running stays clean. Reached via
+ * Maintenance → Load demo data (loadDemoData wraps it with a confirm); "Rebuild
+ * tracker" (Maintenance menu) wipes it for real use.
  */
 function seedDemoData() {
   var ctx = makeCtx_();
@@ -130,6 +131,25 @@ function seedDemoData() {
   SpreadsheetApp.flush();
   logSh.activate();
   notify_(ctx, 'Seeded ' + rows.length + ' demo sessions across 3 clients / 5 months. Rebuild tracker to clear.');
+}
+
+/**
+ * Menu-safe demo loader (Maintenance → Load demo data): confirms first, since
+ * seedDemoData replaces the top client rows and clears the Time Log. Undoable
+ * via File → Version history.
+ */
+function loadDemoData() {
+  var ui = SpreadsheetApp.getUi();
+  var log = SpreadsheetApp.getActive().getSheetByName(CFG.sheets.log);
+  var hasData = log && log.getLastRow() >= CFG.log.firstDataRow;
+  var resp = ui.alert(
+    'Load demo data',
+    'Fills the tracker with 3 sample clients and ~5 months of placeholder sessions so you can see the dashboard, summary charts, PDF export and client views in action.\n\n' +
+      'It REPLACES the top client rows and ' + (hasData ? 'CLEARS the current Time Log' : 'fills the empty log') +
+      '. Undo anytime via File → Version history.\n\nContinue?',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (resp === ui.Button.OK) seedDemoData();
 }
 
 /** Builds a throwaway tracker for the smoke test. Caller must trash it. */

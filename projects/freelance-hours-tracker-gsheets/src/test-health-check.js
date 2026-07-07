@@ -142,11 +142,61 @@ function sectionProdHealth_(S, ctx) {
   var chkE = ss.getRangeByName(CFG.named.chkStop);
   if (chkS && chkE) S.warn('phone checkboxes at rest (not stuck TRUE)', chkS.getValue() !== true && chkE.getValue() !== true, 'a checkbox is stuck ticked');
 
-  // --- Drive tree ---
+  // --- Drive tree: every artifact the tracker makes lives under one root ---
   var rootIt = DriveApp.getRootFolder().getFoldersByName(CFG.folders.root);
   var root = rootIt.hasNext() ? rootIt.next() : null;
-  S.warn('Drive folder "' + CFG.folders.root + '" exists', !!root, 'missing — run setup()/updateLayout');
-  if (root) S.warn('Timesheets/ export folder exists', root.getFoldersByName(CFG.folders.timesheets).hasNext(), 'missing');
+  S.warn('Drive folder "' + CFG.folders.root + '" exists', !!root, 'missing — run setup() / Update layout');
+  if (root) {
+    var homed = false;
+    var parIt = DriveApp.getFileById(ss.getId()).getParents();
+    while (parIt.hasNext()) {
+      if (parIt.next().getId() === root.getId()) homed = true;
+    }
+    S.warn('tracker spreadsheet filed inside the root folder', homed, 'the tracker itself sits outside its folder');
+
+    var tsIt = root.getFoldersByName(CFG.folders.timesheets);
+    var ts = tsIt.hasNext() ? tsIt.next() : null;
+    S.warn('Timesheets/ export folder exists', !!ts, 'missing');
+    if (ts) {
+      var clientDirs = 0;
+      var pdfCount = 0;
+      var dirIt = ts.getFolders();
+      while (dirIt.hasNext()) {
+        clientDirs++;
+        var fIt = dirIt.next().getFiles();
+        while (fIt.hasNext()) {
+          fIt.next();
+          pdfCount++;
+        }
+      }
+      S.info('Timesheets filed', clientDirs + ' client folder(s), ' + pdfCount + ' PDF(s)');
+    }
+
+    var cvIt = root.getFoldersByName(CFG.folders.viewers);
+    var cv = cvIt.hasNext() ? cvIt.next() : null;
+    S.warn('Client Views/ folder exists', !!cv, 'missing — created with your first client view');
+    if (cv) {
+      var views = 0;
+      var vIt = cv.getFiles();
+      while (vIt.hasNext()) {
+        vIt.next();
+        views++;
+      }
+      S.info('Client Views filed', views + ' live view file(s)');
+    }
+
+    // Nothing the tracker makes should be loose in My Drive root.
+    var loose = [];
+    var rootSheets = DriveApp.getRootFolder().getFilesByType(MimeType.GOOGLE_SHEETS);
+    var scanned = 0;
+    while (rootSheets.hasNext() && scanned < 200) {
+      var nm = rootSheets.next().getName();
+      scanned++;
+      if (nm.indexOf('Hours — ') === 0 && nm.indexOf(CFG.ownerName) > 0) loose.push(nm);
+    }
+    S.warn('no client views loose in My Drive root', loose.length === 0,
+      loose.slice(0, 4).join(' ; ') + ' — belongs in Client Views/ (re-create it to re-file)');
+  }
   // Self-healing: a suite run killed by the 6-min ceiling can strand its
   // throwaway. Anything suite-named and older than an hour is safely ours —
   // trash it (recoverable from the bin for 30 days) and report.
