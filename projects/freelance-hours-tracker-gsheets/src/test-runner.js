@@ -8,7 +8,12 @@
 // Apps Script 6-minute execution ceiling.
 // Never throws; returns {passed, failed, warned, total, elapsedMs, sections, results}.
 
-var SUITE_BUDGET_MS = 300000; // hard stop for STARTING new sections (5 min)
+// Hard stop for STARTING new sections. Apps Script kills any execution at 6
+// min (360s); this 330s ceiling leaves ~30s for the heaviest late section to
+// finish plus cleanup. Higher risks a mid-section kill that strands cleanup —
+// backstopped by the health check's auto-trash of stale throwaways, but kept
+// conservative on purpose. Truly slow-Sheets days still skip the tail safely.
+var SUITE_BUDGET_MS = 330000;
 
 function runSmokeTest() {
   var suiteStart = Date.now();
@@ -45,11 +50,13 @@ function runSmokeTest() {
     runSection_(suite, 'Client viewer privacy contract', function (S) { sectionViewer_(S, env); });
     runSection_(suite, 'Monthly Gmail drafts', function (S) { sectionDrafts_(S, env); });
     runSection_(suite, 'Dashboard & Summary reconciliation', function (S) { sectionReconcile_(S, env); });
-    // The heavy tail gets tighter gates: a section that STARTS too late could
-    // push past Apps Script's 6-min hard kill and strand cleanup entirely.
-    runSection_(suite, 'Volume stress & full-log invariants', function (S) { sectionStress_(S, env); }, 210000);
-    runSection_(suite, 'Non-destructive layout update', function (S) { sectionUpdateLayout_(S, env); }, 250000);
-    runSection_(suite, 'Disaster-recovery rebuild', function (S) { sectionRebuild_(S, env); }, 270000);
+    // The heavy tail (~stress 50s → update 25s → rebuild 25s → cleanup 5s) gets
+    // ascending start-deadlines: each leaves room for the sections after it plus
+    // cleanup before the 360s hard kill. A section that STARTS too late skips,
+    // so a slow day loses assertions, never a stranded throwaway.
+    runSection_(suite, 'Volume stress & full-log invariants', function (S) { sectionStress_(S, env); }, 240000);
+    runSection_(suite, 'Non-destructive layout update', function (S) { sectionUpdateLayout_(S, env); }, 300000);
+    runSection_(suite, 'Disaster-recovery rebuild', function (S) { sectionRebuild_(S, env); }, 320000);
   }
 
   var cleanS = cleanupSuite_(suite, env);
