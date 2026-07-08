@@ -216,17 +216,20 @@ function buildSummarySheet_(ss) {
   // recreates this sheet, so the pick resets to the 12-month default.
   sh.getRange('E2').setValue('Show last').setFontColor(CFG.colors.gray).setFontSize(10)
     .setHorizontalAlignment('right').setVerticalAlignment('middle');
+  var winOpts = [1, 2, 3, 6, 9, 12, 18, 24, 36]; // finer-grained window choices
   var ctrl = sh.getRange('F2');
   ctrl.setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList([3, 6, 12, 24], true).setAllowInvalid(false).build()
+    SpreadsheetApp.newDataValidation().requireValueInList(winOpts, true).setAllowInvalid(false).build()
   );
-  if ([3, 6, 12, 24].indexOf(Number(ctrl.getValue())) < 0) ctrl.setValue(12);
-  // Let the native dropdown "chip" render on its own — a manual border/fill
-  // fights the chip styling (looks boxed-in / offset and muddles the click
-  // target). Plain number format only (a "0 months" text format makes the
-  // list-validation read the cell as invalid); the unit label lives in G2.
+  if (winOpts.indexOf(Number(ctrl.getValue())) < 0) ctrl.setValue(12);
+  // A subtle pale-blue FILL (no border) makes the cell read as a clickable
+  // control without fighting the native dropdown chip — a manual border looked
+  // boxed-in / offset and muddled the click target. Plain number format only (a
+  // "0 months" text format makes list-validation flag the cell invalid); the
+  // unit label lives in G2.
   ctrl.setNumberFormat('0').setFontWeight('bold').setFontColor(CFG.colors.navy)
-    .setFontSize(11).setVerticalAlignment('middle');
+    .setFontSize(11).setVerticalAlignment('middle').setHorizontalAlignment('center')
+    .setBackground('#E8F0FE');
   sh.getRange('G2').setValue('months').setFontColor(CFG.colors.gray).setFontSize(10).setVerticalAlignment('middle');
 
   // Client filter: the checkbox list (built in the by-client band below) writes

@@ -238,27 +238,32 @@ function buildViewerContent_(viewer, trackerId, client) {
   );
   sh.hideColumns(16, 5); // P-T — working data, off the page
 
-  // --- Charts, stacked flush-left (cols A-E, clear of the sessions in F+) ---
+  // --- Charts, stacked flush-left (cols A-E, clear of the sessions in F+).
+  // Each chart is titled by a navy sheet CELL above it (Sheets' embedded-chart
+  // renderer ignores a chart's own titleTextStyle colour — same reason the
+  // report titles its pie with a cell), so the titles read navy, not faint grey. ---
+  sh.getRange('B7').setValue('Hours by month').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(11);
   sh.insertChart(
     sh.newChart().setChartType(Charts.ChartType.COLUMN)
       .addRange(sh.getRange('P2:Q26')).setNumHeaders(1)
-      .setOption('title', 'Hours by month')
+      .setOption('title', '')
       .setOption('legend', { position: 'none' })
       .setOption('colors', [CFG.colors.teal])
       .setOption('backgroundColor', 'white')
-      .setOption('width', 400).setOption('height', 200)
+      .setOption('width', 400).setOption('height', 180)
       .setPosition(8, 1, 0, 0).build()
   );
   // Pie, matching the timesheet report's breakdown — same navy/teal/gold ramp.
   // Legend on the right carries each task's HOURS ("Task — X.Xh"); the % sits
   // on the slice. The taller 280px frame + short (un-clipped) labels give the
   // pie a big radius, so even the thinner slices have room for their on-slice %.
+  sh.getRange('B18').setValue('Where the time goes').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(11);
   sh.insertChart(
     sh.newChart().setChartType(Charts.ChartType.PIE)
       .addRange(sh.getRange('T3:T10')) // labels: "Task — X.Xh"
       .addRange(sh.getRange('S3:S10')) // values: hours
-      .setOption('title', 'Where the time goes')
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 8 } })
+      .setOption('title', '')
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 9, color: CFG.colors.navy } })
       .setOption('pieSliceText', 'percentage')
       .setOption('colors', [
         CFG.colors.teal, CFG.colors.navy, CFG.colors.gold, CFG.colors.tealSoft,

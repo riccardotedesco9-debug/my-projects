@@ -249,7 +249,7 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
       .setChartType(Charts.ChartType.PIE)
       .addRange(sh.getRange(head + 1, 10, groups.length, 1)) // labels = "name   €amount" (hidden col J)
       .addRange(sh.getRange(head + 1, valueCol, groups.length, 1)) // values
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 10 } })
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 10, color: CFG.colors.navy } })
       .setOption('pieSliceText', 'percentage') // % on slices; full names in the legend
       .setOption('title', '') // titled by the navy cell above
       .setOption('colors', [

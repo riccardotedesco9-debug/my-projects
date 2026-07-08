@@ -265,7 +265,7 @@ function sectionRebuild_(S, env) {
   S.t('exactly 6 sheets after rebuild', env.ss.getSheets().length, 6);
   S.t('no leftover __rebuild__ sheet', env.ss.getSheetByName('__rebuild__'), null);
   var order = env.ss.getSheets().map(function (sh) { return sh.getName(); }).join('|');
-  S.t('canonical tab order', order, [CFG.sheets.dashboard, CFG.sheets.log, CFG.sheets.report, CFG.sheets.summary, CFG.sheets.clients, CFG.sheets.settings].join('|'));
+  S.t('canonical tab order', order, [CFG.sheets.dashboard, CFG.sheets.log, CFG.sheets.summary, CFG.sheets.clients, CFG.sheets.report, CFG.sheets.settings].join('|'));
   var missing = Object.keys(CFG.named).filter(function (k) { return !env.ss.getRangeByName(CFG.named[k]); });
   S.t('all named ranges rebuilt', missing.join(','), '');
   S.t('log wiped to a clean slate', env.ss.getSheetByName(CFG.sheets.log).getLastRow(), 1);

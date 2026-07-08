@@ -152,7 +152,13 @@ function loadDemoData() {
       '. Undo anytime via File → Version history.\n\nContinue?',
     ui.ButtonSet.OK_CANCEL
   );
-  if (resp === ui.Button.OK) seedDemoData();
+  if (resp === ui.Button.OK) {
+    seedDemoData();
+    // Demo adds a 3rd client — rebuild the derived sheets so the Summary's
+    // client-filter checklist + by-client cards include it (a client added
+    // after the sheet was built otherwise has no checkbox until Update layout).
+    updateLayout_(SpreadsheetApp.getActive());
+  }
 }
 
 /** Builds a throwaway tracker for the smoke test. Caller must trash it. */
@@ -225,9 +231,9 @@ function wipeWorkbook_(ss) {
   [
     [CFG.sheets.dashboard, CFG.colors.navy],
     [CFG.sheets.log, CFG.colors.teal],
-    [CFG.sheets.report, CFG.colors.gold],
     [CFG.sheets.summary, CFG.colors.teal],
     [CFG.sheets.clients, CFG.colors.gray],
+    [CFG.sheets.report, CFG.colors.gold],
     [CFG.sheets.settings, CFG.colors.gray],
   ].forEach(function (t, i) {
     ss.insertSheet(t[0], i).setTabColor(t[1]);
@@ -313,9 +319,9 @@ function applyTabColorsAndOrder_(ss) {
   [
     [CFG.sheets.dashboard, CFG.colors.navy],
     [CFG.sheets.log, CFG.colors.teal],
-    [CFG.sheets.report, CFG.colors.gold],
     [CFG.sheets.summary, CFG.colors.teal],
     [CFG.sheets.clients, CFG.colors.gray],
+    [CFG.sheets.report, CFG.colors.gold],
     [CFG.sheets.settings, CFG.colors.gray],
   ].forEach(function (t, i) {
     var sh = ss.getSheetByName(t[0]);
