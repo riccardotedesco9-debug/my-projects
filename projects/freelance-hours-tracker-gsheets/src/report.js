@@ -52,7 +52,7 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
   sh.getRange('B7').setValue('Client').setFontWeight('bold');
   sh.getRange('C7').setValue(clientOrAll);
   sh.getRange('B8').setValue('ID No.').setFontWeight('bold');
-  sh.getRange('C8').setValue(CFG.ownerId).setFontColor(CFG.colors.gray);
+  sh.getRange('C8').setValue(CFG.ownerId).setFontColor('#202124'); // dark like the other header values
   sh.getRange(5, lastCol - 2, 1, 3).merge();
   sh.getRange(5, lastCol - 2)
     .setValue('Generated: ' + Utilities.formatDate(new Date(), tz, 'dd/MM/yyyy HH:mm'))
@@ -249,7 +249,7 @@ function renderBreakdown_(sh, top, groups, totalHours, includeMoney) {
       .setChartType(Charts.ChartType.PIE)
       .addRange(sh.getRange(head + 1, 10, groups.length, 1)) // labels = "name   €amount" (hidden col J)
       .addRange(sh.getRange(head + 1, valueCol, groups.length, 1)) // values
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 10, color: CFG.colors.navy } })
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 10, color: '#202124' } })
       .setOption('pieSliceText', 'percentage') // % on slices; full names in the legend
       .setOption('title', '') // titled by the navy cell above
       .setOption('colors', [

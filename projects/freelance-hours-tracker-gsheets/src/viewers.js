@@ -263,7 +263,7 @@ function buildViewerContent_(viewer, trackerId, client) {
       .addRange(sh.getRange('T3:T10')) // labels: "Task — X.Xh"
       .addRange(sh.getRange('S3:S10')) // values: hours
       .setOption('title', '')
-      .setOption('legend', { position: 'right', textStyle: { fontSize: 9, color: CFG.colors.navy } })
+      .setOption('legend', { position: 'right', textStyle: { fontSize: 9, color: '#202124' } })
       .setOption('pieSliceText', 'percentage')
       .setOption('colors', [
         CFG.colors.teal, CFG.colors.navy, CFG.colors.gold, CFG.colors.tealSoft,
