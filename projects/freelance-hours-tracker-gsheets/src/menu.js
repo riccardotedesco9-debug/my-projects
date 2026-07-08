@@ -13,8 +13,9 @@ function onOpen() {
     .addItem('Add project fee…', 'showAddProjectDialog')
     .addSeparator()
     .addItem('▶ Start (Dashboard client/task)', 'startWorkFromSheet')
-    .addItem('■ Stop & log', 'stopAndLogFromSheet')
+    .addItem('■ Stop & log all', 'stopAllFromSheet')
     .addSeparator()
+    .addItem('Mark selected session(s) free / paid', 'toggleSelectedFree')
     .addItem('Delete selected session(s)', 'deleteSelectedLogRows')
     .addItem('Sort Time Log by date', 'sortLogByDate')
     .addSeparator()
@@ -50,16 +51,16 @@ function showAddSessionDialog() {
 
 function onOpenInstallable() {
   var ctx = makeCtx_();
-  var state = getTimerState_(ctx);
-  refreshStatusBanner_(ctx, state);
+  migrateLegacyTimerState_(ctx); // one-time bridge off the old single-timer blob
+  paintRunningSurfaces_(ctx);
   try {
-    if (state.status === 'RUNNING') {
+    if (getRunningSessions_(ctx).length > 0) {
       showRecoveryDialog_();
     } else {
       showSidebar();
     }
   } catch (e) {
-    // No UI surface (mobile app / API open) — state stays authoritative;
+    // No UI surface (mobile app / API open) — the log rows stay authoritative;
     // the prompt simply appears on the next desktop open.
   }
 }
@@ -71,9 +72,9 @@ function showSidebar() {
 
 function showRecoveryDialog_() {
   var html = HtmlService.createHtmlOutputFromFile('recovery-dialog')
-    .setWidth(420)
-    .setHeight(260);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Timer still running');
+    .setWidth(440)
+    .setHeight(460);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Timers still running');
 }
 
 function showExportDialog() {

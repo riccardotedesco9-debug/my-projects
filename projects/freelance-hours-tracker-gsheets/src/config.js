@@ -41,18 +41,24 @@ var CFG = {
   // Font used across sheets + HTML surfaces (silently ignored if unavailable).
   fontFamily: 'Outfit',
 
-  // Time Log geometry. Columns A..H, header on row 1, data from row 2.
+  // Time Log geometry. Columns A..I, header on row 1, data from row 2.
+  // Status (G) sits BEFORE Rate/Amount so a client's view can import A2:G — the
+  // in-progress/free label — without ever touching money (H/I).
   log: {
     headerRow: 1,
     firstDataRow: 2,
-    lastCol: 8,
-    headers: ['Date', 'Client', 'Task', 'Start', 'End', 'Hours', 'Rate', 'Amount'],
-    cols: { date: 1, client: 2, task: 3, start: 4, end: 5, hours: 6, rate: 7, amount: 8 },
+    lastCol: 9,
+    headers: ['Date', 'Client', 'Task', 'Start', 'End', 'Hours', 'Status', 'Rate', 'Amount'],
+    cols: { date: 1, client: 2, task: 3, start: 4, end: 5, hours: 6, status: 7, rate: 8, amount: 9 },
     // The log grid is sized to this many rows (was 5000 — a huge empty scroll).
     // The grid grows past it automatically as you log, and never shrinks below
     // your data; conditional formats + banding cover exactly this range.
     formatRows: 500,
   },
+
+  // Max concurrent running sessions surfaced on the mobile Dashboard's RUNNING
+  // NOW block (the sidebar shows all; overflow past this is noted in the banner).
+  run: { maxRows: 6 },
 
   // Clients sheet: Client | Rate | Email, header row 1.
   clients: {
@@ -62,27 +68,29 @@ var CFG = {
   },
 
   // Named ranges (all defined by rebuild_). db* = Dashboard inputs/displays,
-  // chk* = mobile checkbox cells, st* = Settings display mirror.
+  // chk* = mobile checkbox cells. dbRunIds is the hidden per-row startedAtMs
+  // column beside the RUNNING NOW stop checkboxes (chkStopBlock).
   named: {
     dbClient: 'dbClient',
     dbTask: 'dbTask',
     dbStatus: 'dbStatus',
     dbToday: 'dbToday',
     dbMonth: 'dbMonth',
+    dbFree: 'dbFree',
     chkStart: 'chkStart',
-    chkStop: 'chkStop',
-    stStatus: 'stStatus',
-    stStartedAt: 'stStartedAt',
-    stClient: 'stClient',
-    stTask: 'stTask',
+    chkStopBlock: 'chkStopBlock',
+    dbRunIds: 'dbRunIds',
   },
 
-  // Script Properties keys. Test contexts prefix these with 'test:'.
+  // Script Properties keys. `state` is retained only so the one-time legacy
+  // migration (migrateLegacyTimerState_) can find + delete the old single-timer
+  // blob; running timers now live as Time Log rows. Test contexts prefix these
+  // with 'test:'.
   props: {
     state: 'timerState',
     schema: 'schemaVersion',
   },
-  schemaVersion: '1',
+  schemaVersion: '2',
 
   // Drive layout: root folder holds the spreadsheet + subfolders.
   folders: {
@@ -100,7 +108,6 @@ var CFG = {
     euroBlankZero: '€#,##0.00;;',
     month: 'mmmm yyyy',
     monthShort: 'mmm yyyy',
-    generated: 'dd/mm/yyyy hh:mm',
   },
 };
 
@@ -110,20 +117,19 @@ var MSG = {
   unknownClient: function (c) {
     return 'Client "' + c + '" is not on the Clients sheet. Add it there first (one row), then start.';
   },
-  alreadyRunning: 'This session is already running.',
-  notRunning: 'No timer is running.',
+  alreadyRunning: 'That client + task is already running — pick a different task to run a second clock.',
+  noneRunning: 'No timers running.',
   noRate: function (c) {
     return c + ' has no €/h rate on the Clients sheet — amounts stay €0 until you add it (it back-fills past rows).';
-  },
-  switchPrompt: function (client, task) {
-    return 'You are timing "' + client + (task ? ' — ' + task : '') +
-      '". Log that session now and start the new one with zero gap?';
   },
   logged: function (h, client) {
     return 'Logged ' + h.toFixed(2) + ' h for ' + client + '.';
   },
+  stoppedAll: function (n) {
+    return 'Stopped & logged ' + n + ' session' + (n === 1 ? '' : 's') + '.';
+  },
+  selectLogRows: 'Select one or more session rows on the Time Log first.',
   noSessions: 'No sessions logged for this selection.',
-  certification: 'Hours self-reported and certified correct.',
 };
 
 // Owner-identity accessor — reads Script Properties, cached per execution so

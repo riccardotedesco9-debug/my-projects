@@ -58,11 +58,11 @@ function sectionReconcile_(S, env) {
   var dash = ss.getSheetByName(CFG.sheets.dashboard);
   var summary = ss.getSheetByName(CFG.sheets.summary);
   var vToday = Number(ss.getRangeByName(CFG.named.dbToday).getValue());
-  var vWeek = Number(dash.getRange('C19').getValue());
+  var vWeek = Number(dash.getRange('C27').getValue()); // "This week" (AT A GLANCE row 2)
   var vMonth = Number(ss.getRangeByName(CFG.named.dbMonth).getValue());
-  var vEarn = Number(dash.getRange('C21').getValue());
-  var byClient = dash.getRange('E19:G28').getValues();
-  var snap = buildSnapshot_(env.ctx, idleState_());
+  var vEarn = Number(dash.getRange('C29').getValue()); // "Earned this month" (AT A GLANCE row 4)
+  var byClient = dash.getRange('E27:G36').getValues(); // THIS MONTH BY CLIENT spill
+  var snap = buildSnapshot_(env.ctx);
   var vSumHours = Number(summary.getRange('B5').getValue());
   var vSumEarn = Number(summary.getRange('E5').getValue());
   var hdr = summary.getRange('B35:N35').getValues()[0].map(String).join('|');

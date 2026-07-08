@@ -11,87 +11,134 @@
   }
   * { box-sizing: border-box; margin: 0; }
   body { font-family: 'Outfit', sans-serif; background: var(--paper); color: var(--navy);
-         padding: 18px 20px; font-size: 14px; }
+         padding: 16px 18px; font-size: 14px; }
   p { line-height: 1.5; }
   .session {
-    margin: 12px 0; padding: 10px 14px; background: #fff; border-left: 3px solid var(--green);
+    margin: 10px 0; padding: 9px 13px; background: #fff; border-left: 3px solid var(--green);
     border-radius: 0 8px 8px 0; box-shadow: 0 1px 2px rgba(31,56,100,.06);
   }
-  .session b { display: block; }
+  .session b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .session .since { color: var(--gray); font-size: 12.5px; }
+  .free-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--green);
+              background: #E8F5E9; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
   .elapsed { font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
              font-weight: 600; color: var(--green); }
-  .row { display: flex; gap: 8px; margin-top: 16px; }
+  .row { display: flex; gap: 8px; margin-top: 9px; }
   button {
-    flex: 1; padding: 11px 0; border-radius: 9px; cursor: pointer;
-    font: 600 13px 'Outfit', sans-serif; border: 1px solid transparent;
+    flex: 1; padding: 8px 0; border-radius: 8px; cursor: pointer;
+    font: 600 12.5px 'Outfit', sans-serif; border: 1px solid transparent;
   }
   .keep { background: var(--green); color: #fff; box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
   .log  { background: #fff; color: var(--navy); border-color: var(--line); }
   .discard { background: none; color: var(--red); border-color: transparent; }
   button:disabled { opacity: .5; cursor: default; }
+  .footer { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
   .hint { margin-top: 10px; font-size: 11.5px; color: var(--gray); }
 </style>
 </head>
 <body>
-  <p>The timer was <b>still running</b> when this spreadsheet was last closed — nothing was lost.</p>
+  <p id="lede">Loading timers…</p>
+  <div id="list"></div>
 
-  <div class="session">
-    <b id="what">Loading…</b>
-    <span class="since" id="since"></span>
+  <div class="row footer">
+    <button class="keep" id="keepAll" disabled>Keep all</button>
+    <button class="log" id="stopAll" disabled>Stop &amp; log all</button>
+    <button class="discard" id="discardAll" disabled>Discard all</button>
   </div>
-
-  <div class="row">
-    <button class="keep" id="keep" disabled>Keep timing</button>
-    <button class="log" id="log" disabled>Stop &amp; log now</button>
-    <button class="discard" id="discard" disabled>Discard</button>
-  </div>
-  <div class="hint">Keep timing = the session continues from its original start. Discard cannot be undone.</div>
+  <div class="hint">Keep = the session keeps ticking from its original start. Discard cannot be undone.</div>
 
 <script>
   var $ = function (id) { return document.getElementById(id); };
-  var snap = null;
   var skewMs = 0;
 
-  google.script.run.withSuccessHandler(function (s) {
-    snap = s;
+  function load(s) {
     skewMs = s.serverNowMs - Date.now();
-    if (s.status !== 'RUNNING') { google.script.host.close(); return; }
-    $('what').textContent = s.client + (s.task ? ' — ' + s.task : '');
+    var running = (s && s.running) || [];
+    if (running.length === 0) { google.script.host.close(); return; }
+    $('lede').innerHTML = running.length === 1
+      ? 'A timer was <b>still running</b> when this spreadsheet was last closed — nothing was lost.'
+      : running.length + ' timers were <b>still running</b> when this spreadsheet was last closed — nothing was lost.';
+    var list = $('list');
+    list.innerHTML = '';
+    running.forEach(function (r) {
+      var card = document.createElement('div');
+      card.className = 'session';
+      card.innerHTML =
+        '<b>' + esc(r.client) + (r.task ? ' — ' + esc(r.task) : '') + (r.free ? '<span class="free-tag">FREE</span>' : '') + '</b>' +
+        '<span class="since">running for <span class="elapsed" data-start="' + r.startedAtMs + '">0:00:00</span></span>' +
+        '<div class="row">' +
+          '<button class="log" data-start="' + r.startedAtMs + '" data-act="stop">Stop &amp; log</button>' +
+          '<button class="discard" data-start="' + r.startedAtMs + '" data-act="discard">Discard</button>' +
+        '</div>';
+      list.appendChild(card);
+    });
+    wire();
+    setEnabled(true);
     tick();
-    setInterval(tick, 1000);
-    ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = false; });
-  }).withFailureHandler(function () {
-    $('what').textContent = 'Could not read the timer state.';
-  }).getTimerSnapshot();
+  }
+
+  function wire() {
+    var btns = $('list').querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].onclick = function () {
+        var act = this.getAttribute('data-act');
+        if (act === 'discard' && !this.dataset.armed) {
+          this.dataset.armed = '1';
+          this.textContent = 'Really discard?';
+          return;
+        }
+        choose(act, Number(this.getAttribute('data-start')));
+      };
+    }
+  }
 
   function tick() {
-    if (!snap) return;
-    var ms = Math.max(0, Date.now() + skewMs - snap.startedAtMs);
-    var s = Math.floor(ms / 1000);
-    var txt = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
-    $('since').innerHTML = 'running for <span class="elapsed">' + txt + '</span>';
+    var els = $('list').querySelectorAll('.elapsed');
+    for (var i = 0; i < els.length; i++) {
+      var startMs = Number(els[i].getAttribute('data-start'));
+      var s = Math.floor(Math.max(0, Date.now() + skewMs - startMs) / 1000);
+      els[i].textContent = Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
+    }
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
 
-  function choose(choice) {
-    ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = true; });
-    google.script.run
-      .withSuccessHandler(function () { google.script.host.close(); })
-      .withFailureHandler(function (err) {
-        // A failed stop/discard must NOT look like success — surface it.
-        $('what').textContent = 'Could not apply that: ' + (err && err.message ? err.message : err);
-        ['keep', 'log', 'discard'].forEach(function (id) { $(id).disabled = false; });
-      })
-      .recoveryChoice(choice, snap ? snap.startedAtMs : 0);
+  function setEnabled(on) {
+    ['keepAll', 'stopAll', 'discardAll'].forEach(function (id) { $(id).disabled = !on; });
+    var btns = $('list').querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = !on;
   }
-  $('keep').onclick = function () { choose('keep'); };
-  $('log').onclick = function () { choose('log'); };
-  $('discard').onclick = function () {
-    if (this.dataset.armed) { choose('discard'); return; }
+
+  function choose(act, startMs) {
+    setEnabled(false);
+    google.script.run
+      .withSuccessHandler(function (s) {
+        var running = (s && s.running) || [];
+        if (running.length === 0) { google.script.host.close(); return; }
+        load(s); // re-render the remaining cards
+      })
+      .withFailureHandler(function (err) {
+        $('lede').textContent = 'Could not apply that: ' + (err && err.message ? err.message : err);
+        setEnabled(true);
+      })
+      .recoveryChoice(act, startMs);
+  }
+
+  $('keepAll').onclick = function () { google.script.host.close(); };
+  $('stopAll').onclick = function () { choose('stopAll', 0); };
+  $('discardAll').onclick = function () {
+    if (this.dataset.armed) { choose('discardAll', 0); return; }
     this.dataset.armed = '1';
-    this.textContent = 'Really discard?';
+    this.textContent = 'Really discard all?';
   };
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  google.script.run.withSuccessHandler(load).withFailureHandler(function () {
+    $('lede').textContent = 'Could not read the running timers.';
+  }).getTimerSnapshot();
+  setInterval(tick, 1000);
 </script>
 </body>
 </html>

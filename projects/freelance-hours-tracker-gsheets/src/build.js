@@ -58,6 +58,9 @@ function rebuildActive() {
     }
   }
   rebuild_(ss);
+  // A destructive rebuild wipes the log, so drop any leftover legacy timer blob
+  // too — otherwise the one-time migration could resurrect a phantom session.
+  try { PropertiesService.getScriptProperties().deleteProperty(CFG.props.state); } catch (e) {}
   notify_(makeCtx_(), 'Fresh tracker built.');
 }
 
@@ -193,7 +196,7 @@ function rebuildOnce_(ss) {
   buildSummarySheet_(ss);
   trimDerivedGrids_(ss); // shrink the 1000-row default down to content
 
-  refreshStatusBanner_({ ss: ss, prefix: '', silent: true }, idleState_());
+  paintRunningSurfaces_(makeCtx_({ ss: ss, silent: true }));
   SpreadsheetApp.flush();
 }
 
@@ -263,12 +266,28 @@ function updateLayout_(ss) {
   ss.setSpreadsheetLocale('en_GB');
   ss.setSpreadsheetTimeZone('Europe/Malta');
 
-  // Derived sheets carry no user data — delete + recreate them (deleting a
-  // sheet also drops its named ranges, which the rebuilders below re-create).
+  // ORDER MATTERS — the DATA sheets (Clients, Log) are reformatted in place
+  // FIRST, before the derived sheets are rebuilt against them. buildLogSheet_
+  // performs the one-time v1→v2 column-insert migration (Status@G, Rate→H,
+  // Amount→I), and inserting a Log column shifts EVERY cross-sheet reference to
+  // the Log. If the Dashboard/Summary were built first (referencing Log Amount
+  // at col I), that insert would shift their references onto the empty next
+  // column and every earnings figure would read €0. Building the Log to its
+  // final v2 shape first — exactly as rebuild_ does — keeps every derived
+  // reference correct. Delete the derived sheets before the migration too, so
+  // the insert only touches the Log's own per-row formulas.
   ['dashboard', 'summary', 'report', 'settings'].forEach(function (key) {
     var old = ss.getSheetByName(CFG.sheets[key]);
     if (old) ss.deleteSheet(old);
   });
+
+  // buildLogSheet_ clears prior banding first so it's safe to re-run;
+  // buildClientsSheet_ only seeds starter clients when the sheet is empty, so
+  // real clients are kept. Clients before Log — the Log's client dropdown
+  // validation references the Clients sheet.
+  buildClientsSheet_(ss);
+  buildLogSheet_(ss);
+
   ss.insertSheet(CFG.sheets.settings);
   buildSettingsSheet_(ss);
   ss.insertSheet(CFG.sheets.report);
@@ -279,15 +298,13 @@ function updateLayout_(ss) {
   buildSummarySheet_(ss);
   trimDerivedGrids_(ss); // shrink the 1000-row default down to content
 
-  // Reformat the DATA sheets in place — every row is preserved. buildLogSheet_
-  // clears prior banding first so it's safe to re-run; buildClientsSheet_ only
-  // seeds starter clients when the sheet is empty, so real clients are kept.
-  buildLogSheet_(ss);
-  buildClientsSheet_(ss);
-
   applyTabColorsAndOrder_(ss);
   var ctx = makeCtx_({ ss: ss });
-  refreshStatusBanner_(ctx, getTimerState_(ctx)); // keep a running timer's banner
+  // Migrate the legacy single-timer blob only for the REAL bound tracker — never
+  // when a smoke test drives updateLayout_ on a throwaway (which shares the
+  // global Script Properties and would otherwise consume the prod blob).
+  if (ss.getId() === SpreadsheetApp.getActive().getId()) migrateLegacyTimerState_(ctx);
+  paintRunningSurfaces_(ctx); // repaint the banner + RUNNING NOW from the live rows
   SpreadsheetApp.flush();
 }
 

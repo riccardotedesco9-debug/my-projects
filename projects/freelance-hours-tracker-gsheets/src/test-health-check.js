@@ -57,33 +57,24 @@ function sectionProdHealth_(S, ctx) {
   S.info('SIGNING_SECRET', props.getProperty('SIGNING_SECRET') ? 'present — seals verifiable' : 'not yet created (appears on first export)');
   S.info('ANTHROPIC_API_KEY', props.getProperty('ANTHROPIC_API_KEY') ? 'present — AI task grouping active' : 'absent — exact-match grouping fallback');
   var leftover = props.getKeys().filter(function (k) {
-    return ['test:', 'switchgate:', 'rategate:', 'corrupt:', 'recovery:', 'churn:'].some(function (p) { return k.indexOf(p) === 0; });
+    return ['test:', 'migrate:'].some(function (p) { return k.indexOf(p) === 0; });
   });
   S.warn('no stale test state from earlier runs', leftover.length === 0, leftover.join(','));
 
-  // --- Timer state sanity (on the RAW property — the getter sanitizes) ---
-  var rawState = props.getProperty(CFG.props.state);
-  var rawOk = !rawState;
-  if (rawState) {
-    try {
-      var parsed = JSON.parse(rawState);
-      rawOk = !!parsed && (parsed.status === 'IDLE' || parsed.status === 'RUNNING');
-    } catch (e) {
-      rawOk = false;
-    }
-  }
-  S.warn('stored timer state is clean JSON (corruption degrades safely, but flag it)', rawOk, String(rawState).slice(0, 80));
-  var state = getTimerState_(ctx);
-  if (state.status === 'RUNNING') {
-    S.t('running timer started in the past', state.startedAtMs <= Date.now(), true);
-    var ageH = (Date.now() - state.startedAtMs) / 3600000;
-    S.warn('running timer younger than 16h', ageH < 16, 'running ' + ageH.toFixed(1) + 'h — forgot to stop?');
-    S.info('timer', 'RUNNING — ' + state.client + (state.task ? ' / ' + state.task : ''));
-  } else {
-    S.info('timer', 'IDLE');
-  }
-  var mirror = ss.getRangeByName(CFG.named.stStatus);
-  if (mirror) S.warn('Settings mirror agrees with timer state', String(mirror.getValue()) === state.status, 'mirror shows "' + mirror.getValue() + '" (display-only lag)');
+  // --- Legacy timer blob gone (running timers now live as Time Log rows) ---
+  var legacy = props.getProperty(CFG.props.state);
+  S.warn('no legacy single-timer property left (migrated to log rows)', !legacy,
+    'still present: ' + String(legacy).slice(0, 60) + ' — open the sheet / Update layout to migrate it');
+
+  // --- Running timers (in-progress rows) sanity ---
+  var runningNow = getRunningSessions_(ctx);
+  S.info('timers', runningNow.length === 0 ? 'none running'
+    : runningNow.length + ' running: ' + runningNow.map(function (r) { return r.client + (r.task ? '/' + r.task : ''); }).join(', '));
+  runningNow.forEach(function (r) {
+    var ageH = (Date.now() - r.startedAtMs) / 3600000;
+    S.t('running timer started in the past (' + r.client + ')', r.startedAtMs <= Date.now(), true);
+    S.warn('running timer younger than 16h (' + r.client + ')', ageH < 16, 'running ' + ageH.toFixed(1) + 'h — forgot to stop?');
+  });
 
   // --- Clients hygiene ---
   var names = getClientNames_(ctx);
@@ -118,9 +109,11 @@ function sectionProdHealth_(S, ctx) {
 
   // --- Full Time Log data-integrity sweep (one read) ---
   var sweep = sweepLogInvariants_(ctx);
-  S.info('production log', sweep.hourly + ' timed sessions + ' + sweep.fixed + ' fixed fees');
+  S.info('production log', sweep.hourly + ' timed sessions + ' + sweep.fixed + ' fixed fees + ' + sweep.inProgress + ' in progress');
   S.t('every log row internally consistent (date/hours/amount math)', sweep.violations.slice(0, 5).join(' ; '), '');
-  S.warn('no overlapping sessions (double-billed time)', sweep.overlaps.length === 0, sweep.overlaps.slice(0, 5).join(' ; '));
+  // Overlapping wall-clock is INTENTIONAL now — several clocks can run at once
+  // and each task bills independently. Informational, never a warning.
+  S.info('overlapping (simultaneous) sessions', sweep.overlaps.length === 0 ? 'none' : sweep.overlaps.length + ' pair(s) — simultaneous billing, by design');
   S.warn('every logged client still on the Clients sheet', sweep.orphanClients.length === 0, sweep.orphanClients.join(', '));
 
   // --- Dashboard formulas alive + reconcile against the raw log ---
@@ -139,8 +132,7 @@ function sectionProdHealth_(S, ctx) {
 
   // --- Phone checkboxes not stuck ---
   var chkS = ss.getRangeByName(CFG.named.chkStart);
-  var chkE = ss.getRangeByName(CFG.named.chkStop);
-  if (chkS && chkE) S.warn('phone checkboxes at rest (not stuck TRUE)', chkS.getValue() !== true && chkE.getValue() !== true, 'a checkbox is stuck ticked');
+  if (chkS) S.warn('phone START checkbox at rest (not stuck TRUE)', chkS.getValue() !== true, 'the START box is stuck ticked');
 
   // --- Drive tree: every artifact the tracker makes lives under one root ---
   var rootIt = DriveApp.getRootFolder().getFoldersByName(CFG.folders.root);
@@ -235,7 +227,7 @@ function sectionProdHealth_(S, ctx) {
  * serial formula). Also detects overlapping sessions and orphaned clients.
  */
 function sweepLogInvariants_(ctx) {
-  var out = { rows: 0, hourly: 0, fixed: 0, violations: [], overlaps: [], orphanClients: [], monthHours: 0, monthAmount: 0 };
+  var out = { rows: 0, hourly: 0, fixed: 0, inProgress: 0, violations: [], overlaps: [], orphanClients: [], monthHours: 0, monthAmount: 0 };
   var sh = ctx.ss.getSheetByName(CFG.sheets.log);
   if (!sh || sh.getLastRow() < CFG.log.firstDataRow) return out;
   var tz = ctx.ss.getSpreadsheetTimeZone();
@@ -274,15 +266,22 @@ function sweepLogInvariants_(ctx) {
     if (start instanceof Date && end instanceof Date) {
       out.hourly++;
       var expHours = Math.round((wallClockMinutes_(tz, start, end) / 60) * 100) / 100;
+      // A "Free" row carries the text "Free" in Amount (→ 0), yet its hours still
+      // count; only price the amount check on rows that hold a numeric amount.
+      var isFree = String(v[c.amount - 1]) === 'Free';
       if (Math.abs(hours - expHours) > 0.011) out.violations.push('row ' + rowN + ': hours ' + hours + ' ≠ ' + expHours + ' (End−Start)');
-      if (Math.abs(amount - Math.round(hours * rate * 100) / 100) > 0.011) out.violations.push('row ' + rowN + ': amount ' + amount + ' ≠ hours×rate');
+      if (!isFree && Math.abs(amount - Math.round(hours * rate * 100) / 100) > 0.011) out.violations.push('row ' + rowN + ': amount ' + amount + ' ≠ hours×rate');
       if (day(date) !== day(start)) out.violations.push('row ' + rowN + ': Date ≠ day of Start');
       // Wall-clock ordering (not epoch): the DST fall-back hour reads back
       // ambiguous epochs and would flag legitimate sessions as overlapping.
       timed.push({ row: rowN, s: wallClockUtcMs_(tz, start), e: wallClockUtcMs_(tz, end) });
+    } else if (start instanceof Date && !(end instanceof Date)) {
+      // A running (in-progress) session: Start set, End blank. Not a violation —
+      // it completes on stop; its blank Hours/Amount read 0 in every aggregate.
+      out.inProgress++;
     } else {
       out.fixed++;
-      if (!(amount > 0)) out.violations.push('row ' + rowN + ': no times and no amount — dead row');
+      if (!(amount > 0) && String(v[c.amount - 1]) !== 'Free') out.violations.push('row ' + rowN + ': no times and no amount — dead row');
     }
   });
 

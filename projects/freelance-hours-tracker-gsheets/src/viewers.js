@@ -1,6 +1,7 @@
 // viewers.js — per-client live view-only spreadsheets. Each viewer pulls that
-// client's sessions from the tracker via IMPORTRANGE + QUERY. Hours only —
-// Rate/Amount never leave the tracker (money appears only in PDFs, when chosen).
+// client's sessions from the tracker via IMPORTRANGE + QUERY. Hours + a Status
+// label only (imports Log!A2:G) — Rate/Amount (H/I) never leave the tracker, so
+// money physically cannot appear here (it lives only in PDFs, when chosen).
 
 /** Menu entry: pick a client from a dropdown, create/refresh, copy the link. */
 function showClientViewDialog() {
@@ -72,8 +73,8 @@ function createClientViewer_(ctx, client) {
  * hours only. Layout: headline stat cards, then a charts band (hours-by-month
  * columns + where-the-time-goes pie), then the transparent numbers: monthly
  * table + top-tasks table on the left, latest-first session list on the
- * right. Rate/€ are never imported (only Log!A2:F), so money physically
- * cannot appear here.
+ * right. Rate/€ are never imported (only Log!A2:G — date…hours + Status), so
+ * money physically cannot appear here.
  */
 function buildViewerContent_(viewer, trackerId, client) {
   viewer.setSpreadsheetLocale('en_GB');
@@ -91,14 +92,14 @@ function buildViewerContent_(viewer, trackerId, client) {
   sh.getRange('A1:S500').setFontFamily(CFG.fontFamily);
   // A margin · B-D stat cards (chart zone floats here) · E gap · F-J sessions
   // · P-S hidden chart helpers.
-  var widths = { 1: 24, 2: 150, 3: 92, 4: 110, 5: 24, 6: 95, 7: 250, 8: 66, 9: 66, 10: 78, 11: 24 };
+  var widths = { 1: 24, 2: 150, 3: 92, 4: 110, 5: 24, 6: 95, 7: 230, 8: 62, 9: 62, 10: 62, 11: 96, 12: 24 };
   Object.keys(widths).forEach(function (col) { sh.setColumnWidth(Number(col), widths[col]); });
 
   // --- Title + subtitle (span the full width so long names never clip) ---
-  sh.getRange('B2:J2').merge();
+  sh.getRange('B2:K2').merge();
   sh.getRange('B2').setValue('HOURS SUMMARY — ' + client.toUpperCase())
     .setFontSize(16).setFontWeight('bold').setFontColor(CFG.colors.navy);
-  sh.getRange('B3:J3').merge();
+  sh.getRange('B3:K3').merge();
   sh.getRange('B3')
     .setValue('Live view · prepared by ' + CFG.ownerName + ' · updates automatically as work is logged')
     .setFontColor(CFG.colors.gray).setFontSize(9).setFontStyle('italic');
@@ -107,25 +108,29 @@ function buildViewerContent_(viewer, trackerId, client) {
   // ("Paws 'n' Claws") survive; inside the sheet-formula string a literal
   // double quote is written as "". Strip any double quotes from the name.
   var q = client.replace(/"/g, '');
-  var imp = 'IMPORTRANGE("' + trackerId + '", "' + CFG.sheets.log + '!A2:F")';
+  var imp = 'IMPORTRANGE("' + trackerId + '", "' + CFG.sheets.log + '!A2:G")';
 
-  // --- Sessions list (right zone F-J; the SINGLE IMPORTRANGE data source) ---
+  // --- Sessions list (right zone F-K; the SINGLE IMPORTRANGE data source) ---
   sh.getRange('F5').setValue('SESSIONS').setFontWeight('bold').setFontColor(CFG.colors.navy).setFontSize(10);
   // Fallback is '' — an empty log also lands here, so it must NOT claim an
   // access problem; the bottom anchor is the dedicated access indicator.
   // limit 480 keeps the spill inside the 500-row grid (below); a client with
-  // more than that shows their most recent 480 sessions.
+  // more than that shows their most recent 480 sessions. Col7 = the Status
+  // label (In progress / Free / blank) — carries no money.
   sh.getRange('F6').setFormula(
-    '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6 " +
+    '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6, Col7 " +
       'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc limit 480 ' +
-      "label Col1 'Date', Col3 'Task', Col4 'Start', Col5 'End', Col6 'Hours'\", 0), \"\")"
+      "label Col1 'Date', Col3 'Task', Col4 'Start', Col5 'End', Col6 'Hours', Col7 'Status'\", 0), \"\")"
   );
-  // QUERY renders its labels on F6, data from F7 down: F date G task H start I end J hours.
-  sh.getRange('F6:J6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
+  // QUERY renders its labels on F6, data from F7 down: F date G task H start I end
+  // J hours K status. In-progress rows sort to the top (latest date+start, blank
+  // end/hours) and show "In progress"; free rows show "Free" — the client sees both.
+  sh.getRange('F6:K6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
     .setBorder(null, null, true, null, false, false, CFG.colors.grayLine, SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange('F7:F500').setNumberFormat(CFG.formats.date);
   sh.getRange('H7:I500').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
   sh.getRange('J7:J500').setNumberFormat(CFG.formats.hours);
+  sh.getRange('K7:K500').setHorizontalAlignment('center').setFontSize(9);
 
   // --- Highlighting, mirroring the Time Log exactly: the amber busy-day flag
   // lives on the DATE column ONLY (deeper as the day's total climbs), an
@@ -136,6 +141,7 @@ function buildViewerContent_(viewer, trackerId, client) {
   // so they never fight (and no multi-range relative-ref quirk). ---
   var dateCol = sh.getRange('F7:F500');
   var hoursCol = sh.getRange('J7:J500');
+  var statusCol = sh.getRange('K7:K500');
   var busy = function (n) { return 'SUMIF($F$7:$F$500,$F7,$J$7:$J$500)>' + n; };
   var midnight = '$I7<>"", INT($I7)>INT($H7)';
   var vRule = function (formula, bg, font) {
@@ -157,6 +163,20 @@ function buildViewerContent_(viewer, trackerId, client) {
       .setGradientMaxpoint(CFG.colors.tealSoft)
       .setRanges([hoursCol])
       .build(),
+    // Status column: a live task reads "In progress" (soft teal); a no-charge
+    // one reads "Free" (green) — so the client sees both at a glance.
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$K7="In progress"')
+      .setBackground(CFG.colors.tealSoft)
+      .setFontColor(CFG.colors.navy)
+      .setRanges([statusCol])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$K7="Free"')
+      .setBackground('#E8F5E9')
+      .setFontColor(CFG.colors.green)
+      .setRanges([statusCol])
+      .build(),
   ]);
 
   // --- Headline stats (left zone; read the sessions spill, hours only).
@@ -166,7 +186,9 @@ function buildViewerContent_(viewer, trackerId, client) {
     .setNumberFormat('0.00 "h"').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
     .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('C5'), 'SESSIONS');
-  sh.getRange('C6').setFormula('=COUNT($F$7:$F$500)')
+  // Count the End column, not Date — a running (in-progress) session has a Date
+  // but no End yet, so it doesn't inflate the completed-session count.
+  sh.getRange('C6').setFormula('=COUNT($I$7:$I$500)')
     .setNumberFormat('0').setFontSize(15).setFontWeight('bold').setFontColor(CFG.colors.navy)
     .setHorizontalAlignment('left');
   sectionHeader_(sh.getRange('D5'), 'THIS MONTH');
@@ -250,7 +272,7 @@ function buildViewerContent_(viewer, trackerId, client) {
   // value (an un-granted #REF error ignores number formats, so the prompt is
   // never hidden), and the hint is an ISERROR formula that blanks once the
   // anchor resolves. So a granted, client-facing view shows nothing here. ---
-  sh.getRange('B33').setFormula('=' + imp.replace(CFG.sheets.log + '!A2:F', CFG.sheets.log + '!A1'))
+  sh.getRange('B33').setFormula('=' + imp.replace(CFG.sheets.log + '!A2:G', CFG.sheets.log + '!A1'))
     .setNumberFormat(';;;').setFontColor(CFG.colors.grayLine).setFontSize(8);
   sh.getRange('C33').setFormula(
     '=IF(ISERROR($B$33), "One-time setup — if the cell on the left shows an error, click it and choose ""Allow access"".", "")'

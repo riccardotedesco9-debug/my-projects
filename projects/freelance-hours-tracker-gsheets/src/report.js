@@ -88,7 +88,7 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
   } else {
     var out = rows.map(function (r) {
       totalHours += r.fixed ? 0 : r.hours;
-      totalAmount += r.amount;
+      totalAmount += r.amount; // a free row's amount is 0 → excluded from the total
       // Fixed-fee project rows have no times/hours/rate — just the agreed €.
       // literal_ guards the re-write: a task stored as "=SUM(...)" text in the
       // log must stay text here too, not become a live formula on the PDF.
@@ -96,14 +96,24 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
         r.date, literal_(r.client), literal_(r.task),
         r.start || '', r.end || '', r.fixed ? '' : r.hours,
       ];
-      if (includeMoney) line = line.concat([r.fixed ? 'Fixed' : r.rate, r.amount]);
+      if (includeMoney) {
+        // A free session shows "Free" (green, below) in place of € and no rate;
+        // a fixed-fee row shows "Fixed"; everything else its live rate + amount.
+        line = line.concat([r.fixed ? 'Fixed' : (r.free ? '—' : r.rate), r.free ? 'Free' : r.amount]);
+      }
       return line;
     });
     sh.getRange(bodyTop, 2, out.length, headers.length).setValues(out);
     sh.getRange(bodyTop, 2, out.length, 1).setNumberFormat(CFG.formats.date);
     sh.getRange(bodyTop, 5, out.length, 2).setNumberFormat(CFG.formats.time);
     sh.getRange(bodyTop, 7, out.length, 1).setNumberFormat(CFG.formats.hours);
-    if (includeMoney) sh.getRange(bodyTop, 8, out.length, 2).setNumberFormat(CFG.formats.euro);
+    if (includeMoney) {
+      sh.getRange(bodyTop, 8, out.length, 2).setNumberFormat(CFG.formats.euro);
+      // Paint "Free" amounts green so a no-charge session reads as a gift, not €0.
+      rows.forEach(function (r, i) {
+        if (r.free) sh.getRange(bodyTop + i, 9).setFontColor(CFG.colors.green).setFontWeight('bold');
+      });
+    }
     lastRow = bodyTop + out.length - 1;
   }
 
@@ -329,6 +339,9 @@ function collectReportRows_(ctx, clientOrAll, periodStart, periodEnd) {
     if (!wantAll && client.toLowerCase() !== want) continue;
     var start = v[c.start - 1];
     var end = v[c.end - 1];
+    // Skip a still-running (in-progress) session — Start set, End blank. It has
+    // no final hours/amount yet, so it must never reach a timesheet/PDF or seal.
+    if (start instanceof Date && !(end instanceof Date)) continue;
     out.push({
       date: date,
       client: client,
@@ -338,6 +351,7 @@ function collectReportRows_(ctx, clientOrAll, periodStart, periodEnd) {
       hours: Number(v[c.hours - 1]) || 0,
       rate: Number(v[c.rate - 1]) || 0,
       amount: Number(v[c.amount - 1]) || 0,
+      free: String(v[c.amount - 1]) === 'Free',
       fixed: !(start instanceof Date),
     });
   }

@@ -1,41 +1,49 @@
-// timer.js — Start / Stop / zero-gap switch / log-row append.
-// Semantics mirror the Excel reference (modTimer.bas) exactly:
-//  - ONE active timer ever; starting while running offers a zero-gap switch
-//    where old-end == new-start to the captured millisecond.
+// timer.js — Start / Stop / in-progress + fixed-fee log rows (LOG-AS-TRUTH).
+//  - MANY concurrent clocks: each running session is a Time Log row with Start
+//    set and End blank, identified by Start.getTime(). Starting never replaces
+//    a running clock; overlapping time bills each task independently.
 //  - Exact-minute billing, no rounding beyond 2-decimal hours.
 //  - Full datetimes in Start/End so midnight-crossing sessions compute.
+//  - A session can be logged "Free" (no charge) — the Amount cell holds "Free".
 
 // ---------- Public API (sidebar / dialogs pass explicit args) ----------
 
 /**
- * Starts (or offers to switch) the timer. Returns a plain object safe for
- * google.script.run: {ok, msg?, state?, needsConfirm?, current?}.
- * opts.confirmSwitch=true executes the zero-gap switch without asking again.
+ * Opens a NEW clock (concurrent — never replaces a running one). Returns a
+ * plain object safe for google.script.run: {ok, msg?, needsRateConfirm?,
+ * startedAtMs?, snapshot?}. opts.free=true logs it as a no-charge session.
  */
 function startWork(client, task, opts) {
   return startWorkCtx_(makeCtx_(), client, task, opts || {});
 }
 
-function stopAndLog() {
-  return stopAndLogCtx_(makeCtx_());
+/** Stops + logs ONE running session by its startedAtMs. Idempotent. */
+function stopSession(startedAtMs) {
+  return stopSessionCtx_(makeCtx_(), Number(startedAtMs));
+}
+
+/** Stops + logs every running session at one shared end instant. */
+function stopAll() {
+  return stopAllCtx_(makeCtx_());
 }
 
 /** Snapshot for the sidebar/dialogs. Epoch millis only — never Date objects. */
 function getTimerSnapshot() {
-  var ctx = makeCtx_();
-  return buildSnapshot_(ctx, getTimerState_(ctx));
+  return buildSnapshot_(makeCtx_());
 }
 
 /**
- * Builds the sidebar model for a given state. start/stop return this inline so
- * the sidebar renders from one round-trip instead of a second refresh() call.
+ * Builds the sidebar/dialog model straight from the live running set. start/stop
+ * return this inline so the sidebar renders from one round-trip. `running` is
+ * every live clock (oldest first); each carries its own startedAtMs so the panel
+ * ticks and stops them independently.
  */
-function buildSnapshot_(ctx, state) {
+function buildSnapshot_(ctx) {
+  var running = getRunningSessions_(ctx).map(function (r) {
+    return { startedAtMs: r.startedAtMs, client: r.client, task: r.task, free: r.free };
+  });
   return {
-    status: state.status,
-    client: state.client,
-    task: state.task,
-    startedAtMs: state.startedAtMs,
+    running: running,
     serverNowMs: Date.now(),
     clients: getClientNames_(ctx),
     dbClient: String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim(),
@@ -86,7 +94,7 @@ function startWorkFromSheet() {
   var client = String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim();
   var task = String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim();
   var ui = SpreadsheetApp.getUi();
-  var opts = {};
+  var opts = { free: boolNamed_(ctx, CFG.named.dbFree) };
   var res = startWorkCtx_(ctx, client, task, opts);
   if (res.needsRateConfirm) {
     var ra = ui.alert('No rate set', res.msg + '\n\nStart anyway?', ui.ButtonSet.YES_NO);
@@ -94,23 +102,25 @@ function startWorkFromSheet() {
     opts.confirmNoRate = true;
     res = startWorkCtx_(ctx, client, task, opts);
   }
-  if (res.needsConfirm) {
-    var ans = ui.alert('Switch task?', MSG.switchPrompt(res.current.client, res.current.task), ui.ButtonSet.YES_NO);
-    if (ans !== ui.Button.YES) return;
-    opts.confirmSwitch = true;
-    res = startWorkCtx_(ctx, client, task, opts);
-  }
-  notify_(ctx, res.ok ? 'Timing ' + client + (task ? ' — ' + task : '') : res.msg);
+  notify_(ctx, res.ok
+    ? 'Timing ' + client + (task ? ' — ' + task : '') + (opts.free ? ' (free)' : '')
+    : res.msg);
 }
 
-function stopAndLogFromSheet() {
+function stopAllFromSheet() {
   var ctx = makeCtx_();
-  var res = stopAndLogCtx_(ctx);
-  notify_(ctx, res.msg);
+  var res = stopAllCtx_(ctx);
+  notify_(ctx, res.ok ? res.msg : MSG.noneRunning);
 }
 
 // ---------- Core (ctx-aware so tests drive the identical code) ----------
 
+/**
+ * Opens a NEW concurrent clock: appends an in-progress Time Log row (Start set,
+ * End blank). Never touches other running sessions. A same-client+task duplicate
+ * is a no-op so a double-tap can't open two identical clocks. startedAtMs is
+ * unique among the running set (a same-ms collision bumps +1ms).
+ */
 function startWorkCtx_(ctx, client, task, opts) {
   opts = opts || {};
   client = String(client || '').trim();
@@ -125,72 +135,117 @@ function startWorkCtx_(ctx, client, task, opts) {
   }
 
   return withLock_(function () {
-    var state = getTimerState_(ctx);
-    var nowMs = Date.now(); // captured ONCE — the zero-gap instant
-
-    if (state.status === 'RUNNING') {
-      if (state.client === client && state.task === task) {
-        return { ok: true, msg: MSG.alreadyRunning, state: state, snapshot: buildSnapshot_(ctx, state) };
+    var running = getRunningSessions_(ctx);
+    var used = {};
+    for (var i = 0; i < running.length; i++) {
+      if (running[i].client === client && running[i].task === task) {
+        return { ok: true, msg: MSG.alreadyRunning, startedAtMs: running[i].startedAtMs, snapshot: buildSnapshot_(ctx) };
       }
-      if (!opts.confirmSwitch && !ctx.silent) {
-        return {
-          ok: false,
-          needsConfirm: true,
-          current: { client: state.client, task: state.task, startedAtMs: state.startedAtMs },
-        };
-      }
-      stopInternal_(ctx, state, nowMs); // old session ends at exactly nowMs
+      used[running[i].startedAtMs] = true;
     }
-
-    var next = { status: 'RUNNING', startedAtMs: nowMs, client: client, task: task };
-    setTimerState_(ctx, next);
-    refreshStatusBanner_(ctx, next);
-    return { ok: true, state: next, snapshot: buildSnapshot_(ctx, next) };
+    var startMs = Date.now();
+    while (used[startMs]) startMs++; // unique identity among the live clocks
+    appendInProgressRow_(ctx, startMs, client, task, !!opts.free);
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush(); // so the dashboard/snapshot reflect the new row
+    var snapshot = buildSnapshot_(ctx);
+    // Return the CANONICAL (stored, read-back) id: a sheet datetime can round-
+    // trip ±1ms, so every consumer must key stop/discard off the stored value,
+    // never the pre-write startMs. The duplicate guard makes client+task unique.
+    var mine = snapshot.running.filter(function (x) { return x.client === client && x.task === task; })[0];
+    return { ok: true, startedAtMs: mine ? mine.startedAtMs : startMs, snapshot: snapshot };
   });
 }
 
-function stopAndLogCtx_(ctx) {
+/** Stops + logs ONE running session by id. Missing id → idempotent no-op. */
+function stopSessionCtx_(ctx, startedAtMs) {
   return withLock_(function () {
-    var state = getTimerState_(ctx);
-    if (state.status !== 'RUNNING') return { ok: false, msg: MSG.notRunning };
+    var row = findInProgressRow_(ctx, startedAtMs);
+    if (row < 0) return { ok: false, msg: MSG.noneRunning, snapshot: buildSnapshot_(ctx) };
+    var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+    var client = String(sh.getRange(row, CFG.log.cols.client).getValue() || '');
     var endMs = Date.now();
-    var hours = (endMs - state.startedAtMs) / 3600000;
-    stopInternal_(ctx, state, endMs);
-    refreshStatusBanner_(ctx, getTimerState_(ctx));
-    SpreadsheetApp.flush(); // so the dashboard stat cells reflect the just-logged row
-    return {
-      ok: true,
-      msg: MSG.logged(hours, state.client),
-      loggedHours: hours,
-      client: state.client,
-      snapshot: buildSnapshot_(ctx, idleState_()),
-    };
+    completeSessionRow_(ctx, row, endMs);
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush();
+    var hours = Math.max(0, (endMs - startedAtMs) / 3600000);
+    return { ok: true, msg: MSG.logged(hours, client), loggedHours: hours, client: client, snapshot: buildSnapshot_(ctx) };
   });
 }
 
-/**
- * Logs the running session ending at endMs, then resets state to IDLE.
- * Callers own banner refresh, so a switch chains into the new start
- * without an intermediate IDLE flicker. Call only inside withLock_.
- */
-function stopInternal_(ctx, state, endMs) {
-  appendLogRow_(ctx, state.startedAtMs, endMs, state.client, state.task);
-  setTimerState_(ctx, idleState_());
-}
-
-/** Discards the running session without logging (crash-recovery choice). */
-function discardRunningSession_(ctx) {
+/** Stops + logs every running session at one shared end instant. */
+function stopAllCtx_(ctx) {
   return withLock_(function () {
-    setTimerState_(ctx, idleState_());
-    refreshStatusBanner_(ctx, getTimerState_(ctx));
-    return { ok: true };
+    var running = getRunningSessions_(ctx);
+    if (running.length === 0) return { ok: false, msg: MSG.noneRunning, snapshot: buildSnapshot_(ctx) };
+    var endMs = Date.now();
+    running.forEach(function (r) { completeSessionRow_(ctx, r.row, endMs); });
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush();
+    return { ok: true, msg: MSG.stoppedAll(running.length), count: running.length, snapshot: buildSnapshot_(ctx) };
+  });
+}
+
+/** Discards one running session (deletes its row) without logging. */
+function discardSessionCtx_(ctx, startedAtMs) {
+  return withLock_(function () {
+    var row = findInProgressRow_(ctx, startedAtMs);
+    if (row < 0) return { ok: false, msg: MSG.noneRunning, snapshot: buildSnapshot_(ctx) };
+    ctx.ss.getSheetByName(CFG.sheets.log).deleteRow(row);
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush();
+    return { ok: true, snapshot: buildSnapshot_(ctx) };
+  });
+}
+
+/** Discards ALL running sessions (bottom-up so row indices stay valid). */
+function discardAllCtx_(ctx) {
+  return withLock_(function () {
+    var running = getRunningSessions_(ctx);
+    running.sort(function (a, b) { return b.row - a.row; });
+    var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+    running.forEach(function (r) { sh.deleteRow(r.row); });
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush();
+    return { ok: true, count: running.length };
   });
 }
 
 /**
- * Appends one session row. Order matters and is deliberate:
- * values first (full datetimes), re-assert the hh:mm format (a datetime write
- * can override a time-only format), then the formulas (Date reads Start).
+ * Appends an in-progress row: Client, Task, Start (hh:mm), Date (=INT(Start))
+ * and the per-row Status formula; End/Hours/Rate blank; Amount blank, or the
+ * literal "Free" when free-at-start. The amount formula is deliberately withheld
+ * until stop — writing =ROUND(hours*rate) while Hours is blank would poison the
+ * money aggregates with #VALUE!.
+ */
+function appendInProgressRow_(ctx, startMs, client, task, free) {
+  var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+  var c = CFG.log.cols;
+  var r = Math.max(sh.getLastRow() + 1, CFG.log.firstDataRow);
+  if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 50);
+  sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
+  sh.getRange(r, c.start).setValue(new Date(startMs)).setNumberFormat(CFG.formats.time);
+  sh.getRange(r, c.date).setFormula('=INT(' + colLetter_(c.start) + r + ')').setNumberFormat(CFG.formats.date);
+  if (free) sh.getRange(r, c.amount).setValue('Free');
+  writeStatusFormula_(sh, r);
+  return r;
+}
+
+/**
+ * Completes a running row at endMs: writes End, then the hourly formulas. A row
+ * flagged "Free" keeps that flag (writeHourlyFormulas_ skips its amount).
+ */
+function completeSessionRow_(ctx, row, endMs) {
+  var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+  sh.getRange(row, CFG.log.cols.end).setValue(new Date(endMs)).setNumberFormat(CFG.formats.time);
+  writeHourlyFormulas_(sh, row);
+  return row;
+}
+
+/**
+ * Appends one COMPLETED session row (manual "add past session" + demo seed).
+ * Full datetimes first, re-assert the hh:mm format (a datetime write can
+ * override a time-only format), then the shared hourly formulas.
  */
 function appendLogRow_(ctx, startMs, endMs, client, task) {
   var sh = ctx.ss.getSheetByName(CFG.sheets.log);
@@ -202,7 +257,20 @@ function appendLogRow_(ctx, startMs, endMs, client, task) {
   sh.getRange(r, c.start, 1, 2)
     .setValues([[new Date(startMs), new Date(endMs)]])
     .setNumberFormat(CFG.formats.time);
+  writeHourlyFormulas_(sh, r);
+  writeStatusFormula_(sh, r);
+  return r;
+}
 
+/**
+ * Writes the Date/Hours/Rate/Amount formulas for one hourly row — shared by the
+ * manual/demo append and the on-stop completion. Amount is left untouched when
+ * the row is flagged "Free" (Amount === "Free") so a free session shows "Free".
+ * Date reads Start, so full datetimes must already be in place. Status (col G)
+ * has its own per-row formula (writeStatusFormula_) and is never written here.
+ */
+function writeHourlyFormulas_(sh, r) {
+  var c = CFG.log.cols;
   var A = function (col) { return colLetter_(col) + r; };
   var clientsA = "'" + CFG.sheets.clients + "'!$A$2:$A";
   var clientsB = "'" + CFG.sheets.clients + "'!$B$2:$B";
@@ -217,10 +285,26 @@ function appendLogRow_(ctx, startMs, endMs, client, task) {
   sh.getRange(r, c.rate)
     .setFormula('=IFERROR(N(INDEX(' + clientsB + ', MATCH(' + A(c.client) + ', ' + clientsA + ', 0))), 0)')
     .setNumberFormat(CFG.formats.euro);
-  sh.getRange(r, c.amount)
-    .setFormula('=ROUND(' + A(c.hours) + '*' + A(c.rate) + ', 2)')
-    .setNumberFormat(CFG.formats.euro);
-  return r;
+  var amtCell = sh.getRange(r, c.amount);
+  if (String(amtCell.getValue()) !== 'Free') {
+    amtCell.setFormula('=ROUND(' + A(c.hours) + '*' + A(c.rate) + ', 2)').setNumberFormat(CFG.formats.euro);
+  }
+}
+
+/**
+ * Writes the per-row Status formula (col G): "In progress" while Start is set
+ * and End blank, "Free" when Amount is the literal "Free", else blank. Written
+ * once per row and auto-updates as End/Amount change; it moves with its row on a
+ * sort (like the other per-row formulas). Client-safe — carries no money, and is
+ * the only Status write (the column is never a sheet-wide spill, which would
+ * push the first append off row 2 and collide with per-row writes).
+ */
+function writeStatusFormula_(sh, r) {
+  var c = CFG.log.cols;
+  var L = colLetter_;
+  sh.getRange(r, c.status)
+    .setFormula('=IF(AND(' + L(c.start) + r + '<>"", ' + L(c.end) + r + '=""), "In progress", IF(' + L(c.amount) + r + '="Free", "Free", ""))')
+    .setHorizontalAlignment('center');
 }
 
 /**
@@ -262,6 +346,7 @@ function appendFixedRow_(ctx, dateMs, client, task, amount) {
   sh.getRange(r, c.date).setValue(new Date(dateMs)).setNumberFormat(CFG.formats.date);
   sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
   sh.getRange(r, c.amount).setValue(amount).setNumberFormat(CFG.formats.euro);
+  writeStatusFormula_(sh, r);
   return r;
 }
 
@@ -278,38 +363,77 @@ function literal_(s) {
 }
 
 /**
- * Crash-recovery dialog callback: 'keep' | 'log' | 'discard'.
- * expectedStartMs guards 'discard' against acting on a DIFFERENT session than
- * the one the dialog displayed (e.g. a phone checkbox started a new one).
+ * Multi-session recovery dialog callback. Per-card: 'log'/'stop' + id, or
+ * 'discard' + id. Footer: 'stopAll', 'discardAll', 'keep' (no-op). A stale id
+ * (already stopped elsewhere) is a safe no-op. Returns the fresh snapshot so
+ * the dialog re-renders the remaining cards.
  */
-function recoveryChoice(choice, expectedStartMs) {
-  recoveryChoiceCtx_(makeCtx_(), choice, expectedStartMs);
-  try {
-    showSidebar();
-  } catch (e) {
-    // No UI context (e.g. mobile) — sidebar will appear on next desktop open.
-  }
+function recoveryChoice(choice, startedAtMs) {
+  recoveryChoiceCtx_(makeCtx_(), choice, startedAtMs != null ? Number(startedAtMs) : 0);
   return getTimerSnapshot();
 }
 
-function recoveryChoiceCtx_(ctx, choice, expectedStartMs) {
-  if (choice === 'log') {
-    var res = stopAndLogCtx_(ctx);
-    notify_(ctx, res.msg);
-    return res;
-  }
-  if (choice === 'discard') {
-    var current = getTimerState_(ctx);
-    if (expectedStartMs && current.startedAtMs !== expectedStartMs) {
-      notify_(ctx, 'Not discarded — a different session is running now.');
-      return { ok: false, msg: 'different session running' };
-    }
-    discardRunningSession_(ctx);
-    notify_(ctx, 'Session discarded.');
-    return { ok: true };
-  }
-  // 'keep': nothing to do — state is already RUNNING and authoritative.
-  return { ok: true };
+function recoveryChoiceCtx_(ctx, choice, id) {
+  if (choice === 'log' || choice === 'stop') return stopSessionCtx_(ctx, id);
+  if (choice === 'discard') return discardSessionCtx_(ctx, id);
+  if (choice === 'stopAll') return stopAllCtx_(ctx);
+  if (choice === 'discardAll') return discardAllCtx_(ctx);
+  return { ok: true }; // 'keep' — the rows are already the authoritative truth
+}
+
+// ---------- Mark a session free / paid after the fact (menu) ----------
+
+function toggleSelectedFree() {
+  var ctx = makeCtx_();
+  var res = markSelectedFreeCtx_(ctx);
+  notify_(ctx, res.msg);
+}
+
+/**
+ * Toggles the selected Time Log row(s) between "Free" (no charge) and priced.
+ * Free = the literal "Free" in the Amount cell (SUM/QUERY treat text as €0, so
+ * it drops out of the money totals but its hours still count). Un-free restores
+ * the amount formula on a completed row, or clears it on a still-running one.
+ * Ignores the header + blank rows.
+ */
+function markSelectedFreeCtx_(ctx) {
+  var sh = ctx.ss.getActiveSheet();
+  if (sh.getName() !== CFG.sheets.log) return { ok: false, msg: MSG.selectLogRows };
+  var rl = sh.getActiveRangeList();
+  var ranges = rl ? rl.getRanges() : [sh.getActiveRange()];
+  var c = CFG.log.cols;
+  return withLock_(function () {
+    var freed = 0;
+    var paid = 0;
+    ranges.forEach(function (rng) {
+      var startRow = rng.getRow();
+      for (var i = 0; i < rng.getNumRows(); i++) {
+        var r = startRow + i;
+        if (r < CFG.log.firstDataRow) continue;
+        if (String(sh.getRange(r, c.client).getValue()).trim() === '') continue;
+        var amtCell = sh.getRange(r, c.amount);
+        if (String(amtCell.getValue()) === 'Free') {
+          if (sh.getRange(r, c.end).getValue() instanceof Date) {
+            amtCell.setFormula('=ROUND(' + colLetter_(c.hours) + r + '*' + colLetter_(c.rate) + r + ', 2)')
+              .setNumberFormat(CFG.formats.euro);
+          } else {
+            amtCell.clearContent();
+          }
+          paid++;
+        } else {
+          amtCell.setValue('Free');
+          freed++;
+        }
+        // Ensure the row carries a Status formula so "Free" surfaces to the
+        // client even on an older row created before the Status column existed.
+        writeStatusFormula_(sh, r);
+      }
+    });
+    if (freed + paid === 0) return { ok: false, msg: MSG.selectLogRows };
+    paintRunningSurfaces_(ctx);
+    SpreadsheetApp.flush();
+    return { ok: true, msg: 'Updated ' + (freed + paid) + ' row(s): ' + freed + ' free, ' + paid + ' paid.' };
+  });
 }
 
 /**

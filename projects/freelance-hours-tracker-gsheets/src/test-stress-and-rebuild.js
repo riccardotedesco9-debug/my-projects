@@ -73,25 +73,30 @@ function sectionStress_(S, env) {
   S.near('volume breakdown: hours reconcile', Math.round(bdHours * 100) / 100, meta.totalHours, 0.05);
   S.near('volume breakdown: € reconciles', Math.round(bdAmount * 100) / 100, meta.totalAmount, 0.05);
 
-  // --- Zero-gap switch chain, no sleeps ---
+  // --- Concurrent clocks: three at once, one stopAll logs all three ---
+  discardAllCtx_(ctx);
   var base = log.getLastRow();
-  startWorkCtx_(ctx, 'Pet Centre', 'Chain A', {});
-  startWorkCtx_(ctx, 'Splash Store', 'Chain B', {});
-  startWorkCtx_(ctx, "Paws 'n' Claws", 'Chain C', {});
-  stopAndLogCtx_(ctx);
-  S.t('chain: three rows logged', log.getLastRow(), base + 3);
-  S.t('chain: A→B seam is zero-gap', log.getRange(base + 1, c.end).getValue().getTime(), log.getRange(base + 2, c.start).getValue().getTime());
-  S.t('chain: B→C seam is zero-gap', log.getRange(base + 2, c.end).getValue().getTime(), log.getRange(base + 3, c.start).getValue().getTime());
+  startWorkCtx_(ctx, 'Pet Centre', 'Concurrent A', {});
+  startWorkCtx_(ctx, 'Splash Store', 'Concurrent B', { confirmNoRate: true });
+  startWorkCtx_(ctx, "Paws 'n' Claws", 'Concurrent C', {});
+  S.t('three clocks run at once', getRunningSessions_(ctx).length, 3);
+  Utilities.sleep(300);
+  var stopped = stopAllCtx_(ctx);
+  S.t('stopAll logs all three', stopped.count, 3);
+  S.t('three rows appended', log.getLastRow(), base + 3);
+  S.t('nothing running after stopAll', getRunningSessions_(ctx).length, 0);
+  var tasks3 = log.getRange(base + 1, c.task, 3, 1).getValues().map(function (r) { return String(r[0]); });
+  S.t('all three tasks logged', tasks3.indexOf('Concurrent A') >= 0 && tasks3.indexOf('Concurrent B') >= 0 && tasks3.indexOf('Concurrent C') >= 0, true);
 
   // --- Rapid start/stop churn, no sleeps ---
   base = log.getLastRow();
   for (var k = 1; k <= 6; k++) {
-    startWorkCtx_(ctx, 'Pet Centre', 'Churn ' + k, {});
-    stopAndLogCtx_(ctx);
+    var cr = startWorkCtx_(ctx, 'Pet Centre', 'Churn ' + k, {});
+    stopSessionCtx_(ctx, cr.startedAtMs);
   }
   S.t('churn: six 0.00h rows, no corruption', log.getLastRow(), base + 6);
   S.t('churn: order preserved', String(log.getRange(base + 6, c.task).getValue()), 'Churn 6');
-  S.t('churn: ends IDLE', getTimerState_(ctx).status, 'IDLE');
+  S.t('churn: nothing left running', getRunningSessions_(ctx).length, 0);
 
   // --- Mass delete then append ---
   var before = log.getLastRow();
@@ -129,17 +134,21 @@ function sectionStress_(S, env) {
 function sectionUpdateLayout_(S, env) {
   var ctx = env.ctx;
   var log = env.logSh;
-  var rowsBefore = log.getLastRow();
   var clientRow = env.clientsSh.getRange(2, 1, 1, 3).getValues()[0];
+  discardAllCtx_(ctx);
+  // A running session is a real in-progress log ROW now, so it must survive the
+  // update byte-for-byte alongside every completed row.
   startWorkCtx_(ctx, 'Pet Centre', 'Survives the update', {});
+  var rowsWithRunning = log.getLastRow();
 
   var t0 = Date.now();
   updateLayout_(env.ss);
   S.info('updateLayout duration', (Date.now() - t0) + 'ms');
 
-  S.t('every log row preserved', log.getLastRow(), rowsBefore);
+  S.t('every log row preserved (incl. the in-progress row)', log.getLastRow(), rowsWithRunning);
+  S.t('the in-progress session survived the update', getRunningSessions_(ctx).filter(function (r) { return r.task === 'Survives the update'; }).length, 1);
   S.t('still 6 sheets', env.ss.getSheets().length, 6);
-  S.t('settings mirror stays hidden after the update', env.ss.getSheetByName(CFG.sheets.settings).isSheetHidden(), true);
+  S.t('settings stays hidden after the update', env.ss.getSheetByName(CFG.sheets.settings).isSheetHidden(), true);
   var after = env.clientsSh.getRange(2, 1, 1, 3).getValues()[0];
   S.t('client name preserved', String(after[0]), String(clientRow[0]));
   S.t('client rate preserved', Number(after[1]), Number(clientRow[1]));
@@ -154,26 +163,27 @@ function sectionUpdateLayout_(S, env) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';
   });
-  S.t('8 conditional rules re-asserted', dump.length, 8);
+  S.t('10 conditional rules re-asserted', dump.length, 10);
   S.t('rule order re-asserted (midnight+busy first)', dump[0].indexOf('INT($E2)') >= 0 && dump[0].indexOf('>12') >= 0, true);
   var colVal = log.getRange(2, CFG.log.cols.client).getDataValidation();
   S.t('log client dropdown restored', !!colVal && colVal.getAllowInvalid() === false, true);
 
-  S.t('running timer survives the update', getTimerState_(ctx).status, 'RUNNING');
-  var stop = stopAndLogCtx_(ctx);
-  S.t('…and stops & logs cleanly afterwards', stop.ok, true);
+  var stop = stopAllCtx_(ctx);
+  S.t('the surviving session stops & logs cleanly afterwards', stop.ok, true);
 
-  // The phone path must still work against the re-created Dashboard.
+  // The phone path must still work against the re-created Dashboard: START adds a
+  // clock; the RUNNING NOW stop box (row 1) stops it via the hidden id column.
   setNamedValue_(ctx, CFG.named.dbClient, 'Pet Centre');
   setNamedValue_(ctx, CFG.named.dbTask, 'Post-update tick');
   var chkStart = env.ss.getRangeByName(CFG.named.chkStart);
   chkStart.setValue(true);
   onEditInstallable({ range: chkStart, value: 'TRUE', source: env.ss });
-  S.t('checkbox path alive after update', getTimerState_(ctx).status, 'RUNNING');
-  var chkStop = env.ss.getRangeByName(CFG.named.chkStop);
-  chkStop.setValue(true);
-  onEditInstallable({ range: chkStop, value: 'TRUE', source: env.ss });
-  S.t('checkbox stop alive after update', getTimerState_(ctx).status, 'IDLE');
+  S.t('checkbox start alive after update', getRunningSessions_(ctx).length, 1);
+  SpreadsheetApp.flush();
+  var stopCell = env.ss.getRangeByName(CFG.named.chkStopBlock).getCell(1, 1);
+  stopCell.setValue(true);
+  onEditInstallable({ range: stopCell, value: 'TRUE', source: env.ss });
+  S.t('checkbox stop alive after update', getRunningSessions_(ctx).length, 0);
 
   var sweep = sweepLogInvariants_(ctx);
   S.t('every data invariant survived the update', sweep.violations.slice(0, 5).join(' ; '), '');
@@ -186,6 +196,60 @@ function sectionUpdateLayout_(S, env) {
   S.t('seed guard: blank row 2 + real clients below → no re-seed', String(env.clientsSh.getRange(2, 1).getValue()), '');
   S.t('seed guard: clients below the blank row untouched', String(env.clientsSh.getRange(4, 1).getValue()), "Paws 'n' Claws");
   env.clientsSh.getRange(2, 1, 1, 3).setValues([petRow]);
+}
+
+/**
+ * The v1→v2 upgrade path — the ONLY way to exercise buildLogSheet_'s
+ * insertColumnBefore migration (rebuild_ always builds v2 directly, so that
+ * branch is dead in every other section). Downgrades the live log to the old
+ * 8-column shape (Rate@G, Amount@H) by deleting the Status column, then runs the
+ * real updateLayout_ and proves the migration restores v2 AND keeps every
+ * earnings surface pointing at the Amount column — not the empty one beside it.
+ */
+function sectionV1Migration_(S, env) {
+  var ss = env.ss;
+  var log = env.logSh; // the Log sheet is reformatted in place, so this handle stays valid
+  var c = CFG.log.cols;
+  discardAllCtx_(env.ctx); // no in-progress rows during the downgrade
+
+  // The true current-month € total, read from the v2 log BEFORE the downgrade.
+  SpreadsheetApp.flush();
+  var truth = sweepLogInvariants_(env.ctx);
+  S.t('precondition: priced current-month data present (earnings non-zero)', truth.monthAmount > 0, true);
+  var amountsBefore = log.getRange(2, c.amount, log.getLastRow() - 1, 1).getValues()
+    .reduce(function (a, r) { return a + (Number(r[0]) || 0); }, 0);
+
+  // Downgrade to v1: deleting Status (G) drops Rate back to G and Amount to H —
+  // exactly the pre-v2 layout, with the per-row money formulas re-adjusting.
+  // Drop the filter + banding first so the column delete can't snag on them
+  // (buildLogSheet_ rebuilds both during the migration below).
+  var oldFilter = log.getFilter();
+  if (oldFilter) oldFilter.remove();
+  log.getBandings().forEach(function (b) { b.remove(); });
+  log.deleteColumn(c.status);
+  S.t('downgraded to v1 shape: header G reads "Rate"', String(log.getRange(1, 7).getValue()), 'Rate');
+  S.t('downgraded: Amount fell back to col H', String(log.getRange(1, 8).getValue()), 'Amount');
+
+  // The migration path under test.
+  updateLayout_(ss);
+
+  S.t('re-migrated to v2: Status@G, Rate@H, Amount@I',
+    [String(log.getRange(1, c.status).getValue()), String(log.getRange(1, c.rate).getValue()), String(log.getRange(1, c.amount).getValue())].join('|'),
+    'Status|Rate|Amount');
+  var amountsAfter = log.getRange(2, c.amount, log.getLastRow() - 1, 1).getValues()
+    .reduce(function (a, r) { return a + (Number(r[0]) || 0); }, 0);
+  S.near('every amount value preserved through the migration', amountsAfter, amountsBefore, 0.02);
+
+  // The H1 regression: a column insert shifts cross-sheet refs, so earnings
+  // surfaces must still resolve to the Amount column, not the empty one beside it.
+  // Re-fetch the derived sheets — updateLayout_ deletes + recreates them.
+  SpreadsheetApp.flush();
+  var dash = ss.getSheetByName(CFG.sheets.dashboard);
+  var summary = ss.getSheetByName(CFG.sheets.summary);
+  S.near('Dashboard "Earned this month" survives the migration (not €0)', Number(dash.getRange('C29').getValue()), truth.monthAmount, 0.05);
+  S.t('Summary Total Earnings is non-zero after the migration', Number(summary.getRange('E5').getValue()) > 0, true);
+  var sweep = sweepLogInvariants_(env.ctx);
+  S.t('every data invariant holds after the v1→v2 migration', sweep.violations.slice(0, 5).join(' ; '), '');
 }
 
 function sectionRebuild_(S, env) {

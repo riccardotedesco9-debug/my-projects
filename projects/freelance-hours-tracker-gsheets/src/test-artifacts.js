@@ -49,7 +49,7 @@ function sectionViewer_(S, env) {
   var tasks = sh.getRange('R3').getFormula();
   S.t('viewer: sessions QUERY is IFERROR-wrapped (empty log ≠ access error)', sessions.indexOf('=IFERROR(QUERY(IMPORTRANGE') === 0, true);
   S.t('viewer: apostrophe client survives the GViz literal', sessions.indexOf("Paws 'n' Claws") > 0, true);
-  S.t('viewer: sessions import pulls A2:F (the single data import)', sessions.indexOf('A2:F') > 0, true);
+  S.t('viewer: sessions import pulls A2:G (the single data import + Status label)', sessions.indexOf('A2:G') > 0, true);
   S.t('viewer: headline total-hours stat wired', sh.getRange('B6').getFormula().indexOf('SUM($J$7:$J$500)') > 0, true);
   S.t('viewer: grid trimmed for scrolling (≤500 rows)', sh.getMaxRows() <= 500, true);
   // The rollups feeding the two charts are LOCAL (no import) — that's the fix
@@ -71,21 +71,32 @@ function sectionViewer_(S, env) {
   S.t('viewer: busy-day highlight rule present', vDump.indexOf('>8') >= 0, true);
   S.t('viewer: midnight-crossing red rule present', vDump.indexOf('INT($I7)') >= 0, true);
   S.t('viewer: hours colour scale present', vDump.indexOf('[gradient]') >= 0, true);
-  var boolCols = {}, gradOnHours = false;
+  S.t('viewer: in-progress + free status cues present', vDump.indexOf('In progress') >= 0 && vDump.indexOf('Free') >= 0, true);
+  var dateRuleCols = {}, statusRuleCols = {}, gradOnHours = false, boolOnHours = false;
   vRules.forEach(function (r) {
-    if (r.getBooleanCondition()) {
-      r.getRanges().forEach(function (rg) { boolCols[rg.getColumn()] = true; });
+    var bc = r.getBooleanCondition();
+    if (bc) {
+      var f = bc.getCriteriaValues().join(' ');
+      r.getRanges().forEach(function (rg) {
+        if (rg.getColumn() === 10) boolOnHours = true;
+        if (f.indexOf('SUMIF') >= 0 || f.indexOf('INT($') >= 0) dateRuleCols[rg.getColumn()] = true;
+        else statusRuleCols[rg.getColumn()] = true;
+      });
     } else if (r.getRanges().some(function (rg) { return rg.getColumn() === 10; })) {
       gradOnHours = true; // gradient on Hours (col J)
     }
   });
-  S.t('viewer: amber/red rules sit on the DATE column only (col F, never hours)', Object.keys(boolCols).join(','), '6');
+  S.t('viewer: amber/red rules sit on the DATE column only (col F)', Object.keys(dateRuleCols).join(','), '6');
+  S.t('viewer: no boolean rule ever touches the HOURS column', boolOnHours, false);
+  S.t('viewer: status cues sit on the Status column (col K)', Object.keys(statusRuleCols).join(','), '11');
   S.t('viewer: green hours scale sits on the HOURS column (col J)', gradOnHours, true);
-  // Privacy: the ONLY data import is the sessions QUERY, pulling A2:F
-  // (date..hours) — never Rate (G) / Amount (H) or another client. The local
-  // rollups touch only date/task/hours columns of that spill.
-  var moneyLeak = /A2:[GH]|Col7|Col8/.test(sessions.split(env.ss.getId()).join(''));
-  S.t('viewer: imports A2:F only — Rate/€ can never leak', sessions.indexOf('A2:F') > 0 && !moneyLeak, true);
+  // Privacy: the ONLY data import is the sessions QUERY, pulling A2:G
+  // (date..hours + the Status label) — never Rate (H) / Amount (I) or another
+  // client. Col7 (Status) is a money-blind label; Col8/Col9 must never appear.
+  var body = sessions.split(env.ss.getId()).join('');
+  var moneyLeak = /A2:[HI]|Col8|Col9/.test(body);
+  S.t('viewer: imports A2:G only — Rate (H)/Amount (I) can never leak', sessions.indexOf('A2:G') > 0 && !moneyLeak, true);
+  S.t('viewer: sessions QUERY selects the Status label (Col7), never money', /Col7/.test(body) && !/Col8|Col9/.test(body), true);
   S.t('viewer: local rollups reference only date/task/hours (F/G/J)', /\$[FJ]\$7/.test(monthly) && /\$[GJ]\$7/.test(tasks), true);
   S.t('viewer: locale en_GB', scratch.getSpreadsheetLocale(), 'en_GB');
   S.t('viewer: timezone Malta', scratch.getSpreadsheetTimeZone(), 'Europe/Malta');

@@ -74,6 +74,16 @@ function buildLogSheet_(ss) {
   var sh = ss.getSheetByName(CFG.sheets.log);
   var c = CFG.log.cols;
 
+  // One-time schema migration (v1 8-col → v2 9-col): the old layout put Rate at
+  // column G. v2 inserts a Status column at G so a client view can import A2:G
+  // (the label) without ever touching money, shifting Rate→H and Amount→I.
+  // insertColumnBefore preserves the shifted data AND rewrites its per-row
+  // formulas; it fires only while the header still reads the old shape, so it's
+  // a no-op on a fresh build and idempotent on every later updateLayout.
+  if (String(sh.getRange(1, c.status).getValue()) === 'Rate') {
+    sh.insertColumnBefore(c.status);
+  }
+
   // Size the grid to the format horizon (trims a bloated 5000-row grid down, or
   // grows a fresh one up) — but never below the data. Everything below formats
   // to exactly this many rows.
@@ -122,12 +132,27 @@ function buildLogSheet_(ss) {
   // >8). Busy shading sits only on the date cell, so the Hours colour-scale
   // (below) is never covered.
   var dateRange = sh.getRange(2, c.date, body, 1);
+  var statusRange = sh.getRange(2, c.status, body, 1);
+  var amountRange = sh.getRange(2, c.amount, body, 1);
   var busy = function (n) { return 'SUMIF($A:$A,$A2,$F:$F)>' + n; };
   var midnight = '$E2<>"", INT($E2)>INT($D2)';
   var hoursScale = SpreadsheetApp.newConditionalFormatRule()
     .setGradientMinpoint(CFG.colors.white)
     .setGradientMaxpoint(CFG.colors.tealSoft)
     .setRanges([sh.getRange(2, c.hours, body, 1)])
+    .build();
+  // Running rows (Start set, End blank) get a soft-teal Status cell; free rows
+  // (Amount = the literal "Free") show a green Amount. Both target their OWN
+  // column, so they never collide with the date/hours cues above.
+  var inProgressRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=AND($D2<>"", $E2="")')
+    .setBackground(CFG.colors.tealSoft)
+    .setRanges([statusRange])
+    .build();
+  var freeRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=$I2="Free"')
+    .setFontColor(CFG.colors.green)
+    .setRanges([amountRange])
     .build();
   sh.setConditionalFormatRules([
     dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
@@ -138,9 +163,11 @@ function buildLogSheet_(ss) {
     dateRule_(dateRange, '=AND($A2<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
     dateRule_(dateRange, '=AND($A2<>"", ' + busy(8) + ')', CFG.colors.amber, null),
     hoursScale,
+    inProgressRule,
+    freeRule,
   ]);
 
-  var widths = { 1: 95, 2: 150, 3: 260, 4: 70, 5: 70, 6: 70, 7: 95, 8: 105 };
+  var widths = { 1: 92, 2: 150, 3: 230, 4: 64, 5: 64, 6: 62, 7: 96, 8: 84, 9: 100 };
   Object.keys(widths).forEach(function (col) {
     sh.setColumnWidth(Number(col), widths[col]);
   });
@@ -166,24 +193,15 @@ function dateRule_(range, formula, bg, font) {
 function buildSettingsSheet_(ss) {
   var sh = ss.getSheetByName(CFG.sheets.settings);
   sh.getRange('B2')
-    .setValue('INTERNAL — timer state mirror (display only; the authoritative state lives in Script Properties)')
+    .setValue('INTERNAL — running timers now live as Time Log rows (Start set, End blank). No scalar timer state is stored here.')
     .setFontStyle('italic')
     .setFontColor(CFG.colors.gray)
     .setFontSize(9);
 
-  var labels = [['Status'], ['Started at'], ['Client'], ['Task']];
-  sh.getRange(4, 2, labels.length, 1).setValues(labels).setFontColor(CFG.colors.gray);
-  sh.getRange('C4').setValue('IDLE');
-  sh.getRange('C5').setNumberFormat(CFG.formats.generated);
-  ss.setNamedRange(CFG.named.stStatus, sh.getRange('C4'));
-  ss.setNamedRange(CFG.named.stStartedAt, sh.getRange('C5'));
-  ss.setNamedRange(CFG.named.stClient, sh.getRange('C6'));
-  ss.setNamedRange(CFG.named.stTask, sh.getRange('C7'));
-
   sh.getRange('B9').setValue('Schema').setFontColor(CFG.colors.gray);
   sh.getRange('C9').setValue(CFG.schemaVersion);
   sh.setColumnWidth(2, 90);
-  sh.setColumnWidth(3, 220);
+  sh.setColumnWidth(3, 320);
   sh.hideSheet();
 }
 

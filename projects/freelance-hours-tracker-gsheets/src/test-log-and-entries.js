@@ -152,7 +152,7 @@ function sectionManualEntries_(S, env) {
   S.t('fee amount stored as a value', Number(log.getRange(feeRow, c.amount).getValue()), 250);
   S.t('fee has no hours', String(log.getRange(feeRow, c.hours).getValue()), '');
   S.t('fee has no start time', String(log.getRange(feeRow, c.start).getValue()), '');
-  S.t('fee is inert to the timer', getTimerState_(ctx).status, 'IDLE');
+  S.t('fee is inert to the timer (no running session)', getRunningSessions_(ctx).length, 0);
 
   // --- Fee refusal matrix + cent rounding ---
   rows = log.getLastRow();

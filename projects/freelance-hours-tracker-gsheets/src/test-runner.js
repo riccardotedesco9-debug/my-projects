@@ -56,6 +56,7 @@ function runSmokeTest() {
     // so a slow day loses assertions, never a stranded throwaway.
     runSection_(suite, 'Volume stress & full-log invariants', function (S) { sectionStress_(S, env); }, 240000);
     runSection_(suite, 'Non-destructive layout update', function (S) { sectionUpdateLayout_(S, env); }, 300000);
+    runSection_(suite, 'v1→v2 schema migration (upgrade path)', function (S) { sectionV1Migration_(S, env); }, 310000);
     runSection_(suite, 'Disaster-recovery rebuild', function (S) { sectionRebuild_(S, env); }, 320000);
   }
 
@@ -188,7 +189,7 @@ function makeTestEnv_(throwaway) {
     m: now.getMonth() + 1,
     tz: throwaway.getSpreadsheetTimeZone(),
     scratchIds: [], // extra spreadsheets to trash in cleanup
-    propPrefixes: ['test:', 'switchgate:', 'rategate:', 'corrupt:', 'recovery:', 'churn:'],
+    propPrefixes: ['test:', 'migrate:'], // legacy-migration blobs are the only props left
     cleanupProps: [], // exact extra property keys to delete in cleanup
     gmailDrafts: [], // drafts to sweep in cleanup if a section died mid-way
   };

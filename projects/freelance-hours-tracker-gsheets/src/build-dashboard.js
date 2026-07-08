@@ -14,7 +14,7 @@ function buildDashboardSheet_(ss) {
   });
 
   // Canvas + house font (font silently falls back if unavailable).
-  sh.getRange('A1:H42').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
+  sh.getRange('A1:H40').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
 
   sh.getRange('B2:G2').merge();
   sh.getRange('B2')
@@ -25,7 +25,7 @@ function buildDashboardSheet_(ss) {
   sh.getRange('B3:G3').merge();
   sh.getRange('B3').setValue(CFG.ownerName).setFontColor(CFG.colors.gray);
 
-  // Status banner — the on-sheet feedback for every timer transition.
+  // Status banner — green "● N running" / gray idle; painted by the state layer.
   sh.getRange('B5:G5').merge();
   sh.setRowHeight(5, 38);
   sh.getRange('B5')
@@ -35,7 +35,7 @@ function buildDashboardSheet_(ss) {
     .setFontSize(12);
   ss.setNamedRange(CFG.named.dbStatus, sh.getRange('B5'));
 
-  // Inputs: what the user PICKS (separate from what is being timed).
+  // The NEXT timer's inputs — what a Start will use (separate from what's live).
   sh.getRange('B7').setValue('Client').setFontWeight('bold');
   sh.getRange('C7:D7').merge();
   styleInputCell_(sh.getRange('C7:D7'));
@@ -57,57 +57,90 @@ function buildDashboardSheet_(ss) {
   sh.setRowHeight(10, 52);
   insertDashboardButtons_(sh);
 
-  // Phone controls — the Sheets mobile app runs no buttons/menus/sidebars, so
-  // these two checkboxes are the phone's Start/Stop. Rendered as colored button
-  // bars: the checkbox is the tap target the app can fire; the bar makes it
-  // read as a button on desktop.
-  sectionHeader_(sh.getRange('B12'), 'PHONE CONTROLS');
+  // START A TIMER (phone) — the Sheets mobile app runs no buttons/menus/
+  // sidebars, so the START checkbox is the tap target. It ADDS a new clock
+  // (never replaces a running one) using the Client & Task above; the Free? box
+  // logs it as no-charge.
+  sectionHeader_(sh.getRange('B12'), 'START A TIMER (PHONE)');
   sh.setRowHeight(13, 30);
-  sh.setRowHeight(14, 30);
   phoneButton_(sh, ss, 13, CFG.named.chkStart, CFG.colors.green, '▶  START');
-  phoneButton_(sh, ss, 14, CFG.named.chkStop, CFG.colors.red, '■  STOP & LOG');
-  sh.getRange('B15:E15').merge();
-  sh.getRange('B15')
-    .setValue('Tap a box from the Google Sheets phone app — uses the Client & Task above.')
+  var freeBox = sh.getRange('F13');
+  freeBox.insertCheckboxes();
+  freeBox.setValue(false)
+    .setBackground(CFG.colors.white)
+    .setHorizontalAlignment('center')
+    .setVerticalAlignment('middle');
+  ss.setNamedRange(CFG.named.dbFree, freeBox);
+  sh.getRange('G13').setValue('Free?').setFontColor(CFG.colors.gray).setFontSize(10).setVerticalAlignment('middle');
+  sh.getRange('B14:G14').merge();
+  sh.getRange('B14')
+    .setValue('Tap START from the Google Sheets phone app — adds a clock for the Client & Task above. Tick Free? for a no-charge session.')
+    .setFontColor(CFG.colors.gray)
+    .setFontStyle('italic')
+    .setFontSize(8);
+
+  // RUNNING NOW — one row per live clock (server-rendered by renderRunningNow_):
+  // a STOP checkbox (chkStopBlock), a "client — task · since HH:mm" label face,
+  // and a hidden startedAtMs (dbRunIds) the stop handler maps back to a session.
+  // Rows fill top-down as timers start; the sidebar shows all, this caps at
+  // CFG.run.maxRows and notes any overflow on the banner.
+  sectionHeader_(sh.getRange('B16'), 'RUNNING NOW');
+  var runTop = 17;
+  var cap = CFG.run.maxRows;
+  for (var i = 0; i < cap; i++) {
+    var row = runTop + i;
+    sh.setRowHeight(row, 26);
+    sh.getRange(row, 3, 1, 4).merge(); // C:F label face
+    sh.getRange(row, 3).setVerticalAlignment('middle').setFontSize(11);
+    sh.getRange(row, 2).setBackground(CFG.colors.white).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  }
+  ss.setNamedRange(CFG.named.chkStopBlock, sh.getRange(runTop, 2, cap, 1)); // B17:B22
+  ss.setNamedRange(CFG.named.dbRunIds, sh.getRange(runTop, 10, cap, 1)); // J17:J22 (hidden)
+  card_(sh.getRange(16, 2, cap + 1, 5)); // B16:F22
+  sh.getRange('B23:F23').merge();
+  sh.getRange('B23')
+    .setValue('Tick a box to stop & log that timer (works from the phone app too).')
     .setFontColor(CFG.colors.gray)
     .setFontStyle('italic')
     .setFontSize(8);
 
   // At-a-glance card — live formulas, zero staleness, no triggers.
-  sectionHeader_(sh.getRange('B17'), 'AT A GLANCE');
-  sh.getRange(18, 2, 4, 1).setValues([['Today'], ['This week'], ['This month'], ['Earned this month']]);
-  sh.getRange('C18')
+  sectionHeader_(sh.getRange('B25'), 'AT A GLANCE');
+  sh.getRange(26, 2, 4, 1).setValues([['Today'], ['This week'], ['This month'], ['Earned this month']]);
+  sh.getRange('C26')
     .setFormula('=ROUND(SUMIF(' + log + '!$A:$A, TODAY(), ' + log + '!$F:$F), 2)');
-  sh.getRange('C19').setFormula(
+  sh.getRange('C27').setFormula(
     '=ROUND(SUMIFS(' + log + '!$F:$F, ' + log + '!$A:$A, ">="&TODAY()-WEEKDAY(TODAY(),2)+1, ' +
       log + '!$A:$A, "<="&TODAY()), 2)'
   );
-  sh.getRange('C20').setFormula(
+  sh.getRange('C28').setFormula(
     '=ROUND(SUMIFS(' + log + '!$F:$F, ' + log + '!$A:$A, ">="&EOMONTH(TODAY(),-1)+1, ' +
       log + '!$A:$A, "<="&EOMONTH(TODAY(),0)), 2)'
   );
-  sh.getRange('C21').setFormula(
-    '=ROUND(SUMIFS(' + log + '!$H:$H, ' + log + '!$A:$A, ">="&EOMONTH(TODAY(),-1)+1, ' +
+  sh.getRange('C29').setFormula(
+    '=ROUND(SUMIFS(' + log + '!$I:$I, ' + log + '!$A:$A, ">="&EOMONTH(TODAY(),-1)+1, ' +
       log + '!$A:$A, "<="&EOMONTH(TODAY(),0)), 2)'
   );
-  sh.getRange('C18:C20').setNumberFormat('0.00 "h"');
-  sh.getRange('C21').setNumberFormat(CFG.formats.euro);
-  ss.setNamedRange(CFG.named.dbToday, sh.getRange('C18'));
-  ss.setNamedRange(CFG.named.dbMonth, sh.getRange('C20'));
-  card_(sh.getRange('B17:C22'));
+  sh.getRange('C26:C28').setNumberFormat('0.00 "h"');
+  sh.getRange('C29').setNumberFormat(CFG.formats.euro);
+  ss.setNamedRange(CFG.named.dbToday, sh.getRange('C26'));
+  ss.setNamedRange(CFG.named.dbMonth, sh.getRange('C28'));
+  card_(sh.getRange('B25:C30'));
 
-  // This month by client — dynamic spill, sorted by hours.
-  sectionHeader_(sh.getRange('E17'), 'THIS MONTH BY CLIENT');
-  sh.getRange('E18').setFormula(
-    '=IFERROR(QUERY(' + log + "!$A$2:$H, \"select B, sum(F), sum(H) " +
+  // This month by client — dynamic spill, sorted by hours (amount is col I).
+  sectionHeader_(sh.getRange('E25'), 'THIS MONTH BY CLIENT');
+  sh.getRange('E26').setFormula(
+    '=IFERROR(QUERY(' + log + "!$A$2:$I, \"select B, sum(F), sum(I) " +
       "where B is not null and A >= date '\"&TEXT(EOMONTH(TODAY(),-1)+1,\"yyyy-mm-dd\")&\"' " +
       "and A <= date '\"&TEXT(EOMONTH(TODAY(),0),\"yyyy-mm-dd\")&\"' " +
-      "group by B order by sum(F) desc label B 'Client', sum(F) 'Hours', sum(H) '€'\", 0), \"—\")"
+      "group by B order by sum(F) desc label B 'Client', sum(F) 'Hours', sum(I) '€'\", 0), \"—\")"
   );
-  sh.getRange('E18:G18').setFontColor(CFG.colors.gray).setFontSize(9);
-  sh.getRange('F19:F28').setNumberFormat(CFG.formats.hours);
-  sh.getRange('G19:G28').setNumberFormat(CFG.formats.euroBlankZero);
-  card_(sh.getRange('E17:G28'));
+  sh.getRange('E26:G26').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('F27:F36').setNumberFormat(CFG.formats.hours);
+  sh.getRange('G27:G36').setNumberFormat(CFG.formats.euroBlankZero);
+  card_(sh.getRange('E25:G36'));
+
+  sh.hideColumns(10); // dbRunIds — the per-row startedAtMs, off the page
 }
 
 /**
@@ -171,7 +204,7 @@ function buildSummarySheet_(ss) {
   // the fixed section below it.
   var virtual =
     '{ARRAYFORMULA(EOMONTH(' + log + '!$A$2:$A,0)), ' + log + '!$B$2:$B, ' +
-    log + '!$F$2:$F, ' + log + '!$H$2:$H}';
+    log + '!$F$2:$F, ' + log + '!$I$2:$I}';
 
   // Window selector (prominent, right of the title): a months dropdown in F2
   // drives the KPIs, the by-client card and BOTH charts — change it and every

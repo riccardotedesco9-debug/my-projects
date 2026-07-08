@@ -6,44 +6,62 @@
 //  2. Monthly Gmail drafts: 1st of month, one draft per client with activity.
 
 function onEditInstallable(e) {
-  // Only fresh ticks act; our own reset writes FALSE. Sheets delivers checkbox
+  // Only fresh ticks act; our own resets write FALSE. Sheets delivers checkbox
   // values as the string 'TRUE' today — accept boolean true too, defensively.
   if (!e || !e.range || (e.value !== 'TRUE' && e.value !== true)) return;
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.sheets.dashboard) return;
 
   var ss = e.source || SpreadsheetApp.getActive();
-  // A real trigger always fires on the bound spreadsheet. A foreign source
-  // means the smoke test is driving this handler against its throwaway copy —
-  // route state to the test: prefix so production state can never be touched.
+  // A real trigger always fires on the bound spreadsheet. A foreign source means
+  // the smoke test is driving this against its throwaway copy — with log-as-truth
+  // the throwaway's own Time Log isolates state, so just run silently there.
   var foreign = ss.getId() !== SpreadsheetApp.getActive().getId();
   var ctx = makeCtx_({ ss: ss, prefix: foreign ? 'test:' : '', silent: foreign });
   var a1 = e.range.getA1Notation();
   var startCell = ss.getRangeByName(CFG.named.chkStart);
-  var stopCell = ss.getRangeByName(CFG.named.chkStop);
+  var stopBlock = ss.getRangeByName(CFG.named.chkStopBlock);
   var isStart = startCell && a1 === startCell.getA1Notation();
-  var isStop = stopCell && a1 === stopCell.getA1Notation();
-  // Only our two checkboxes act. Anything else on the Dashboard that happens to
+  var stopIdx = stopBlock ? blockIndexOf_(stopBlock, e.range) : -1;
+  // Only START and the RUNNING NOW stop boxes act. Anything else that happens to
   // equal "TRUE" (e.g. typed into the free-text Task cell) is left untouched —
   // never reset a cell we didn't handle.
-  if (!isStart && !isStop) return;
+  if (!isStart && stopIdx < 0) return;
 
   try {
     if (isStart) {
       var client = String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim();
       var task = String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim();
-      // No dialogs on mobile → a deliberate tick performs the zero-gap switch
-      // directly and proceeds even with no rate set (the live Rate formula
-      // back-fills once you add it). Stamped with server time at trigger run;
-      // an offline tap therefore logs at sync time.
-      startWorkCtx_(ctx, client, task, { confirmSwitch: true, confirmNoRate: true });
+      // No dialogs on mobile → a deliberate tick ADDS a clock (never replaces a
+      // running one) and proceeds even with no rate set (the live Rate formula
+      // back-fills once you add it). Free? flags it no-charge. Stamped with
+      // server time at run, so an offline tap logs at sync time.
+      startWorkCtx_(ctx, client, task, { confirmNoRate: true, free: boolNamed_(ctx, CFG.named.dbFree) });
     } else {
-      stopAndLogCtx_(ctx);
+      // Map the ticked row to its session via the hidden startedAtMs column.
+      var idRange = ss.getRangeByName(CFG.named.dbRunIds);
+      var id = idRange
+        ? Number(idRange.getSheet().getRange(idRange.getRow() + stopIdx, idRange.getColumn()).getValue())
+        : 0;
+      if (id) stopSessionCtx_(ctx, id); // stale/blank id → idempotent no-op inside
     }
   } finally {
-    // Reset only the checkbox we handled (double-fire guard).
+    // Reset only the checkbox we handled (double-fire guard), then repaint so
+    // the remaining cards shift up after a stop.
     e.range.setValue(false);
+    try { paintRunningSurfaces_(ctx); } catch (e2) {}
   }
+}
+
+/**
+ * 0-based index of an edited single cell within a named single-column block
+ * (the RUNNING NOW stop checkboxes), or -1 if the cell is outside it.
+ */
+function blockIndexOf_(block, cell) {
+  if (cell.getSheet().getName() !== block.getSheet().getName()) return -1;
+  if (cell.getColumn() !== block.getColumn()) return -1;
+  var idx = cell.getRow() - block.getRow();
+  return (idx >= 0 && idx < block.getNumRows()) ? idx : -1;
 }
 
 /**

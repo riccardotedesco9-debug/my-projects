@@ -123,6 +123,29 @@ function sectionReports_(S, env) {
   S.t('fixed-only month: single group → no pie', rep.getCharts().length, 0);
   var febHours = buildReportCtx_(ctx, "Paws 'n' Claws", env.y + 1, 2, false, { forceFallback: true });
   S.t('fixed-only month, hours-only: empty timesheet', febHours.rowCount === 0 && String(rep.getRange('B12').getValue()) === MSG.noSessions, true);
+
+  // --- In-progress rows are EXCLUDED from the report/PDF/seal ---
+  var logSh = ctx.ss.getSheetByName(CFG.sheets.log);
+  var ipRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 12, 9, 0, 0).getTime(), 'Pet Centre', 'STILL RUNNING report-exclude', false);
+  var withIp = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, true, { forceFallback: true });
+  var ipTasks = withIp.rowCount ? rep.getRange(12, 4, withIp.rowCount, 1).getValues().map(function (r) { return String(r[0]); }) : [];
+  S.t('in-progress row excluded from the report body', ipTasks.indexOf('STILL RUNNING report-exclude') < 0, true);
+  logSh.deleteRow(ipRow); // don't let it pollute later sections
+
+  // --- A "Free" completed session: "Free" (green) in Amount, €0 in the total,
+  //     hours still counted ---
+  var freeRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 13, 9, 0, 0).getTime(), 'Pet Centre', 'FREE report-render', true);
+  completeSessionRow_(ctx, freeRow, new Date(env.y, env.m - 1, 13, 11, 0, 0).getTime()); // 2h
+  var freeMirror = jsReportMirror_(env, 'Pet Centre', env.y, env.m);
+  var freeMeta = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, true, { forceFallback: true });
+  S.t('free report: rowCount matches mirror (free row included)', freeMeta.rowCount, freeMirror.count);
+  var freeBody = rep.getRange(12, 2, freeMeta.rowCount, 8).getValues();
+  var freeLine = freeBody.filter(function (r) { return String(r[2]) === 'FREE report-render'; })[0];
+  S.t('free row renders "Free" in the Amount column', freeLine ? String(freeLine[7]) : '(missing)', 'Free');
+  S.t('free row renders no rate ("—")', freeLine ? String(freeLine[6]) : 'x', '—');
+  S.near('free report: hours match mirror (free hours counted)', freeMeta.totalHours, freeMirror.hours, 0.05);
+  S.near('free report: € total excludes the free session', freeMeta.totalAmount, freeMirror.amount, 0.05);
+  logSh.deleteRow(freeRow);
 }
 
 /** Independent JS mirror of collectReportRows_ filter semantics (the oracle). */
@@ -141,7 +164,12 @@ function jsReportMirror_(env, clientOrAll, year, month) {
     if (!client || !(date instanceof Date)) return;
     if (date < ps || date >= pe) return;
     if (!wantAll && client.toLowerCase() !== want) return;
-    var fixed = !(v[c.start - 1] instanceof Date);
+    var start = v[c.start - 1];
+    var end = v[c.end - 1];
+    // Running (in-progress) rows — Start set, End blank — are excluded, exactly
+    // as collectReportRows_ excludes them.
+    if (start instanceof Date && !(end instanceof Date)) return;
+    var fixed = !(start instanceof Date);
     out.count++;
     if (fixed) out.fixed++;
     else out.hours += Number(v[c.hours - 1]) || 0;

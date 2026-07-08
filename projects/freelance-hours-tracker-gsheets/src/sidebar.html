@@ -21,27 +21,44 @@
   }
   .wordmark b { color: var(--teal); }
 
-  .state {
-    border-left: 3px solid var(--gray); background: var(--card);
-    border-radius: 0 8px 8px 0; padding: 10px 12px; margin-bottom: 6px;
+  .section-label {
+    font-size: 11px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--gray); margin: 6px 0 8px;
+  }
+
+  /* Running-session cards, each with its own live clock. */
+  .card {
+    border-left: 3px solid var(--green); background: var(--card);
+    border-radius: 0 8px 8px 0; padding: 9px 11px; margin-bottom: 8px;
     box-shadow: 0 1px 2px rgba(31,56,100,.06);
   }
-  .state .status { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 7px; }
-  .state .detail { color: var(--gray); font-size: 12px; margin-top: 2px; min-height: 15px; }
-  .state.running { border-left-color: var(--green); }
-  .state.running .status { color: var(--green); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gray); flex: none; }
-  .running .dot { background: var(--green); animation: breathe 2s ease-in-out infinite; }
-  @keyframes breathe { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .35; transform: scale(.8);} }
-
-  .clock {
-    font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
-    font-size: 42px; font-weight: 600; text-align: center; letter-spacing: .01em;
-    padding: 14px 0 10px; color: var(--navy);
+  .card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .who { min-width: 0; }
+  .who b { display: flex; align-items: center; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who b::before {
+    content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--green); margin-right: 7px; animation: breathe 2s ease-in-out infinite;
   }
-  .clock.idle { color: var(--line); }
+  @keyframes breathe { 0%,100% { opacity: 1; } 50% { opacity: .28; } }
+  .who .task { color: var(--gray); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; padding-left: 14px; }
+  .card .clock {
+    font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
+    font-size: 26px; font-weight: 600; color: var(--navy); flex: none; line-height: 1;
+  }
+  .card-bot { display: flex; align-items: center; justify-content: space-between; margin-top: 7px; min-height: 22px; }
+  .free-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--green);
+    background: #E8F5E9; border-radius: 4px; padding: 2px 6px;
+  }
+  .stopbtn {
+    border: 1px solid var(--red); background: #fff; color: var(--red);
+    font: 600 12px 'Outfit', sans-serif; border-radius: 7px; padding: 5px 12px; cursor: pointer;
+  }
+  .stopbtn:active { transform: scale(.98); }
+  .stopbtn:disabled { opacity: .5; cursor: default; }
+  .empty { color: var(--gray); font-size: 12.5px; padding: 6px 2px 10px; line-height: 1.4; }
 
-  hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0 14px; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 10px 0 12px; }
 
   label { display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em;
           text-transform: uppercase; color: var(--gray); margin: 10px 0 4px; }
@@ -50,16 +67,21 @@
     padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card);
   }
   select:focus, input:focus { outline: none; border-color: var(--teal); }
+  label.check {
+    display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0;
+    font-size: 13px; font-weight: 500; color: var(--navy); margin: 12px 0 2px; cursor: pointer;
+  }
+  label.check input { width: auto; }
 
   .btn {
-    width: 100%; border: 0; border-radius: 10px; padding: 13px 0; margin-top: 12px;
+    width: 100%; border: 0; border-radius: 10px; padding: 12px 0; margin-top: 12px;
     font: 600 15px 'Outfit', sans-serif; color: #fff; cursor: pointer;
     transition: transform .05s ease, filter .15s ease;
   }
   .btn:active { transform: scale(.985); }
   .btn:disabled { filter: grayscale(.6) opacity(.45); cursor: default; }
   .btn.start { background: var(--green); box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
-  .btn.stop  { background: var(--red);   box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); }
+  .btn.stopall { background: var(--red); box-shadow: inset 0 -2px 0 rgba(0,0,0,.18); margin-top: 4px; }
 
   .confirm {
     display: none; margin-top: 12px; padding: 11px 12px; border: 1px solid var(--teal-soft);
@@ -74,10 +96,10 @@
   .confirm .yes { background: var(--teal); color: #fff; }
   .confirm .no  { background: #fff; color: var(--teal); }
 
-  .msg { margin-top: 12px; min-height: 30px; font-size: 12px; color: var(--gray); line-height: 1.4; }
+  .msg { margin-top: 12px; min-height: 22px; font-size: 12px; color: var(--gray); line-height: 1.4; }
   .msg.error { color: var(--red); }
 
-  .foot { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
   .foot .stats {
     font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
     font-size: 11.5px; color: var(--gray);
@@ -91,27 +113,27 @@
 <body>
   <div class="wordmark">Hours <b>Tracker</b></div>
 
-  <div class="state" id="state">
-    <div class="status"><span class="dot"></span><span id="statusText">Connecting…</span></div>
-    <div class="detail" id="statusDetail"></div>
-  </div>
+  <div class="section-label">Running now</div>
+  <div id="runningList"></div>
+  <div class="empty" id="emptyRunning">Connecting…</div>
+  <button class="btn stopall" id="btnStopAll" style="display:none" disabled>■&ensp;Stop &amp; log all</button>
 
-  <div class="clock idle" id="clock">0:00:00</div>
   <hr>
 
+  <div class="section-label">Add a timer</div>
   <label for="client">Client</label>
   <select id="client"></select>
   <label for="task">Task</label>
   <input type="text" id="task" placeholder="What are you working on?">
+  <label class="check"><input type="checkbox" id="free"> Free (no charge)</label>
 
-  <button class="btn start" id="btnStart" disabled>▶&ensp;Start</button>
-  <button class="btn stop" id="btnStop" disabled>■&ensp;Stop &amp; log</button>
+  <button class="btn start" id="btnStart">▶&ensp;Start timer</button>
 
   <div class="confirm" id="confirm">
     <span id="confirmText"></span>
     <div class="row">
-      <button class="yes" id="confirmYes">Log &amp; switch</button>
-      <button class="no" id="confirmNo">Keep current</button>
+      <button class="yes" id="confirmYes">Start anyway</button>
+      <button class="no" id="confirmNo">Cancel</button>
     </div>
   </div>
 
@@ -128,12 +150,14 @@
   var state = null;
   var skewMs = 0;
   var uiSeeded = false;
+  // Accumulates the rate-warning confirmation across re-tries of one Start.
+  var startFlags = {};
 
   var $ = function (id) { return document.getElementById(id); };
 
   function boot() {
     refresh();
-    setInterval(tick, 1000);
+    setInterval(tickAll, 1000);
     setInterval(refresh, 30000); // catch menu/phone-driven changes
     window.addEventListener('focus', refresh);
   }
@@ -146,7 +170,7 @@
     state = s;
     skewMs = s.serverNowMs - Date.now();
     seedForm(s);
-    render();
+    renderRunning(s);
     $('stats').textContent =
       'Today ' + (s.todayHours || 0).toFixed(2) + ' h · This month ' + (s.monthHours || 0).toFixed(2) + ' h';
   }
@@ -160,68 +184,89 @@
       o.value = o.textContent = name;
       sel.appendChild(o);
     });
-    // Never clobber what the user is mid-picking; seed once from running
-    // state, then Dashboard cells, then first client.
+    // Seed once from the Dashboard cells, then never clobber what's mid-pick.
     if (!uiSeeded) {
-      sel.value = s.client || s.dbClient || (s.clients[0] || '');
-      if (s.task || s.dbTask) $('task').value = s.task || s.dbTask;
+      sel.value = s.dbClient || (s.clients[0] || '');
+      if (s.dbTask) $('task').value = s.dbTask;
       uiSeeded = true;
     } else if (prev && s.clients.indexOf(prev) >= 0) {
       sel.value = prev;
     }
   }
 
-  function render() {
-    var running = state && state.status === 'RUNNING';
-    var box = $('state');
-    box.className = 'state' + (running ? ' running' : '');
-    $('statusText').textContent = running ? 'RUNNING' : 'IDLE';
-    $('statusDetail').textContent = running
-      ? state.client + (state.task ? ' — ' + state.task : '')
-      : 'Ready to start.';
-    $('btnStart').disabled = false;
-    $('btnStop').disabled = !running;
-    $('clock').className = 'clock' + (running ? '' : ' idle');
-    tick();
+  function renderRunning(s) {
+    var list = $('runningList');
+    list.innerHTML = '';
+    var running = (s && s.running) || [];
+    running.forEach(function (r) {
+      var card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML =
+        '<div class="card-top">' +
+          '<div class="who"><b>' + esc(r.client) + '</b>' +
+            (r.task ? '<span class="task">' + esc(r.task) + '</span>' : '') + '</div>' +
+          '<div class="clock" data-start="' + r.startedAtMs + '">0:00:00</div>' +
+        '</div>' +
+        '<div class="card-bot">' +
+          (r.free ? '<span class="free-tag">FREE · no charge</span>' : '<span></span>') +
+          '<button class="stopbtn" data-start="' + r.startedAtMs + '">Stop &amp; log</button>' +
+        '</div>';
+      list.appendChild(card);
+    });
+    $('emptyRunning').textContent = 'Nothing running — pick a client and Start below.';
+    $('emptyRunning').style.display = running.length ? 'none' : 'block';
+    // Stop-all only earns its place with 2+ timers; one card already has a Stop.
+    $('btnStopAll').style.display = running.length > 1 ? 'block' : 'none';
+    $('btnStopAll').disabled = !running.length;
+    var btns = list.querySelectorAll('.stopbtn');
+    for (var i = 0; i < btns.length; i++) {
+      btns[i].onclick = function () { stopOne(Number(this.getAttribute('data-start'))); };
+    }
+    tickAll();
   }
 
-  function tick() {
-    if (!state || state.status !== 'RUNNING') { $('clock').textContent = '0:00:00'; return; }
-    var ms = Math.max(0, Date.now() + skewMs - state.startedAtMs);
+  function tickAll() {
+    var clocks = document.querySelectorAll('.clock');
+    for (var i = 0; i < clocks.length; i++) {
+      var startMs = Number(clocks[i].getAttribute('data-start'));
+      clocks[i].textContent = fmt(Math.max(0, Date.now() + skewMs - startMs));
+    }
+  }
+
+  function fmt(ms) {
     var s = Math.floor(ms / 1000);
-    var h = Math.floor(s / 3600);
-    var m = Math.floor((s % 3600) / 60);
-    var sec = s % 60;
-    $('clock').textContent = h + ':' + pad(m) + ':' + pad(sec);
+    return Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60)) + ':' + pad(s % 60);
   }
-
   function pad(n) { return (n < 10 ? '0' : '') + n; }
-
-  // Accumulates confirmations (rate warning, switch) across re-tries of one
-  // Start action; reset when the user clicks Start fresh.
-  var startFlags = {};
 
   function onStart(fresh) {
     if (fresh) startFlags = {};
     var client = $('client').value;
     var task = $('task').value.trim();
+    var opts = { free: $('free').checked };
+    if (startFlags.confirmNoRate) opts.confirmNoRate = true;
     busy(true);
-    say('Working…', false);
+    say('Starting…', false);
     hideConfirm();
     google.script.run
       .withSuccessHandler(function (res) {
         busy(false);
         if (res && res.needsRateConfirm) { showRateConfirm(res); return; }
-        if (res && res.needsConfirm) { showConfirm(res.current, { client: client, task: task }); return; }
-        if (res && res.snapshot) onSnap(res.snapshot); // one round-trip — no second refresh
-        say(res && res.ok ? (res.msg || 'Timing ' + client + '.') : (res && res.msg) || 'Could not start.', !(res && res.ok));
+        if (res && res.snapshot) onSnap(res.snapshot);
+        if (res && res.ok) {
+          $('task').value = '';
+          $('free').checked = false;
+          say(res.msg || ('Timing ' + client + '.'), false);
+        } else {
+          say((res && res.msg) || 'Could not start.', true);
+        }
         if (res && !res.snapshot) refresh();
       })
       .withFailureHandler(fail)
-      .startWork(client, task, startFlags);
+      .startWork(client, task, opts);
   }
 
-  function onStop() {
+  function stopOne(startMs) {
     busy(true);
     say('Stopping…', false);
     google.script.run
@@ -231,26 +276,26 @@
         say(res && res.msg ? res.msg : '', !(res && res.ok));
       })
       .withFailureHandler(fail)
-      .stopAndLog();
+      .stopSession(startMs);
   }
 
-  function showConfirm(current, next) {
-    var from = esc(current.client) + (current.task ? ' — ' + esc(current.task) : '');
-    var to = esc(next.client) + (next.task ? ' — ' + esc(next.task) : '');
-    $('confirmText').innerHTML =
-      "You're timing <b>" + from + '</b>.<br>Log it now and switch to <b>' + to + '</b> — zero gap?';
-    $('confirmYes').textContent = 'Log & switch';
-    $('confirmNo').textContent = 'Keep current';
-    $('confirm').setAttribute('data-mode', 'switch');
-    $('confirm').className = 'confirm show';
+  function onStopAll() {
+    busy(true);
+    say('Stopping all…', false);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        busy(false);
+        if (res && res.snapshot) onSnap(res.snapshot); else refresh();
+        say(res && res.msg ? res.msg : '', !(res && res.ok));
+      })
+      .withFailureHandler(fail)
+      .stopAll();
   }
+
   function showRateConfirm(res) {
     $('confirmText').innerHTML =
       '<b>' + esc(res.client) + '</b> has no €/h rate on the Clients sheet — amounts stay <b>€0</b> ' +
       'until you add it (it back-fills past rows). Start timing anyway?';
-    $('confirmYes').textContent = 'Start anyway';
-    $('confirmNo').textContent = 'Cancel';
-    $('confirm').setAttribute('data-mode', 'rate');
     $('confirm').className = 'confirm show';
   }
   function hideConfirm() { $('confirm').className = 'confirm'; }
@@ -260,7 +305,9 @@
 
   function busy(b) {
     $('btnStart').disabled = b;
-    $('btnStop').disabled = b || !(state && state.status === 'RUNNING');
+    $('btnStopAll').disabled = b || !(state && state.running && state.running.length);
+    var btns = document.querySelectorAll('.stopbtn');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = b;
   }
 
   function say(text, isError) {
@@ -275,25 +322,12 @@
   }
 
   $('btnStart').onclick = function () { onStart(true); };
-  $('btnStop').onclick = onStop;
-  $('confirmYes').onclick = function () {
-    if ($('confirm').getAttribute('data-mode') === 'rate') startFlags.confirmNoRate = true;
-    else startFlags.confirmSwitch = true;
-    onStart(false); // keep accumulated flags
-  };
+  $('btnStopAll').onclick = onStopAll;
+  $('confirmYes').onclick = function () { startFlags.confirmNoRate = true; onStart(false); };
   $('confirmNo').onclick = function () {
-    var mode = $('confirm').getAttribute('data-mode');
     hideConfirm();
     startFlags = {};
-    if (mode === 'switch' && state && state.status === 'RUNNING') {
-      // Switch declined → keep the current session, revert the fields so the
-      // panel never implies you're timing something you're not.
-      if (state.client) $('client').value = state.client;
-      $('task').value = state.task || '';
-      say('Kept timing ' + state.client + (state.task ? ' — ' + state.task : '') + '. Nothing switched.', false);
-    } else if (mode === 'rate') {
-      say('Not started — add the rate on the Clients sheet, then Start.', false);
-    }
+    say('Not started — add the rate on the Clients sheet, then Start.', false);
   };
   $('lnkExport').onclick = function () { google.script.run.showExportDialog(); };
   $('lnkAdd').onclick = function () { google.script.run.showAddSessionDialog(); };
