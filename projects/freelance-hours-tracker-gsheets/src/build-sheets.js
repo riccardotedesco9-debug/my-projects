@@ -82,14 +82,6 @@ function buildLogSheet_(ss) {
   // a no-op on a fresh build and idempotent on every later updateLayout.
   if (String(sh.getRange(1, c.status).getValue()) === 'Rate') {
     sh.insertColumnBefore(c.status);
-    // Backfill the Status formula onto every migrated data row so they read
-    // In Progress / Free / Finished like new rows (the inserted column is blank).
-    var lastR = sh.getLastRow();
-    if (lastR >= CFG.log.firstDataRow) {
-      var f = [];
-      for (var rr = CFG.log.firstDataRow; rr <= lastR; rr++) f.push([statusFormulaText_(rr)]);
-      sh.getRange(CFG.log.firstDataRow, c.status, f.length, 1).setFormulas(f).setHorizontalAlignment('center');
-    }
   }
 
   // Size the grid to the format horizon (trims a bloated 5000-row grid down, or
@@ -125,6 +117,16 @@ function buildLogSheet_(ss) {
   // Right-align the Amount column so a "Free" (text) row lines up with the
   // right-aligned € numbers instead of hanging off to the left.
   sh.getRange(2, c.amount, body, 1).setHorizontalAlignment('right');
+
+  // Refresh the per-row Status formula on every existing data row, so a formula
+  // change (or a v1→v2 migration's blank inserted column) propagates on every
+  // rebuild / Update layout. The client-blank guard keeps empty rows blank.
+  var statusLast = sh.getLastRow();
+  if (statusLast >= CFG.log.firstDataRow) {
+    var statusFs = [];
+    for (var sr = CFG.log.firstDataRow; sr <= statusLast; sr++) statusFs.push([statusFormulaText_(sr)]);
+    sh.getRange(CFG.log.firstDataRow, c.status, statusFs.length, 1).setFormulas(statusFs).setHorizontalAlignment('center');
+  }
 
   // Client dropdown fed straight from the Clients sheet (open-ended range →
   // a newly typed client appears everywhere immediately).
