@@ -1,8 +1,8 @@
 // test-stress-and-rebuild.js — volume: 150 batch rows on top of everything
 // the earlier sections logged, then a full-log invariant sweep, reports and
-// sort at scale, zero-gap switch chains and rapid churn with no sleeps.
-// Then the two maintenance paths: updateLayout_ (must preserve every byte of
-// data) and a second full rebuild_ (the documented disaster-recovery path).
+// sort at scale, concurrent clocks + rapid churn with no sleeps. Then the
+// maintenance paths: updateLayout_ (must preserve every byte of data), the
+// v1→v2 schema migration, and a second full rebuild_ (disaster recovery).
 
 function sectionStress_(S, env) {
   var ctx = env.ctx;

@@ -127,9 +127,14 @@ function buildViewerContent_(viewer, trackerId, client) {
   // end/hours) and show "In Progress"; free rows show "Free" — the client sees both.
   sh.getRange('F6:K6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
     .setBorder(null, null, true, null, false, false, CFG.colors.grayLine, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('F7:F500').setNumberFormat(CFG.formats.date);
+  // Header alignment matches each column's values: Date/Task read as left labels;
+  // Start/End/Hours/Status are the compact, centred block — so headers sit over
+  // their values instead of drifting.
+  sh.getRange('F6:G6').setHorizontalAlignment('left');
+  sh.getRange('H6:K6').setHorizontalAlignment('center');
+  sh.getRange('F7:F500').setNumberFormat(CFG.formats.date).setHorizontalAlignment('left');
   sh.getRange('H7:I500').setNumberFormat(CFG.formats.time).setHorizontalAlignment('center');
-  sh.getRange('J7:J500').setNumberFormat(CFG.formats.hours);
+  sh.getRange('J7:J500').setNumberFormat(CFG.formats.hours).setHorizontalAlignment('center');
   sh.getRange('K7:K500').setHorizontalAlignment('center').setFontSize(9);
 
   // --- Highlighting, mirroring the Time Log exactly: the amber busy-day flag

@@ -108,11 +108,12 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
     sh.getRange(bodyTop, 5, out.length, 2).setNumberFormat(CFG.formats.time);
     sh.getRange(bodyTop, 7, out.length, 1).setNumberFormat(CFG.formats.hours);
     if (includeMoney) {
-      sh.getRange(bodyTop, 8, out.length, 2).setNumberFormat(CFG.formats.euro);
-      // Paint "Free" amounts green (a no-charge session reads as a gift, not €0)
-      // and right-align them to line up with the € column.
+      // Right-align Rate + Amount so the € values AND the text cells ("Fixed",
+      // "—", "Free") all line up on the right instead of the text hanging left.
+      sh.getRange(bodyTop, 8, out.length, 2).setNumberFormat(CFG.formats.euro).setHorizontalAlignment('right');
+      // Paint "Free" amounts green — a no-charge session reads as a gift, not €0.
       rows.forEach(function (r, i) {
-        if (r.free) sh.getRange(bodyTop + i, 9).setFontColor(CFG.colors.green).setFontWeight('bold').setHorizontalAlignment('right');
+        if (r.free) sh.getRange(bodyTop + i, 9).setFontColor(CFG.colors.green).setFontWeight('bold');
       });
     }
     lastRow = bodyTop + out.length - 1;
