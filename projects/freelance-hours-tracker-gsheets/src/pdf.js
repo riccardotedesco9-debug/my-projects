@@ -23,19 +23,6 @@ function exportPdf(opts) {
   };
 }
 
-/** UI-free twin (tests + monthly job). monthOffset: 0 = this month, -1 = last. */
-function silentMonthExport(clientName, monthOffset) {
-  var now = new Date();
-  var d = new Date(now.getFullYear(), now.getMonth() + (Number(monthOffset) || 0), 1);
-  return exportPdfCtx_(makeCtx_({ silent: true }), {
-    client: clientName || CFG.allClients,
-    year: d.getFullYear(),
-    month: d.getMonth() + 1,
-    includeMoney: true,
-    save: true,
-  });
-}
-
 /**
  * Full pipeline: rebuild report → fetch PDF (retry → fallback) → optionally
  * save into Timesheets/<Client>/. Returns {blob, name, sizeBytes, contentType,

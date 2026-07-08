@@ -21,7 +21,6 @@ function runSmokeTest() {
 
   var prodCtx = makeCtx_({ silent: true });
   var prodLogRows = countLogRows_(prodCtx);
-  var prodStateRaw = PropertiesService.getScriptProperties().getProperty(CFG.props.state) || '';
 
   runSection_(suite, 'Production health check', function (S) {
     sectionProdHealth_(S, prodCtx);
@@ -63,13 +62,12 @@ function runSmokeTest() {
   var cleanS = cleanupSuite_(suite, env);
 
   // --- Production unchanged (warn-level: a mid-run phone tick or manual entry
-  // on the REAL tracker also trips these — interference, not a suite bug) ---
+  // on the REAL tracker also trips this — interference, not a suite bug). Under
+  // log-as-truth a running session IS a Time Log row, so the row count already
+  // covers timer state — there is no separate scalar blob to watch. ---
   var prodRowsAfter = countLogRows_(prodCtx);
-  var prodStateAfter = PropertiesService.getScriptProperties().getProperty(CFG.props.state) || '';
   cleanS.warn('production log unchanged during the run', prodRowsAfter === prodLogRows,
     prodLogRows + ' → ' + prodRowsAfter + ' rows (concurrent use, or a suite leak — check the Time Log tail)');
-  cleanS.warn('production timer state unchanged during the run', prodStateAfter === prodStateRaw,
-    'state changed mid-run (concurrent use, or a suite leak)');
 
   return tallySuite_(suite, suiteStart);
 }

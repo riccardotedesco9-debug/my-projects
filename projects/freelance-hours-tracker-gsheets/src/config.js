@@ -60,6 +60,11 @@ var CFG = {
   // NOW block (the sidebar shows all; overflow past this is noted in the banner).
   run: { maxRows: 6 },
 
+  // Busy-day amber ramp thresholds (hours/day): the date cell shades amber →
+  // amberMid → amberDeep as a day's total passes 8 → 10 → 12. Shared by the Time
+  // Log and the client viewer so their busy-day cue can never drift apart.
+  busyDayThresholds: [8, 10, 12],
+
   // Clients sheet: Client | Rate | Email, header row 1.
   clients: {
     headers: ['Client', 'Rate (€/h)', 'Email'],
@@ -88,7 +93,6 @@ var CFG = {
   // with 'test:'.
   props: {
     state: 'timerState',
-    schema: 'schemaVersion',
   },
   schemaVersion: '2',
 
@@ -110,6 +114,19 @@ var CFG = {
     monthShort: 'mmm yyyy',
   },
 };
+
+// The six sheets in canonical left-to-right order + tab colour — ONE source for
+// both the full rebuild (wipeWorkbook_ inserts them) and updateLayout_
+// (applyTabColorsAndOrder_ reorders them), so the two paths can't diverge.
+// Assigned after the literal because it references CFG.sheets / CFG.colors.
+CFG.sheetOrder = [
+  [CFG.sheets.dashboard, CFG.colors.navy],
+  [CFG.sheets.log, CFG.colors.teal],
+  [CFG.sheets.summary, CFG.colors.teal],
+  [CFG.sheets.clients, CFG.colors.gray],
+  [CFG.sheets.report, CFG.colors.gold],
+  [CFG.sheets.settings, CFG.colors.gray],
+];
 
 // The one deliberate UX copy block (single place to reword any user-facing text).
 var MSG = {

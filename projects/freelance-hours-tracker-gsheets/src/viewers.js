@@ -147,22 +147,20 @@ function buildViewerContent_(viewer, trackerId, client) {
   var dateCol = sh.getRange('F7:F500');
   var hoursCol = sh.getRange('J7:J500');
   var statusCol = sh.getRange('K7:K500');
+  var bd = CFG.busyDayThresholds; // shared with the Time Log so the cue can't drift
   var busy = function (n) { return 'SUMIF($F$7:$F$500,$F7,$J$7:$J$500)>' + n; };
   var midnight = '$I7<>"", INT($I7)>INT($H7)';
-  var vRule = function (formula, bg, font) {
-    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges([dateCol]);
-    if (bg) b = b.setBackground(bg);
-    if (font) b = b.setFontColor(font);
-    return b.build();
-  };
+  // Reuses the Time Log's dateRule_ builder (one global scope), passing this
+  // sheet's own date column — the viewer anchors on $F/$J at row 7, the Log on
+  // $A/$F at row 2, so only the builder is shared, never the column refs.
   sh.setConditionalFormatRules([
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
-    vRule('=AND(' + midnight + ')', null, CFG.colors.red),
-    vRule('=AND($F7<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
-    vRule('=AND($F7<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
-    vRule('=AND($F7<>"", ' + busy(8) + ')', CFG.colors.amber, null),
+    dateRule_(dateCol, '=AND($F7<>"", ' + midnight + ', ' + busy(bd[2]) + ')', CFG.colors.amberDeep, CFG.colors.red),
+    dateRule_(dateCol, '=AND($F7<>"", ' + midnight + ', ' + busy(bd[1]) + ')', CFG.colors.amberMid, CFG.colors.red),
+    dateRule_(dateCol, '=AND($F7<>"", ' + midnight + ', ' + busy(bd[0]) + ')', CFG.colors.amber, CFG.colors.red),
+    dateRule_(dateCol, '=AND(' + midnight + ')', null, CFG.colors.red),
+    dateRule_(dateCol, '=AND($F7<>"", ' + busy(bd[2]) + ')', CFG.colors.amberDeep, null),
+    dateRule_(dateCol, '=AND($F7<>"", ' + busy(bd[1]) + ')', CFG.colors.amberMid, null),
+    dateRule_(dateCol, '=AND($F7<>"", ' + busy(bd[0]) + ')', CFG.colors.amber, null),
     SpreadsheetApp.newConditionalFormatRule()
       .setGradientMinpoint(CFG.colors.white)
       .setGradientMaxpoint(CFG.colors.tealSoft)

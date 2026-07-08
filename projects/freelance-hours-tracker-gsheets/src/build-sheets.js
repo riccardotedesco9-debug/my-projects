@@ -147,6 +147,7 @@ function buildLogSheet_(ss) {
   var dateRange = sh.getRange(2, c.date, body, 1);
   var statusRange = sh.getRange(2, c.status, body, 1);
   var amountRange = sh.getRange(2, c.amount, body, 1);
+  var bd = CFG.busyDayThresholds; // [8, 10, 12] — one source, shared with the viewer
   var busy = function (n) { return 'SUMIF($A:$A,$A2,$F:$F)>' + n; };
   var midnight = '$E2<>"", INT($E2)>INT($D2)';
   var hoursScale = SpreadsheetApp.newConditionalFormatRule()
@@ -168,13 +169,13 @@ function buildLogSheet_(ss) {
     .setRanges([amountRange])
     .build();
   sh.setConditionalFormatRules([
-    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(12) + ')', CFG.colors.amberDeep, CFG.colors.red),
-    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(10) + ')', CFG.colors.amberMid, CFG.colors.red),
-    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(8) + ')', CFG.colors.amber, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(bd[2]) + ')', CFG.colors.amberDeep, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(bd[1]) + ')', CFG.colors.amberMid, CFG.colors.red),
+    dateRule_(dateRange, '=AND($A2<>"", ' + midnight + ', ' + busy(bd[0]) + ')', CFG.colors.amber, CFG.colors.red),
     dateRule_(dateRange, '=AND(' + midnight + ')', null, CFG.colors.red),
-    dateRule_(dateRange, '=AND($A2<>"", ' + busy(12) + ')', CFG.colors.amberDeep, null),
-    dateRule_(dateRange, '=AND($A2<>"", ' + busy(10) + ')', CFG.colors.amberMid, null),
-    dateRule_(dateRange, '=AND($A2<>"", ' + busy(8) + ')', CFG.colors.amber, null),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(bd[2]) + ')', CFG.colors.amberDeep, null),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(bd[1]) + ')', CFG.colors.amberMid, null),
+    dateRule_(dateRange, '=AND($A2<>"", ' + busy(bd[0]) + ')', CFG.colors.amber, null),
     hoursScale,
     inProgressRule,
     freeRule,

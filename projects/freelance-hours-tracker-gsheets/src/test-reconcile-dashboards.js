@@ -137,6 +137,6 @@ function sectionReconcile_(S, env) {
     box.setValue(true); // restore
     SpreadsheetApp.flush();
   } else {
-    S.warn('no apostrophe client present to exercise the client-filter guard', false, 'seed one to cover H1');
+    S.warn('no apostrophe client present to exercise the client-filter guard', false, 'seed a client with an apostrophe in its name to exercise this filter guard');
   }
 }

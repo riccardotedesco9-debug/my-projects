@@ -92,21 +92,28 @@ function withLock_(fn) {
   }
 }
 
-/** Paints BOTH on-sheet surfaces from the live running set. Best-effort. */
+/**
+ * Paints BOTH on-sheet surfaces from the live running set. Best-effort. Reads
+ * the log ONCE here and hands the same array to both surfaces — they always
+ * paint the same instant, so a second scan would be pure waste.
+ */
 function paintRunningSurfaces_(ctx) {
-  refreshStatusBanner_(ctx);
-  renderRunningNow_(ctx);
+  var running = getRunningSessions_(ctx);
+  refreshStatusBanner_(ctx, running);
+  renderRunningNow_(ctx, running);
 }
 
 /**
  * Dashboard status banner: green "● N running" when any timer is live, else the
- * exact idle string the rebuild spec asserts. Best-effort (cosmetic).
+ * exact idle string the rebuild spec asserts. Best-effort (cosmetic). `running`
+ * is optional — passed by paintRunningSurfaces_ to avoid a re-scan; a direct
+ * caller may omit it and the banner reads the live set itself.
  */
-function refreshStatusBanner_(ctx) {
+function refreshStatusBanner_(ctx, running) {
   try {
     var range = ctx.ss.getRangeByName(CFG.named.dbStatus);
     if (!range) return;
-    var n = getRunningSessions_(ctx).length;
+    var n = (running || getRunningSessions_(ctx)).length;
     if (n > 0) {
       range.setValue('● ' + n + ' timer' + (n === 1 ? '' : 's') + ' running')
         .setBackground(CFG.colors.green)
@@ -126,9 +133,11 @@ function refreshStatusBanner_(ctx) {
  * checkbox (chkStopBlock) + a "client — task · since HH:mm" label + a hidden
  * startedAtMs (dbRunIds) the onEdit stop handler maps back to a session. Empty
  * rows are blanked (checkbox removed) so the block only shows live timers. An
- * overflow past the cap is noted on the banner. Best-effort.
+ * overflow past the cap is noted on the banner. Best-effort. `running` is
+ * optional — passed by paintRunningSurfaces_ to avoid a re-scan; a direct caller
+ * may omit it and the block reads the live set itself.
  */
-function renderRunningNow_(ctx) {
+function renderRunningNow_(ctx, running) {
   try {
     var idRange = ctx.ss.getRangeByName(CFG.named.dbRunIds);
     var stopRange = ctx.ss.getRangeByName(CFG.named.chkStopBlock);
@@ -139,7 +148,7 @@ function renderRunningNow_(ctx) {
     var stopCol = stopRange.getColumn();
     var labelCol = stopCol + 1; // C: merged label face C:F per row
     var cap = CFG.run.maxRows;
-    var running = getRunningSessions_(ctx);
+    running = running || getRunningSessions_(ctx);
     var tz = ctx.ss.getSpreadsheetTimeZone();
 
     for (var i = 0; i < cap; i++) {

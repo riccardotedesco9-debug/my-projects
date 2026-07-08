@@ -291,8 +291,18 @@ function writeHourlyFormulas_(sh, r) {
     .setNumberFormat(CFG.formats.euro);
   var amtCell = sh.getRange(r, c.amount);
   if (String(amtCell.getValue()) !== 'Free') {
-    amtCell.setFormula('=ROUND(' + A(c.hours) + '*' + A(c.rate) + ', 2)').setNumberFormat(CFG.formats.euro);
+    amtCell.setFormula(amountFormulaText_(r)).setNumberFormat(CFG.formats.euro);
   }
+}
+
+/**
+ * The hourly Amount formula text (col I) for one row: hours × rate, 2dp. Shared
+ * by the on-stop completion (writeHourlyFormulas_) and the free→paid restore
+ * (markSelectedFreeCtx_) so the two can never silently diverge.
+ */
+function amountFormulaText_(r) {
+  var c = CFG.log.cols;
+  return '=ROUND(' + colLetter_(c.hours) + r + '*' + colLetter_(c.rate) + r + ', 2)';
 }
 
 /**
@@ -426,8 +436,7 @@ function markSelectedFreeCtx_(ctx) {
         var amtCell = sh.getRange(r, c.amount);
         if (String(amtCell.getValue()) === 'Free') {
           if (sh.getRange(r, c.end).getValue() instanceof Date) {
-            amtCell.setFormula('=ROUND(' + colLetter_(c.hours) + r + '*' + colLetter_(c.rate) + r + ', 2)')
-              .setNumberFormat(CFG.formats.euro);
+            amtCell.setFormula(amountFormulaText_(r)).setNumberFormat(CFG.formats.euro);
           } else {
             amtCell.clearContent();
           }

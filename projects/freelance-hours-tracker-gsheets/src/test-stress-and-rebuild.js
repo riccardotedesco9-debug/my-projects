@@ -243,8 +243,9 @@ function sectionV1Migration_(S, env) {
   S.t('migrated rows get a Status backfill (Finished/Free/In Progress, not blank)',
     statusVals.some(function (s) { return s === 'Finished' || s === 'Free' || s === 'In Progress'; }), true);
 
-  // The H1 regression: a column insert shifts cross-sheet refs, so earnings
-  // surfaces must still resolve to the Amount column, not the empty one beside it.
+  // Column-insert regression guard: inserting the Status column shifts every
+  // cross-sheet reference, so earnings surfaces must still resolve to the Amount
+  // column (col I), not the empty column beside it.
   // Re-fetch the derived sheets — updateLayout_ deletes + recreates them.
   SpreadsheetApp.flush();
   var dash = ss.getSheetByName(CFG.sheets.dashboard);

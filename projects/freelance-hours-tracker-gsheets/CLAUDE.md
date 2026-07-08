@@ -24,22 +24,22 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
 5. **Free (no charge):** tick **Free (no charge)** before Start (sidebar or the Dashboard
    **Free?** box) to log a session as a gift — it shows **Free** (green) instead of a €
    amount, adds €0 to totals, but its hours still count. You can also flip any finished row
-   later: select it on the Time Log → ⏱ Tracker → *Mark selected session(s) free / paid*.
-7. **Monthly report:** ⏱ Tracker → *Export Timesheet PDF…* → pick client (or All Clients) +
+   later: select it on the Time Log → ⏱ Tracker → *Mark selected session(s) free*.
+6. **Monthly report:** ⏱ Tracker → *Export timesheet PDF…* → pick client (or All Clients) +
    month + include-€ → print-ready A4 PDF lands in `Timesheets/<Client>/` in Drive, e.g.
    `Timesheet_2026-07_PetCentre_<YourName>.pdf`. In-progress (still-running) sessions are
    excluded; free sessions show **Free** (green, €0) with their hours still counted. The PDF
    ends with a **WORK BREAKDOWN**: same-type tasks consolidated into named groups (Claude
    Haiku via the `ANTHROPIC_API_KEY` Script Property; deterministic exact-match fallback
    without it) + a pie chart of where the hours went. Groupings are cached per client+month.
-8. **Forgot to clock?** ⏱ Tracker → *Add past session…* (also linked in the sidebar) logs it
+7. **Forgot to clock?** ⏱ Tracker → *Add past session…* (also linked in the sidebar) logs it
    through the same code path, so the row gets the live formulas manual typing would lack.
-9. **Rates & emails:** Clients sheet — type the €/h rate (ships blank) and the client's email
+8. **Rates & emails:** Clients sheet — type the €/h rate (ships blank) and the client's email
    next to each name. Add a client = type a new row; every dropdown follows. A rate change
    re-prices rows via the live lookup formula; overtype any row's Rate to pin a one-off.
-10. **1st of each month:** a trigger builds last month's PDF per active client and leaves a
+9. **1st of each month:** a trigger builds last month's PDF per active client and leaves a
     **Gmail draft** to them for your review — you press send.
-11. **Live client views:** ⏱ Tracker → *Client views…* — pick any client from the dropdown
+10. **Live client views:** ⏱ Tracker → *Client views…* — pick any client from the dropdown
     (new clients appear automatically; existing views say "refresh"), one button creates or
     refreshes their view-only file and hands back the share link. The file opens on a
     client-facing **Summary** dashboard: headline stats (total hours, sessions, this month),
@@ -92,8 +92,8 @@ with the old 8-column log, so don't clock time in that window.
   privates). `src/build.js` → `rebuild_()` is the **authoritative layout spec**.
 - `npm run push` = `clasp push` · `npm run open` = open the container Sheet ·
   `npm test` = eslint + `tools/run-tests.mjs` (drives `runSmokeTest()`).
-- **`runSmokeTest()` is a full health check + stress suite** (~450 checks, 15 sections,
-  ~3-5 min): section 1 is a READ-ONLY production health check (structure, named ranges,
+- **`runSmokeTest()` is a full health check + stress suite** (~450 checks, ~17 sections +
+  cleanup, ~3-5 min): section 1 is a READ-ONLY production health check (structure, named ranges,
   triggers, Script Properties, Drive tree, a full data-integrity sweep of the real log incl.
   in-progress rows + dashboard/summary reconciliation); everything else drives the REAL
   functions on a throwaway spreadsheet — the concurrent-timer state machine (in-progress row
@@ -106,8 +106,9 @@ with the old 8-column log, so don't clock time in that window.
   Asserts CONTENT, never existence; each section is throw-isolated + timed; self-limits to
   the Apps Script 6-min ceiling.
   Test harness lives in `src/test-runner.js`; sections in `src/test-*.js`.
-- The in-sheet menu runs the same suite: ⏱ Tracker → Maintenance → *Run health check +
-  smoke test* (section-grouped verdict with ⚠ warnings + ℹ info in a dialog) — works even
+- The in-sheet menu runs it from ⏱ Tracker → Maintenance: *Full test suite (~4 min)* (the
+  whole stress suite) or *Quick health check (~1 min)* (the read-only production check only) —
+  each renders a section-grouped verdict with ⚠ warnings + ℹ info in a dialog, and works even
   without the optional GCP project wiring for `clasp run-function`.
 - **Manual steps (one-time):** ① enable Apps Script API + `clasp login`; ② run `setup()` once
   in the editor and click the consent screen; ③ click "Allow access" once inside each client

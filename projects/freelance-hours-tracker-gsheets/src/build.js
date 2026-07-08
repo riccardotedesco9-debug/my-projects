@@ -228,14 +228,7 @@ function wipeWorkbook_(ss) {
   });
   SpreadsheetApp.flush();
 
-  [
-    [CFG.sheets.dashboard, CFG.colors.navy],
-    [CFG.sheets.log, CFG.colors.teal],
-    [CFG.sheets.summary, CFG.colors.teal],
-    [CFG.sheets.clients, CFG.colors.gray],
-    [CFG.sheets.report, CFG.colors.gold],
-    [CFG.sheets.settings, CFG.colors.gray],
-  ].forEach(function (t, i) {
+  CFG.sheetOrder.forEach(function (t, i) {
     ss.insertSheet(t[0], i).setTabColor(t[1]);
   });
   ss.deleteSheet(tmp);
@@ -316,14 +309,7 @@ function updateLayout_(ss) {
 
 /** Sets the canonical tab colours + left-to-right order for all six sheets. */
 function applyTabColorsAndOrder_(ss) {
-  [
-    [CFG.sheets.dashboard, CFG.colors.navy],
-    [CFG.sheets.log, CFG.colors.teal],
-    [CFG.sheets.summary, CFG.colors.teal],
-    [CFG.sheets.clients, CFG.colors.gray],
-    [CFG.sheets.report, CFG.colors.gold],
-    [CFG.sheets.settings, CFG.colors.gray],
-  ].forEach(function (t, i) {
+  CFG.sheetOrder.forEach(function (t, i) {
     var sh = ss.getSheetByName(t[0]);
     if (!sh) return;
     sh.setTabColor(t[1]);
