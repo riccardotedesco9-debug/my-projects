@@ -36,9 +36,10 @@ function buildDashboardSheet_(ss) {
   ss.setNamedRange(CFG.named.dbStatus, sh.getRange('B5'));
 
   // The NEXT timer's inputs — what a Start will use (separate from what's live).
+  // Client + Task share the same full width (C:G) so the two fields line up.
   sh.getRange('B7').setValue('Client').setFontWeight('bold');
-  sh.getRange('C7:D7').merge();
-  styleInputCell_(sh.getRange('C7:D7'));
+  sh.getRange('C7:G7').merge();
+  styleInputCell_(sh.getRange('C7:G7'));
   sh.getRange('C7').setDataValidation(
     SpreadsheetApp.newDataValidation()
       .requireValueInRange(ss.getRange("'" + CFG.sheets.clients + "'!A2:A"), true)
@@ -136,6 +137,7 @@ function buildDashboardSheet_(ss) {
       "group by B order by sum(F) desc label B 'Client', sum(F) 'Hours', sum(I) '€'\", 0), \"—\")"
   );
   sh.getRange('E26:G26').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('F26:G26').setHorizontalAlignment('right'); // Hours/€ headers over their right-aligned values
   sh.getRange('F27:F36').setNumberFormat(CFG.formats.hours);
   sh.getRange('G27:G36').setNumberFormat(CFG.formats.euroBlankZero);
   card_(sh.getRange('E25:G36'));
@@ -354,6 +356,8 @@ function buildSummarySheet_(ss) {
       "group by Col1 pivot Col2 label Col1 'Month'\", 0), \"—\")"
   );
   sh.getRange('B35:S35').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('B35:B49').setHorizontalAlignment('left'); // Month label column
+  sh.getRange('C35:S35').setHorizontalAlignment('right'); // client headers over their right-aligned values
   sh.getRange('B36:B49').setNumberFormat(CFG.formats.monthShort);
   sh.getRange('C36:S49').setNumberFormat('0.00;;');
   card_(sh.getRange('B34:N50'));
@@ -364,6 +368,8 @@ function buildSummarySheet_(ss) {
       "group by Col1 pivot Col2 label Col1 'Month'\", 0), \"—\")"
   );
   sh.getRange('B53:S53').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9);
+  sh.getRange('B53:B67').setHorizontalAlignment('left'); // Month label column
+  sh.getRange('C53:S53').setHorizontalAlignment('right'); // client headers over their right-aligned values
   sh.getRange('B54:B67').setNumberFormat(CFG.formats.monthShort);
   sh.getRange('C54:S67').setNumberFormat(CFG.formats.euroBlankZero);
   card_(sh.getRange('B52:N68'));

@@ -45,7 +45,8 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
     client-facing **Summary** dashboard: headline stats (total hours, sessions, this month),
     an hours-by-month column chart + a "Where the time goes" top-tasks pie, the tables
     behind them, and the latest-first session list — plus a **Status** column showing
-    *In progress* (a task you're timing right now) and *Free* on no-charge sessions. Hours
+    *In Progress* (a task you're timing right now), *Free* on no-charge sessions, and
+    *Finished* on everything else. Hours
     ONLY: it imports Log!A2:G (date…hours + the Status label) filtered to that client, so
     rates/€ (H/I) and other clients physically can't appear.
 
@@ -68,7 +69,7 @@ a RUNNING NOW block with a stop box per timer, and the count banner (gray IDLE /
   so it drops out of money totals while its hours still count; shown green in the log/PDF and
   as a *Free* tag in the client view.
 - **Column order:** A date · B client · C task · D start · E end · F hours · **G Status** ·
-  H rate · I amount. Status is a per-row formula (In progress / Free / blank) that carries no
+  H rate · I amount. Status is a per-row formula (In Progress / Free / Finished) that carries no
   money, so the client view can import A2:G safely. Rate/Amount live at H/I, never imported.
 - Times stored as full date+time → midnight-crossing sessions compute correctly.
 - Log flags: >8h days (amber date), midnight-crossing rows (red date), hours color scale,

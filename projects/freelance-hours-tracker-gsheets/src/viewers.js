@@ -116,7 +116,7 @@ function buildViewerContent_(viewer, trackerId, client) {
   // access problem; the bottom anchor is the dedicated access indicator.
   // limit 480 keeps the spill inside the 500-row grid (below); a client with
   // more than that shows their most recent 480 sessions. Col7 = the Status
-  // label (In progress / Free / blank) — carries no money.
+  // label (In Progress / Free / Finished) — carries no money.
   sh.getRange('F6').setFormula(
     '=IFERROR(QUERY(' + imp + ", \"select Col1, Col3, Col4, Col5, Col6, Col7 " +
       'where Col2 = ""' + q + '"" order by Col1 desc, Col4 desc limit 480 ' +
@@ -124,7 +124,7 @@ function buildViewerContent_(viewer, trackerId, client) {
   );
   // QUERY renders its labels on F6, data from F7 down: F date G task H start I end
   // J hours K status. In-progress rows sort to the top (latest date+start, blank
-  // end/hours) and show "In progress"; free rows show "Free" — the client sees both.
+  // end/hours) and show "In Progress"; free rows show "Free" — the client sees both.
   sh.getRange('F6:K6').setFontWeight('bold').setFontColor(CFG.colors.gray).setFontSize(9)
     .setBorder(null, null, true, null, false, false, CFG.colors.grayLine, SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange('F7:F500').setNumberFormat(CFG.formats.date);
@@ -163,10 +163,10 @@ function buildViewerContent_(viewer, trackerId, client) {
       .setGradientMaxpoint(CFG.colors.tealSoft)
       .setRanges([hoursCol])
       .build(),
-    // Status column: a live task reads "In progress" (soft teal); a no-charge
+    // Status column: a live task reads "In Progress" (soft teal); a no-charge
     // one reads "Free" (green) — so the client sees both at a glance.
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$K7="In progress"')
+      .whenFormulaSatisfied('=$K7="In Progress"')
       .setBackground(CFG.colors.tealSoft)
       .setFontColor(CFG.colors.navy)
       .setRanges([statusCol])

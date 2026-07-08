@@ -114,6 +114,7 @@ var CFG = {
 // The one deliberate UX copy block (single place to reword any user-facing text).
 var MSG = {
   pickClient: 'Pick a client first — the dropdown on the Dashboard (or in the timer panel).',
+  pickTask: "Type what you're working on — the Task can't be blank.",
   unknownClient: function (c) {
     return 'Client "' + c + '" is not on the Clients sheet. Add it there first (one row), then start.';
   },

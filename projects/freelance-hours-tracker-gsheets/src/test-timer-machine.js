@@ -20,6 +20,8 @@ function sectionTimer_(S, env) {
   S.t('whitespace client refused (trim)', guard.ok, false);
   guard = startWorkCtx_(ctx, 'Nobody Ltd', 'x', {});
   S.t('unknown client refused with MSG.unknownClient', guard.msg, MSG.unknownClient('Nobody Ltd'));
+  guard = startWorkCtx_(ctx, 'Pet Centre', '', {});
+  S.t('blank task refused with MSG.pickTask (task is mandatory)', guard.ok === false && guard.msg === MSG.pickTask, true);
   S.t('…a refused start writes no row', getRunningSessions_(ctx).length, 0);
 
   // --- Start ONE clock: the in-progress row shape + snapshot contract ---
@@ -36,7 +38,7 @@ function sectionTimer_(S, env) {
   S.t('in-progress row: Hours blank (no #VALUE! poison in the money aggregates)', String(ipVals[c.hours - 1]), '');
   S.t('in-progress row: Amount blank', String(ipVals[c.amount - 1]), '');
   S.t('in-progress row: Date = INT(Start) day', dayFmt(ipVals[c.date - 1]), dayFmt(ipVals[c.start - 1]));
-  S.t('in-progress row: Status reads "In progress"', String(ipVals[c.status - 1]), 'In progress');
+  S.t('in-progress row: Status reads "In Progress"', String(ipVals[c.status - 1]), 'In Progress');
   S.t('banner announces a running timer', String(env.ss.getRangeByName(CFG.named.dbStatus).getValue()).indexOf('● 1 timer') === 0, true);
   var snap = buildSnapshot_(ctx);
   S.t('snapshot: running[] carries the session', snap.running.length === 1 && snap.running[0].client === 'Pet Centre', true);
@@ -71,7 +73,7 @@ function sectionTimer_(S, env) {
   S.t('completed row: End now set', done[c.end - 1] instanceof Date, true);
   S.t('completed row: rate 45 via live lookup', Number(done[c.rate - 1]), 45);
   S.t('completed row: amount = hours×rate', Number(done[c.amount - 1]), Math.round(Number(done[c.hours - 1]) * 45 * 100) / 100);
-  S.t('completed row: Status blank now', String(done[c.status - 1]), '');
+  S.t('completed row: Status reads "Finished"', String(done[c.status - 1]), 'Finished');
   S.t('start keeps hh:mm format', f[c.start - 1], 'hh:mm');
   S.t('end keeps hh:mm format', f[c.end - 1], 'hh:mm');
   S.t('date format dd/mm/yyyy', f[c.date - 1], CFG.formats.date);
@@ -97,7 +99,7 @@ function sectionTimer_(S, env) {
   var freeRow = freeSess.row;
   S.t('free session flagged running', freeSess.free, true);
   S.t('free in-progress row: Amount = "Free"', String(log.getRange(freeRow, c.amount).getValue()), 'Free');
-  S.t('free in-progress row: Status "In progress" while live', String(log.getRange(freeRow, c.status).getValue()), 'In progress');
+  S.t('free in-progress row: Status "In Progress" while live', String(log.getRange(freeRow, c.status).getValue()), 'In Progress');
   Utilities.sleep(300);
   stopSessionCtx_(ctx, freeSess.startedAtMs);
   var freeDone = log.getRange(freeRow, 1, 1, CFG.log.lastCol).getValues()[0];
@@ -153,6 +155,8 @@ function sectionTimer_(S, env) {
   S.t('starts after confirm', startWorkCtx_(rateCtx, 'Splash Store', 'rate probe', { confirmNoRate: true }).ok, true);
   var rgRated = startWorkCtx_(rateCtx, 'Pet Centre', 'rated probe', {}); // rate 45 → no warning
   S.t('rated client starts directly', rgRated.ok === true && !rgRated.needsRateConfirm, true);
+  var rgFree = startWorkCtx_(rateCtx, 'Splash Store', 'free no-rate', { free: true }); // blank rate, but free → no warning
+  S.t('free start skips the no-rate warning (rate is moot when free)', rgFree.ok === true && !rgFree.needsRateConfirm, true);
   discardAllCtx_(rateCtx);
 
   // --- Recovery choices route to stop/discard/all by id ---

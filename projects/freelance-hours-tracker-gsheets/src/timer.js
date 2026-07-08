@@ -126,11 +126,14 @@ function startWorkCtx_(ctx, client, task, opts) {
   client = String(client || '').trim();
   task = String(task || '').trim();
   if (!client) return { ok: false, msg: MSG.pickClient };
+  if (!task) return { ok: false, msg: MSG.pickTask }; // a timed session must name its task
   var info = getClientInfo_(ctx, client);
   if (!info.exists) return { ok: false, msg: MSG.unknownClient(client) };
   // Rate guard: don't silently log €0. The live Rate formula back-fills once a
   // rate is added, so confirming (or the mobile/silent paths) proceeds safely.
-  if (!opts.confirmNoRate && !ctx.silent && !info.hasRate) {
+  // A FREE session bills €0 by design, so the missing-rate warning is moot —
+  // skip it when opts.free is set.
+  if (!opts.confirmNoRate && !opts.free && !ctx.silent && !info.hasRate) {
     return { ok: false, needsRateConfirm: true, client: client, msg: MSG.noRate(client) };
   }
 
@@ -226,7 +229,8 @@ function appendInProgressRow_(ctx, startMs, client, task, free) {
   sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
   sh.getRange(r, c.start).setValue(new Date(startMs)).setNumberFormat(CFG.formats.time);
   sh.getRange(r, c.date).setFormula('=INT(' + colLetter_(c.start) + r + ')').setNumberFormat(CFG.formats.date);
-  if (free) sh.getRange(r, c.amount).setValue('Free');
+  // Right-align "Free" so it lines up with the right-aligned € amounts above/below.
+  if (free) sh.getRange(r, c.amount).setValue('Free').setHorizontalAlignment('right');
   writeStatusFormula_(sh, r);
   return r;
 }
@@ -292,19 +296,27 @@ function writeHourlyFormulas_(sh, r) {
 }
 
 /**
- * Writes the per-row Status formula (col G): "In progress" while Start is set
- * and End blank, "Free" when Amount is the literal "Free", else blank. Written
- * once per row and auto-updates as End/Amount change; it moves with its row on a
- * sort (like the other per-row formulas). Client-safe — carries no money, and is
- * the only Status write (the column is never a sheet-wide spill, which would
- * push the first append off row 2 and collide with per-row writes).
+ * The per-row Status formula text (col G): blank on an empty row (no client),
+ * else "In Progress" while Start is set and End blank, "Free" when Amount is the
+ * literal "Free", otherwise "Finished". The client view imports this column
+ * (never the money), so "Free" is how a client sees a no-charge session. Shared
+ * by the per-row write and the v1→v2 migration backfill so the two never drift.
  */
-function writeStatusFormula_(sh, r) {
+function statusFormulaText_(r) {
   var c = CFG.log.cols;
   var L = colLetter_;
-  sh.getRange(r, c.status)
-    .setFormula('=IF(AND(' + L(c.start) + r + '<>"", ' + L(c.end) + r + '=""), "In progress", IF(' + L(c.amount) + r + '="Free", "Free", ""))')
-    .setHorizontalAlignment('center');
+  return '=IF(' + L(c.client) + r + '="", "", IF(AND(' + L(c.start) + r + '<>"", ' + L(c.end) + r +
+    '=""), "In Progress", IF(' + L(c.amount) + r + '="Free", "Free", "Finished")))';
+}
+
+/**
+ * Writes the Status formula for one row. Auto-updates as End/Amount change; it
+ * moves with its row on a sort (like the other per-row formulas), and is the
+ * ONLY write to col G (never a sheet-wide spill, which would push the first
+ * append off row 2 and collide with per-row writes).
+ */
+function writeStatusFormula_(sh, r) {
+  sh.getRange(r, CFG.log.cols.status).setFormula(statusFormulaText_(r)).setHorizontalAlignment('center');
 }
 
 /**
@@ -421,7 +433,7 @@ function markSelectedFreeCtx_(ctx) {
           }
           paid++;
         } else {
-          amtCell.setValue('Free');
+          amtCell.setValue('Free').setHorizontalAlignment('right'); // line up with the € amounts
           freed++;
         }
         // Ensure the row carries a Status formula so "Free" surfaces to the

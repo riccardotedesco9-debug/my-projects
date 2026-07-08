@@ -239,6 +239,9 @@ function sectionV1Migration_(S, env) {
   var amountsAfter = log.getRange(2, c.amount, log.getLastRow() - 1, 1).getValues()
     .reduce(function (a, r) { return a + (Number(r[0]) || 0); }, 0);
   S.near('every amount value preserved through the migration', amountsAfter, amountsBefore, 0.02);
+  var statusVals = log.getRange(2, c.status, log.getLastRow() - 1, 1).getValues().map(function (r) { return String(r[0]); });
+  S.t('migrated rows get a Status backfill (Finished/Free/In Progress, not blank)',
+    statusVals.some(function (s) { return s === 'Finished' || s === 'Free' || s === 'In Progress'; }), true);
 
   // The H1 regression: a column insert shifts cross-sheet refs, so earnings
   // surfaces must still resolve to the Amount column, not the empty one beside it.

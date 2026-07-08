@@ -15,7 +15,7 @@ function onOpen() {
     .addItem('▶ Start (Dashboard client/task)', 'startWorkFromSheet')
     .addItem('■ Stop & log all', 'stopAllFromSheet')
     .addSeparator()
-    .addItem('Mark selected session(s) free / paid', 'toggleSelectedFree')
+    .addItem('Mark selected session(s) free', 'toggleSelectedFree')
     .addItem('Delete selected session(s)', 'deleteSelectedLogRows')
     .addItem('Sort Time Log by date', 'sortLogByDate')
     .addSeparator()
