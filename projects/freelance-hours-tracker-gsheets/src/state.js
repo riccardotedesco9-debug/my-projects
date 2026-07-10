@@ -50,11 +50,13 @@ function getRunningSessions_(ctx) {
     var start = v[c.start - 1];
     var end = v[c.end - 1];
     if (start instanceof Date && !(end instanceof Date)) {
+      var amt = String(v[c.amount - 1]);
       out.push({
         startedAtMs: start.getTime(),
         client: String(v[c.client - 1] || ''),
         task: String(v[c.task - 1] || ''),
-        free: String(v[c.amount - 1]) === 'Free',
+        free: amt === 'Free',
+        tbd: amt === 'TBD',
         row: CFG.log.firstDataRow + i,
       });
     }
@@ -72,10 +74,13 @@ function findInProgressRow_(ctx, startedAtMs) {
   return -1;
 }
 
-/** Reads a named checkbox cell as a strict boolean. */
-function boolNamed_(ctx, name) {
-  var r = ctx.ss.getRangeByName(name);
-  return !!(r && r.getValue() === true);
+/**
+ * Reads the Dashboard Billing dropdown (dbBilling) → {free, tbd}. Normal/blank
+ * maps to neither; the two flags are mutually exclusive by the dropdown's design.
+ */
+function billingFromNamed_(ctx) {
+  var v = String(getNamedValue_(ctx, CFG.named.dbBilling) || '').trim().toLowerCase();
+  return { free: v === 'free', tbd: v === 'tbd' };
 }
 
 /**
@@ -161,9 +166,10 @@ function renderRunningNow_(ctx, running) {
         var since = Utilities.formatDate(new Date(r.startedAtMs), tz, 'HH:mm');
         box.insertCheckboxes();
         box.setValue(false);
+        var tagTxt = r.free ? '   · FREE' : (r.tbd ? '   · TBD' : '');
         labelCell
-          .setValue(r.client + (r.task ? ' — ' + r.task : '') + '   · since ' + since + (r.free ? '   · FREE' : ''))
-          .setFontColor(r.free ? CFG.colors.green : CFG.colors.navy);
+          .setValue(r.client + (r.task ? ' — ' + r.task : '') + '   · since ' + since + tagTxt)
+          .setFontColor(r.free ? CFG.colors.green : (r.tbd ? CFG.colors.gold : CFG.colors.navy));
         idCell.setValue(r.startedAtMs);
       } else {
         box.clearDataValidations();
@@ -197,7 +203,7 @@ function migrateLegacyTimerState_(ctx) {
     var s = JSON.parse(raw);
     if (s && s.status === 'RUNNING' && typeof s.startedAtMs === 'number' && s.startedAtMs > 0) {
       if (findInProgressRow_(ctx, s.startedAtMs) < 0) {
-        appendInProgressRow_(ctx, s.startedAtMs, String(s.client || ''), String(s.task || ''), false);
+        appendInProgressRow_(ctx, s.startedAtMs, String(s.client || ''), String(s.task || ''), '');
       }
     }
   } catch (e) {

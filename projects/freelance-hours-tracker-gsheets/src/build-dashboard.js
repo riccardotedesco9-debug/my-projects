@@ -52,6 +52,21 @@ function buildDashboardSheet_(ss) {
   sh.getRange('C8:G8').merge();
   styleInputCell_(sh.getRange('C8:G8'));
   ss.setNamedRange(CFG.named.dbTask, sh.getRange('C8'));
+  // Recent-task quick-pick for the phone: a hidden live QUERY (col L) lists the
+  // distinct task names most-recent first; the Task cell gets a dropdown of them.
+  // allowInvalid keeps it free-text — the list is a shortcut, not a constraint —
+  // and it self-updates as you log, so the phone picker never needs a rebuild.
+  sh.getRange('L1').setValue('Recent tasks — do not edit').setFontColor(CFG.colors.gray).setFontSize(8);
+  sh.getRange('L2').setFormula(
+    '=IFERROR(QUERY({' + log + '!$C$2:$C, ' + log + '!$A$2:$A}, ' +
+      "\"select Col1, max(Col2) where Col1 is not null group by Col1 order by max(Col2) desc limit 15 label Col1 '', max(Col2) ''\", 0), \"\")"
+  );
+  sh.getRange('C8').setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInRange(sh.getRange('L2:L16'), true)
+      .setAllowInvalid(true)
+      .build()
+  );
 
   // The one on-sheet control: opens the timer panel (all real interaction —
   // and its visual feedback — lives in the sidebar).
@@ -65,17 +80,24 @@ function buildDashboardSheet_(ss) {
   sectionHeader_(sh.getRange('B12'), 'START A TIMER (PHONE)');
   sh.setRowHeight(13, 30);
   phoneButton_(sh, ss, 13, CFG.named.chkStart, CFG.colors.green, '▶  START');
-  var freeBox = sh.getRange('F13');
-  freeBox.insertCheckboxes();
-  freeBox.setValue(false)
-    .setBackground(CFG.colors.white)
-    .setHorizontalAlignment('center')
-    .setVerticalAlignment('middle');
-  ss.setNamedRange(CFG.named.dbFree, freeBox);
-  sh.getRange('G13').setValue('Free?').setFontColor(CFG.colors.gray).setFontSize(10).setVerticalAlignment('middle');
+  // Billing dropdown (Normal / Free / TBD) the phone Start reads: Free logs a
+  // no-charge session, TBD tracks work whose price you'll agree later. One
+  // control, three mutually-exclusive states (cleaner than stacked checkboxes).
+  var billCell = sh.getRange('F13');
+  billCell.setDataValidation(
+    SpreadsheetApp.newDataValidation()
+      .requireValueInList(['Normal', 'Free', 'TBD'], true)
+      .setAllowInvalid(false)
+      .build()
+  );
+  if (['Normal', 'Free', 'TBD'].indexOf(String(billCell.getValue())) < 0) billCell.setValue('Normal');
+  billCell.setBackground(CFG.colors.white).setHorizontalAlignment('center').setVerticalAlignment('middle')
+    .setFontColor(CFG.colors.navy).setFontSize(10);
+  ss.setNamedRange(CFG.named.dbBilling, billCell);
+  sh.getRange('G13').setValue('Billing').setFontColor(CFG.colors.gray).setFontSize(10).setVerticalAlignment('middle');
   sh.getRange('B14:G14').merge();
   sh.getRange('B14')
-    .setValue('Tap START from the Google Sheets phone app — adds a clock for the Client & Task above. Tick Free? for a no-charge session.')
+    .setValue('Tap START from the Google Sheets phone app — adds a clock for the Client & Task above. Set Billing to Free (no charge) or TBD (price agreed later).')
     .setFontColor(CFG.colors.gray)
     .setFontStyle('italic')
     .setFontSize(8);
@@ -143,6 +165,7 @@ function buildDashboardSheet_(ss) {
   card_(sh.getRange('E25:G36'));
 
   sh.hideColumns(10); // dbRunIds — the per-row startedAtMs, off the page
+  sh.hideColumns(12, 2); // L:M — the recent-tasks QUERY helper feeding the Task dropdown
 }
 
 /**

@@ -166,8 +166,9 @@ function buildViewerContent_(viewer, trackerId, client) {
       .setGradientMaxpoint(CFG.colors.tealSoft)
       .setRanges([hoursCol])
       .build(),
-    // Status column: a live task reads "In Progress" (soft teal); a no-charge
-    // one reads "Free" (green) — so the client sees both at a glance.
+    // Status column: a live task reads "In Progress" (soft teal), a no-charge one
+    // "Free" (green), and a not-yet-priced one "TBD" (gold on amber) — so the
+    // client sees each at a glance.
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=$K7="In Progress"')
       .setBackground(CFG.colors.tealSoft)
@@ -178,6 +179,12 @@ function buildViewerContent_(viewer, trackerId, client) {
       .whenFormulaSatisfied('=$K7="Free"')
       .setBackground('#E8F5E9')
       .setFontColor(CFG.colors.green)
+      .setRanges([statusCol])
+      .build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=$K7="TBD"')
+      .setBackground(CFG.colors.amber)
+      .setFontColor(CFG.colors.gold)
       .setRanges([statusCol])
       .build(),
   ]);

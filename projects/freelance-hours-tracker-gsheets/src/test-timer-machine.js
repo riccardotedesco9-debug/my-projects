@@ -107,6 +107,26 @@ function sectionTimer_(S, env) {
   S.t('free completed row: hours formula present (hours still count)', log.getRange(freeRow, c.hours).getFormula() !== '', true);
   S.t('free completed row: Status reads "Free"', String(freeDone[c.status - 1]), 'Free');
 
+  // --- TBD session: Amount = "TBD" at start, kept through stop; amend later ---
+  var tbdRes = startWorkCtx_(ctx, 'Pet Centre', 'Unpriced consult', { tbd: true });
+  S.t('tbd start ok', tbdRes.ok, true);
+  var tbdSess = getRunningSessions_(ctx).filter(function (r) { return r.task === 'Unpriced consult'; })[0];
+  var tbdRow = tbdSess.row;
+  S.t('tbd session flagged running', tbdSess.tbd, true);
+  S.t('tbd in-progress row: Amount = "TBD"', String(log.getRange(tbdRow, c.amount).getValue()), 'TBD');
+  S.t('tbd in-progress row: Status "In Progress" while live', String(log.getRange(tbdRow, c.status).getValue()), 'In Progress');
+  Utilities.sleep(300);
+  stopSessionCtx_(ctx, tbdSess.startedAtMs);
+  var tbdDone = log.getRange(tbdRow, 1, 1, CFG.log.lastCol).getValues()[0];
+  S.t('tbd completed row: Amount stays "TBD" (no amount formula)', String(tbdDone[c.amount - 1]), 'TBD');
+  S.t('tbd completed row: hours formula present (hours still count)', log.getRange(tbdRow, c.hours).getFormula() !== '', true);
+  S.t('tbd completed row: Status reads "TBD"', String(tbdDone[c.status - 1]), 'TBD');
+  // The user's amend path is a manual cell edit: typing a € amount re-prices the
+  // row, and the live Status formula flips TBD → Finished with no code path.
+  log.getRange(tbdRow, c.amount).setValue(250);
+  SpreadsheetApp.flush();
+  S.t('manual amend: typed € re-prices, Status flips TBD → Finished', String(log.getRange(tbdRow, c.status).getValue()), 'Finished');
+
   // --- Discard: removes the row, never logs ---
   var dRes = startWorkCtx_(ctx, 'Pet Centre', 'Discard me', {});
   var beforeDiscard = log.getLastRow();
@@ -157,6 +177,8 @@ function sectionTimer_(S, env) {
   S.t('rated client starts directly', rgRated.ok === true && !rgRated.needsRateConfirm, true);
   var rgFree = startWorkCtx_(rateCtx, 'Splash Store', 'free no-rate', { free: true }); // blank rate, but free → no warning
   S.t('free start skips the no-rate warning (rate is moot when free)', rgFree.ok === true && !rgFree.needsRateConfirm, true);
+  var rgTbd = startWorkCtx_(rateCtx, 'Splash Store', 'tbd no-rate', { tbd: true }); // blank rate, but TBD → no warning
+  S.t('TBD start skips the no-rate warning (price isn\'t set yet)', rgTbd.ok === true && !rgTbd.needsRateConfirm, true);
   discardAllCtx_(rateCtx);
 
   // --- Recovery choices route to stop/discard/all by id ---
@@ -202,7 +224,7 @@ function sectionCheckboxes_(S, env) {
   var chkStart = ss.getRangeByName(CFG.named.chkStart);
   var stopBlock = ss.getRangeByName(CFG.named.chkStopBlock);
   var runIds = ss.getRangeByName(CFG.named.dbRunIds);
-  var freeBox = ss.getRangeByName(CFG.named.dbFree);
+  var billCell = ss.getRangeByName(CFG.named.dbBilling);
   var fire = function (range, value) { onEditInstallable({ range: range, value: value, source: ss }); };
 
   discardAllCtx_(ctx); // clean slate
@@ -219,7 +241,7 @@ function sectionCheckboxes_(S, env) {
   S.t('edits on other sheets are ignored', getRunningSessions_(ctx).length, 0);
   setNamedValue_(ctx, CFG.named.dbClient, '');
   setNamedValue_(ctx, CFG.named.dbTask, '');
-  freeBox.setValue(false);
+  billCell.setValue('Normal');
   chkStart.setValue(true);
   fire(chkStart, 'TRUE');
   S.t('start tick with no client: refused', getRunningSessions_(ctx).length, 0);
@@ -259,20 +281,29 @@ function sectionCheckboxes_(S, env) {
   S.t('mobile stop leaves exactly one clock running', afterMobileStop.length, 1);
   S.t('…and it is the FIRST clock (untouched)', afterMobileStop[0].startedAtMs, firstId);
 
-  // --- Free? via the phone: blank-rate client proceeds, session flagged free ---
+  // --- Billing=Free via the phone: blank-rate client proceeds, session flagged free ---
   setNamedValue_(ctx, CFG.named.dbClient, 'Splash Store'); // blank rate — mobile proceeds anyway
   setNamedValue_(ctx, CFG.named.dbTask, 'Free phone');
-  freeBox.setValue(true);
+  billCell.setValue('Free');
   chkStart.setValue(true);
   fire(chkStart, 'TRUE');
   var freeSess = getRunningSessions_(ctx).filter(function (r) { return r.task === 'Free phone'; })[0];
   S.t('checkbox: blank-rate client proceeds on mobile', !!freeSess, true);
-  S.t('checkbox Free?: the session is flagged free', freeSess && freeSess.free, true);
+  S.t('phone Billing=Free: the session is flagged free', freeSess && freeSess.free, true);
+
+  // --- Billing=TBD via the phone: session flagged not-yet-priced ---
+  setNamedValue_(ctx, CFG.named.dbClient, 'Pet Centre');
+  setNamedValue_(ctx, CFG.named.dbTask, 'TBD phone');
+  billCell.setValue('TBD');
+  chkStart.setValue(true);
+  fire(chkStart, 'TRUE');
+  var tbdPhone = getRunningSessions_(ctx).filter(function (r) { return r.task === 'TBD phone'; })[0];
+  S.t('phone Billing=TBD: the session is flagged TBD', tbdPhone && tbdPhone.tbd, true);
 
   // Clean up so later sections reconcile against completed rows only.
   discardAllCtx_(ctx);
   S.t('mobile section leaves nothing running', getRunningSessions_(ctx).length, 0);
-  freeBox.setValue(false);
+  billCell.setValue('Normal');
   setNamedValue_(ctx, CFG.named.dbClient, 'Pet Centre');
   setNamedValue_(ctx, CFG.named.dbTask, '');
 }

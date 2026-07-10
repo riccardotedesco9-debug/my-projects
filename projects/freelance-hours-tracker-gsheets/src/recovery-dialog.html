@@ -21,6 +21,8 @@
   .session .since { color: var(--gray); font-size: 12.5px; }
   .free-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--green);
               background: #E8F5E9; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+  .tbd-tag { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: #B45309;
+             background: #FEF3C7; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
   .elapsed { font-family: 'Spline Sans Mono', monospace; font-variant-numeric: tabular-nums;
              font-weight: 600; color: var(--green); }
   .row { display: flex; gap: 8px; margin-top: 9px; }
@@ -64,7 +66,8 @@
       var card = document.createElement('div');
       card.className = 'session';
       card.innerHTML =
-        '<b>' + esc(r.client) + (r.task ? ' — ' + esc(r.task) : '') + (r.free ? '<span class="free-tag">FREE</span>' : '') + '</b>' +
+        '<b>' + esc(r.client) + (r.task ? ' — ' + esc(r.task) : '') +
+          (r.free ? '<span class="free-tag">FREE</span>' : (r.tbd ? '<span class="tbd-tag">TBD</span>' : '')) + '</b>' +
         '<span class="since">running for <span class="elapsed" data-start="' + r.startedAtMs + '">0:00:00</span></span>' +
         '<div class="row">' +
           '<button class="log" data-start="' + r.startedAtMs + '" data-act="stop">Stop &amp; log</button>' +

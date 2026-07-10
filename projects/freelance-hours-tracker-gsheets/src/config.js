@@ -73,15 +73,16 @@ var CFG = {
   },
 
   // Named ranges (all defined by rebuild_). db* = Dashboard inputs/displays,
-  // chk* = mobile checkbox cells. dbRunIds is the hidden per-row startedAtMs
-  // column beside the RUNNING NOW stop checkboxes (chkStopBlock).
+  // chk* = mobile checkbox cells. dbBilling is the Normal/Free/TBD dropdown that
+  // a phone Start reads. dbRunIds is the hidden per-row startedAtMs column beside
+  // the RUNNING NOW stop checkboxes (chkStopBlock).
   named: {
     dbClient: 'dbClient',
     dbTask: 'dbTask',
     dbStatus: 'dbStatus',
     dbToday: 'dbToday',
     dbMonth: 'dbMonth',
-    dbFree: 'dbFree',
+    dbBilling: 'dbBilling',
     chkStart: 'chkStart',
     chkStopBlock: 'chkStopBlock',
     dbRunIds: 'dbRunIds',

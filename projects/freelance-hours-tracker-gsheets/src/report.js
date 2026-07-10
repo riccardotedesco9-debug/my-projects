@@ -97,9 +97,13 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
         r.start || '', r.end || '', r.fixed ? '' : r.hours,
       ];
       if (includeMoney) {
-        // A free session shows "Free" (green, below) in place of € and no rate;
-        // a fixed-fee row shows "Fixed"; everything else its live rate + amount.
-        line = line.concat([r.fixed ? 'Fixed' : (r.free ? '—' : r.rate), r.free ? 'Free' : r.amount]);
+        // A free session shows "Free" (green) in place of € and no rate; a TBD
+        // session shows "TBD" (gold, price agreed later); a fixed-fee row shows
+        // "Fixed"; everything else its live rate + amount.
+        line = line.concat([
+          r.fixed ? 'Fixed' : (r.free || r.tbd ? '—' : r.rate),
+          r.free ? 'Free' : (r.tbd ? 'TBD' : r.amount),
+        ]);
       }
       return line;
     });
@@ -111,9 +115,11 @@ function buildReportCtx_(ctx, clientOrAll, year, month, includeMoney, opts) {
       // Right-align Rate + Amount so the € values AND the text cells ("Fixed",
       // "—", "Free") all line up on the right instead of the text hanging left.
       sh.getRange(bodyTop, 8, out.length, 2).setNumberFormat(CFG.formats.euro).setHorizontalAlignment('right');
-      // Paint "Free" amounts green — a no-charge session reads as a gift, not €0.
+      // Paint "Free" amounts green (a gift, not €0) and "TBD" amounts gold (a
+      // price still to agree) so neither reads as a plain zero.
       rows.forEach(function (r, i) {
         if (r.free) sh.getRange(bodyTop + i, 9).setFontColor(CFG.colors.green).setFontWeight('bold');
+        else if (r.tbd) sh.getRange(bodyTop + i, 9).setFontColor(CFG.colors.gold).setFontWeight('bold');
       });
     }
     lastRow = bodyTop + out.length - 1;
@@ -354,6 +360,7 @@ function collectReportRows_(ctx, clientOrAll, periodStart, periodEnd) {
       rate: Number(v[c.rate - 1]) || 0,
       amount: Number(v[c.amount - 1]) || 0,
       free: String(v[c.amount - 1]) === 'Free',
+      tbd: String(v[c.amount - 1]) === 'TBD',
       fixed: !(start instanceof Date),
     });
   }

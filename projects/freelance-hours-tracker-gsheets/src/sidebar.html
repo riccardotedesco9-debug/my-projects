@@ -7,7 +7,7 @@
 <style>
   :root {
     --navy: #1F3864; --teal: #0F766E; --teal-soft: #B2DFDB;
-    --green: #2E7D32; --red: #B91C1C; --gray: #6B7280;
+    --green: #2E7D32; --red: #B91C1C; --gray: #6B7280; --gold: #B45309;
     --line: #E4E4DE; --paper: #FBFBF8; --card: #FFFFFF;
   }
   * { box-sizing: border-box; margin: 0; }
@@ -50,6 +50,10 @@
     font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--green);
     background: #E8F5E9; border-radius: 4px; padding: 2px 6px;
   }
+  .tbd-tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--gold);
+    background: #FEF3C7; border-radius: 4px; padding: 2px 6px;
+  }
   .stopbtn {
     border: 1px solid var(--red); background: #fff; color: var(--red);
     font: 600 12px 'Outfit', sans-serif; border-radius: 7px; padding: 5px 12px; cursor: pointer;
@@ -67,11 +71,14 @@
     padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card);
   }
   select:focus, input:focus { outline: none; border-color: var(--teal); }
-  label.check {
-    display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0;
-    font-size: 13px; font-weight: 500; color: var(--navy); margin: 12px 0 2px; cursor: pointer;
+  /* Recent-task quick-pick chips under the Task field. */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 2px; }
+  .chip {
+    font-size: 12px; color: var(--teal); background: #F0FAF8; border: 1px solid var(--teal-soft);
+    border-radius: 12px; padding: 3px 10px; cursor: pointer; max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  label.check input { width: auto; }
+  .chip:hover { background: #E3F4F1; }
 
   .btn {
     width: 100%; border: 0; border-radius: 10px; padding: 12px 0; margin-top: 12px;
@@ -124,8 +131,15 @@
   <label for="client">Client</label>
   <select id="client"></select>
   <label for="task">Task</label>
-  <input type="text" id="task" placeholder="What are you working on?">
-  <label class="check"><input type="checkbox" id="free"> Free (no charge)</label>
+  <input type="text" id="task" placeholder="What are you working on?" list="recentTasks">
+  <datalist id="recentTasks"></datalist>
+  <div class="chips" id="chips"></div>
+  <label for="billing">Billing</label>
+  <select id="billing">
+    <option value="normal">Normal (bill at rate)</option>
+    <option value="free">Free (no charge)</option>
+    <option value="tbd">TBD (agree price later)</option>
+  </select>
 
   <button class="btn start" id="btnStart">▶&ensp;Start timer</button>
 
@@ -170,6 +184,7 @@
     state = s;
     skewMs = s.serverNowMs - Date.now();
     seedForm(s);
+    renderRecentTasks(s);
     renderRunning(s);
     $('stats').textContent =
       'Today ' + (s.todayHours || 0).toFixed(2) + ' h · This month ' + (s.monthHours || 0).toFixed(2) + ' h';
@@ -194,6 +209,29 @@
     }
   }
 
+  // Recent task names → the input's autocomplete <datalist> (type-ahead) plus a
+  // row of one-tap chips (top 5), so a repeat session doesn't mean retyping.
+  function renderRecentTasks(s) {
+    var tasks = (s && s.recentTasks) || [];
+    var dl = $('recentTasks');
+    dl.innerHTML = '';
+    tasks.forEach(function (t) {
+      var o = document.createElement('option');
+      o.value = t;
+      dl.appendChild(o);
+    });
+    var chips = $('chips');
+    chips.innerHTML = '';
+    tasks.slice(0, 5).forEach(function (t) {
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.textContent = t;
+      chip.title = t;
+      chip.onclick = function () { $('task').value = t; $('task').focus(); };
+      chips.appendChild(chip);
+    });
+  }
+
   function renderRunning(s) {
     var list = $('runningList');
     list.innerHTML = '';
@@ -208,7 +246,8 @@
           '<div class="clock" data-start="' + r.startedAtMs + '">0:00:00</div>' +
         '</div>' +
         '<div class="card-bot">' +
-          (r.free ? '<span class="free-tag">FREE · no charge</span>' : '<span></span>') +
+          (r.free ? '<span class="free-tag">FREE · no charge</span>' :
+           r.tbd ? '<span class="tbd-tag">TBD · price later</span>' : '<span></span>') +
           '<button class="stopbtn" data-start="' + r.startedAtMs + '">Stop &amp; log</button>' +
         '</div>';
       list.appendChild(card);
@@ -244,7 +283,8 @@
     var client = $('client').value;
     var task = $('task').value.trim();
     if (!task) { say("Type a task first — it can't be blank.", true); $('task').focus(); return; }
-    var opts = { free: $('free').checked };
+    var bill = $('billing').value;
+    var opts = { free: bill === 'free', tbd: bill === 'tbd' };
     if (startFlags.confirmNoRate) opts.confirmNoRate = true;
     busy(true);
     say('Starting…', false);
@@ -256,7 +296,7 @@
         if (res && res.snapshot) onSnap(res.snapshot);
         if (res && res.ok) {
           $('task').value = '';
-          $('free').checked = false;
+          $('billing').value = 'normal';
           say(res.msg || ('Timing ' + client + '.'), false);
         } else {
           say((res && res.msg) || 'Could not start.', true);

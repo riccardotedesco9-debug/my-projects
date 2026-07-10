@@ -51,3 +51,37 @@ function sortLogByDate_(ctx) {
     .sort({ column: CFG.log.cols.date, ascending: true });
   return true;
 }
+
+/**
+ * Distinct recently-used task names, most-recent first (by the Date column), for
+ * the sidebar autocomplete + chips (the phone Dashboard picker uses its own live
+ * QUERY). Case-insensitive dedupe keeps the first-seen casing; a task with no
+ * date sorts last. Reads only Date + Task (cols 1..task), so it's a cheap scan.
+ */
+function getRecentTasks_(ctx, limit) {
+  limit = limit || 12;
+  var sh = ctx.ss.getSheetByName(CFG.sheets.log);
+  if (!sh) return [];
+  var last = sh.getLastRow();
+  if (last < CFG.log.firstDataRow) return [];
+  var c = CFG.log.cols;
+  var n = last - CFG.log.firstDataRow + 1;
+  var vals = sh.getRange(CFG.log.firstDataRow, 1, n, c.task).getValues();
+  var byKey = {};
+  var order = [];
+  for (var i = 0; i < vals.length; i++) {
+    var task = String(vals[i][c.task - 1] || '').trim();
+    if (!task) continue;
+    var date = vals[i][c.date - 1];
+    var t = date instanceof Date ? date.getTime() : 0;
+    var key = task.toLowerCase();
+    if (!(key in byKey)) {
+      byKey[key] = { task: task, t: t };
+      order.push(key);
+    } else if (t > byKey[key].t) {
+      byKey[key].t = t;
+    }
+  }
+  order.sort(function (a, b) { return byKey[b].t - byKey[a].t; });
+  return order.slice(0, limit).map(function (k) { return byKey[k].task; });
+}

@@ -71,7 +71,7 @@ function sectionViewer_(S, env) {
   S.t('viewer: busy-day highlight rule present', vDump.indexOf('>8') >= 0, true);
   S.t('viewer: midnight-crossing red rule present', vDump.indexOf('INT($I7)') >= 0, true);
   S.t('viewer: hours colour scale present', vDump.indexOf('[gradient]') >= 0, true);
-  S.t('viewer: in-progress + free status cues present', vDump.indexOf('In Progress') >= 0 && vDump.indexOf('Free') >= 0, true);
+  S.t('viewer: in-progress + free + TBD status cues present', vDump.indexOf('In Progress') >= 0 && vDump.indexOf('Free') >= 0 && vDump.indexOf('TBD') >= 0, true);
   var dateRuleCols = {}, statusRuleCols = {}, gradOnHours = false, boolOnHours = false;
   vRules.forEach(function (r) {
     var bc = r.getBooleanCondition();

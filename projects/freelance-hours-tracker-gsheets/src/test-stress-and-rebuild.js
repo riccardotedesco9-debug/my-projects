@@ -163,7 +163,7 @@ function sectionUpdateLayout_(S, env) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';
   });
-  S.t('10 conditional rules re-asserted', dump.length, 10);
+  S.t('11 conditional rules re-asserted', dump.length, 11);
   S.t('rule order re-asserted (midnight+busy first)', dump[0].indexOf('INT($E2)') >= 0 && dump[0].indexOf('>12') >= 0, true);
   var colVal = log.getRange(2, CFG.log.cols.client).getDataValidation();
   S.t('log client dropdown restored', !!colVal && colVal.getAllowInvalid() === false, true);

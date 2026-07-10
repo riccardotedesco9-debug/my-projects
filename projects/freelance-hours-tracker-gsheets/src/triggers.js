@@ -34,9 +34,11 @@ function onEditInstallable(e) {
       var task = String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim();
       // No dialogs on mobile → a deliberate tick ADDS a clock (never replaces a
       // running one) and proceeds even with no rate set (the live Rate formula
-      // back-fills once you add it). Free? flags it no-charge. Stamped with
-      // server time at run, so an offline tap logs at sync time.
-      startWorkCtx_(ctx, client, task, { confirmNoRate: true, free: boolNamed_(ctx, CFG.named.dbFree) });
+      // back-fills once you add it). The Billing dropdown flags it Free (no
+      // charge) or TBD (price agreed later). Stamped with server time at run, so
+      // an offline tap logs at sync time.
+      var bill = billingFromNamed_(ctx);
+      startWorkCtx_(ctx, client, task, { confirmNoRate: true, free: bill.free, tbd: bill.tbd });
     } else {
       // Map the ticked row to its session via the hidden startedAtMs column.
       var idRange = ss.getRangeByName(CFG.named.dbRunIds);

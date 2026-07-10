@@ -126,7 +126,7 @@ function sectionReports_(S, env) {
 
   // --- In-progress rows are EXCLUDED from the report/PDF/seal ---
   var logSh = ctx.ss.getSheetByName(CFG.sheets.log);
-  var ipRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 12, 9, 0, 0).getTime(), 'Pet Centre', 'STILL RUNNING report-exclude', false);
+  var ipRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 12, 9, 0, 0).getTime(), 'Pet Centre', 'STILL RUNNING report-exclude', '');
   var withIp = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, true, { forceFallback: true });
   var ipTasks = withIp.rowCount ? rep.getRange(12, 4, withIp.rowCount, 1).getValues().map(function (r) { return String(r[0]); }) : [];
   S.t('in-progress row excluded from the report body', ipTasks.indexOf('STILL RUNNING report-exclude') < 0, true);
@@ -134,7 +134,7 @@ function sectionReports_(S, env) {
 
   // --- A "Free" completed session: "Free" (green) in Amount, €0 in the total,
   //     hours still counted ---
-  var freeRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 13, 9, 0, 0).getTime(), 'Pet Centre', 'FREE report-render', true);
+  var freeRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 13, 9, 0, 0).getTime(), 'Pet Centre', 'FREE report-render', 'Free');
   completeSessionRow_(ctx, freeRow, new Date(env.y, env.m - 1, 13, 11, 0, 0).getTime()); // 2h
   var freeMirror = jsReportMirror_(env, 'Pet Centre', env.y, env.m);
   var freeMeta = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, true, { forceFallback: true });
@@ -146,6 +146,21 @@ function sectionReports_(S, env) {
   S.near('free report: hours match mirror (free hours counted)', freeMeta.totalHours, freeMirror.hours, 0.05);
   S.near('free report: € total excludes the free session', freeMeta.totalAmount, freeMirror.amount, 0.05);
   logSh.deleteRow(freeRow);
+
+  // --- A "TBD" completed session: "TBD" (gold) in Amount, €0 in the total,
+  //     hours still counted (price agreed later — mirrors Free) ---
+  var tbdRow = appendInProgressRow_(ctx, new Date(env.y, env.m - 1, 14, 9, 0, 0).getTime(), 'Pet Centre', 'TBD report-render', 'TBD');
+  completeSessionRow_(ctx, tbdRow, new Date(env.y, env.m - 1, 14, 11, 0, 0).getTime()); // 2h
+  var tbdMirror = jsReportMirror_(env, 'Pet Centre', env.y, env.m);
+  var tbdMeta = buildReportCtx_(ctx, 'Pet Centre', env.y, env.m, true, { forceFallback: true });
+  S.t('tbd report: rowCount matches mirror (TBD row included)', tbdMeta.rowCount, tbdMirror.count);
+  var tbdBody = rep.getRange(12, 2, tbdMeta.rowCount, 8).getValues();
+  var tbdLine = tbdBody.filter(function (r) { return String(r[2]) === 'TBD report-render'; })[0];
+  S.t('tbd row renders "TBD" in the Amount column', tbdLine ? String(tbdLine[7]) : '(missing)', 'TBD');
+  S.t('tbd row renders no rate ("—")', tbdLine ? String(tbdLine[6]) : 'x', '—');
+  S.near('tbd report: hours match mirror (TBD hours counted)', tbdMeta.totalHours, tbdMirror.hours, 0.05);
+  S.near('tbd report: € total excludes the TBD session', tbdMeta.totalAmount, tbdMirror.amount, 0.05);
+  logSh.deleteRow(tbdRow);
 }
 
 /** Independent JS mirror of collectReportRows_ filter semantics (the oracle). */

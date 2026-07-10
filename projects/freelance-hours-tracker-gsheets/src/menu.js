@@ -16,6 +16,8 @@ function onOpen() {
     .addItem('■ Stop & log all', 'stopAllFromSheet')
     .addSeparator()
     .addItem('Mark selected session(s) free', 'toggleSelectedFree')
+    .addItem('Mark selected session(s) TBD (price later)', 'toggleSelectedTbd')
+    .addItem('Bill selected session(s) at hourly rate', 'billSelectedAtRate')
     .addItem('Delete selected session(s)', 'deleteSelectedLogRows')
     .addItem('Sort Time Log by date', 'sortLogByDate')
     .addSeparator()

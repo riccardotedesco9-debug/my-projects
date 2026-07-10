@@ -18,6 +18,10 @@ function sectionBuildSpec_(S, env) {
   S.t('phone Start cell is a real checkbox', chkVal && chkVal.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
   var ddl = ss.getRangeByName(CFG.named.dbClient).getDataValidation();
   S.t('client dropdown validation present + strict', !!ddl && ddl.getAllowInvalid() === false, true);
+  var billVal = ss.getRangeByName(CFG.named.dbBilling).getDataValidation();
+  S.t('phone Billing dropdown present (Normal/Free/TBD)', !!billVal && billVal.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.VALUE_IN_LIST, true);
+  var taskVal = ss.getRangeByName(CFG.named.dbTask).getDataValidation();
+  S.t('task cell has a recent-task dropdown (free-text allowed)', !!taskVal && taskVal.getAllowInvalid() === true, true);
   S.t('status banner idle text', String(ss.getRangeByName(CFG.named.dbStatus).getValue()), 'IDLE — ready to start');
 
   // --- Time Log spec ---
@@ -33,16 +37,17 @@ function sectionBuildSpec_(S, env) {
     var bc = r.getBooleanCondition();
     return bc ? bc.getCriteriaValues().join(' ') : '[gradient]';
   });
-  S.t('10 conditional rules', dump.length, 10);
+  S.t('11 conditional rules', dump.length, 11);
   // First-match-wins ORDER is the whole mechanism: combined midnight+busy first
   // (deepest shade first), then plain midnight, plain busy, the hours gradient,
-  // then the two status-column cues (in-progress, free) on their own columns.
+  // then the status/amount cues (in-progress, free, TBD) on their own columns.
   S.t('rule 1 = midnight AND busiest (>12h)', dump[0].indexOf('INT($E2)') >= 0 && dump[0].indexOf('>12') >= 0, true);
   S.t('rule 4 = plain midnight (no busy clause)', dump[3].indexOf('INT($E2)') >= 0 && dump[3].indexOf('SUMIF') < 0, true);
   S.t('rule 7 = plain busy >8h (no midnight clause)', dump[6].indexOf('>8') >= 0 && dump[6].indexOf('INT($E2)') < 0, true);
   S.t('rule 8 = hours gradient', dump[7], '[gradient]');
   S.t('rule 9 = in-progress (Start set, End blank)', dump[8].indexOf('$D2') >= 0 && dump[8].indexOf('$E2') >= 0, true);
   S.t('rule 10 = free amount ($I2="Free")', dump[9].indexOf('Free') >= 0, true);
+  S.t('rule 11 = TBD amount ($I2="TBD")', dump[10].indexOf('TBD') >= 0, true);
   S.t('log has a click-to-sort/filter on its headers', !!log.getFilter(), true);
 
   // --- Clients / Settings / Summary / Report spec ---

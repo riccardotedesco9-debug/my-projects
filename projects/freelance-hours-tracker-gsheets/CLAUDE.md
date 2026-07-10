@@ -13,7 +13,9 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
    timer sidebar appear automatically.
 2. Pick a **Client**, type what you're doing in **Task**, hit **▶ Start timer** (sidebar or
    the Dashboard START box). A live row appears in the **RUNNING NOW** list with its own
-   ticking clock; the banner shows how many timers are live.
+   ticking clock; the banner shows how many timers are live. The **Task** field remembers
+   recently-used names — type-ahead autocomplete + one-tap chips in the sidebar, and a
+   dropdown on the phone Dashboard — so a repeat session doesn't mean retyping.
 3. **Run several at once:** hit Start again with a different client/task and a **second** clock
    starts alongside — timers are fully concurrent, and overlapping time bills each task
    independently (start a clock for each thing you're genuinely doing in parallel). Each card
@@ -21,14 +23,22 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
 4. Stopping logs one row per session in **Time Log** (date, client, task, start, end, hours,
    **status**, rate, € amount). A running session lives in the log too — Start set, End blank —
    so a crashed tab/PC/network loses nothing; it just keeps ticking until you stop it.
-5. **Free (no charge):** tick **Free (no charge)** before Start (sidebar or the Dashboard
-   **Free?** box) to log a session as a gift — it shows **Free** (green) instead of a €
-   amount, adds €0 to totals, but its hours still count. You can also flip any finished row
-   later: select it on the Time Log → ⏱ Tracker → *Mark selected session(s) free*.
+5. **Billing (Normal / Free / TBD):** the **Billing** selector (sidebar dropdown, or the
+   Dashboard **Billing** cell) sets how a session is charged before you Start:
+   - **Free (no charge)** → shows **Free** (green) instead of a € amount, adds €0 to totals,
+     hours still count (a gift).
+   - **TBD (agree price later)** → shows **TBD** (gold) when you haven't agreed a price yet
+     but want to track the work anyway. Adds €0 for now, hours still count. **Amend it later**
+     by typing the agreed € straight into the row's Amount cell (Status flips to *Finished*),
+     or via ⏱ Tracker → *Bill selected session(s) at hourly rate* to price it at the client's
+     rate. Free/TBD skip the "no rate set" warning — the price is deliberately not the rate.
+   You can also retag any finished row after the fact: select it on the Time Log → ⏱ Tracker →
+   *Mark selected session(s) free* / *…TBD (price later)* / *Bill …at hourly rate*.
 6. **Monthly report:** ⏱ Tracker → *Export timesheet PDF…* → pick client (or All Clients) +
    month + include-€ → print-ready A4 PDF lands in `Timesheets/<Client>/` in Drive, e.g.
    `Timesheet_2026-07_PetCentre_<YourName>.pdf`. In-progress (still-running) sessions are
-   excluded; free sessions show **Free** (green, €0) with their hours still counted. The PDF
+   excluded; free sessions show **Free** (green, €0) and not-yet-priced ones **TBD** (gold,
+   €0), each with their hours still counted. The PDF
    ends with a **WORK BREAKDOWN**: same-type tasks consolidated into named groups (Claude
    Haiku via the `ANTHROPIC_API_KEY` Script Property; deterministic exact-match fallback
    without it) + a pie chart of where the hours went. Groupings are cached per client+month.
@@ -45,15 +55,16 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
     client-facing **Summary** dashboard: headline stats (total hours, sessions, this month),
     an hours-by-month column chart + a "Where the time goes" top-tasks pie, the tables
     behind them, and the latest-first session list — plus a **Status** column showing
-    *In Progress* (a task you're timing right now), *Free* on no-charge sessions, and
-    *Finished* on everything else. Hours
+    *In Progress* (a task you're timing right now), *Free* on no-charge sessions, *TBD* on
+    not-yet-priced ones, and *Finished* on everything else. Hours
     ONLY: it imports Log!A2:G (date…hours + the Status label) filtered to that client, so
     rates/€ (H/I) and other clients physically can't appear.
 
 The **sidebar is the control surface** (the RUNNING NOW list with a live clock + Stop per
-timer, an add-a-timer form with a Free toggle, Stop-all, today + month footer, export/add-
-session shortcuts). The Dashboard mirrors it for the phone: START box + Free? to add a clock,
-a RUNNING NOW block with a stop box per timer, and the count banner (gray IDLE / green N running).
+timer, an add-a-timer form with a recent-task picker + a Billing selector, Stop-all, today +
+month footer, export/add-session shortcuts). The Dashboard mirrors it for the phone: START box
++ Billing dropdown to add a clock, a RUNNING NOW block with a stop box per timer, and the count
+banner (gray IDLE / green N running).
 
 ## Safety properties (why it's trustworthy)
 
@@ -65,15 +76,18 @@ a RUNNING NOW block with a stop box per timer, and the count banner (gray IDLE /
   wall-clock time bills each task independently. Session identity = `Start.getTime()`
   (`startedAtMs`), unique among the live set (a same-ms collision bumps +1ms); every consumer
   keys off the stored value, so a ±1ms datetime round-trip never mis-maps a stop.
-- **Free sessions:** the Amount cell holds the literal `"Free"` — SUM/QUERY treat text as €0,
-  so it drops out of money totals while its hours still count; shown green in the log/PDF and
-  as a *Free* tag in the client view.
+- **Free / TBD sessions:** the Amount cell holds the literal `"Free"` (no charge) or `"TBD"`
+  (price agreed later) — SUM/QUERY treat text as €0, so both drop out of money totals while
+  their hours still count; shown green ("Free") / gold ("TBD") in the log/PDF and as *Free* /
+  *TBD* tags in the client view. Amend a TBD row by typing the € into its Amount cell (Status
+  auto-flips to *Finished*) or *Bill …at hourly rate*.
 - **Column order:** A date · B client · C task · D start · E end · F hours · **G Status** ·
-  H rate · I amount. Status is a per-row formula (In Progress / Free / Finished) that carries no
-  money, so the client view can import A2:G safely. Rate/Amount live at H/I, never imported.
+  H rate · I amount. Status is a per-row formula (In Progress / Free / TBD / Finished) that
+  carries no money, so the client view can import A2:G safely. Rate/Amount live at H/I, never
+  imported.
 - Times stored as full date+time → midnight-crossing sessions compute correctly.
 - Log flags: >8h days (amber date), midnight-crossing rows (red date), hours color scale,
-  in-progress (teal Status), free (green Amount).
+  in-progress (teal Status), free (green Amount), TBD (gold Amount).
 - Exact-minute billing, no rounding by design — a very short session can show 0.00 h.
 - The Report sheet is a regenerate-on-demand artifact — never stored data.
 
@@ -92,7 +106,7 @@ with the old 8-column log, so don't clock time in that window.
   privates). `src/build.js` → `rebuild_()` is the **authoritative layout spec**.
 - `npm run push` = `clasp push` · `npm run open` = open the container Sheet ·
   `npm test` = eslint + `tools/run-tests.mjs` (drives `runSmokeTest()`).
-- **`runSmokeTest()` is a full health check + stress suite** (~450 checks, ~17 sections +
+- **`runSmokeTest()` is a full health check + stress suite** (~470 checks, ~17 sections +
   cleanup, ~3-5 min): section 1 is a READ-ONLY production health check (structure, named ranges,
   triggers, Script Properties, Drive tree, a full data-integrity sweep of the real log incl.
   in-progress rows + dashboard/summary reconciliation); everything else drives the REAL

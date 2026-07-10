@@ -156,8 +156,9 @@ function buildLogSheet_(ss) {
     .setRanges([sh.getRange(2, c.hours, body, 1)])
     .build();
   // Running rows (Start set, End blank) get a soft-teal Status cell; free rows
-  // (Amount = the literal "Free") show a green Amount. Both target their OWN
-  // column, so they never collide with the date/hours cues above.
+  // (Amount = the literal "Free") show a green Amount; TBD rows (Amount = "TBD",
+  // price agreed later) show a gold Amount. Each targets its OWN column, so they
+  // never collide with the date/hours cues above.
   var inProgressRule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied('=AND($D2<>"", $E2="")')
     .setBackground(CFG.colors.tealSoft)
@@ -166,6 +167,11 @@ function buildLogSheet_(ss) {
   var freeRule = SpreadsheetApp.newConditionalFormatRule()
     .whenFormulaSatisfied('=$I2="Free"')
     .setFontColor(CFG.colors.green)
+    .setRanges([amountRange])
+    .build();
+  var tbdRule = SpreadsheetApp.newConditionalFormatRule()
+    .whenFormulaSatisfied('=$I2="TBD"')
+    .setFontColor(CFG.colors.gold)
     .setRanges([amountRange])
     .build();
   sh.setConditionalFormatRules([
@@ -179,6 +185,7 @@ function buildLogSheet_(ss) {
     hoursScale,
     inProgressRule,
     freeRule,
+    tbdRule,
   ]);
 
   var widths = { 1: 92, 2: 150, 3: 230, 4: 64, 5: 64, 6: 62, 7: 96, 8: 84, 9: 100 };

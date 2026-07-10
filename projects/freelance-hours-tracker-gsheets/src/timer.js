@@ -40,12 +40,14 @@ function getTimerSnapshot() {
  */
 function buildSnapshot_(ctx) {
   var running = getRunningSessions_(ctx).map(function (r) {
-    return { startedAtMs: r.startedAtMs, client: r.client, task: r.task, free: r.free };
+    return { startedAtMs: r.startedAtMs, client: r.client, task: r.task, free: r.free, tbd: r.tbd };
   });
   return {
     running: running,
     serverNowMs: Date.now(),
     clients: getClientNames_(ctx),
+    // Recently-used task names (most-recent first) for the sidebar autocomplete.
+    recentTasks: getRecentTasks_(ctx, 12),
     dbClient: String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim(),
     dbTask: String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim(),
     // Read from the Dashboard's live formula cells — no recomputation here.
@@ -94,7 +96,7 @@ function startWorkFromSheet() {
   var client = String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim();
   var task = String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim();
   var ui = SpreadsheetApp.getUi();
-  var opts = { free: boolNamed_(ctx, CFG.named.dbFree) };
+  var opts = billingFromNamed_(ctx); // { free, tbd } from the Billing dropdown
   var res = startWorkCtx_(ctx, client, task, opts);
   if (res.needsRateConfirm) {
     var ra = ui.alert('No rate set', res.msg + '\n\nStart anyway?', ui.ButtonSet.YES_NO);
@@ -103,7 +105,8 @@ function startWorkFromSheet() {
     res = startWorkCtx_(ctx, client, task, opts);
   }
   notify_(ctx, res.ok
-    ? 'Timing ' + client + (task ? ' — ' + task : '') + (opts.free ? ' (free)' : '')
+    ? 'Timing ' + client + (task ? ' — ' + task : '') +
+      (opts.free ? ' (free)' : (opts.tbd ? ' (price TBD)' : ''))
     : res.msg);
 }
 
@@ -131,9 +134,9 @@ function startWorkCtx_(ctx, client, task, opts) {
   if (!info.exists) return { ok: false, msg: MSG.unknownClient(client) };
   // Rate guard: don't silently log €0. The live Rate formula back-fills once a
   // rate is added, so confirming (or the mobile/silent paths) proceeds safely.
-  // A FREE session bills €0 by design, so the missing-rate warning is moot —
-  // skip it when opts.free is set.
-  if (!opts.confirmNoRate && !opts.free && !ctx.silent && !info.hasRate) {
+  // A FREE session bills €0 by design, and a TBD session isn't priced yet, so the
+  // missing-rate warning is moot for both — skip it when either flag is set.
+  if (!opts.confirmNoRate && !opts.free && !opts.tbd && !ctx.silent && !info.hasRate) {
     return { ok: false, needsRateConfirm: true, client: client, msg: MSG.noRate(client) };
   }
 
@@ -148,7 +151,8 @@ function startWorkCtx_(ctx, client, task, opts) {
     }
     var startMs = Date.now();
     while (used[startMs]) startMs++; // unique identity among the live clocks
-    appendInProgressRow_(ctx, startMs, client, task, !!opts.free);
+    var flag = opts.free ? 'Free' : (opts.tbd ? 'TBD' : '');
+    appendInProgressRow_(ctx, startMs, client, task, flag);
     paintRunningSurfaces_(ctx);
     SpreadsheetApp.flush(); // so the dashboard/snapshot reflect the new row
     var snapshot = buildSnapshot_(ctx);
@@ -217,11 +221,12 @@ function discardAllCtx_(ctx) {
 /**
  * Appends an in-progress row: Client, Task, Start (hh:mm), Date (=INT(Start))
  * and the per-row Status formula; End/Hours/Rate blank; Amount blank, or the
- * literal "Free" when free-at-start. The amount formula is deliberately withheld
- * until stop — writing =ROUND(hours*rate) while Hours is blank would poison the
- * money aggregates with #VALUE!.
+ * literal "Free" (no charge) / "TBD" (price agreed later) when flagged at start.
+ * The amount formula is deliberately withheld until stop — writing
+ * =ROUND(hours*rate) while Hours is blank would poison the money aggregates with
+ * #VALUE!. `flag` is '' | 'Free' | 'TBD'.
  */
-function appendInProgressRow_(ctx, startMs, client, task, free) {
+function appendInProgressRow_(ctx, startMs, client, task, flag) {
   var sh = ctx.ss.getSheetByName(CFG.sheets.log);
   var c = CFG.log.cols;
   var r = Math.max(sh.getLastRow() + 1, CFG.log.firstDataRow);
@@ -229,8 +234,10 @@ function appendInProgressRow_(ctx, startMs, client, task, free) {
   sh.getRange(r, c.client, 1, 2).setValues([[literal_(client), literal_(task)]]);
   sh.getRange(r, c.start).setValue(new Date(startMs)).setNumberFormat(CFG.formats.time);
   sh.getRange(r, c.date).setFormula('=INT(' + colLetter_(c.start) + r + ')').setNumberFormat(CFG.formats.date);
-  // Right-align "Free" so it lines up with the right-aligned € amounts above/below.
-  if (free) sh.getRange(r, c.amount).setValue('Free').setHorizontalAlignment('right');
+  // Right-align the "Free"/"TBD" text so it lines up with the right-aligned €
+  // amounts above/below (only these two literals are billing flags).
+  var f = flag === 'Free' || flag === 'TBD' ? flag : '';
+  if (f) sh.getRange(r, c.amount).setValue(f).setHorizontalAlignment('right');
   writeStatusFormula_(sh, r);
   return r;
 }
@@ -269,9 +276,10 @@ function appendLogRow_(ctx, startMs, endMs, client, task) {
 /**
  * Writes the Date/Hours/Rate/Amount formulas for one hourly row — shared by the
  * manual/demo append and the on-stop completion. Amount is left untouched when
- * the row is flagged "Free" (Amount === "Free") so a free session shows "Free".
- * Date reads Start, so full datetimes must already be in place. Status (col G)
- * has its own per-row formula (writeStatusFormula_) and is never written here.
+ * the row is flagged "Free" or "TBD" (a no-charge or not-yet-priced session), so
+ * that text survives the stop. Date reads Start, so full datetimes must already
+ * be in place. Status (col G) has its own per-row formula (writeStatusFormula_)
+ * and is never written here.
  */
 function writeHourlyFormulas_(sh, r) {
   var c = CFG.log.cols;
@@ -290,15 +298,16 @@ function writeHourlyFormulas_(sh, r) {
     .setFormula('=IFERROR(N(INDEX(' + clientsB + ', MATCH(' + A(c.client) + ', ' + clientsA + ', 0))), 0)')
     .setNumberFormat(CFG.formats.euro);
   var amtCell = sh.getRange(r, c.amount);
-  if (String(amtCell.getValue()) !== 'Free') {
+  var amtVal = String(amtCell.getValue());
+  if (amtVal !== 'Free' && amtVal !== 'TBD') {
     amtCell.setFormula(amountFormulaText_(r)).setNumberFormat(CFG.formats.euro);
   }
 }
 
 /**
  * The hourly Amount formula text (col I) for one row: hours × rate, 2dp. Shared
- * by the on-stop completion (writeHourlyFormulas_) and the free→paid restore
- * (markSelectedFreeCtx_) so the two can never silently diverge.
+ * by the on-stop completion (writeHourlyFormulas_) and the amend-to-priced path
+ * (retagSelectionCtx_) so the two can never silently diverge.
  */
 function amountFormulaText_(r) {
   var c = CFG.log.cols;
@@ -308,15 +317,18 @@ function amountFormulaText_(r) {
 /**
  * The per-row Status formula text (col G): blank on an empty row (no client),
  * else "In Progress" while Start is set and End blank, "Free" when Amount is the
- * literal "Free", otherwise "Finished". The client view imports this column
- * (never the money), so "Free" is how a client sees a no-charge session. Shared
- * by the per-row write and the v1→v2 migration backfill so the two never drift.
+ * literal "Free", "TBD" when Amount is the literal "TBD" (price agreed later),
+ * otherwise "Finished". The client view imports this column (never the money),
+ * so "Free"/"TBD" are how a client sees a no-charge or not-yet-priced session.
+ * Shared by the per-row write and the v1→v2 migration backfill so the two never
+ * drift.
  */
 function statusFormulaText_(r) {
   var c = CFG.log.cols;
   var L = colLetter_;
+  var amt = L(c.amount) + r;
   return '=IF(' + L(c.client) + r + '="", "", IF(AND(' + L(c.start) + r + '<>"", ' + L(c.end) + r +
-    '=""), "In Progress", IF(' + L(c.amount) + r + '="Free", "Free", "Finished")))';
+    '=""), "In Progress", IF(' + amt + '="Free", "Free", IF(' + amt + '="TBD", "TBD", "Finished"))))';
 }
 
 /**
@@ -405,28 +417,45 @@ function recoveryChoiceCtx_(ctx, choice, id) {
 
 // ---------- Mark a session free / paid after the fact (menu) ----------
 
+/** Menu: toggle the selected row(s) Free (no charge) ↔ priced. */
 function toggleSelectedFree() {
   var ctx = makeCtx_();
-  var res = markSelectedFreeCtx_(ctx);
-  notify_(ctx, res.msg);
+  notify_(ctx, retagSelectionCtx_(ctx, 'Free').msg);
+}
+
+/** Menu: toggle the selected row(s) TBD (price agreed later) ↔ priced. */
+function toggleSelectedTbd() {
+  var ctx = makeCtx_();
+  notify_(ctx, retagSelectionCtx_(ctx, 'TBD').msg);
+}
+
+/** Menu: price the selected row(s) at the client's hourly rate (clears Free/TBD). */
+function billSelectedAtRate() {
+  var ctx = makeCtx_();
+  notify_(ctx, retagSelectionCtx_(ctx, null).msg);
 }
 
 /**
- * Toggles the selected Time Log row(s) between "Free" (no charge) and priced.
- * Free = the literal "Free" in the Amount cell (SUM/QUERY treat text as €0, so
- * it drops out of the money totals but its hours still count). Un-free restores
- * the amount formula on a completed row, or clears it on a still-running one.
- * Ignores the header + blank rows.
+ * Re-tags the selected Time Log row(s)' billing state, under the lock.
+ *   tag = 'Free' | 'TBD' → TOGGLE that literal text in the Amount cell: a row
+ *     already carrying it is restored to priced; any other row gets the tag.
+ *   tag = null → always price at the client's hourly rate (the explicit
+ *     "amend to hourly" action; clears any Free/TBD).
+ * "Priced" = the =ROUND(hours*rate) amount formula on a completed row (End set),
+ * or a blank Amount on a still-running one (the formula is withheld until stop).
+ * A "Free"/"TBD" literal is text → SUM/QUERY treat it as €0 while the hours still
+ * count. Ignores the header + blank rows; the Status formula follows each change,
+ * so an older row created before the Status column existed still surfaces the tag.
  */
-function markSelectedFreeCtx_(ctx) {
+function retagSelectionCtx_(ctx, tag) {
   var sh = ctx.ss.getActiveSheet();
   if (sh.getName() !== CFG.sheets.log) return { ok: false, msg: MSG.selectLogRows };
   var rl = sh.getActiveRangeList();
   var ranges = rl ? rl.getRanges() : [sh.getActiveRange()];
   var c = CFG.log.cols;
   return withLock_(function () {
-    var freed = 0;
-    var paid = 0;
+    var tagged = 0;
+    var priced = 0;
     ranges.forEach(function (rng) {
       var startRow = rng.getRow();
       for (var i = 0; i < rng.getNumRows(); i++) {
@@ -434,26 +463,28 @@ function markSelectedFreeCtx_(ctx) {
         if (r < CFG.log.firstDataRow) continue;
         if (String(sh.getRange(r, c.client).getValue()).trim() === '') continue;
         var amtCell = sh.getRange(r, c.amount);
-        if (String(amtCell.getValue()) === 'Free') {
+        if (tag && String(amtCell.getValue()) !== tag) {
+          amtCell.setValue(tag).setHorizontalAlignment('right'); // line up with the € amounts
+          tagged++;
+        } else {
           if (sh.getRange(r, c.end).getValue() instanceof Date) {
             amtCell.setFormula(amountFormulaText_(r)).setNumberFormat(CFG.formats.euro);
           } else {
             amtCell.clearContent();
           }
-          paid++;
-        } else {
-          amtCell.setValue('Free').setHorizontalAlignment('right'); // line up with the € amounts
-          freed++;
+          priced++;
         }
-        // Ensure the row carries a Status formula so "Free" surfaces to the
-        // client even on an older row created before the Status column existed.
         writeStatusFormula_(sh, r);
       }
     });
-    if (freed + paid === 0) return { ok: false, msg: MSG.selectLogRows };
+    if (tagged + priced === 0) return { ok: false, msg: MSG.selectLogRows };
     paintRunningSurfaces_(ctx);
     SpreadsheetApp.flush();
-    return { ok: true, msg: 'Updated ' + (freed + paid) + ' row(s): ' + freed + ' free, ' + paid + ' paid.' };
+    var msg = tag
+      ? 'Updated ' + (tagged + priced) + ' row(s): ' + tagged + ' ' + (tag === 'TBD' ? 'TBD' : 'free') +
+        ', ' + priced + ' priced.'
+      : 'Priced ' + priced + ' row(s) at the hourly rate.';
+    return { ok: true, msg: msg };
   });
 }
 
