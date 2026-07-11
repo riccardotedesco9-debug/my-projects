@@ -34,12 +34,17 @@ The first time you use the menu, Google asks for permissions and shows
 
 ## Step 3 — Setup
 
-**Hike Sync → Setup…** and answer the three prompts:
+**Hike Sync → Setup…** opens a short form with three settings:
 
-1. Data tab name (it auto-detects the tab with Name/SKU/Barcode headers).
-2. Optional watch folder: paste a Drive folder link. Any Hike export dropped there is
-   imported automatically within ~5 minutes.
-3. Optional alert email for failures.
+1. **Data tab** — the tab holding the products (it auto-detects the one with
+   Name/SKU/Barcode headers; usually "DATA SHEET").
+2. **Auto-import folder** (optional) — paste a Drive folder link. Any Hike export dropped
+   there is imported automatically within a few minutes.
+3. **Failure-alert email** (optional).
+
+Saving only stores preferences — it never touches product data. If the data tab has no
+stock column, Setup also appends an empty **"Stock on hand"** placeholder column (additive
+and safe) so the stock insights can work now (if Hike stock is present) or later.
 
 ## Step 4 — First import (this is the safety gate)
 
@@ -51,6 +56,18 @@ The first time you use the menu, Google asks for permissions and shows
 
 Products that disappear from Hike are **never deleted** from the sheet — they're kept
 and flagged "Not in last Hike import" in the note column.
+
+## The rest of the menu (optional, any time)
+
+Open **Hike Sync → Command center** for a live dashboard and a guide to every action. In short:
+- **Print price labels…** — search products, tick the ones you want; their barcodes are
+  appended to the LABELS tab (backed up first) and its formulas fill in name/price.
+- **Insights charts (build / refresh)** — summary charts (value by category, product mix,
+  stock health, price bands) anchored to the right of the data; also enables the red
+  low-stock highlight (stock cells at/below the Hike reorder level).
+- **Show column filters** — filter dropdowns on every column (e.g. depleted stock, status).
+- **Delete products no longer in Hike…** — opt-in cleanup that removes rows flagged
+  "not in last import"; it backs up first and makes you type DELETE to confirm.
 
 ## Optional — Automatic API sync (Hike Plus plan only)
 
@@ -69,7 +86,8 @@ Hike credentials. Keep the editor list to people you'd trust with the Hike accou
 
 ## If something ever looks wrong
 
-1. Don't panic — deletions are impossible by construction.
+1. Don't panic — the sync never deletes automatically; the only deletion is the opt-in
+   "Delete products no longer in Hike" action, which backs up first and needs a typed DELETE.
 2. Right-click any tab → **Unhide** → open the newest `_hike_backup_…` tab: that's the
    full DATA tab as it was before the last sync. Copy values back if needed.
 3. Google Sheets **File → Version history** is a second, independent rollback.
