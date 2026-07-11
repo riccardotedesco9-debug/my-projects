@@ -62,9 +62,10 @@ and flagged "Not in last Hike import" in the note column.
 Open **Hike Sync → Command center** for a live dashboard and a guide to every action. In short:
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
-- **Insights charts (build / refresh)** — summary charts (value by category, product mix,
-  stock health, price bands) in a dedicated "Hike Insights" tab; also enables the red
-  low-stock highlight (stock cells at/below the Hike reorder level).
+- **Insights + stock overview (refresh)** — summary charts (value by category, product mix,
+  stock health, price bands) in a "Hike Insights" tab, plus a live "Stock overview" tab that
+  brings the key columns (name, barcode, price, stock, reorder) to the front with a red
+  low-stock highlight.
 - **Show column filters** — filter dropdowns on every column (e.g. depleted stock, status).
 - **Delete products no longer in Hike…** — opt-in cleanup that removes rows flagged
   "not in last import"; it backs up first and makes you type DELETE to confirm.

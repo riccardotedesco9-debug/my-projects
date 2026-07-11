@@ -21,7 +21,7 @@ Open the sheet → **Hike Sync** menu:
 | **Sync from Hike API now** | Pull changed products from Hike's API (needs *Connect Hike API* + a Hike **Plus** plan). |
 | **Connect Hike API… / Turn ON/OFF auto-sync** | One-time API connect; schedule the pull every 15 min. |
 | **Print price labels…** | Search the catalog, tick items, append their barcodes to the LABELS tab (its formulas fill name/price). |
-| **Insights charts (build / refresh)** | Build/refresh the summary charts in a dedicated "Hike Insights" tab. |
+| **Insights + stock overview (refresh)** | Build/refresh the charts ("Hike Insights" tab) and a live "Stock overview" tab (key columns + low-stock highlight). |
 | **Show column filters** | Add filter dropdowns to every column (depleted stock, in-Hike status, category…). |
 | **Trim empty rows** | Remove blank trailing rows from the data tab (only empty rows below the data; never touches data). |
 | **Setup…** | Choose the data tab, optional watch folder, failure-alert email. |

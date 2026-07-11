@@ -15,7 +15,7 @@ function onOpen() {
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
     .addSeparator()
     .addItem('Print price labels…', 'menuPrintLabels')
-    .addItem('Insights charts (build / refresh)', 'menuInsights')
+    .addItem('Insights + stock overview (refresh)', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
     .addItem('Trim empty rows', 'menuTrim')
     .addSeparator()
