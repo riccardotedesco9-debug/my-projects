@@ -1,0 +1,19 @@
+{
+  "name": "pet-centre-hike-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hike POS → Google Sheets product sync (container-bound Apps Script)",
+  "scripts": {
+    "push": "clasp push -f",
+    "pull": "clasp pull",
+    "open": "clasp open-container",
+    "bundle": "node tools/build-bundle.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@google/clasp": "^3.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
