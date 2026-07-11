@@ -31,8 +31,13 @@ var SheetIO = (function () {
 
   /** Snapshot the data tab's values into a hidden timestamped backup tab; keep the newest N. */
   function backup() {
-    var keep = parseInt(Settings.get('BACKUP_KEEP', Settings.DEFAULTS.BACKUP_KEEP), 10) || 5;
+    var keep = parseInt(Settings.get('BACKUP_KEEP', Settings.DEFAULTS.BACKUP_KEEP), 10) || 3;
     var values = readAll();
+    // Cap total backup footprint so retained copies + the live tabs stay under Google's hard
+    // 10M-cell-per-spreadsheet limit (which, if breached, wedges the whole workbook). On a huge
+    // catalog this keeps fewer copies rather than piling up toward the cap.
+    var cells = values.length * (values[0] ? values[0].length : 0);
+    if (cells > 0) keep = Math.max(1, Math.min(keep, Math.floor(7000000 / cells)));
     var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd_HHmmss');
     var name = BACKUP_PREFIX + stamp;
     var spreadsheet = ss();
@@ -79,16 +84,22 @@ var SheetIO = (function () {
       // Preserve untouched cells EXACTLY — including any user formula. getValues() flattens a
       // formula to its computed value, so re-apply each untouched cell's formula (a leading-'='
       // string becomes a formula again on setValues); only the changed rows get the new value.
+      // For non-formula cells, formulaSafe guards a leading =/+/-/@ so plain text that looks like
+      // a formula isn't re-interpreted as one on write-back (and injected product text can't run).
       var vals = range.getValues(), fs = range.getFormulas();
-      for (var i = 0; i < vals.length; i++) if (fs[i][0] !== '') vals[i][0] = fs[i][0];
-      changes.forEach(function (x) { vals[x[0] - minRow][0] = x[1]; });
+      for (var i = 0; i < vals.length; i++) {
+        if (fs[i][0] !== '') vals[i][0] = fs[i][0];
+        else vals[i][0] = ValueUtils.formulaSafe(vals[i][0]);
+      }
+      changes.forEach(function (x) { vals[x[0] - minRow][0] = ValueUtils.formulaSafe(x[1]); });
       range.setValues(vals);
     });
     var appendStartRow = 0;
     if (plan.appends.length) {
       appendStartRow = sh.getLastRow() + 1;
       ensureGrid_(sh, appendStartRow + plan.appends.length - 1, plan.appends[0].length);
-      sh.getRange(appendStartRow, 1, plan.appends.length, plan.appends[0].length).setValues(plan.appends);
+      var rows = plan.appends.map(function (r) { return r.map(ValueUtils.formulaSafe); });
+      sh.getRange(appendStartRow, 1, rows.length, rows[0].length).setValues(rows);
     }
     SpreadsheetApp.flush();
     return { appendStartRow: appendStartRow, appendCount: plan.appends.length };

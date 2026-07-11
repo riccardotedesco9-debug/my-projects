@@ -47,6 +47,20 @@ var ValueUtils = (function () {
     return isFinite(n) ? n : null;
   }
 
+  /**
+   * Neutralize an accidental/hostile formula before a setValues() write. Google Sheets turns a
+   * string cell starting with =, +, - or @ into a live formula on setValues (that's how the
+   * merge engine even restores real formulas). Product text sourced from Hike (a name, category,
+   * barcode) that happens to start with one of those would silently become a formula — worst
+   * case an =IMPORTXML(...) that exfiltrates catalog data. Prefix a leading apostrophe so the
+   * cell is forced to text; the apostrophe is NOT stored in the value (display + lookups match
+   * the plain text). Numbers pass through untouched, so numeric columns keep their type.
+   */
+  function formulaSafe(v) {
+    if (typeof v === 'string' && /^[=+\-@]/.test(v)) return "'" + v;
+    return v;
+  }
+
   /** Parse boolean-ish values (true, 'TRUE', 'Yes'…) to a boolean, or null. */
   function parseBoolish(v) {
     if (typeof v === 'boolean') return v;
@@ -122,6 +136,7 @@ var ValueUtils = (function () {
     normHeader: normHeader,
     normKey: normKey,
     parseNumeric: parseNumeric,
+    formulaSafe: formulaSafe,
     parseBoolish: parseBoolish,
     parseDateMs: parseDateMs,
     equivalent: equivalent,

@@ -23,7 +23,8 @@ labels) is never written by this project.
    `Hike Sync Note` column, hidden `_hike_backup_*` and `_hike_sync_log` tabs).
 2. Upsert = overwrite changed cells in place + append new rows. **No row deletion,
    no cell clearing of user data** — products missing from an import are only flagged.
-3. Values snapshot to a hidden timestamped backup tab before every mutating run (keep 5).
+3. Values snapshot to a hidden timestamped backup tab before every mutating run (keep the
+   newest 3; fewer on a very large catalog so backups can't breach the per-spreadsheet cell cap).
 4. Header-verification gate: unknown import columns or a missing SKU column abort the
    run before anything is written. A "blanking guard" aborts if an import would blank
    an unusual share of existing values (wrong export mode protection).

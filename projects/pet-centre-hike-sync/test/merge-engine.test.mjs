@@ -160,11 +160,14 @@ test('barcode fallback key matches number (sheet) vs string (import) when SKU is
   assert.equal(plan.updates[0].rowIndex, 4);
 });
 
-test('groupRuns batches contiguous columns', () => {
-  const runs = MergeEngine.groupRuns([
-    { col: 5, newValue: 'e' }, { col: 2, newValue: 'a' }, { col: 3, newValue: 'b' },
-  ]);
-  assert.deepEqual(runs, [{ startCol: 2, values: ['a', 'b'] }, { startCol: 5, values: ['e'] }]);
+test('formulaSafe neutralizes leading formula chars but leaves normal values', () => {
+  assert.equal(ValueUtils.formulaSafe('=IMPORTXML("http://evil","//a")'), "'=IMPORTXML(\"http://evil\",\"//a\")");
+  assert.equal(ValueUtils.formulaSafe('+1+1'), "'+1+1");
+  assert.equal(ValueUtils.formulaSafe('-5'), "'-5");
+  assert.equal(ValueUtils.formulaSafe('@handle'), "'@handle");
+  assert.equal(ValueUtils.formulaSafe('Dog Food 2kg'), 'Dog Food 2kg');
+  assert.equal(ValueUtils.formulaSafe(12.5), 12.5); // numbers keep their type
+  assert.equal(ValueUtils.formulaSafe(''), '');
 });
 
 test('equivalence: currency string vs number, boolean string vs boolean', () => {

@@ -9,10 +9,11 @@
 var Insights = (function () {
   var HELPER = '_hike_insights';
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
+  var OVERVIEW_ID_KEY = 'OVERVIEW_SHEET_ID'; // obsolete "Stock overview" tab id — used once to remove it
+  var CHARTS_ID_KEY = 'CHARTS_SHEET_ID';     // stored sheetId of our "Hike Insights" tab
   var TITLE = 'Hike Insights: ';
   var LOW_STOCK_RED = '#f4c7c3'; // reserved tint: marks OUR low-stock rule so re-runs don't stack
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
-  var OVERVIEW_TAB = 'Stock overview'; // visible tab: key columns (name/barcode/price/stock) up front
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
 
@@ -58,7 +59,7 @@ var Insights = (function () {
         var onHand = num_(row[stockCol]);
         var reorder = reorderCol !== -1 ? num_(row[reorderCol]) : 0;
         if (onHand <= 0) health.out++;
-        else if (reorder > 0 && onHand < reorder) health.low++;
+        else if (reorder > 0 && onHand <= reorder) health.low++; // <= matches the red CF highlight
         else health.ok++;
       }
       if (retailCol !== -1) {
@@ -97,7 +98,10 @@ var Insights = (function () {
     var ranges = {};
     function put(col, header, rows) {
       var table = [header].concat(rows);
-      sh.getRange(1, col, table.length, 2).setValues(table);
+      // Category/type labels are product text from Hike — formulaSafe the label column so a name
+      // beginning with =/+/-/@ can't become a live formula in this (auto-evaluated) helper tab.
+      var safe = table.map(function (t) { return [ValueUtils.formulaSafe(t[0]), t[1]]; });
+      sh.getRange(1, col, safe.length, 2).setValues(safe);
       return sh.getRange(2, col, rows.length, 2); // DATA rows only — keeps the header text out of the chart categories
     }
     if (agg.have.value) ranges.value = put(1, ['Category', 'Inventory value (€)'], agg.valueByCat.length ? agg.valueByCat : [['(no data)', 0]]);
@@ -110,30 +114,77 @@ var Insights = (function () {
     return ranges;
   }
 
+  function sheetById_(ss, id) {
+    id = String(id);
+    var arr = ss.getSheets();
+    for (var i = 0; i < arr.length; i++) if (String(arr[i].getSheetId()) === id) return arr[i];
+    return null;
+  }
+
+  /** Does an existing same-named tab clearly belong to THIS tool (a leftover from an older
+   *  version), vs. a user tab that merely shares the name? Our charts tab is floating charts
+   *  over an empty grid. */
+  function isOurTab_(sheet) {
+    return sheet.getCharts().length > 0 && sheet.getLastRow() <= 1;
+  }
+
   /**
-   * Get (or create) one of the tool's own visible output tabs, tracked by stored sheetId so we
-   * NEVER adopt/overwrite a pre-existing USER tab that happens to share the name. If the preferred
-   * name is already taken by someone else's tab, we create a distinctly-suffixed one instead.
+   * Get (or create) one of the tool's own visible output tabs. Reuse is keyed on a STORED sheetId
+   * so refresh reuses the SAME tab in place (never spawns duplicates). If the id is gone but a
+   * same-named tab exists, we reuse it only when it's recognizably ours (isOurTab_) — a user tab
+   * that merely shares the name is left untouched and a distinctly-suffixed tab is created
+   * instead, so we never clear someone's data (invariant #1). Never adopts the data/helper tab.
    */
-  /** Get (or create) one of the tool's own visible output tabs, reusing the existing tab of that
-   *  exact name IN PLACE so refresh never spawns duplicates. Never adopts the data/helper tab. */
-  function ownTab_(name) {
+  function ownTab_(name, idKey) {
     var ss = SpreadsheetApp.getActive();
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
-    var existing = ss.getSheetByName(name);
-    if (existing && existing.getName() !== dataName && !/^_hike_/.test(name)) return existing;
-    var nm = name, n = 2;
-    while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
-    return ss.insertSheet(nm, ss.getSheets().length);
+    var reserved = function (sh) { return sh.getName() === dataName || /^_hike_/.test(sh.getName()); };
+    var stored = Settings.get(idKey, '');
+    if (stored) { var byId = sheetById_(ss, stored); if (byId && !reserved(byId)) return byId; }
+    var same = ss.getSheetByName(name), sh;
+    if (same && !reserved(same) && isOurTab_(same)) {
+      sh = same; // reclaim our own tab from an older (untracked) version — reset happens by caller
+    } else {
+      var nm = name, n = 2;
+      while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
+      sh = ss.insertSheet(nm, ss.getSheets().length);
+    }
+    Settings.set(idKey, String(sh.getSheetId()));
+    return sh;
   }
-  function chartsTab_() { return ownTab_(CHARTS_TAB); }
+  function chartsTab_() { return ownTab_(CHARTS_TAB, CHARTS_ID_KEY); }
 
-  /** Remove any '<name> 2/3/…' duplicate output tabs a prior (id-tracking) version may have spawned. */
+  /**
+   * Housekeeping before a rebuild: remove the now-retired "Stock overview" tab (inventory lives
+   * on the DATA SHEET itself now) and any leftover numbered "Hike Insights N" duplicate from an
+   * older version. Never touches the data tab or our currently-tracked charts tab.
+   */
   function cleanupDuplicateTabs_() {
     var ss = SpreadsheetApp.getActive();
+    var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
+    var trackedCharts = String(Settings.get(CHARTS_ID_KEY, ''));
+    var removed = false;
     ss.getSheets().forEach(function (s) {
-      if (/^(Hike Insights|Stock overview) \d+$/.test(s.getName())) { try { ss.deleteSheet(s); } catch (e) { /* ignore */ } }
+      var id = String(s.getSheetId());
+      if (s.getName() === dataName || id === trackedCharts) return;
+      if (/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName())) {
+        try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
+      }
     });
+    if (removed) Settings.remove(OVERVIEW_ID_KEY);
+  }
+
+  /** Make the DATA SHEET the inventory home: freeze the header row + the Name column so the key
+   *  product name stays visible while scanning the (wide) export. View-only, non-destructive. */
+  function focusDataSheet_(sh) {
+    try {
+      var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+      if (lastCol < 1 || lastRow < 1) return;
+      var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow), lastCol).getValues());
+      if (hr === -1) return;
+      if (sh.getFrozenRows() < hr + 1) sh.setFrozenRows(hr + 1);
+      if (sh.getFrozenColumns() < 1) sh.setFrozenColumns(1);
+    } catch (e) { /* view convenience — best effort */ }
   }
 
   function addChart_(sheet, type, range, title, offX, offY) {
@@ -144,67 +195,6 @@ var Insights = (function () {
       .setOption('legend', { position: type === Charts.ChartType.PIE ? 'right' : 'none' })
       .build();
     sheet.insertChart(chart);
-  }
-
-  /**
-   * Build/refresh the "Stock overview" tab — the key columns (Name, Barcode, Retail price,
-   * Stock on hand, Reorder level) pulled LIVE from the data tab via QUERY, so inventory is at
-   * the forefront instead of buried among the ~40 export columns. Additive and safe: it only
-   * reads the data tab and writes its own tab; it never reorders or touches the data columns
-   * (so the LABELS lookups can't break). Red-highlights stock at/below reorder (when stock has data).
-   */
-  function buildOverview_(agg) {
-    var ss = SpreadsheetApp.getActive();
-    var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
-    var data = ss.getSheetByName(dataName);
-    if (!data) return;
-    var lastCol = data.getLastColumn();
-    var scan = data.getRange(1, 1, Math.min(5, data.getLastRow() || 1), lastCol).getValues();
-    var hr = MergeEngine.findHeaderRow(scan);
-    if (hr === -1) return;
-    var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
-    var want = [
-      { label: 'Name', idx: findCol_(norm, ['name'], null) },
-      { label: 'Barcode', idx: findCol_(norm, ['barcode'], null) },
-      { label: 'Retail price', idx: findCol_(norm, ['retail price'], /_retail price$/) },
-      { label: 'Stock on hand', idx: findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/) },
-      { label: 'Reorder level', idx: findCol_(norm, ['reorder level'], /_reorder level$/) }
-    ].filter(function (c) { return c.idx !== -1; });
-    var keyIdx = findCol_(norm, ['sku'], null);
-    if (keyIdx === -1) keyIdx = findCol_(norm, ['barcode'], null);
-    if (keyIdx === -1 || !want.length) return;
-
-    var ov = ownTab_(OVERVIEW_TAB);
-    if (ov.getSheetId() === data.getSheetId()) return; // never operate on the data tab itself
-    ov.clearConditionalFormatRules();
-    ov.clear();
-    // Grow the grid to fit the header + QUERY spill BEFORE writing it, so a catalog that grew
-    // since last refresh can't overflow the grid (#REF!). Excess is trimmed after it spills.
-    var needRows = ((agg && agg.products) ? agg.products : 0) + 5;
-    if (ov.getMaxRows() < needRows) ov.insertRowsAfter(ov.getMaxRows(), needRows - ov.getMaxRows());
-    if (ov.getMaxColumns() < want.length) ov.insertColumnsAfter(ov.getMaxColumns(), want.length - ov.getMaxColumns());
-    ov.getRange(1, 1, 1, want.length).setValues([want.map(function (c) { return c.label; })]).setFontWeight('bold');
-    var sel = want.map(function (c) { return colLetter_(c.idx + 1); }).join(', ');
-    var rng = "'" + dataName.replace(/'/g, "''") + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
-    ov.getRange(2, 1).setFormula('=IFERROR(QUERY(' + rng + ', "select ' + sel + ' where ' +
-      colLetter_(keyIdx + 1) + ' is not null", 0), "No products yet.")');
-    ov.setFrozenRows(1);
-    // Size the tab to its real content (Google gives new tabs 1000 rows). Flush first so the
-    // QUERY has spilled and getLastRow reflects the true result size.
-    SpreadsheetApp.flush();
-    var used = Math.max(ov.getLastRow(), 2);
-    if (ov.getMaxRows() > used) ov.deleteRows(used + 1, ov.getMaxRows() - used);
-    if (ov.getMaxColumns() > want.length) ov.deleteColumns(want.length + 1, ov.getMaxColumns() - want.length);
-
-    // Red low-stock highlight on the overview's own Stock/Reorder columns — only when stock has data.
-    var sPos = -1, rPos = -1;
-    want.forEach(function (c, i) { if (c.label === 'Stock on hand') sPos = i + 1; if (c.label === 'Reorder level') rPos = i + 1; });
-    if (agg && agg.have.health && sPos !== -1 && rPos !== -1) {
-      ov.setConditionalFormatRules([SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied('=AND($' + colLetter_(sPos) + '2<=$' + colLetter_(rPos) + '2,$' + colLetter_(rPos) + '2>0)')
-        .setBackground(LOW_STOCK_RED)
-        .setRanges([ov.getRange(2, sPos, ov.getMaxRows() - 1, 1)]).build()]);
-    }
   }
 
   function colLetter_(n) { // 1-based column index → A1 letters (handles AA, AB, …)
@@ -280,15 +270,16 @@ var Insights = (function () {
     // The charts float over the grid, so the Insights tab needs no big empty grid behind them.
     if (chartsTab.getMaxRows() > 30) chartsTab.deleteRows(31, chartsTab.getMaxRows() - 30);
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }
-    try { buildOverview_(agg); } catch (e) { /* overview is best-effort */ }
+    try { focusDataSheet_(dataSheet); } catch (e) { /* freeze is best-effort */ }
 
     if (interactive) {
       var skipped = [];
       if (!agg.have.value) skipped.push('inventory value (needs a Cost/Retail price + Stock column)');
       if (!agg.have.cat) skipped.push('product mix (needs a Category/Type column)');
       SpreadsheetApp.getUi().alert('Insights updated',
-        built + ' chart(s) in the "' + CHARTS_TAB + '" tab + a live "' + OVERVIEW_TAB + '" tab (' + agg.products + ' products' +
+        built + ' chart(s) in the "' + CHARTS_TAB + '" tab (' + agg.products + ' products' +
         (agg.have.value ? ', ~€' + Math.round(agg.totalValue).toLocaleString() + ' inventory value' : '') + ').' +
+        '\nLow-stock cells are highlighted red on the DATA SHEET.' +
         (skipped.length ? '\n\nSkipped: ' + skipped.join('; ') + '.' : ''), SpreadsheetApp.getUi().ButtonSet.OK);
     }
   }

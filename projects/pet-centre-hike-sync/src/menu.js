@@ -15,7 +15,7 @@ function onOpen() {
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
     .addSeparator()
     .addItem('Print price labels…', 'menuPrintLabels')
-    .addItem('Insights + stock overview (refresh)', 'menuInsights')
+    .addItem('Refresh insight charts', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
     .addItem('Trim empty rows', 'menuTrim')
     .addSeparator()
@@ -55,7 +55,7 @@ function menuTrim() {
       (removed > 0
         ? 'Removed ' + removed + ' empty trailing row(s) — only blank rows below your data, no data touched.'
         : 'Nothing to remove — the grid already matches the content. If a low row still holds a stray value or formula, Google counts it as "used" and keeps the rows above it.') +
-      '\n\nThis trims the DATA tab only; the Hike Insights / Stock overview tabs size themselves.',
+      '\n\nThis trims the DATA tab only; the Hike Insights charts tab sizes itself.',
       SpreadsheetApp.getUi().ButtonSet.OK);
   });
 }

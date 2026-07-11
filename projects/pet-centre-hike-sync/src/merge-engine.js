@@ -259,18 +259,6 @@ var MergeEngine = (function () {
     return plan;
   }
 
-  /** Group one row's changes into contiguous column runs for batched writes. */
-  function groupRuns(changes) {
-    var sorted = changes.slice().sort(function (a, b) { return a.col - b.col; });
-    var runs = [];
-    sorted.forEach(function (ch) {
-      var last = runs[runs.length - 1];
-      if (last && ch.col === last.startCol + last.values.length) last.values.push(ch.newValue);
-      else runs.push({ startCol: ch.col, values: [ch.newValue] });
-    });
-    return runs;
-  }
-
   return {
     findHeaderRow: findHeaderRow,
     mapHeaders: mapHeaders,
@@ -278,8 +266,7 @@ var MergeEngine = (function () {
     bcKey: bcKey,
     rowKey: rowKey,
     headerSignature: headerSignature,
-    buildPlan: buildPlan,
-    groupRuns: groupRuns
+    buildPlan: buildPlan
   };
 })();
 

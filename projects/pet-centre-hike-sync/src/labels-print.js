@@ -151,7 +151,9 @@ var LabelsPrint = (function () {
       if (!numeric && ValueUtils.normString(sampleBc) === '') numeric = dataBarcodeIsNumeric_();
       var bcRange = labels.getRange(start, loc.bcCol, clean.length, 1);
       if (numeric) {
-        bcRange.setValues(clean.map(function (b) { return [/^\d+$/.test(b) ? Number(b) : b]; }));
+        // All-digit barcodes → numbers (what the lookup compares against); a non-digit value is
+        // formulaSafe'd so a crafted "barcode" like =HYPERLINK(...) can't land as a live formula.
+        bcRange.setValues(clean.map(function (b) { return [/^\d+$/.test(b) ? Number(b) : ValueUtils.formulaSafe(b)]; }));
       } else {
         bcRange.setNumberFormat('@'); // text — preserves leading zeros
         bcRange.setValues(clean.map(function (b) { return [b]; }));

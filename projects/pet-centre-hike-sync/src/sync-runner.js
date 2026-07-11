@@ -76,14 +76,11 @@ var SyncRunner = (function () {
       }
     }
 
-    // Back up before writing on human-initiated, first-ever, or large changes. Small scheduled
-    // incremental syncs (few changed products, idempotent, Hike-sourced) rely on Google's
-    // Version History instead — so we don't clone the whole catalog every 15 minutes, which
-    // would also pile up toward the per-spreadsheet cell cap on a large catalog.
-    var changeSize = plan.stats.updatedRows + plan.stats.appendedRows;
-    if (interactive || Settings.get('FIRST_APPLY_DONE', '') !== 'yes' || changeSize >= 50) {
-      SheetIO.backup();
-    }
+    // Snapshot before EVERY mutating run (safety invariant #3), scheduled or not — the previous
+    // "skip small incremental syncs" optimization left common trigger-driven writes with no
+    // backup. SheetIO.backup() bounds its own footprint (keeps fewer copies on a huge catalog),
+    // so always backing up can't pile past the per-spreadsheet cell cap.
+    SheetIO.backup();
     var appendInfo = SheetIO.applyPlan(plan);
     assertApplied_(plan, before.length);
     SheetIO.writeSyncNotes(plan, appendInfo);

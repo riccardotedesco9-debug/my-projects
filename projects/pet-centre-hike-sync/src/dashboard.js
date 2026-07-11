@@ -47,7 +47,7 @@ var Dashboard = (function () {
     if (!sh || sh.getLastRow() < 2) return [];
     var count = Math.min(n, sh.getLastRow() - 1);
     return sh.getRange(sh.getLastRow() - count + 1, 1, count, 8).getValues().reverse().map(function (row) {
-      return { when: row[0], source: row[1], result: row[2], upd: row[3], add: row[4], missing: row[6], msg: row[7] };
+      return { when: row[0], source: row[1], result: row[2], upd: row[3], add: row[4], msg: row[7] };
     });
   }
 
@@ -92,7 +92,7 @@ var Dashboard = (function () {
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
         '<li><b>Turn ON/OFF API auto-sync</b> — schedule the API pull every 15 minutes.</li>' +
         '<li><b>Print price labels…</b> — search products, tick the ones you want, add their barcodes to the labels tab.</li>' +
-        '<li><b>Insights + stock overview</b> — build/refresh the charts ("Hike Insights" tab) and a live "Stock overview" tab (key columns + low-stock highlight).</li>' +
+        '<li><b>Refresh insight charts</b> — rebuild the charts ("Hike Insights" tab) and re-apply the red low-stock highlight on the DATA SHEET.</li>' +
         '<li><b>Show column filters</b> — filter dropdowns on every column (depleted stock, in-Hike status, …).</li>' +
         '<li><b>Trim empty rows</b> — remove blank trailing rows from the data tab (never touches data).</li>' +
         '<li><b>Setup…</b> — set the data tab, optional watch folder, and failure-alert email.</li>' +
