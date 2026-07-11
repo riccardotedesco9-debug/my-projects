@@ -63,9 +63,11 @@ Open **Hike Sync → Command center** for a live dashboard and a guide to every 
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
 - **Refresh insight charts** — summary charts (value by category, product mix, stock health,
-  price bands) in a "Hike Insights" tab (pies on top, bars below). Also re-applies the low-stock
-  heat gradient on the DATA SHEET's stock column: reddest at 0 (out of stock), fading to clear as
-  on-hand rises. Inventory lives on the DATA SHEET itself — header row + Name column are frozen.
+  price bands) in a "Hike Insights" tab (pies on top, bars below). Also re-applies the progressive
+  low-stock highlight on the DATA SHEET's Stock column, graded by each product's reorder level
+  (amber approaching → red at/below → deeper red under half → darkest when out of stock), and
+  forces the Stock/Reorder-level count columns to a plain integer format. Inventory lives on the
+  DATA SHEET itself — header row + Name column are frozen.
 - **Show column filters** — filter dropdowns on every column (e.g. depleted stock, status).
 - **Fit columns to content** — auto-size the DATA SHEET columns (very wide ones are capped).
 - **Delete products no longer in Hike…** — opt-in cleanup that removes rows flagged

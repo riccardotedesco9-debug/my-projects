@@ -1792,12 +1792,17 @@ var Insights = (function () {
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
   var OVERVIEW_ID_KEY = 'OVERVIEW_SHEET_ID'; // obsolete "Stock overview" tab id — used once to remove it
   var CHARTS_ID_KEY = 'CHARTS_SHEET_ID';     // stored sheetId of our "Hike Insights" tab
-  // Low-stock heat: a gradient colour-scale on the stock column — reddest at 0 (out of stock),
-  // fading to clear as on-hand rises. Absolute (keyed to the stock value itself), so it shows a
-  // progressive red with or without reorder levels being set. Blank cells are left uncoloured.
-  var STOCK_LOW_RED = '#cc0000'; // gradient min = out of stock
-  var STOCK_MID = '#f4cccc';     // gradient midpoint = getting low
-  // Colours from this + earlier boolean-tier versions — recognized so a rebuild removes ours cleanly.
+  // Progressive low-stock heat: bands on the STOCK column (the "…_Stock" level, NOT Stock on hand)
+  // that get redder as stock falls toward/below each product's REORDER LEVEL. Ordered most-severe
+  // FIRST — Google applies the first matching rule, so a deeper band wins. Each reserved colour
+  // marks the rule as OURS so re-runs replace rather than stack.
+  var STOCK_TIERS = [
+    { bg: '#cc0000', abs: 0 },   // out of stock (≤ 0): darkest
+    { bg: '#e06666', mul: 0.5 }, // ≤ 50% of reorder: deep red
+    { bg: '#f4c7c3', mul: 1 },   // at/below reorder: red
+    { bg: '#fce5cd', mul: 1.5 }  // approaching reorder (≤ 1.5×): amber
+  ];
+  // Colours from this + earlier versions (incl. an old gradient) — recognized so a rebuild removes ours cleanly.
   var STOCK_REDS = ['#cc0000', '#e06666', '#f4c7c3', '#f4cccc', '#fce5cd'];
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
 
@@ -1993,14 +1998,16 @@ var Insights = (function () {
   }
 
   /**
-   * Progressive low-stock heat on the stock column: a gradient colour-scale — reddest at 0 (out
-   * of stock), through amber, fading to clear as on-hand rises. It's absolute (keyed to the stock
-   * value itself), so it shows a smooth red even when no reorder levels are set. Google's colour
-   * scale leaves blank cells uncoloured, so an empty/placeholder stock column stays clean. Applied
-   * as a single conditional-format rule so it updates by itself as values change; re-applied each
-   * rebuild over the full column. Our previous rule (this gradient, or an older boolean tier) is
-   * removed first so re-runs replace rather than stack; a user's own rules are left untouched.
-   * No-op if the stock column is absent.
+   * Progressive low-stock heat on the STOCK column (Hike's "…_Stock" = Available stock, NOT
+   * "…_Stock on hand"), graded by how far stock has fallen toward/below that product's REORDER
+   * LEVEL: amber approaching it (≤1.5×), red at/below, deeper red under half, darkest when out of
+   * stock (≤0, flagged even without a reorder level). Boolean conditional-format rules (live —
+   * they recolour by themselves); most-severe first so the deeper band wins. Every rule requires
+   * the cell to be non-blank so a blank/placeholder column stays clean. Also forces the stock +
+   * reorder-level columns to a plain integer format so a sheet-applied currency format can't show
+   * these unit counts as money (e.g. reorder level €3.00). Removes our previous rules (these tiers
+   * or an older gradient) first so re-runs replace rather than stack; user rules are untouched.
+   * No-op if there is no stock column.
    */
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
@@ -2009,9 +2016,21 @@ var Insights = (function () {
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
-    var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
+    // Prefer the plain Stock (Available) column; fall back to Stock on hand only if there's no
+    // plain Stock, so the highlight still works on sheets that only carry the on-hand field.
+    var stockCol = findCol_(norm, ['stock'], /_stock$/);
+    if (stockCol === -1) stockCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
     if (stockCol === -1) return; // no stock column → leave ALL existing rules untouched
+    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
     var firstRow = hr + 2, stockA1 = stockCol + 1;
+    var sCell = '$' + colLetter_(stockA1) + firstRow;
+    var rCell = reorderCol !== -1 ? '$' + colLetter_(reorderCol + 1) + firstRow : null;
+
+    // Count columns → plain integer format (cosmetic; kills a stray currency format on counts).
+    var toInt = function (col) {
+      if (col !== -1) dataSheet.getRange(firstRow, col + 1, dataSheet.getMaxRows() - firstRow + 1, 1).setNumberFormat('0');
+    };
+    toInt(stockCol); toInt(reorderCol);
 
     var reds = {}; STOCK_REDS.forEach(function (c) { reds[c] = 1; });
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
@@ -2021,19 +2040,26 @@ var Insights = (function () {
           b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA);
       }
       var g = r.getGradientCondition();
-      if (g) { // strip our previous gradient: a single-column rule on the stock column
+      if (g) { // strip our previous single-column gradient (from the earlier version)
         var rs = r.getRanges();
-        return !(rs.length === 1 && rs[0].getColumn() === stockA1 && rs[0].getNumColumns() === 1);
+        return !(rs.length === 1 && rs[0].getNumColumns() === 1);
       }
       return true;
     });
 
+    // Most-severe tier FIRST — Google applies the first matching rule, so a deeper band wins.
     var range = dataSheet.getRange(firstRow, stockA1, dataSheet.getMaxRows() - firstRow + 1, 1);
-    kept.push(SpreadsheetApp.newConditionalFormatRule()
-      .setGradientMinpoint(STOCK_LOW_RED) // MIN value (0 when out-of-stock rows exist) = darkest red
-      .setGradientMidpointWithValue(STOCK_MID, SpreadsheetApp.InterpolationType.PERCENTILE, '50')
-      .setGradientMaxpoint('#ffffff') // MAX value = clear
-      .setRanges([range]).build());
+    STOCK_TIERS.forEach(function (t) {
+      var formula;
+      if (t.abs !== undefined) {
+        formula = '=AND(' + sCell + '<>"",' + sCell + '<=' + t.abs + ')'; // out of stock — no reorder needed
+      } else {
+        if (!rCell) return; // graded bands need a reorder-level column
+        formula = '=AND(' + sCell + '<>"",' + rCell + '>0,' + sCell + '<=' + rCell + '*' + t.mul + ')';
+      }
+      kept.push(SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
+    });
     dataSheet.setConditionalFormatRules(kept);
   }
 
