@@ -163,12 +163,23 @@ var Insights = (function () {
     var ov = ss.getSheetByName(OVERVIEW_TAB) || ss.insertSheet(OVERVIEW_TAB, ss.getSheets().length);
     ov.clearConditionalFormatRules();
     ov.clear();
+    // Grow the grid to fit the header + QUERY spill BEFORE writing it, so a catalog that grew
+    // since last refresh can't overflow the grid (#REF!). Excess is trimmed after it spills.
+    var needRows = ((agg && agg.products) ? agg.products : 0) + 5;
+    if (ov.getMaxRows() < needRows) ov.insertRowsAfter(ov.getMaxRows(), needRows - ov.getMaxRows());
+    if (ov.getMaxColumns() < want.length) ov.insertColumnsAfter(ov.getMaxColumns(), want.length - ov.getMaxColumns());
     ov.getRange(1, 1, 1, want.length).setValues([want.map(function (c) { return c.label; })]).setFontWeight('bold');
     var sel = want.map(function (c) { return colLetter_(c.idx + 1); }).join(', ');
     var rng = "'" + dataName + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
     ov.getRange(2, 1).setFormula('=IFERROR(QUERY(' + rng + ', "select ' + sel + ' where ' +
       colLetter_(keyIdx + 1) + ' is not null", 0), "No products yet.")');
     ov.setFrozenRows(1);
+    // Size the tab to its real content (Google gives new tabs 1000 rows). Flush first so the
+    // QUERY has spilled and getLastRow reflects the true result size.
+    SpreadsheetApp.flush();
+    var used = Math.max(ov.getLastRow(), 2);
+    if (ov.getMaxRows() > used) ov.deleteRows(used + 1, ov.getMaxRows() - used);
+    if (ov.getMaxColumns() > want.length) ov.deleteColumns(want.length + 1, ov.getMaxColumns() - want.length);
 
     // Red low-stock highlight on the overview's own Stock/Reorder columns — only when stock has data.
     var sPos = -1, rPos = -1;
@@ -241,6 +252,8 @@ var Insights = (function () {
     var post = chartsTab.getCharts();
     var ours = post.filter(function (c) { return pre.indexOf(c.getChartId()) === -1; }).map(function (c) { return c.getChartId(); });
     Settings.set(CHART_IDS_KEY, JSON.stringify(ours));
+    // The charts float over the grid, so the Insights tab needs no big empty grid behind them.
+    if (chartsTab.getMaxRows() > 30) chartsTab.deleteRows(31, chartsTab.getMaxRows() - 30);
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }
     try { buildOverview_(agg); } catch (e) { /* overview is best-effort */ }
 

@@ -114,6 +114,25 @@ var SelfTest = (function () {
 
       // 7. LABELS lookups still resolve after all the writes above
       results.push(testLabelsLookup_(ctx));
+
+      // --- Port-over robustness: matching logic on the shapes a real client export can take ---
+      // (plan-only checks — they compute a plan but write nothing, so no restore risk)
+
+      // 8. Columns map by header NAME regardless of the import's column order (his export order may differ)
+      var p8 = plan_(ctx, [ctx.headers[ctx.priceCol], ctx.headers[ctx.skuCol]], [[77.5, ctx.firstSku]]);
+      results.push(check_('columns map by header name regardless of import column order', p8.ok && p8.updates.length === 1, p8.errors.join(' ')));
+
+      // 9. Barcode-only import matches an existing product by barcode (SKU fallback)
+      if (ValueUtils.normKey(ctx.firstBarcode)) {
+        var p9 = plan_(ctx, [ctx.headers[ctx.bcCol], ctx.headers[ctx.priceCol]], [[ctx.firstBarcode, 3.21]]);
+        results.push(check_('barcode-only import matches an existing product by barcode', p9.ok && p9.updates.length === 1 && p9.appends.length === 0, p9.errors.join(' ')));
+      } else {
+        results.push('PASS — barcode-only match skipped (first product has no barcode)');
+      }
+
+      // 10. Duplicate SKU within one import — last occurrence wins, never a duplicate row
+      var p10 = plan_(ctx, [ctx.headers[ctx.skuCol], ctx.headers[ctx.priceCol]], [[ctx.firstSku, 1], [ctx.firstSku, 2]]);
+      results.push(check_('duplicate SKU in import — last wins, no duplicate row', p10.ok && p10.updates.length === 1 && p10.appends.length === 0, p10.errors.join(' ')));
     } catch (e) {
       results.push('CRASH — ' + e.message);
     } finally {

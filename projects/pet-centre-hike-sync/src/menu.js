@@ -47,10 +47,16 @@ function menuFilters() {
 }
 function menuTrim() {
   guardedMenu_(function () {
+    var sh = SheetIO.dataSheet();
+    var gridBefore = sh.getMaxRows(), content = sh.getLastRow();
     var removed = SheetIO.trimToData();
-    SpreadsheetApp.getUi().alert(removed > 0
-      ? 'Removed ' + removed + ' empty trailing row(s). Only blank rows below your data were removed — no data was touched.'
-      : 'No empty trailing rows to remove.');
+    SpreadsheetApp.getUi().alert('Trim empty rows',
+      'Data tab: ' + content + ' row(s) have content; the grid had ' + gridBefore + ' row(s).\n\n' +
+      (removed > 0
+        ? 'Removed ' + removed + ' empty trailing row(s) — only blank rows below your data, no data touched.'
+        : 'Nothing to remove — the grid already matches the content. If a low row still holds a stray value or formula, Google counts it as "used" and keeps the rows above it.') +
+      '\n\nThis trims the DATA tab only; the Hike Insights / Stock overview tabs size themselves.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
   });
 }
 
