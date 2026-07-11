@@ -1876,6 +1876,15 @@ var Insights = (function () {
       var found = ss.getSheets().filter(function (s) { return String(s.getSheetId()) === id; })[0];
       if (found) return found;
     }
+    // Upgrade path: an earlier version created these tabs BY NAME without storing an id. If the
+    // default-named tab already exists, ADOPT it (record its id + reuse it) rather than spawning a
+    // "… 2" duplicate and orphaning the original — but NEVER adopt the data tab or a hidden helper.
+    var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
+    var existing = ss.getSheetByName(name);
+    if (existing && existing.getName() !== dataName && !/^_hike_/.test(existing.getName())) {
+      Settings.set(idKey, String(existing.getSheetId()));
+      return existing;
+    }
     var nm = name, n = 2;
     while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
     var sh = ss.insertSheet(nm, ss.getSheets().length);
