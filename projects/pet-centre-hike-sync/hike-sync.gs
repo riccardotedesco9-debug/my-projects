@@ -1792,16 +1792,13 @@ var Insights = (function () {
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
   var OVERVIEW_ID_KEY = 'OVERVIEW_SHEET_ID'; // obsolete "Stock overview" tab id — used once to remove it
   var CHARTS_ID_KEY = 'CHARTS_SHEET_ID';     // stored sheetId of our "Hike Insights" tab
-  var LOW_STOCK_RED = '#f4c7c3'; // legacy single-tint low-stock rule — still recognized for cleanup
-  // Graded low-stock scale: progressively redder as stock falls relative to its reorder level.
-  // Ordered most-severe FIRST — Google applies the first matching rule, so a deeper tier wins.
-  // Each reserved colour marks the rule as OURS so re-runs replace rather than stack.
-  var STOCK_TIERS = [
-    { bg: '#cc0000', abs: 0 },   // out of stock (≤ 0): darkest
-    { bg: '#e06666', mul: 0.5 }, // ≤ 50% of reorder: deep red
-    { bg: '#f4c7c3', mul: 1 },   // at/below reorder: red
-    { bg: '#fce5cd', mul: 1.5 }  // approaching reorder (≤ 1.5×): amber
-  ];
+  // Low-stock heat: a gradient colour-scale on the stock column — reddest at 0 (out of stock),
+  // fading to clear as on-hand rises. Absolute (keyed to the stock value itself), so it shows a
+  // progressive red with or without reorder levels being set. Blank cells are left uncoloured.
+  var STOCK_LOW_RED = '#cc0000'; // gradient min = out of stock
+  var STOCK_MID = '#f4cccc';     // gradient midpoint = getting low
+  // Colours from this + earlier boolean-tier versions — recognized so a rebuild removes ours cleanly.
+  var STOCK_REDS = ['#cc0000', '#e06666', '#f4c7c3', '#f4cccc', '#fce5cd'];
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
@@ -1996,13 +1993,14 @@ var Insights = (function () {
   }
 
   /**
-   * Graded low-stock highlight on the stock column: progressively redder the further on-hand
-   * falls relative to its reorder level (out of stock = darkest). Conditional-format rules (not
-   * per-sync tints) so they update by themselves as values change; re-applied each rebuild over
-   * the full column so later-added rows are covered. Only products with a reorder level > 0 are
-   * highlighted (an untracked/empty stock column stays clean). Our tiers are identified by their
-   * reserved colours + a custom formula, so re-runs replace rather than stack and a user's own
-   * rules are never touched. No-op if either column is absent.
+   * Progressive low-stock heat on the stock column: a gradient colour-scale — reddest at 0 (out
+   * of stock), through amber, fading to clear as on-hand rises. It's absolute (keyed to the stock
+   * value itself), so it shows a smooth red even when no reorder levels are set. Google's colour
+   * scale leaves blank cells uncoloured, so an empty/placeholder stock column stays clean. Applied
+   * as a single conditional-format rule so it updates by itself as values change; re-applied each
+   * rebuild over the full column. Our previous rule (this gradient, or an older boolean tier) is
+   * removed first so re-runs replace rather than stack; a user's own rules are left untouched.
+   * No-op if the stock column is absent.
    */
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
@@ -2012,29 +2010,30 @@ var Insights = (function () {
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
     var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
-    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
-    if (stockCol === -1 || reorderCol === -1) return; // nothing to add → leave ALL existing rules untouched
-    var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
-    var sCell = '$' + s + firstRow, rCell = '$' + rc + firstRow;
+    if (stockCol === -1) return; // no stock column → leave ALL existing rules untouched
+    var firstRow = hr + 2, stockA1 = stockCol + 1;
 
-    // Every colour we own (current tiers + the legacy single tint) — used to strip our previous
-    // rules without touching a user rule that merely shares a colour.
-    var ours = {}; ours[LOW_STOCK_RED] = 1; STOCK_TIERS.forEach(function (t) { ours[t.bg] = 1; });
+    var reds = {}; STOCK_REDS.forEach(function (c) { reds[c] = 1; });
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var b = r.getBooleanCondition();
-      if (!b) return true;
-      return !(b.getBackground() && ours[b.getBackground()] &&
-        b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA);
+      if (b) { // strip an older boolean low-stock tier of ours (reserved colour + custom formula)
+        return !(b.getBackground() && reds[b.getBackground()] &&
+          b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA);
+      }
+      var g = r.getGradientCondition();
+      if (g) { // strip our previous gradient: a single-column rule on the stock column
+        var rs = r.getRanges();
+        return !(rs.length === 1 && rs[0].getColumn() === stockA1 && rs[0].getNumColumns() === 1);
+      }
+      return true;
     });
 
-    // Most-severe tier FIRST — Google applies the first matching rule, so a deeper band wins.
-    var range = dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1);
-    STOCK_TIERS.forEach(function (t) {
-      var test = t.abs !== undefined ? sCell + '<=' + t.abs : sCell + '<=' + rCell + '*' + t.mul;
-      var formula = '=AND(' + rCell + '>0,' + test + ')';
-      kept.push(SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
-    });
+    var range = dataSheet.getRange(firstRow, stockA1, dataSheet.getMaxRows() - firstRow + 1, 1);
+    kept.push(SpreadsheetApp.newConditionalFormatRule()
+      .setGradientMinpoint(STOCK_LOW_RED) // MIN value (0 when out-of-stock rows exist) = darkest red
+      .setGradientMidpointWithValue(STOCK_MID, SpreadsheetApp.InterpolationType.PERCENTILE, '50')
+      .setGradientMaxpoint('#ffffff') // MAX value = clear
+      .setRanges([range]).build());
     dataSheet.setConditionalFormatRules(kept);
   }
 
