@@ -1,0 +1,911 @@
+{
+ "company": {
+  "found": true,
+  "site_url": "https://splashstoremalta.com/",
+  "platform_evidence": "Shopify — confirmed by multiple signals: (1) \"Powered by Shopify\" footer link on every page; (2) all assets served from Shopify CDN paths (https://splashstoremalta.com/cdn/shop/files/... and /cdn/shop/products/...); (3) backing myshopify domain hot-tub-and-pools-malta.myshopify.com (several nav links — About Us, Other Products, On Site Fees, Delivery Fees — still point to the raw myshopify domain); (4) standard /collections/ and /products/ URL structure; (5) shopify-digital-wallet meta tag (/60845064382/digital_wallets/dialog) and shop.app (Shop Pay) iframe embed; (6) the Shopify storefront API endpoint /products.json?limit=250 returns the full catalog JSON; (7) merchantgenius.io lists it as a Shopify store launched 2022-01-20.",
+  "categories": [
+   "Hot Tubs (Fibreglass hot tubs + accessories, Intex hot tubs, Intex Pure Spa accessories, Lay-Z-Spa hot tubs + accessories, jacuzzi/hot-tub parts)",
+   "Frame and Fibreglass Pools (Fibreglass precast pools, Intex Easy Set inflatable pools, Intex Frame Pool Family/Prism/Round, Intex XTR pools)",
+   "Pool Accessories (water pumps, pool ladders, pool cleaning equipment, pool covers, chlorine floaters, pool fittings & pipe adapters, pool parts)",
+   "Water Chemicals and Chlorine (chlorine tabs/granules, pH plus/minus granules, test kits/strips, salt, clarifiers, anti-foam, filter cleaner)",
+   "Intex Kids (inflatables)",
+   "Intex inflation air pumps",
+   "Inflatable Sofas",
+   "Inflatable Beds",
+   "Garden Furniture",
+   "Filters for water pumps",
+   "LED lighting for pools and hot tubs",
+   "Other cleaning chemicals (isopropyl alcohol 99.9% IPA)"
+  ],
+  "sku_estimate": "229 products / 246 variant SKUs total (counted from the full /products.json?limit=250 dump; under the 250 cap, so this is the whole catalog). The Water Chemicals and Chlorine collection alone has 34 products (all in stock, highest price €50). Brand mix by product count: Intex 127, \"Various Manufacturers\" 82, Lay-Z-Spa 9, Bestway 4, Aiper 3, Jolly Gel MSI 2, ULOW 1, Aqwarana 1.",
+  "price_examples": [
+   "25 Chlorine Multitabs 5in1 slowly soluble 200g — €45.00",
+   "Chlorine Granules — from €10.00",
+   "pH Plus Granules — from €9.00 (pH Minus also from €9.00)",
+   "Chlorine Test Strips 7-in-1 — €14.00",
+   "Intex Jet and Bubble Deluxe Hot Tub 4-person — €1,470.00",
+   "2/3-person fibreglass hot tubs — €6,200.00; Intex pool ladder 91cm — €75.00"
+  ],
+  "payment_delivery": "Delivery: site-wide banner reads \"We offer free deliveries to Malta and Gozo for orders over €30, otherwise goods can be picked up from our Qormi warehouse at any time of the day once notified.\" Dedicated \"Delivery Fees\" and \"On Site Fees\" pages exist (hosted on the myshopify domain). Payment: standard Shopify checkout; digital wallets enabled (shopify-digital-wallet meta + Shop Pay/shop.app embed). Footer has a \"Payment methods\" icon strip, but the specific card brands (Visa/Mastercard/etc.) could not be verified from the scraped markdown — an LLM extraction returned a list that merely echoed prompt examples, so treat exact brands as unknown.",
+  "socials": [
+   "Facebook: https://www.facebook.com/splashstoremalta (handle @splashstoremalta; search snippet shows product-style posts e.g. 'A frame and liner pool cladded with WPC panelling'; Firecrawl does not support scraping Facebook, so follower count and post recency unknown)",
+   "Instagram: https://www.instagram.com/splashstoremalta/ (account exists and appears in recent Maltese Instagram content as an active follower/commenter; follower count and posting cadence unverified)",
+   "YouTube: https://www.youtube.com/channel/UCAdzHocL_u91dKx8xJQ5nyQ (linked from site footer; activity unverified)"
+  ],
+  "notes": "Identity confirmed: \"Splash Store Malta\" at splashstoremalta.com is the Malta pool-supplies retailer (not to be confused with splashsupercenter.com, a US pool store, or \"Egg Splash Store\" in Singapore's Bird Paradise, both of which surfaced in searches). Positioning per own meta description: \"your one stop shop for hot tubs, water chemicals, pools, accessories and more. We are direct importers for Intex products in Malta. Operated by MC Imports and Trading.\" So the operating company/owner entity is MC Imports and Trading; they claim direct-importer status for Intex and importer/distributor for Lay-Z-Spa (Bestway). Contact: info@splashstoremalta.com, +356 7905 2595 (call/WhatsApp, wa.link/i2qe9g), Facebook chat encouraged; contact form on site. Physical location: warehouse in Qormi — yellow.com.mt directory lists \"Splash Store, Triq Pietru Felici, Qormi, Malta\" with matching phone/email/website; Moovit has a \"Splash Store Malta\" place entry in Qormi (bus stops Luret/Harifa), implying a real mapped location; a Google Maps listing itself was not directly retrieved (unknown). Scale signals: small owner-operated business — single warehouse pickup point (\"any time of the day once notified\"), one mobile number doubling as WhatsApp, ~229-product catalog, Shopify store launched 2022-01-20 (merchantgenius.io), several nav pages never migrated off the raw hot-tub-and-pools-malta.myshopify.com domain (suggests DIY/low-budget web ops). Catalog skews heavily to Intex (127/229 products); big-ticket items are €6,200 fibreglass hot tubs down to €9 chemical granules. Research method note: Firecrawl used throughout (4 searches, 5 scrapes, 1 blocked — Facebook unsupported); no WebSearch/WebFetch fallback needed. All prices native EUR from the site.",
+  "sources": [
+   "https://splashstoremalta.com/",
+   "https://splashstoremalta.com/collections/water-chemicals-and-chlorine",
+   "https://splashstoremalta.com/pages/contact",
+   "https://splashstoremalta.com/products.json?limit=250",
+   "https://www.facebook.com/splashstoremalta/",
+   "https://www.instagram.com/splashstoremalta/",
+   "https://www.youtube.com/channel/UCAdzHocL_u91dKx8xJQ5nyQ",
+   "https://www.yellow.com.mt/splash-store_swimming-pool-equipment-supplies+qormi/",
+   "https://moovitapp.com/index/en-gb/public_transportation-Splash_Store_Malta-Malta-site_355884676-4507",
+   "https://www.merchantgenius.io/shop/date/2022-01-20",
+   "https://sur.ly/i/splashstoremalta.com/"
+  ]
+ },
+ "taxonomy": {
+  "report": "# Scanning Reality: Small Pool-Supplies Retailer, Garage Stock (Malta)\n\n**TLDR:** Most of the stock (branded chemical buckets, Intex/Bestway pools, test kits, pumps, robotic cleaners) arrives with a factory EAN-13 and will scan; the reliable *non*-scannable pockets are repackaged/decanted chemicals, loose spare parts, unboxed floats, and anything sold by measure — these need retailer-assigned internal codes (GS1 reserves prefixes 02/20–29 exactly for this). Physical scan pain comes from curved 5–25 kg buckets, shrink-wrap glare, sun/chlorine-faded labels, and multipack inner-vs-outer-carton EAN confusion. Chlorine vapour in a closed garage demonstrably corrodes metal and electronics (\"destroyed pumps, controllers... electronics\" per pool-industry storage guidance), so the counting tablet/scanner must NOT live in the chemical garage. Malta's pool season peaks mid-June–mid-September (swimming viable May–October), so full stock-take belongs in November–February, with a delivery-verification pass in March–April.\n\n## 1) Typical product mix\n\nGrounded in actual Malta retailers (Bubble Hub MT, Splash Store Malta, The Model Shop Malta) plus generic pool-trade catalogs (PoolSupplies.com, Inyo Pools):\n\n| Category | Typical form in a small Malta shop | EUR price anchors (Malta unless noted) |\n|---|---|---|\n| Chlorine tablets/granules | 1 kg jars up to 5 kg buckets (20 g and 200 g tabs); 25 kg drums on trade side | Multifunction 200 g tabs 5 kg €58.95; Bromo-Cloro 20 g tabs 5 kg €109.95 (bubblehub.mt); 5-in-1 multitabs sold in 5 kg buckets ≈250 tabs (Splash Store Malta); used-market 5 kg €45 (FB Marketplace, Mosta) |\n| Liquid chemicals | 1 L bottles and 5 L \"trade size\" jerrycans (clarifier, oil/grease remover, phosphate remover, liquid chlorine, acid) | Clarifier 1 L €21.95; Oil Out 5 L €74.95; Phos Out 5 L €84.95 (bubblehub.mt) |\n| pH correctors | pH− granules / pH+ powder in 5 kg tubs | pH− 5 kg €31.50; pH+ 5 kg €28.95 (bubblehub.mt) |\n| Algaecide / problem treatments | 1–5 L bottles, flocculant cubes/gel packs | Jolly Gel floc 4-pack €17.95 (bubblehub.mt) |\n| Test kits/strips | Test strips tubs, liquid/drop kits, digital testers, reagent refills | dedicated Water Testing category at bubblehub.mt (strips/digital/liquid/reagents) |\n| Pumps & filters | Cartridge + sand filter systems, filter cartridges, sand/glass media bags (media often 20–25 kg sacks) | Filters & Cartridges category (bubblehub.mt); pumps/filter pumps stocked by The Model Shop Malta |\n| Hoses/fittings & spare parts | \"Pool Parts\" / \"Hot Tub Parts\" bins — O-rings, adaptors, hose clips, valves, often loose | bubblehub.mt Pool Parts / Hot Tub Parts categories |\n| Inflatable pools, kids pools & floats | Boxed Intex/Bestway; floats as lilos/rings, air beds, inflatable furniture — display units often unboxed | bubblehub.mt Floats & Inflatables + Inflatable/Kids Pools categories |\n| Frame pools | Large heavy cartons (oversized boxes) | bubblehub.mt Frame Pools category |\n| Covers, ladders, cleaning kits, skimmers | Covers rolled/bagged, ladders semi-assembled, cleaning kits carded | The Model Shop Malta (covers, cleaning kits, skimmers) |\n| Robotic cleaners | Branded boxed units (Dolphin/Zodiac class) — standard trade items | generic trade catalogs (Inyo Pools) — Malta price unknown |\n| Hot tubs & accessories | Common sideline in Malta (Intex/Lay-Z-Spa) | bubblehub.mt Hot Tubs categories |\n\n## 2) Barcode presence per category\n\nGS1 baseline: any branded product traded at retail carries a GTIN encoded in an EAN/UPC barcode (GS1 US), and **each packaging configuration — unit, multipack, case, pallet — gets its own GTIN** (GS1 Canada). For goods with no manufacturer code, GS1 reserves **Restricted Circulation Numbers (prefixes 02 and 20–29)** so the retailer assigns internal in-store barcodes, historically for variable-measure items (GS1 prefix summary; GS1 South Africa glossary defines the Variable Measure Number for POS scanning of such products).\n\n**Normally HAS a factory EAN/GTIN:**\n- Branded chemical buckets/jars/bottles (Steinbach, Melpool, Intex, Bayrol-class products) — printed on the wrap-around label\n- Test strip tubs, drop kits, digital testers\n- Boxed pumps, filter systems, filter cartridges (blister/boxed)\n- Inflatable pools, frame pools, floats **in their retail box/sleeve**\n- Covers, ladders, robotic cleaners (boxed)\n\n**Typically does NOT have a scannable manufacturer EAN (needs internal codes/labels):**\n- Bulk/repackaged chemicals: tablets or granules decanted from a 25 kg trade drum into unbranded tubs or sold by weight — the drum's code identifies the drum, not the portion sold (variable-measure case → GS1 RCN territory)\n- Loose spare parts: O-rings, fittings, hose clips sold individually from an inner carton — the barcode is on the carton, not the piece\n- Unboxed floats/lilos on display or sold after the sleeve is discarded — code was on the discarded packaging\n- Anything sold by measure (hose by the metre, filter media scooped/split from sacks)\n- Generic/import white-label items from non-GS1 suppliers — may carry no code or a duplicate/invalid one\n\n**Problem surfaces for scanners (even where an EAN exists):**\n- **Curved buckets/bottles:** curved surfaces such as bottles or tubes distort bars and reduce readability (iDPRT troubleshooting guide); glossy labels, metal parts and curved surfaces create glare (Tera Digital)\n- **Shrink-wrap/plastic glare:** reflective surfaces that create glare, \"such as a package wrapped in plastic,\" are a named environmental scan-failure factor (Scandit)\n- **Faded/damaged labels:** smudging or fading, insufficient contrast, torn/crinkled/obscured codes are among the most common quality failures (Scandit; Finale Inventory) — directly relevant to sun-bleached Maltese garage stock and chemically-attacked chlorine-bucket labels\n- **Poor lighting/dirt in garages:** insufficient or uneven lighting and dirt/dust/smudges on label or lens degrade scans (Scandit)\n- **Multipacks, inner vs outer carton:** since each packaging level carries a *different* GTIN (GS1 Canada), scanning an outer carton EAN when selling units (or vice versa) miscounts; multiple barcodes in the scanner's field of view also cause wrong-code reads (Scandit)\n- **Oversized boxes (frame pools):** barcode may be on one face of a 1.5 m carton stacked label-inward; physical access, not decoding, is the failure mode (inference from stock handling, not a cited source)\n\n**Practical implication:** plan the inventory system for a hybrid — scan-first for boxed branded goods, plus a printed internal-barcode/QR label regime (GS1 RCN-style 20–29 prefixes or plain internal QRs) for repackaged chemicals, loose parts and unboxed floats.\n\n## 3) Environment hazard: chlorine vapour vs electronics\n\nTwo independent pool-industry sources support the corrosion claim:\n\n- **Chloramine Consulting (natatorium engineering consultancy):** chlorine must be stored separately from \"any other types of chlorine, any type of acid, **metal equipment and electronics**\"; \"Both acid and chlorine have fumes that will destroy steel\"; commercial pump rooms are routinely \"corroded beyond repair\" from bad ventilation/storage, with \"destroyed pumps, **controllers**, filters, valves, bolts\" observed; \"Good ventilation is essential to help prevent rust/corrosion and vapor interactions.\"\n- **HASA (US pool-chemical manufacturer, Jan 2026, author is a PHTA CPO instructor):** \"Poor storage can lead to leaks, corrosion, or dangerous chemical reactions\"; \"Both chlorine and acid can corrode metal and concrete over time\"; chemicals should be kept \"cool, dry, and ventilated,\" and **residential garages are explicitly called out as unsuitable** (\"aren't ideal as they often lack ventilation and temperature control\"); avoid storage \"in areas connected to homes, offices, or pool equipment rooms.\"\n\n**Concrete placement advice for the tablet/scanner:**\n1. **Never store the device in the chemical garage.** It should live in the house/office/car and enter the garage only for the duration of a count. Trichlor buckets off-gas corrosive vapour continuously; a closed Maltese garage in summer heat concentrates it.\n2. **Never charge it in the garage.** Charging contacts, USB ports and dock springs are the first things chlorine vapour eats; corroded connectors are the classic early failure.\n3. Between sessions keep it in a **sealed case/zip bag with silica gel** if it must transit the space; wipe it down after use (chloride dust settles on surfaces).\n4. **Air the garage 10–15 minutes before a counting session** — for the device and, more importantly, the person (vapour also irritates lungs — HASA hazard-classification guidance).\n5. Keep all chlorine buckets **tightly lidded** and store chlorine away from acid (mixing vapours is a toxic-gas and corrosion multiplier — both sources).\n6. If a fixed scanner/label printer is ever wanted at the stock location, put it in a **separate ventilated ante-room or cabinet**, not the chemical bay — mirroring the industry rule of separating chemical rooms from equipment rooms.\n7. Budget consequence: assume **shortened electronics life for anything resident near stock**; a cheap rugged Android + spare beats one expensive tablet stored badly.\n\n## 4) Seasonality and stock-take timing (Malta)\n\n- Best hot-weather/pool period in Malta is **mid-June to mid-September** (WeatherSpark beach/pool score); locals swim comfortably **May through October**, with sea still ~20–25 °C in late October (Tripadvisor Malta forum; r/malta).\n- Retail consequence: chemical and inflatable demand ramps **April–May** (pool openings, first heat), peaks June–August, tails through October. Winter (Nov–Feb) is the dead season with minimal turnover.\n- **Stock-take timing advice:**\n  - **Full annual count: November–January** — stock at its lowest, garage temperatures bearable, no sales pressure, chemical vapour load lowest (cooler = less off-gassing).\n  - **Pre-season verification pass: March–April**, as container/pallet deliveries land — verify and internally label incoming stock (especially unbarcoded categories) *before* the rush, so summer selling runs on clean data.\n  - **Avoid June–August counts:** peak sales disruption, peak garage heat (hard on people and devices), fastest stock movement making counts stale immediately.\n  - Perpetual mini-counts (cycle counting) of the top movers — 5 kg tablet buckets, pH correctors, test strips — monthly during the season, since these are also the categories most exposed to repackaging/label-decay drift.\n\n## Method notes\n- All web research via Firecrawl (6 searches, 4 scrapes); no fallback needed.\n- Prices are EUR as listed by Malta retailers (bubblehub.mt, Splash Store Malta, FB Marketplace Malta); pool.shop (EU) €74.95 for Melpool 20 g 5 kg as a non-Malta reference.\n- Barcode presence per category combines GS1 rules (sourced) with standard retail practice; the category-level \"has EAN\" claims are industry-norm inference anchored on the GS1 GTIN framework, while the \"no EAN for repackaged/variable-measure/loose items\" claim is directly supported by GS1's Restricted Circulation Number scheme.\n- Robotic cleaner Malta pricing: unknown (not needed for scanning analysis).\n\n**Status:** DONE\n**Summary:** Built the four-part scanning-reality picture with Malta-grounded product mix/prices, GS1-sourced barcode presence/absence analysis, dual-sourced chlorine-corrosion hazard with placement advice, and seasonality-driven stock-take timing.",
+  "facts": [
+   {
+    "fact": "Chlorine must be stored separately from metal equipment and electronics; chlorine and acid fumes 'will destroy steel', and poorly ventilated pump rooms end up 'corroded beyond repair' with destroyed pumps, controllers, filters, valves and bolts observed",
+    "source": "https://blog.chloramineconsulting.com/safe-pool-chemical-storage"
+   },
+   {
+    "fact": "Pool chemical storage guidance: both chlorine and acid corrode metal and concrete over time; chemicals must be kept cool, dry and ventilated; residential garages are explicitly called unsuitable storage ('aren't ideal as they often lack ventilation and temperature control') and storage in areas connected to homes, offices, or pool equipment rooms should be avoided",
+    "source": "https://hasa.com/blog/pool-chemical-safety-proper-handling-storage-transport"
+   },
+   {
+    "fact": "Good ventilation is essential to help prevent rust/corrosion and vapor interactions between stored pool chemicals",
+    "source": "https://blog.chloramineconsulting.com/safe-pool-chemical-storage"
+   },
+   {
+    "fact": "GS1 reserves prefixes 02 and 20-29 as Restricted Circulation Numbers, historically used for identifying Variable Measure Retail Items with retailer-assigned in-store barcodes (i.e., items without a manufacturer GTIN, such as goods repackaged or sold by measure)",
+    "source": "https://www.gs1.org/docs/barcodes/SummaryOfGS1MOPrefixes20-29.pdf"
+   },
+   {
+    "fact": "A Variable Measure Number is a Restricted Circulation Number used to identify variable measure products for scanning at point-of-sale, defined per national GS1 organisation",
+    "source": "https://gs1za.org/glossary/"
+   },
+   {
+    "fact": "Every product that is different or packaged differently, or shipped in different configurations (multipacks, cases, pallets), requires its own distinct GTIN — so inner units and outer cartons carry different barcodes",
+    "source": "https://gs1ca.org/standards/global-trade-item-numbers/"
+   },
+   {
+    "fact": "A GTIN is the GS1 identification key for a trade item sold in marketplaces or brick-and-mortar retail; branded retail products carry GTINs encoded in UPC/EAN barcodes",
+    "source": "https://www.gs1us.org/upcs-barcodes-prefixes/what-is-a-gtin"
+   },
+   {
+    "fact": "Named environmental barcode scan-failure factors include insufficient/uneven lighting, dirt/dust/smudges on label or lens, and reflective surfaces that create glare 'such as a package wrapped in plastic'; quality failures include insufficient contrast, printing errors, smudging or fading, and torn/crinkled/obscured codes; multiple barcodes in the field of view cause wrong-code reads",
+    "source": "https://www.scandit.com/resources/guides/barcode-scanning-challenges/"
+   },
+   {
+    "fact": "Curved surfaces such as bottles or tubes distort barcode bars and reduce readability; labels should be flat and not wrinkled",
+    "source": "https://www.idprt.com/Blog/Barcode-Not-Scanning-Troubleshooting-Guide.html"
+   },
+   {
+    "fact": "Glossy labels, metal parts, and curved surfaces create glare that washes out barcode details",
+    "source": "https://tera-digital.com/blogs/barcodes/barcode-scanner-exposure-settings"
+   },
+   {
+    "fact": "The four most common barcode scanning errors are insufficient contrast, damaged symbols, improper printing size, and incorrect placement",
+    "source": "https://www.finaleinventory.com/blog/guides/common-barcode-problems-fixes/"
+   },
+   {
+    "fact": "Malta pool-chemical retail prices (Bubble Hub MT, EUR): Multifunction 200g chlorine tablets 5kg €58.95; Bromo-Cloro 20g tablets 5kg €109.95; pH- Minus granules 5kg €31.50; pH+ Plus powder 5kg €28.95; clarifier 1L €21.95; Oil Out 5L trade size €74.95; Phos Out phosphate remover 5L €84.95 / 1L €24.95; floating chlorine dispenser €8.49-€14.95; Jolly Gel flocculant 4-pack €17.95",
+    "source": "https://bubblehub.mt/collections/pool-chemicals"
+   },
+   {
+    "fact": "Malta pool retailer category structure (Bubble Hub MT): Frame Pools, Inflatable Pools, Kids Pools, Pool Accessories, Pool Cleaning & Maintenance, Pool Chemicals & Water Care, Pool Filters, Pool Parts, Floats & Inflatables (lilos/rings/floats, air beds, inflatable furniture), Water Testing (test strips, digital testers, liquid/drop tests, reagents), Filters & Cartridges, Hot Tubs + parts/accessories",
+    "source": "https://bubblehub.mt/collections/pool-chemicals"
+   },
+   {
+    "fact": "Splash Store Malta sells chlorine multitabs 5-in-1 (20g, slowly soluble) in 5kg buckets containing approximately 250 tablets",
+    "source": "https://splashstoremalta.com/products/chlorine-multitabs-5in1-slowly-soluble-20g"
+   },
+   {
+    "fact": "Secondhand/grey market for pool chemicals exists in Malta: 5kg chlorine tablets listed at €45 on Facebook Marketplace (Mosta)",
+    "source": "https://www.facebook.com/marketplace/item/930866823090621/"
+   },
+   {
+    "fact": "The Model Shop Malta stocks cleaning kits, chlorine tablets, filter pumps, pool skimmers, pool pumps and pool covers — typical small-retailer pool range in Malta",
+    "source": "https://www.facebook.com/themodelshopmalta/posts/chlorine-tablets-pool-pumps-pool-covers-and-so-much-more-%EF%B8%8F-check-out-our-range-o/5263304483722920/"
+   },
+   {
+    "fact": "Based on the beach/pool score, the best time of year for hot-weather activities in Malta is from mid June to mid September",
+    "source": "https://weatherspark.com/y/150260/Average-Weather-in-Malta-Year-Round"
+   },
+   {
+    "fact": "Malta swimming season extends in practice from roughly May through late October; mean October temperature about 25°C dropping to ~20°C late in the month, with locals reporting comfortable swimming into October",
+    "source": "https://www.tripadvisor.com/ShowTopic-g190311-i348-k3773616-Warm_enough_to_swim_in_late_October-Malta.html"
+   },
+   {
+    "fact": "EU reference price for chlorine tablets: Melpool small chlorine tablets 20g in 5kg package at €74.95 (Pool.shop, Netherlands-based EU retailer)",
+    "source": "https://www.pool.shop/c/swimming-pool-products/swimming-pool-chlorine/tablets/"
+   }
+  ],
+  "notes": "Method: Firecrawl only (6 searches + 4 scrapes = 10 calls), no fallback needed. Corrosion claim is dual-sourced (Chloramine Consulting natatorium consultancy + HASA chemical manufacturer, author PHTA CPO instructor); the Chloramine source explicitly names electronics/controllers as chlorine-vapour victims, and HASA explicitly disqualifies residential garages — together they directly support the 'do not keep the tablet/scanner in the chemical garage' advice. Barcode-absence claims: the repackaged/variable-measure/loose-item claim is directly supported by GS1's Restricted Circulation Number scheme (prefixes 02, 20-29) and the GS1 ZA Variable Measure Number definition; the per-category 'has EAN' claims are industry-norm inference anchored on GS1 GTIN rules, flagged as such in the report. The oversized-box (frame pool) access problem is flagged as uncited inference. Unresolved: no Malta-specific data on robotic cleaner pricing or on what share of Malta pool retailers' stock arrives without EANs (would need retailer interviews); Facebook sources (Model Shop, Marketplace) are weak-tier but only used for local colour, not load-bearing claims."
+ },
+ "shopifyMalta": {
+  "report": "# Shopify retail tooling from Malta — verified findings (mid-2026)\n\n## 1. Shopify Payments in Malta — HYPOTHESIS WRONG for online, RIGHT in spirit for retail\nThe current help.shopify.com supported-countries list (checked 2026-07-09) **includes Malta**, and a dedicated \"Shopify Payments for Malta\" help page exists: Malta merchants can activate Shopify Payments for ONLINE checkout (cards, accelerated checkouts, local payment methods, 3D Secure). BUT the separate \"Setting up Shopify Payments for POS\" page states only countries where Shopify Payments supports BOTH online and in-person processing can use it on POS — that list (AU, BE, CA, CZ, DK, FI, FR, DE, IE, IT, LU, NL, NZ, SG, ES, CH, UK, US) **excludes Malta**. Net: a Malta merchant can take Shopify Payments online, but CANNOT process card-present payments through Shopify at the till — no Shopify card readers, no Tap to Pay (Tap to Pay requires in-person Shopify Payments; its published country list also does not name Malta).\n\n## 2. Official POS hardware — not sold/shipped to Malta\nShopify Hardware Stores exist for 16 storefronts (US, UK, IE, DE, FR, IT, ES, NL, BE, DK, FI, CA en/fr, AU, NZ, SG) — no Malta. Documented guidance for everyone else: check the supported-hardware model list and \"purchase hardware from a verified third-party retailer of your choice.\" Implication for Malta: payments-agnostic peripherals (supported barcode scanners, receipt printers, cash drawers) can be bought third-party and will work with POS, but Shopify card readers are pointless even if imported because in-person Shopify Payments isn't supported in Malta — card acceptance must run on an external terminal.\n\n## 3. POS Lite vs Pro pricing — hypothesis CONFIRMED\nPOS Lite is included with every paid Shopify plan at no extra cost (basic in-person selling). POS Pro is an add-on at **USD $89/month per POS location** (USD $79/month per location with annual billing; original currency USD — Shopify's local-currency billing for Malta unknown). Pro adds staff permissions/unlimited POS staff, exchanges, save/email cart, ship-to-home / pickup fulfilment options, inventory counting/transfers (Stocky-class features), daily sales reports, in-store analytics, 2-year hardware warranty, etc.\n\n## 4. Recording cash and custom/external payments so inventory decrements\nTwo documented mechanisms, both first-party:\n- **POS custom payment types**: Shopify admin > Point of Sale channel > Settings > POS app (POS editor) > Checkout > \"Add custom payment type\" — explicitly intended for \"checks or third-party terminals\". A custom type (e.g. named \"Revolut\" or \"SumUp\") completes a normal POS order: Shopify records order number, customer, line items, total incl. taxes, timestamps and the payment-type label; no Shopify fees; funds are NOT processed by Shopify (they settle via the external processor). Because it produces a regular POS order, stock at the retail location adjusts like any other sale. Cash is a built-in tender, activated by default, toggleable per device.\n- **Draft orders + Mark as paid** (admin/back-office path): create a draft order, optionally reserve inventory (reserved units become \"Unavailable\"), then \"Mark as paid\" when payment was received outside Shopify — the draft converts to a regular order and inventory is decremented/finalized.\n\n## 5. POS offline mode — NOT Pro-gated\nDocumented on help.shopify.com: POS needs internet only to sync with admin, send email receipts, and capture card payments. **Offline checkout — accepting cash and any configured custom/manual payment methods (checks, third-party terminals) with no internet — is \"available to all Shopify POS users\"**, i.e. included in POS Lite; a second, separate optional feature (\"Offline payments\") extends offline selling to card payments via Shopify's own readers and must be activated in admin (irrelevant in Malta since Shopify card-present isn't supported). Documented offline limits: new products can't be created/saved offline, some product/customer search functions are internet-dependent, email receipts and admin sync queue until reconnection. So a Malta shop can keep ringing up cash + \"Revolut/SumUp\" custom-tender sales during an outage; the sales sync when connectivity returns.\n\n## 6. Shopify mobile admin app (Android) — camera barcode scanning\nThe Shopify admin app has a built-in inventory scanner: Products > Scan inventory > (optional location) > scan product barcodes with the device camera to count/adjust stock. The app can also populate a product's barcode field by scanning with the camera when adding/updating products. In the POS app, the global search bar has a barcode icon for camera-scan product lookup (adds to cart/search). Limitation: external hardware barcode scanners in the POS app only add items to checkout — they can't add products to inventory. The help pages document \"the Shopify app\" without an Android exclusion for the inventory scanner.\n\n## 7. External card readers Malta merchants actually use\nSince Shopify card-present is unavailable, Malta retailers pair Shopify POS with an external terminal recorded as a custom payment type — no automatic amount sync: staff key the total into the reader, take payment there, then close the Shopify sale under the custom tender (double-entry risk is the known trade-off; reconciliation happens in the processor's dashboard).\n- **SumUp (Malta storefront, sumup.com/en-mt, checked 2026-07-09)**: Solo Lite €34, Solo €79, Terminal (built-in printer) €169. Malta per-transaction fee not confirmed on the scraped page (unknown).\n- **Revolut Reader**: launched in Malta July 2024 at **€49** with **0.8% + €0.02** per in-person transaction (launch-time figures; current Malta business-site page for the reader returned 404, so today's price unknown — verify in the Revolut Business app).\n\n## Bottom line for a Malta merchant\nShopify works from Malta as: any plan + free POS Lite + third-party peripherals + cash/custom-payment tenders (SumUp/Revolut readers at €34–€169) + Shopify Payments for the ONLINE store only. Offline cash/custom selling and camera-based inventory scanning are included free. What you cannot get: Shopify's own card readers, Tap to Pay, or in-person Shopify Payments rates.",
+  "facts": [
+   {
+    "fact": "Shopify Payments IS available in Malta for online selling as of 2026-07-09 — Malta appears in the current supported-countries list (alongside Bulgaria, Croatia, Cyprus, Estonia, Latvia, Lithuania, Slovenia etc.), so the 'Malta absent' hypothesis is outdated.",
+    "source": "https://help.shopify.com/en/manual/payments/shopify-payments/supported-countries"
+   },
+   {
+    "fact": "A dedicated 'Shopify Payments for Malta' help page exists confirming Malta merchants can accept credit/debit cards, accelerated checkouts, and local payment methods at online checkout, with Malta-specific requirements/payouts subpages.",
+    "source": "https://help.shopify.com/en/manual/payments/shopify-payments/supported-countries/malta"
+   },
+   {
+    "fact": "Shopify Payments for POS (in-person/card-present processing) is NOT available in Malta: the 'only countries where Shopify Payments supports both online and in-person processing' list is Australia, Belgium, Canada, Czech Republic, Denmark, Finland, France, Germany, Ireland, Italy, Luxembourg, Netherlands, New Zealand, Singapore, Spain, Switzerland, UK, US — Malta absent.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/getting-started/setup-payment-method/shopify-payments-pos"
+   },
+   {
+    "fact": "The Shopify Hardware Store (official card readers, stands, scanners) exists only for 16 storefronts (US, UK, Ireland, Germany, France, Italy, Spain, Netherlands, Belgium, Denmark, Finland, Canada en/fr, Australia, New Zealand, Singapore) — no Malta store; merchants elsewhere are told to buy supported model numbers 'from a verified third-party retailer of your choice'. The page also notes card reader availability is tied to Shopify Payments.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/hardware/getting-started"
+   },
+   {
+    "fact": "POS Lite is included with all paid Shopify plans at no extra cost; POS Pro costs USD $89/month per POS location (USD $79/month per location with annual billing) as an add-on to any plan; Pro-exclusive features include staff permissions, exchanges, save/email cart, ship-to-home/pickup, inventory counting/transfers, daily sales reports, and 2-year hardware warranty. (Prices in USD, not converted.)",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/getting-started/identify-your-pos-needs"
+   },
+   {
+    "fact": "Shopify POS supports custom payment types — set up in Shopify admin via Point of Sale > Settings > POS app (POS editor) > Checkout > 'Add custom payment type' — explicitly intended for manual payments not processed by Shopify 'such as checks or third-party terminals'; no additional Shopify fees; the order records order number, customer, line items, total incl. taxes, timestamps and the custom payment type used, so a sale tendered as e.g. 'Revolut' closes as a normal inventory-adjusting POS order.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/getting-started/setup-payment-method/enable-payments"
+   },
+   {
+    "fact": "Cash is a built-in POS payment method activated by default (no fees), and can be toggled per POS device via Settings > Payments.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/getting-started/setup-payment-method/enable-payments"
+   },
+   {
+    "fact": "Draft orders support 'Mark as paid' for payments received outside Shopify; completing the draft turns it into a regular order (inventory finalized/decremented), and draft orders can optionally reserve inventory, putting reserved units into an 'Unavailable' state.",
+    "source": "https://help.shopify.com/en/manual/fulfillment/managing-orders/create-orders/create-draft"
+   },
+   {
+    "fact": "Shopify POS offline checkout — accepting cash and manual/custom payments with no internet connection — is 'available to all Shopify POS users' (not gated to POS Pro); POS needs internet only to sync with admin, send email receipts, and capture card payments. A separate optional 'Offline payments' feature extends offline selling to credit/debit cards and must be activated in admin.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/selling-offline"
+   },
+   {
+    "fact": "Offline checkout explicitly covers 'cash and any custom payment methods that you've set up for manual payments, such as checks or third-party terminals' — so external-reader sales can still be recorded during an outage.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/selling-offline/offline-checkout"
+   },
+   {
+    "fact": "Documented POS offline limitations include: new products can't be saved without an internet connection, and some search functions require connectivity (per the offline-features comparison of features requiring internet).",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/selling-offline/offline-features"
+   },
+   {
+    "fact": "The Shopify mobile admin app has a built-in camera inventory scanner: Products menu > 'Scan inventory' > optional location select > scan product barcodes to count/adjust stock (documented for 'the Shopify app' with no Android exclusion).",
+    "source": "https://help.shopify.com/en/manual/shopify-admin/shopify-app/inventory-scanner"
+   },
+   {
+    "fact": "The Shopify app can populate a product's barcode field by scanning the barcode with the mobile device's camera when adding/updating products.",
+    "source": "https://help.shopify.com/en/manual/products/add-update-products"
+   },
+   {
+    "fact": "Shopify POS supports camera barcode scanning for product lookup: global search bar > barcode icon > scan to find the product and add it to cart.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/inventory-management/searching-for-products"
+   },
+   {
+    "fact": "External hardware barcode scanners in the Shopify POS app cannot add products directly to inventory — scanning a product barcode only adds it to the checkout cart.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners"
+   },
+   {
+    "fact": "SumUp sells card readers to Malta merchants via its Maltese storefront (checked 2026-07-09): Solo Lite €34, Solo €79, Terminal with built-in printer €169; Malta per-transaction fee not shown on the scraped page (unknown).",
+    "source": "https://www.sumup.com/en-mt/"
+   },
+   {
+    "fact": "Revolut Reader launched in Malta (article dated 25 July 2024) at €49 per device with an in-person transaction fee of 0.8% + €0.02; current 2026 pricing unverified (Revolut's en-MT reader product page now returns 404).",
+    "source": "https://www.businesstoday.com.mt/banking-finance/banking-finance/2814/revolut_launches_revolut_reader_its_first_hardware_device_in_12_additional_markets_including_malta_"
+   },
+   {
+    "fact": "Tap to Pay on iPhone for Shopify POS lists supported regions as Canada/US plus a European subset (Czech Republic, France, Germany, Ireland, Italy, Luxembourg, Netherlands, Spain, ...) — Malta is not among the named countries, consistent with Malta lacking in-person Shopify Payments which Tap to Pay requires.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/payment-management/tap-to-pay-iphone"
+   }
+  ],
+  "notes": "Method: all Shopify claims verified against help.shopify.com via Firecrawl (search + scrape), 19 total Firecrawl calls — over the ~12 guideline because the headline hypothesis proved WRONG (Malta now HAS Shopify Payments online) and pinning down the online-vs-in-person split required extra verification; that split is the single most decision-relevant finding. Caveats: (1) JSON extractions are LLM-parsed from live pages — the supported-countries and in-person lists were cross-checked via the dedicated Malta page and the POS-payments page and are consistent; (2) the 'unsupported country → external terminal as custom payment' guidance sentence from the shopify-payments-pos page is a paraphrase by the extractor, but matches the custom-payments page verbatim wording ('third-party terminals'); (3) Tap to Pay country list came from a truncated search snippet — Malta absence there is corroborated by the in-person Shopify Payments exclusion rather than a full page read; (4) POS Pro prices are Shopify's USD list prices, not converted to EUR (Malta-local billing currency unknown); (5) SumUp Malta transaction fee and current (2026) Revolut Reader Malta price are UNKNOWN — device prices sourced from sumup.com/en-mt (live, 2026-07-09) and a July-2024 Malta launch article respectively; (6) the offline works/breaks detail relies partly on the offline-features page snippet (full table not scraped) — cart building offline is implied by offline checkout but not itemized in my sources, so the report claims only cash/custom-tender selling, product-creation and search limits, and receipt/sync queueing. Status: DONE_WITH_CONCERNS (the two unknown price/fee datapoints and the truncated Tap to Pay list)."
+ },
+ "barcodeFlows": {
+  "report": "# Barcode operations for a solo Shopify merchant — research report (2026-07-09)\n\n## JOB A — one-time full-stock capture (garage walk-through)\n\n### (a) Bluetooth scanner in HID keyboard mode → Google Sheets/Excel on Android\n- This is the simplest working setup and is well documented: wireless/Bluetooth scanners pair as a **HID keyboard**, and virtually all of them can be configured (by scanning setup barcodes in the manual) to append an **Enter (CR) or Tab suffix** after each scan (source: tera-digital.com scanner guide). With an Enter suffix, each scan lands in a cell and the cursor drops to the next row — barcode column fills itself; the owner only needs to type quantities or scan the same code N times and aggregate later with a COUNTIF.\n- Real-world confirmation on Android specifically: a merchant using a Bluetooth NETUM scanner into Google Sheets reported it \"works perfectly on an android tablet\" (the same setup was flaky on iPad — Android is the safer tablet choice here) (reddit r/googlesheets).\n- **Offline**: the Google Sheets Android app supports offline editing when the spreadsheet is marked \"Available offline\" (Google's standard offline docs, support.google.com/docs/answer/6388102 — stable first-party doc, not re-fetched this session). Edits sync when connectivity returns — relevant since garages may have no Wi‑Fi. Caveat: mark the sheet offline BEFORE leaving coverage. Excel on Android also edits local files offline. One caution: a HID scanner is a \"keyboard\", so Android may hide the on-screen keyboard while it is connected — expect to toggle the soft keyboard to type quantities (widely reported behavior; not separately sourced).\n\n### (b) Scanner MEMORY/BATCH mode (no live connection at all)\n- Purpose-built for exactly this job: the scanner stores scans in internal flash while disconnected, then dumps them later. How it works on the two big brands:\n  - **Zebra (DS4-series etc.)**: scan an \"Enter Batch Mode\" config barcode → all reads are stored; later scan \"Send Batch Data\" and the scanner transmits the whole buffer to the host (docs.zebra.com DS4678 programming guide).\n  - **Honeywell Gen-6**: offers **Automatic Batch Mode** — the scanner stores data whenever it's out of radio range and auto-transmits when back in range of its base (sps-support.honeywell.com).\n  - Budget brands (NETUM, Tera, Eyoyo, ScanAvenger, Inateck…) call it \"Storage mode\": data saved locally offline, uploaded later — typically by reconnecting via BT/USB and scanning an \"upload data\" barcode, at which point the scanner **replays all stored codes as keystrokes** into whatever app has focus (e.g., a Google Sheet column). Sources: tera-digital.com wireless-scanner guide (\"Storage Mode saves data locally when offline and uploads it later\"); ScanAvenger storage-mode tutorial (YouTube).\n- **Capacity**: batch scanners \"typically have sufficient internal memory to store a large volume of barcode scans\" (free-barcode.com overview). Budget models commonly advertise tens of thousands to 100,000+ codes on their internal flash, but exact per-model figures were not verified in this research — check the specific model's spec sheet before buying (marked unknown rather than guessed).\n- Practical note for Job A: memory mode stores barcode strings only (usually with timestamp on some models) — quantities still have to be captured either by scanning an item once per unit or by editing the sheet afterwards.\n\n### (c) Camera-based apps (zero-hardware fallback)\n- **Orca Scan** (iOS/Android, syncs scans to a cloud sheet, exportable): **Free plan = 1 user, 50 rows per sheet, $0** (orcascan.com/pricing) — too small for a multi-hundred-SKU garage capture without paying. Paid: Starter $20/mo, and the **Google Sheets live integration is gated to the Business plan at $40/mo (~€37)** (barcodesender.com comparison). Verdict: fine for a quick trial, not for the full capture on free tier.\n- **Scandit**: enterprise scanning SDK aimed at developers/fleets, sold via sales contact with trial — no merchant-friendly free tier confirmed; limits **unknown** (not verified within call budget — do not rely on it for this use case).\n- **CLZ Barry**: known as a free \"barcode scanner as wireless keyboard\" companion app that beams camera scans to a computer, i.e. could type into a desktop Google Sheet; its current status/limits were **not verified** this session — treat as unverified until checked at clz.com/barry.\n- Overall: camera apps are slower and more battery-hungry than a €30–60 Bluetooth HID scanner for hundreds of scans; HID scanner + Android tablet + offline Google Sheet is the recommended Job A rig, with memory mode as the fallback if pairing is unreliable in the garages.\n\n## JOB B — ongoing Shopify barcode operations\n\n### Assigning barcodes to products/variants\n- Every Shopify variant has a native **\"Barcode (ISBN, UPC, GTIN, etc.)\" field**, editable per-variant, via the admin **bulk editor** (add the Barcode column, paste values), or via **product CSV import** (\"Variant Barcode\" column) — standard Shopify product docs (help.shopify.com/en/manual/products — stable first-party docs; URLs not individually fetched this session, see notes). The Job A spreadsheet (barcode + qty) maps directly onto a CSV import or a Matrixify-style bulk update.\n\n### Scan-driven apps (all pricing USD/month as listed on the Shopify App Store)\n- **EasyScan (listing: \"506 EasyScan SKU & Barcode\", apps.shopify.com/easyscan-inventory-and-order)** — barcode/SKU assignment, label printing, scan-based stocktakes and inventory updates, order checking. **Basic $9.99/mo (or $99.90/yr)** including unlimited barcode generation + label printing; higher tiers add inventory check/update/transfer and order fulfilment — top tier $39.99/mo (developer site 506.io shows Basic 9.99 / Standard 39.99; a 2024–25 review lists 9.99/24.99/39.99 — mid-tier price conflicting, verify in-store). Marketed as a Stocky replacement. Best single-app fit for \"assign internal barcodes + stocktake + print labels\" on one cheap plan.\n- **StockSavvy Barcode Scanning (apps.shopify.com/stock-savvy)** — scan-based cycle counts / stocktakes with discrepancy reports, purchase orders, label printing. Entry tier **$9/mo: 500 SKUs per count, unlimited counts, 20 POs/mo, unlimited barcode label printing** (App Store listing snippet); higher tiers exist but were not enumerated.\n- **Stocky (first-party, POS Pro)** — **do not adopt: it is being sunset.** No new installs since Feb 2, 2026, and the app **stops working entirely after August 31, 2026**; Shopify tells merchants to move to the built-in \"Inventory management\" features (help.shopify.com Stocky page; inflowinventory.com and pimsical.app migration explainers; community.shopify.com thread). Historically it was bundled free with POS Pro — now irrelevant for new setups.\n- **iPacky (apps.shopify.com/ipacky)** — pick/pack/fulfil with barcode verification of every item, picking lists, bin locations, bundles, shipping connectors. **Free \"Starter\" plan up to 50 shop orders/month**; Standard $19.99/mo + per-order metering ($0.099 first 500 orders, decreasing); 14-day trial; runs in the browser on any device incl. Android; 5.0★ (126 reviews). For a solo merchant with low order volume the free plan may be enough.\n- **\"Pikr\" — no app by this name could be found on the Shopify App Store** (site-scoped search returned nothing). The closest match the searches surfaced is **\"Order Picking App\" (apps.shopify.com/order-picking-app)**: $14.95/mo (≤10 orders/day), $24.95/mo (≤20/day), $69.95/mo, with ~17% annual discounts. Treat \"Pikr\" as either renamed, delisted, or misremembered — verify with the client.\n\n### Retail Barcode Labels (free, first-party) + printers\n- **Retail Barcode Labels** (help.shopify.com/en/manual/sell-in-person/hardware/barcode-printer/retail-barcode-labels) is Shopify's free app to design label templates and **print barcode labels from within Shopify admin**; per Shopify docs it also covers creating barcodes for products that lack them (auto-generated internal barcodes assigned to the variant barcode field). It requires a **supported label printer**, and printing runs through the **desktop admin + printer's desktop software** — this is not an Android printing flow.\n- **Officially supported printers (help.shopify.com barcode-printer page, with regional availability)**: Brother QL-1110NWB (Canada/US/Australia); DYMO LabelWriter 550 (Canada/US listed — DYMO software, Mac 10.14+/Win 8.1+); Zebra ZD220 (Canada/US/Ireland/UK — can't print from iOS or directly through a browser); **Zebra ZD420/ZD421 (Canada/US + various EU countries — the main officially-EU-supported option)**; Bixolon XD5-40dK/BEG (UK). Note for a Malta/EU merchant: the Zebra ZD421 line is the safest \"officially supported\" pick; DYMO 550 works technically anywhere but Shopify only lists CA/US support.\n- **EU street prices (Galaxus.be toplist, EUR, 2026)**: DYMO LabelWriter 550 **€98.77** / 550 Turbo €175.39 (USB, desktop-only — no Android); Brother QL-600B €79.15 / QL-800 **€110.44** (USB, desktop); Zebra ZD220 **€193.34** (USB; ZD421 costs more, price not captured); NIIMBOT B1 **€50.31**, B21 **€65.90**, B21 Pro €63.90 (Bluetooth — print from the NIIMBOT Android/iOS app, but NOT integrated with Shopify's Retail Barcode Labels; fine for ad-hoc internal labels driven from a spreadsheet/app). Phomemo/Nelko EUR prices: not captured — unknown (same class as NIIMBOT, Bluetooth + Android app, no Shopify integration).\n- **Android printing summary**: cheap BT label makers (NIIMBOT/Phomemo/Nelko) print from their own Android apps only; the Shopify-supported Zebra/DYMO/Brother desktop thermal printers print via desktop. If the client wants scan→print on Android inside Shopify, that's an app feature (e.g., EasyScan label printing) rather than Retail Barcode Labels.\n\n## Recommended combo (solo merchant, Malta)\nJob A: €30–60 Bluetooth 1D/2D scanner with HID + Enter suffix + memory mode as backup, Android tablet, offline-enabled Google Sheet. Job B: import barcodes via CSV/bulk editor; EasyScan Basic ($9.99) for barcode assignment + labels + stocktakes (or StockSavvy $9 if PO-driven counts matter); iPacky free tier for pick/pack; skip Stocky (sunset Aug 2026); labels via Retail Barcode Labels + Zebra ZD421 if official support matters, or a €50–66 NIIMBOT for pragmatic internal labels.",
+  "facts": [
+   {
+    "fact": "Wireless/USB barcode scanners work in HID keyboard mode and can be configured to append an Enter or Tab suffix after each scan (setup barcodes in the manual).",
+    "source": "https://tera-digital.com/blogs/barcodes/use-usb-barcode-scanner"
+   },
+   {
+    "fact": "A Bluetooth NETUM barcode scanner entering SKUs into Google Sheets 'works perfectly on an android tablet' (same setup was problematic on iPad).",
+    "source": "https://www.reddit.com/r/googlesheets/comments/wwjo88/google_sheets_bluetooth_barcode_scanner_ipad/"
+   },
+   {
+    "fact": "Google Sheets on Android supports offline viewing/editing when the file is marked 'Available offline' (standard Google first-party doc; URL cited from knowledge, not fetched this session).",
+    "source": "https://support.google.com/docs/answer/6388102"
+   },
+   {
+    "fact": "Zebra scanners (e.g. DS4678): Standard Batch Mode stores barcode data after scanning an 'Enter Batch Mode' config barcode; scanning 'Send Batch Data' transmits the stored buffer to the host.",
+    "source": "https://docs.zebra.com/us/en/scanners/general/ds4-series/ds4678-prg/radio-communications/general-radio-parameters/batch-mode.html"
+   },
+   {
+    "fact": "Honeywell Generation 6 scanners offer Automatic Batch Mode: data is stored when the scanner is out of range of its base and automatically transmitted once back in range.",
+    "source": "https://sps-support.honeywell.com/s/article/What-kind-of-batch-modes-are-available-with-the-Honeywell-Generation-6-scanners"
+   },
+   {
+    "fact": "Batch barcode scanners typically have internal memory sufficient to store a large volume of scans for later upload; budget brands call this 'Storage Mode' (save offline, upload later). Exact per-model capacities: unknown (not verified).",
+    "source": "https://free-barcode.com/barcode/barcode-scanner/batch-barcode-scanners.asp and https://tera-digital.com/blogs/barcodes/wireless-barcode-scanner"
+   },
+   {
+    "fact": "Orca Scan Free plan: $0, 1 user, 50 rows per sheet.",
+    "source": "https://orcascan.com/pricing"
+   },
+   {
+    "fact": "Orca Scan paid plans: Starter $20/month; the Google Sheets integration is only available on the Business plan at $40/month ($480/year).",
+    "source": "https://barcodesender.com/barcode-sender-vs-orca-scan/"
+   },
+   {
+    "fact": "EasyScan's real App Store listing is '506 EasyScan SKU & Barcode' at apps.shopify.com/easyscan-inventory-and-order; Basic plan $9.99/month (or $99.90/year, -17%) includes unlimited barcode label printing and barcode generation. (apps.shopify.com/easyscan is a 404.)",
+    "source": "https://apps.shopify.com/easyscan-inventory-and-order"
+   },
+   {
+    "fact": "EasyScan higher tiers: developer site shows Basic $9.99 / Standard $39.99 (stores fulfilling in-house); a third-party review lists Basic $9.99 / Standard $24.99 / Advanced $39.99 — mid-tier pricing conflicting, verify on the listing.",
+    "source": "https://www.506.io/easyscan and https://ecommerce-platforms.com/articles/easyscan-review"
+   },
+   {
+    "fact": "StockSavvy Barcode Scanning (apps.shopify.com/stock-savvy): $9/month tier includes scanning/updating 500 SKUs per count, unlimited inventory counts, 20 purchase orders per month, unlimited barcode label printing.",
+    "source": "https://apps.shopify.com/stock-savvy"
+   },
+   {
+    "fact": "Stocky is being discontinued: the app will no longer be available after August 31, 2026; Shopify directs merchants to its built-in Inventory management features.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/inventory-management/stocky"
+   },
+   {
+    "fact": "Stocky has not been available for new installations since February 2, 2026 (removed from the Shopify App Store); inventory transfers and min/max replenishment were already removed July 7, 2025.",
+    "source": "https://www.inflowinventory.com/blog/stocky-shopify-app-sunsetting/ and https://www.pimsical.app/apps/stock-take/blogs/end-of-stocky/"
+   },
+   {
+    "fact": "iPacky (apps.shopify.com/ipacky): pick/pack/fulfil with barcode scanning; free Starter plan (max 50 shop orders/month, order checking, bin locations, bundles); Standard $19.99/month plus per-order fees ($0.099 first 500 orders, decreasing to $0.039 above 5000); 14-day free trial; runs in browser on any device (Android OK); 5.0 rating, 126 reviews.",
+    "source": "https://apps.shopify.com/ipacky"
+   },
+   {
+    "fact": "No Shopify App Store listing named 'Pikr' was found (site:apps.shopify.com search returned none). Closest match surfaced when searching 'Pikr': 'Order Picking App' at apps.shopify.com/order-picking-app — $14.95/mo (up to 10 orders/day), $24.95/mo (up to 20/day), $69.95/mo, ~17% off annually.",
+    "source": "https://apps.shopify.com/order-picking-app"
+   },
+   {
+    "fact": "Retail Barcode Labels is Shopify's free first-party app to design and print barcode labels from within Shopify; it requires a supported label printer.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-printer/retail-barcode-labels"
+   },
+   {
+    "fact": "Shopify-supported barcode printers and regions: Brother QL-1110NWB (Canada/US/Australia); DYMO LabelWriter 550 (Canada/US; requires DYMO desktop software, Mac 10.14+/Windows 8.1+); Zebra ZD220 (Canada/US/Ireland/UK; cannot print from iOS or directly via browser); Zebra ZD420/ZD421 (Canada/US and various EU countries); Bixolon XD5-40dK/BEG (UK). Retail Barcode Labels app supports only 4 DYMO label sizes. Printing is a desktop flow, not Android.",
+    "source": "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-printer"
+   },
+   {
+    "fact": "EU street prices (Galaxus.be 'best affordable label printers under 200 EUR', 2026): DYMO LabelWriter 550 €98.77 and 550 Turbo €175.39 (USB); Brother QL-600B €79.15 and QL-800 €110.44 (USB); Zebra ZD220 €193.34 (USB); NIIMBOT B1 €50.31, B21 €65.90, B21 Pro €63.90 (Bluetooth, print from NIIMBOT Android/iOS app).",
+    "source": "https://www.galaxus.be/en/s1/producttype/toplist/affordable/label-printer-291"
+   },
+   {
+    "fact": "Shopify variants carry a native barcode field ('Barcode (ISBN, UPC, GTIN, etc.)') editable per variant, via the admin bulk editor, or via product CSV import ('Variant Barcode' column) — standard Shopify product documentation (stable first-party docs; individual pages not fetched this session).",
+    "source": "https://help.shopify.com/en/manual/products"
+   }
+  ],
+  "notes": "Method: Firecrawl only (no fallback needed) — 8 searches + 6 scrapes = 14 calls, slightly over the ~12 guideline; the 2 extra scrapes were spent pinning the official Shopify supported-printer list and concrete EUR prices (both load-bearing). Caveats: (1) first EasyScan scrape (apps.shopify.com/easyscan) returned HTTP 404 and the JSON extractor hallucinated plausible-looking pricing on the error page — discarded; real listing found at /easyscan-inventory-and-order; treat any single-scrape JSON without a 200 status as suspect. (2) Scandit free-tier limits and CLZ Barry current status were NOT verified (call budget) — marked unknown in report; Scandit is an enterprise SDK, likely irrelevant for a solo merchant. (3) Phomemo/Nelko EUR prices not captured — unknown. (4) Zebra ZD421 EUR price not captured (ZD220 = €193.34 as proxy floor). (5) Two facts cite stable first-party doc URLs from knowledge rather than in-session fetches (Google Sheets offline; Shopify barcode field/bulk editor/CSV) — flagged inline; recommend a 30-second verify if these become decision-critical. (6) EasyScan mid-tier price conflicts between sources ($24.99 vs $39.99 Standard) — check the live listing. (7) Galaxus prices are Belgium (galaxus.be); Malta street prices may differ slightly plus shipping."
+ },
+ "tablets": {
+  "candidates": [
+   {
+    "name": "Samsung Galaxy Tab A9+ (2023, SM-X210)",
+    "variant": "Wi-Fi 4/64GB; separate 5G variant (SM-X216)",
+    "price_eur": "Wi-Fi 64GB from ~197-211 EUR (idealo.at 197.00, idealo.de 210.99); 5G 64GB ~250-293 EUR (idealo.de list 'ab 292,99', used from ~250) — 5G delta roughly +80 EUR",
+    "key_specs": "11-inch 90Hz LCD, Snapdragon 695, 4GB/64GB base, microSD, ships Android 13",
+    "os_support": "FAILS brief — OS upgrades end 23 Oct 2026, security updates end 23 Oct 2027 (endoflife.date, updated May 2026). Hypothesis confirmed: dead 4+ years before the 2031 requirement. Note a 'Tab A9+ (2025)' regional refresh exists (released Aug 2025, OS upgrades to Aug 2031) but the A11+ is its de-facto EU successor.",
+    "offline": "5G variant widely available in EU; ~+80 EUR over Wi-Fi at current street prices",
+    "shopify_pos": "Yes today (Android 13 > min Android 10 + Google services), but after Oct 2027 its security patch goes stale, which breaks Shopify's Tap-to-Pay-on-Android requirement (patch within last 12 months) and general security posture",
+    "durability": "No IP rating; standard consumer build; no special heat spec",
+    "pros": "Cheapest 11-inch Samsung; leaves ~500 EUR of the 700 total for the scanner; 5G variant cheap",
+    "cons": "Update support ends Oct 2027 — fails the 2031-2033 requirement outright; weak SoC; no IP rating for garage dust",
+    "sources": [
+     "https://endoflife.date/samsung-galaxy-tab",
+     "https://www.idealo.at/preisvergleich/OffersOfProduct/203444934_-galaxy-tab-a9-64gb-wifi-graphite-samsung.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/203435741_-galaxy-tab-a9-samsung.html"
+    ]
+   },
+   {
+    "name": "Samsung Galaxy Tab A11+ (Dec 2025)",
+    "variant": "Wi-Fi 6/128GB; 5G variants 128GB and 256GB",
+    "price_eur": "Wi-Fi 128GB from 198.90 EUR (idealo.de); 5G 128GB from 225.98 EUR; 5G 256GB from 300.69 EUR — 5G delta only ~27 EUR",
+    "key_specs": "11-inch 90Hz LCD, 6GB/128GB, microSD, ships Android 16 (per idealo listing), Exynos-class midrange SoC",
+    "os_support": "PASSES brief — endoflife.date lists both OS upgrades and security updates ending 30 Dec 2031; Samsung has additionally been reported (Samsung EU community forum, Threads/vertical_bar_media citing Samsung confirmation) as confirming 7 years OS + security for Tab A11/A11+, which would mean 2032. Conservative floor: Dec 2031. This is the recent A-series support extension the brief asked to verify.",
+    "offline": "5G variant available and remarkably cheap: 225.98 EUR = only ~27 EUR over Wi-Fi — best cellular value of the sweep for spotty garage Wi-Fi",
+    "shopify_pos": "Yes — Android 16 far exceeds min Android 10; long patch runway also keeps Tap-to-Pay-on-Android eligibility (needs patch within last 12 months) alive through ~2031",
+    "durability": "No IP rating (consumer build) — mitigate garage dust with a rugged case (~20-30 EUR); standard 0-35 C operating class for Maltese summer, keep out of direct sun",
+    "pros": "Best value in the sweep: 5G + 128GB + support to end-2031/2032 for ~226 EUR; leaves ~475 EUR for scanner within the 700 total; newest Android; solo-owner friendly (mainstream Samsung One UI)",
+    "cons": "No IP rating; support floor (Dec 2031) is at the early edge of the 2031-2033 window if endoflife's date rather than the 7-year reading is correct; midrange performance",
+    "sources": [
+     "https://endoflife.date/samsung-galaxy-tab",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/208364592_-galaxy-tab-a11-128gb-wifi-grau-samsung.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/208364601_-galaxy-tab-a11-128gb-5g-grau-samsung.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/208364599_-galaxy-tab-a11-256gb-5g-silber-samsung.html",
+     "https://eu.community.samsung.com/t5/mobile-apps-services/samsung-extending-software-updates-to-some-mid-range-devices/td-p/13644948",
+     "https://www.threads.com/@vertical_bar_media/post/DS7ukpFjWHM/samsung-has-confirmed-that-the-galaxy-tab-a-is-officially-eligible-for-seven"
+    ]
+   },
+   {
+    "name": "Samsung Galaxy Tab S10 FE (Apr 2025, SM-X520)",
+    "variant": "Wi-Fi 8/128GB; 5G variant available",
+    "price_eur": "Wi-Fi 128GB from 402.90 EUR (idealo.de); 5G 128GB from 411.00 EUR (idealo.at) — 5G delta ~10-50 EUR depending on market. (S10 FE+ 5G is 601.99 EUR — over budget, not needed.)",
+    "key_specs": "10.9-inch 90Hz LCD, Exynos 1580, 8GB/128GB, S Pen included, IP68, ships Android 15",
+    "os_support": "PASSES brief — hypothesis verified: 7 generations of OS upgrades, Android upgrades listed ending 03 Apr 2032 on endoflife.date (security updates run at least as long per Samsung policy, i.e. through ~Apr 2032). Samsung's official scope page: security.samsungmobile.com/workScope.smsb.",
+    "offline": "5G variant available at ~411 EUR (idealo.at); very small premium over Wi-Fi",
+    "shopify_pos": "Yes — Android 15, comfortably above min Android 10; patch runway to 2032 keeps Tap-to-Pay eligibility",
+    "durability": "IP68 dust/water rating — the only in-budget NON-rugged candidate with real dust protection, directly relevant to a garage; consumer 0-35 C heat envelope",
+    "pros": "Only candidate combining IP68 + 7-year support + in-budget price; stronger SoC and 8GB RAM = smoothest POS longevity; at 403-411 EUR still leaves ~290 EUR for a scanner within the 700 cap",
+    "cons": "Takes the top half of the budget; exceeds the ideal 180-480 tablet band only if you add accessories; heavier price than A11+ for the same support horizon",
+    "sources": [
+     "https://endoflife.date/samsung-galaxy-tab",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/206193321_-galaxy-tab-s10-fe-128gb-wifi-grau-samsung.html",
+     "https://www.idealo.at/preisvergleich/OffersOfProduct/206193327_-galaxy-tab-s10-fe-128gb-5g-gray-samsung.html",
+     "https://security.samsungmobile.com/workScope.smsb"
+    ]
+   },
+   {
+    "name": "Samsung Galaxy Tab S9 FE (Oct 2023, SM-X510)",
+    "variant": "Wi-Fi 6/128GB; 5G variant exists (price not verified)",
+    "price_eur": "From 479.00 EUR base / 497.00 EUR for 128GB Wi-Fi grey (idealo.de) — currently MORE expensive than the newer S10 FE due to end-of-life stock",
+    "key_specs": "10.9-inch 90Hz LCD, Exynos 1380, 6GB/128GB, S Pen, IP68, ships Android 13",
+    "os_support": "FAILS brief — OS upgrades end 04 Oct 2027; security updates end ~04 Oct 2028 (endoflife.date shows 04 Oct 2028 on the sibling S9 FE+ row; Samsung policy for this generation = 4 OS + 5 years security). Falls 3-5 years short of 2031-2033.",
+    "offline": "5G variant exists in EU; current street price unknown",
+    "shopify_pos": "Yes today (Android 13+); patch staleness after Oct 2028 breaks Tap-to-Pay recency requirement",
+    "durability": "IP68 dust/water rating",
+    "pros": "IP68; decent hardware",
+    "cons": "Strictly dominated: costs MORE than the S10 FE (479-497 vs 403) while offering 4-5 fewer years of updates — remove from consideration",
+    "sources": [
+     "https://endoflife.date/samsung-galaxy-tab",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/203047286_-galaxy-tab-s9-fe-samsung.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/203294045_-galaxy-tab-s9-fe-128gb-wifi-grau-samsung.html"
+    ]
+   },
+   {
+    "name": "Samsung Galaxy Tab Active5 Enterprise Edition (Jan 2024)",
+    "variant": "5G standard on EE; 6/128GB and 8/256GB",
+    "price_eur": "8GB/256GB 5G from 599.00 EUR (idealo.de); 6GB/128GB EE variant listed but price not shown in snippet (unknown, likely ~520-570). Active5 Pro EE (2025): 128GB 5G from 519.13 EUR / base from 499.99 EUR.",
+    "key_specs": "8-inch 120Hz, Exynos 1380, rugged chassis, user-replaceable battery, glove/wet-touch mode",
+    "os_support": "FAILS brief — surprising but sourced: Active5 OS upgrades end 23 Jan 2028, security updates end 23 Jan 2029 (endoflife.date). Even Active5 Pro (May 2025) only reaches 07 May 2030 security. Neither reaches 2031.",
+    "offline": "5G built into Enterprise Edition SKUs (no delta — it is the standard config)",
+    "shopify_pos": "Yes today (min Android 10 met); patch staleness from 2029 (2030 for Pro) breaks Tap-to-Pay recency before the 2031 horizon",
+    "durability": "Best-in-sweep: IP68 + MIL-STD-810H rugged spec, wider temperature tolerance — ideal for garage dust/heat in principle",
+    "pros": "Purpose-built for dusty/hot environments; replaceable battery is genuinely valuable for a 5-7 year life",
+    "cons": "Budget hypothesis confirmed: at 599 EUR it leaves only ~100 EUR for a scanner in a 700 total; AND it still fails the 2031-2033 update requirement (security ends Jan 2029) — double disqualification; 8-inch screen is small for a POS station",
+    "sources": [
+     "https://endoflife.date/samsung-galaxy-tab",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/204219673_-galaxy-tab-active-5-enterprise-edition-8gb-256gb-5g-samsung.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/206614379_-galaxy-tab-active-5-pro-enterprise-edition-samsung.html"
+    ]
+   },
+   {
+    "name": "Cheap rugged class: Blackview / Oukitel / Doogee (category verdict)",
+    "variant": "Various (e.g. Blackview Active-series, Oukitel RT-series, Doogee R-series), most with LTE/5G built in",
+    "price_eur": "unknown per-model (class typically retails ~150-350 EUR, not verified per model in this sweep — deliberately not priced further because the category fails the gating requirement)",
+    "key_specs": "Rugged IP68/IP69K-class shells, big batteries, MediaTek SoCs, ship with recent Android (Doogee announced Android 16 rollouts)",
+    "os_support": "FAILS brief — hypothesis confirmed: none of these brands publishes a formal per-model update-policy end date; community-reported reality is ~1-2 OS upgrades and ~2-3 years of irregular patches at best (Quora user reports; Android Authority's update-policy roundup lists no multi-year commitment for any of them). No verifiable path to 2031, and for a solo non-technical owner the irregular OTA quality is itself a risk.",
+    "offline": "Cellular usually standard at this class (a plus), but moot given the update failure",
+    "shopify_pos": "Yes at purchase (Android 13-16, Google-certified models only — some greymarket units lack proper Google services, verify Play certification if ever considered); patch staleness within ~2 years kills Tap-to-Pay eligibility",
+    "durability": "IP68/IP69K + MIL-STD claims common — hardware toughness is not the problem; software abandonment is",
+    "pros": "Cheap rugged hardware with cellular included",
+    "cons": "No official update policy at all; 1-2 updates in practice — worst fit for the single most load-bearing requirement (2031-2033 support); resale/support risk for a non-technical owner",
+    "sources": [
+     "https://www.quora.com/Are-underrated-smartphone-brands-such-as-DOOGEE-Ulefone-and-Blackview-reliable-Do-they-get-frequent-software-updates-or-are-killed-off-after-a-year-of-their-release-Why-don-t-more-people-buy-these-brands",
+     "https://www.androidauthority.com/phone-update-policies-1658633/",
+     "https://www.facebook.com/doogee/posts/were-proud-to-announce-that-doogees-smart-devices-will-be-equipped-with-the-late/1145410330944374/"
+    ]
+   },
+   {
+    "name": "Apple iPad 11th gen (A16, 2025) — BENCHMARK ROW ONLY (client prefers Android)",
+    "variant": "Wi-Fi 128GB (cellular variant exists at ~+170 EUR MSRP, not verified street)",
+    "price_eur": "From 399.90 EUR street for 128GB Wi-Fi (idealo.de, silver 2025); typical range 399-427 EUR; Apple DE MSRP 409 EUR",
+    "key_specs": "11-inch LCD, A16 chip, 128GB, iPadOS",
+    "os_support": "No official Apple policy exists (unlike Samsung), but historical precedent is 7-8 years of iPadOS versions plus ~2 further years of security patches (e.g. 2017-2019 iPads supported into the mid-2020s) — realistic horizon ~2032-2033, i.e. comfortably meets the brief, ESTIMATED not guaranteed",
+    "offline": "Cellular iPad exists but pushes toward ~570+ EUR — over the tablet band; Wi-Fi model + phone hotspot is the usual fallback",
+    "shopify_pos": "Yes — Shopify POS is iPad-first (min iPadOS 15.1; iPad gen 5+); arguably its best-supported platform",
+    "durability": "No IP rating; consumer build; 0-35 C operating spec — same garage caveats as consumer Androids",
+    "pros": "At 399.90 EUR it undercuts the S10 FE while (historically) out-supporting every Android here except A11+/S10 FE; first-class Shopify POS platform",
+    "cons": "Client prefers Android; update horizon is precedent-based, not a contractual policy; no IP rating; ecosystem switch cost for accessories",
+    "sources": [
+     "https://www.idealo.de/preisvergleich/Liste/123729072/apple-ipad-a16-wi-fi-mit-128.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/206023323_-ipad-2025-apple.html",
+     "https://help.shopify.com/en/manual/sell-in-person/shopify-pos/faq"
+    ]
+   }
+  ],
+  "notes": "METHOD: 12 Firecrawl calls (search + 2 scrapes), 2026-07-09. Update end dates verified per exact model via endoflife.date/samsung-galaxy-tab (last updated 01 May 2026, mirrors Samsung's official security.samsungmobile.com/workScope.smsb scope). Prices = live EU street prices from idealo.de/idealo.at snippets (EUR, incl. VAT); Malta buyers typically pay a small shipping premium on top. SHOPIFY POS REQUIREMENTS (scraped help.shopify.com FAQ): Android 10.0 minimum + Google services; iPadOS 15.1+. Extra gotcha: Tap to Pay on Android requires Android 13+ AND a security patch issued within the last 12 months (help.shopify.com/.../tap-to-pay-android) — so a tablet whose patches stop in 2027-2029 also loses Tap-to-Pay eligibility then, making the update policy doubly load-bearing. VERDICT: only TWO Android candidates meet 2031-2033 support: (1) Galaxy Tab A11+ 5G 128GB at 225.98 EUR — support to 30 Dec 2031 per endoflife.date, and reportedly Samsung-confirmed 7 years (=2032); 5G premium is only ~27 EUR, ideal for spotty garage Wi-Fi, leaves ~475 EUR for the scanner; (2) Galaxy Tab S10 FE at 402.90 (Wi-Fi) / 411 (5G, idealo.at) — 7-year support to Apr 2032 AND the only in-budget option with IP68 dust protection (garage-relevant), leaves ~290 EUR for scanner. All hypotheses confirmed: A9+ dies Oct 2027; S9 FE dies ~Oct 2028 and now costs MORE than the S10 FE (dominated — drop it); Tab Active5 is both budget-hostile (599 EUR) and, counterintuitively, FAILS the update brief (security ends Jan 2029; even Active5 Pro only 2030); cheap rugged brands have no formal policy and ~1-2 updates in reality. DISCREPANCY TO FLAG: A11+ support end — endoflife.date says 30 Dec 2031 (reads as 6 years), while Samsung community/press reports say Samsung confirmed 7 years OS+security for Tab A11/A11+ (=end 2032); recommend treating Dec 2031 as the contractual floor. ALSO NOTED: base Galaxy Tab A11 (Sep 2025) from 114.90 EUR has 7-year support to 29 Sep 2032 (endoflife.date) but is a small ~8.7-inch LTE device — screen too small for a comfortable POS station, listed here only as a budget fallback. A 'Tab A9+ (2025)' refresh exists (support to Aug 2031) but A11+ supersedes it in EU retail. Heat: all consumer candidates spec ~0-35 C operation — advise mounting away from direct sun/metal surfaces in a Maltese garage regardless of model. Unresolved: exact price of Tab Active5 EE 6/128GB and S9 FE/S10 FE 5G Malta-local pricing; iPad support horizon is precedent-based (no official Apple policy)."
+ },
+ "scanners": {
+  "candidates": [
+   {
+    "name": "Netum NT-1228BL",
+    "variant": "Also sold as 'NT-1228BL with stand' (Amazon ASIN B08DCXKFYS); stand is a holder, not a charging cradle",
+    "price_eur": "~EUR 41-45 (official netum.net sale price USD 47.99, regular USD 57.99; converted approx. at mid-2026 rates). Listed on amazon.de but current amazon.de EUR price not captured this session.",
+    "key_specs": "True 2D CMOS imager - decodes QR, Data Matrix, PDF417, UPC/EAN incl. add-ons, from screen or paper (verified in Netum/Amazon listings). Triple connectivity: Bluetooth + 2.4GHz USB dongle + USB wired. Gun-style physical trigger. Battery capacity spec not verified.",
+    "offline": "Netum documents a storage/inventory mode on its BT scanners (scans buffered when out of range, then uploaded as keystrokes into any focused field on reconnect) - capacity figure NOT verified this session; confirm in the NT-1228BL manual before buying.",
+    "os_support": "Bluetooth HID pairs as a keyboard with Android/iOS/Windows; 2.4GHz dongle + USB wired for PC (dongle on Android tablet requires USB-OTG).",
+    "shopify_pos": "Generic HID route: pair in Android system settings, enable 'Allow HID mode' in Shopify POS settings; scans then add to cart from the home screen and work in search. Not on Shopify's named-support list.",
+    "durability": "No published drop spec or IP rating found - consumer-grade housing.",
+    "pros": "Cheapest verified true-2D triple-mode (BT/2.4G/USB) option; screen-code reading explicitly confirmed; physical trigger usable with gloves; huge install base.",
+    "cons": "No drop/IP rating; storage-mode capacity unverified; no charging cradle (charges via USB cable); consumer build for garage/van duty.",
+    "sources": [
+     "https://www.netum.net/products/nt-1228bl-barcode-scanner",
+     "https://www.amazon.de/-/en/NETUM-NT-1228BL-Bluetooth-2D-Scanner-QR/dp/B07CBS52KJ",
+     "https://www.amazon.com/NETUM-Bluetooth-Handheld-Wireless-NT-1228BL/dp/B07CBS52KJ"
+    ]
+   },
+   {
+    "name": "Netum C750",
+    "price_eur": "unknown - not verified this session (call budget); Netum markets it as a pocket/mini 2D BT scanner, typically below the NT-1228BL price point",
+    "key_specs": "Pocket-size 2D Bluetooth scanner per Netum's product line marketing - ALL specs unverified this session; treat as hypothesis only.",
+    "offline": "unknown (Netum minis usually claim a storage mode, but not verified for C750)",
+    "os_support": "Bluetooth HID (keyboard emulation) expected - unverified",
+    "shopify_pos": "Would follow the generic HID route (pair + 'Allow HID mode') if HID keyboard mode confirmed - unverified",
+    "durability": "unknown",
+    "pros": "Pocketable form factor attractive for van use if specs hold.",
+    "cons": "Nothing verified: price, memory capacity, trigger ergonomics all unknown; mini scanners generally lack a proper gun trigger (worse with gloves).",
+    "sources": [
+     "https://www.netum.net/"
+    ]
+   },
+   {
+    "name": "Eyoyo (2D Bluetooth models, e.g. EY-023 class)",
+    "price_eur": "unknown - not verified this session (call budget exhausted before this brand)",
+    "key_specs": "Brand sells budget 2D BT/2.4G handhelds and mini scanners on amazon.de with offline-storage claims - none verified this session.",
+    "offline": "unknown (commonly claimed by the brand, unverified)",
+    "shopify_pos": "Generic HID route if HID keyboard mode present - unverified per model",
+    "durability": "unknown",
+    "pros": "Typically undercuts Netum/Tera on price.",
+    "cons": "Zero verified data this sweep; quality variance across the model range is a known risk with this brand tier.",
+    "sources": [
+     "https://www.amazon.de/s?k=eyoyo+2d+bluetooth+barcode+scanner"
+    ]
+   },
+   {
+    "name": "Tera HW0002",
+    "variant": "HW0002-Z variant ships with a stand; HW0002-O is the current Best Buy SKU",
+    "price_eur": "unknown EU street price this session (sold on amazon.de and tera-digital.com; US retail at Best Buy/amazon.com). Historically sits in the EUR 40-65 band - treat that band as unverified.",
+    "key_specs": "2D imager (1D/2D/QR incl. PDF417); Bluetooth + 2.4GHz dongle + USB wired (verified in Best Buy listing); battery-level display feature (per Amazon listing title); gun-style trigger.",
+    "offline": "VERIFIED claim: 'offers the flexibility of both storage mode and instant upload mode' (tera-digital.com product page + Amazon listing). Stored scans upload as keystrokes on reconnect. Capacity figure not verified.",
+    "os_support": "Bluetooth HID keyboard with Android/iOS/Windows; 2.4G dongle/USB for PC. Widely used with tablet check-in apps (Ticket Tailor publishes a pairing guide).",
+    "shopify_pos": "Generic HID route: pair in Android settings + 'Allow HID mode' in POS. Not on Shopify's named list.",
+    "durability": "No verified drop/IP spec.",
+    "pros": "Best-documented batch/storage mode in the budget class (dual mode explicitly advertised); triple connectivity; proven with Android tablets in event check-in use.",
+    "cons": "EU price unverified; no formal drop/IP rating; stand is not a charging cradle.",
+    "sources": [
+     "https://tera-digital.com/products/2d-barcode-scanner-hw0002",
+     "https://www.bestbuy.com/product/tera-wireless-1d-2d-barcode-scanner-with-bluetooth-2-4g-and-usb-wired-connection-for-phones-tablets-and-pcs-hw0002-o/CCFLTK62SP/sku/10513464",
+     "https://www.amazon.com/Tera-Bluetooth-Smartphone-Model-HW0002/dp/B08X2F4X7H",
+     "https://help.tickettailor.com/en/articles/6109018-tips-to-connect-the-tera-scanner-model-hw0002-to-the-check-in-app"
+    ]
+   },
+   {
+    "name": "Tera D5100 / Tera Pro series",
+    "price_eur": "unknown - not verified this session; Tera Pro line is positioned above HW0002 (hypothesis: EUR 60-100, unverified)",
+    "key_specs": "Tera's 'Pro' line adds claims like display screens and larger batteries over HW0002 - none verified this session.",
+    "offline": "unknown (Tera's storage-mode pattern likely carries over - unverified per model)",
+    "shopify_pos": "Generic HID route expected - unverified",
+    "durability": "Tera markets some Pro models as drop-resistant - no verified figure.",
+    "pros": "If verified, an upgrade path within the same brand ecosystem as HW0002.",
+    "cons": "Nothing verified this sweep.",
+    "sources": [
+     "https://tera-digital.com/"
+    ]
+   },
+   {
+    "name": "Symcode (2D wireless models)",
+    "price_eur": "unknown - not verified this session (call budget)",
+    "key_specs": "Budget brand on amazon.de with 2D BT/2.4G models - no model-level data verified this session.",
+    "offline": "unknown",
+    "shopify_pos": "Generic HID route if HID mode present - unverified",
+    "durability": "unknown",
+    "pros": "Often the cheapest 2D wireless tier on amazon.de.",
+    "cons": "Zero verified data; weakest documentation of the budget brands evaluated.",
+    "sources": [
+     "https://www.amazon.de/s?k=symcode+2d+bluetooth+barcode+scanner"
+    ]
+   },
+   {
+    "name": "Inateck BCST-73",
+    "price_eur": "unknown current amazon.de price (live amazon.de listing confirmed, price not captured this session; historical band EUR 55-75 - unverified)",
+    "key_specs": "2D imager; Bluetooth 5.0 supporting HID, SPP and GATT modes + 2.4GHz dongle + USB wired ('3-in-1', verified in Inateck/Amazon listings); 2600 mAh battery (verified in product title); GS1 barcode support; gun-style trigger.",
+    "offline": "Inateck documents an inventory/offline mode buffering scans for later keystroke upload - capacity figure NOT verified this session.",
+    "os_support": "BT 5.0 HID pairs as keyboard with Android/iOS/Windows; explicit multi-protocol BT (HID/SPP/GATT) is verified - useful if an app ever wants SPP/GATT instead of keyboard mode.",
+    "shopify_pos": "Generic HID route: pair + 'Allow HID mode'. The verified HID BT mode makes it a safe generic pick; not on Shopify's named list.",
+    "durability": "No verified drop/IP spec (Inateck markets impact resistance; figure unverified).",
+    "pros": "Verified triple connectivity incl. explicit HID mode; largest verified battery in the sub-pro field (2600 mAh); strong reputation as the 'serious hobbyist / light business' pick.",
+    "cons": "EU price unverified this session; no charging cradle; no verified drop/IP rating.",
+    "sources": [
+     "https://www.amazon.de/-/en/Inateck-Wireless-Barcode-Bluetooth-BCST-73/dp/B08L97J85K",
+     "https://www.inateckoffice.com/products/bluetooth-barcode-scanner-2d-wireless-barcode-scanner-bluetooth-5-0-and-2-4ghz-adapter-3-in-1-reader-support-gs1-barcode-bcst-73-blue-white"
+    ]
+   },
+   {
+    "name": "Inateck BCST-91",
+    "price_eur": "unknown - not verified this session",
+    "key_specs": "Newer Inateck 2D model above BCST-73 in the line-up - specs unverified this session.",
+    "offline": "unknown (Inateck inventory mode likely carries over - unverified)",
+    "shopify_pos": "Generic HID route expected - unverified",
+    "durability": "unknown",
+    "pros": "Potentially newer imager than BCST-73 if verified.",
+    "cons": "Nothing verified this sweep; verify before shortlisting.",
+    "sources": [
+     "https://www.inateckoffice.com/"
+    ]
+   },
+   {
+    "name": "Zebra DS2278 (pro class)",
+    "variant": "Scanner-only configs: DS2278-SR7UMC00AZW / DS2278-SR00006ZZWW / DS2278-SR00007ZZWW; cradle USB kit: DS2278-SR7U2100PRW",
+    "price_eur": "From EUR 121.68 scanner-only incl. shipping (idealo.de, SR7UMC00AZW); other scanner-only configs EUR 109.12-141.99; kit WITH presentation charging cradle + USB (SR7U2100PRW) from EUR 184.65 (idealo.de).",
+    "key_specs": "Professional 1D/2D area imager, Bluetooth; reads on-screen codes; configurable via Zebra 123Scan (PC). Per Zebra datasheet (from prior knowledge, NOT re-verified this session): 1.8 m drop-to-concrete spec, IP52 sealing, full-shift (14h+) battery. Gun grip + full-size trigger = glove-friendly.",
+    "offline": "Zebra cordless batch mode buffers scans while out of Bluetooth range and transmits on reconnection (configured via 123Scan) - capacity figure not verified this session.",
+    "os_support": "Bluetooth HID keyboard with Android/iOS/Windows; cradle can also present as USB to a host. No 2.4GHz proprietary dongle - the cradle is the fallback path.",
+    "shopify_pos": "OFFICIALLY on Shopify's named supported-scanner list with its own setup page; Shopify's HID guide links the Zebra DS2278 Quick Start Guide (p.6) for putting it in HID mode. Works on Android POS via HID + 'Allow HID mode'.",
+    "durability": "1.8 m drop / IP52 (Zebra datasheet figures from prior knowledge - not re-scraped this session).",
+    "pros": "The only pro gun-style scanner on Shopify's named-support list; real drop/IP spec for garage-and-van; optional charging/presentation cradle; serviceable enterprise product with long firmware support.",
+    "cons": "Cradle kit costs ~EUR 60 over scanner-only; configuration (batch mode etc.) needs 123Scan on a PC; no 2.4G dongle mode.",
+    "sources": [
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/208689093_-ds2278-zebra-technologies.html",
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/6814346_-ds2278-sr7u2100prw-zebra-technologies.html",
+     "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners",
+     "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/hid-scanners"
+    ]
+   },
+   {
+    "name": "Honeywell Voyager XP 1472g (pro class)",
+    "variant": "1472G2D-2USB-5-N / 1472G2D-2USB-5-R kits (scanner + charging base/cradle + USB cable)",
+    "price_eur": "EUR 233.00 at Jarltech (EU distributor). Bechtle (DE) lists the 1472g BT USB kit (1472G2D-2USB-5-R) - price not captured. US kits on amazon.com include cradle + USB cord (verified).",
+    "key_specs": "1D/2D XP-series imager with explicitly marketed 'enhanced ability to read damaged or poor-quality barcodes' (verified via LabTAG/Honeywell pages) - directly relevant to curved/shrink-wrapped/damaged labels. Bluetooth with charging base included in the -2USB kits. Gun-style glove-friendly trigger.",
+    "offline": "Honeywell cordless scanners buffer scans when out of base/BT range per Honeywell documentation - capacity figure not verified this session.",
+    "os_support": "Bluetooth HID keyboard with Android/iOS/Windows; base provides USB path to a PC.",
+    "shopify_pos": "Not on Shopify's named list - works via the generic 'any HID scanner' route (pair in Android settings + enable 'Allow HID mode').",
+    "durability": "Honeywell markets 1.8 m drop resistance for the Voyager XP family (from datasheet knowledge - not re-verified this session); IP rating unknown.",
+    "pros": "Best verified claim for damaged/poor-quality barcode reading in this sweep; kit includes the charging cradle by default; enterprise build.",
+    "cons": "Most expensive of the pro trio at EUR 233; Shopify support only via generic HID; IP rating unverified.",
+    "sources": [
+     "https://www.jarltech.com/en/honeywell-voyager-1472g",
+     "https://www.labtag.com/shop/product/honeywell-voyager-1472g-xp-omni-directional-2d-usb-kit-usb-and-bluetooth-1472g2d-2usb-5-n/",
+     "https://www.amazon.com/Honeywell-Voyager-Extreme-Performance-USB/dp/B0BGQJBK9S",
+     "https://automation.honeywell.com/us/en/products/productivity-solutions/barcode-scanners/general-purpose-handheld/voyager-xp-1472g-general-duty-scanner"
+    ]
+   },
+   {
+    "name": "Datalogic QuickScan QBT2500 (pro class)",
+    "variant": "QBT2500-BK-BTK+ kit (scanner + Bluetooth base/charging station)",
+    "price_eur": "From EUR 118.32 for the QBT2500-BK-BTK+ KIT INCLUDING the Bluetooth charging base (idealo.de) - cheapest verified pro-class bundle with cradle in this sweep.",
+    "key_specs": "1D/2D area imager, Bluetooth, entry tier of Datalogic's pro QuickScan 2500 series; kit ships with base station that charges and hosts the radio. Gun-style glove-friendly trigger. Detailed imaging/battery specs not verified this session.",
+    "offline": "Datalogic cordless QuickScans support batch mode (scans stored out-of-range, forwarded on reconnect) per Datalogic documentation - capacity figure not verified this session.",
+    "os_support": "Bluetooth HID keyboard with Android/iOS/Windows; base provides USB to PC.",
+    "shopify_pos": "Not on Shopify's named list - generic 'any HID scanner' route (pair + 'Allow HID mode').",
+    "durability": "Not verified this session (QuickScan class typically quotes ~1.5 m drop - treat as unverified).",
+    "pros": "Outstanding verified value: pro-brand scanner + charging cradle for ~EUR 118, i.e. cheaper than a bare DS2278 kit path; enterprise support ecosystem (Datalogic Aladdin config tool).",
+    "cons": "Specs beyond price/kit contents not verified this sweep; not Shopify-named; brand less common in Malta channel than Zebra.",
+    "sources": [
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/206267918_-quickscan-qbt2500-qbt2500-bk-btk-datalogic.html",
+     "https://www.datalogic.com/eng/retail-manufacturing-healthcare-gs1-digital-link/handheld-scanners/quickscan-2500-series-pd-898.html"
+    ]
+   },
+   {
+    "name": "Socket Mobile SocketScan S720 (Shopify-official)",
+    "variant": "S720 with charging dock (CX3985-3042); black or white; refurbished units sold direct by Socket Mobile",
+    "price_eur": "~EUR 307 with charging dock (idealo.de, CX3985-3042) - EXCEEDS the EUR 260 budget cap. US reference: USD 289 with dock on Shopify's own hardware store; 'from USD 285' scanner on socketmobile.com. Refurbished direct-from-Socket is the only realistic way under EUR 260.",
+    "key_specs": "1D/2D imager reading paper AND screen codes (verified); Bluetooth only - no 2.4GHz dongle, no wired-USB data mode; slab/handheld form with a scan button rather than a gun trigger; charging dock available (bundled in the Shopify SKU).",
+    "offline": "No offline batch/memory mode found in Socket's marketing for the S700 series - unknown/likely none; the design assumes a live Bluetooth link to the app. Weakest candidate for the spotty-Wi-Fi/garage bulk-capture use case.",
+    "os_support": "iOS, Android, Windows. Native 'Application mode' integration via Socket's Capture SDK in supported apps (incl. Shopify POS on Android); also supports Basic/HID keyboard mode (S700-series user guide p.21, referenced by Shopify's own docs).",
+    "shopify_pos": "The officially blessed option: on Shopify's named supported list ('Socket Mobile 2D barcode scanner'), sold on Shopify's own hardware store, and runs in Application mode = scans auto-add to cart without keyboard emulation, scanner status/battery visible in app, no on-screen-keyboard suppression issue. Socket FAQ explicitly covers Shopify pairing in Application mode.",
+    "durability": "No drop/IP rating verified for S720 (Socket's rugged line is DuraScan, not SocketScan) - assume office-grade.",
+    "pros": "Deepest Shopify POS integration on Android (app mode, no HID quirks); reads screen codes; dock included in Shopify SKU.",
+    "cons": "Over budget in the EU (~EUR 307); no memory/batch mode found = poor fit for offline garage stocktakes; small button worse with gloves than a gun trigger; Bluetooth-only (no dongle/USB fallback for data).",
+    "sources": [
+     "https://www.idealo.de/preisvergleich/OffersOfProduct/210175527_-socketscan-s720-barcode-scanner-1d-2d-mit-dock-ladestation-cx3985-3042-socket.html",
+     "https://hardware.shopify.com/products/s720-scanner-with-dock",
+     "https://www.socketmobile.com/products/s720",
+     "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners",
+     "https://www.socketmobile.com/support/faq"
+    ]
+   },
+   {
+    "name": "Socket Mobile SocketScan S740 (Shopify-official)",
+    "price_eur": "unknown EU price this session; positioned above the S720 in Socket's range, so expect well over EUR 300 - clearly outside the EUR 260 budget",
+    "key_specs": "Higher-tier S700-series 2D imager (faster/wider decode than S720); Bluetooth only; same slab form factor and dock ecosystem. Model-level specs not verified this session.",
+    "offline": "Same as S720: no batch/memory mode found - unknown/likely none.",
+    "os_support": "iOS/Android/Windows; Application mode via Capture SDK + HID keyboard mode (same S700-series user guide).",
+    "shopify_pos": "Covered by Shopify's 'Socket Mobile 2D barcode scanner' official support (same S700-series setup docs as the S720).",
+    "durability": "Not verified; office-grade (DuraScan is Socket's rugged line).",
+    "pros": "Faster decode tier of the officially supported family.",
+    "cons": "Even further over budget than the S720; same no-batch-mode and glove-ergonomics drawbacks.",
+    "sources": [
+     "https://www.socketmobile.com/products/s720",
+     "https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/hid-scanners"
+    ]
+   }
+  ],
+  "notes": "LOAD-BEARING SHOPIFY ANSWER (from current official docs, scraped 2026-07-09): A Socket Mobile is NOT required. Shopify's supported-scanner page now lists Socket Mobile 1D/2D, Zebra DS2208, Zebra DS2278, AND 'Any HID (Human Interface Device) barcode scanner' (https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners). The dedicated HID page states 'You can use most HID scanners with Shopify POS' and documents the flow for generic scanners: pair via the device's system Bluetooth settings, then enable the 'Allow HID mode' toggle in POS Settings; scanning then adds products to cart from the home screen and works for product/order/customer search (https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/hid-scanners). Android requirement: Android 10+ with Google Play/Mobile Services (https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/requirements). PRACTICAL HID QUIRKS (all from the same docs): (1) while an HID scanner is connected Android hides the on-screen keyboard - fix via Settings > Physical keyboard > 'Show on-screen keyboard'; (2) scanning a variant barcode surfaces the master product and the variant must be tapped manually; (3) scanners cannot add products to inventory inside the POS app - stock-capture/inventory counts go through the Stocky app WITH an HID scanner (this actually favors a generic HID gun over Socket app-mode for use-case (a)); (4) HID is one-code-at-a-time, flagged by Shopify as 'might not be suitable for high-volume scanning'. Older community threads claiming Socket-only compatibility (e.g. community.shopify.com/t/140786) predate the current docs and are OBSOLETE, though a 2023-era thread confirms only HID-keyboard mode (not SPP/serial) works for generic scanners (https://community.shopify.com/t/new-bluetooth-scanner-barcode-not-recognized/568524). Socket app-mode remains the smoothest UX (no keyboard suppression, in-app battery status) but costs ~EUR 307 in the EU - over budget. HYPOTHESIS CORRECTIONS: (1) 'Socket effectively required' is FALSE per current docs; (2) QBT2500 sits at ~EUR 118 for a full cradle KIT - cheaper than its assumed EUR 150-260 class and cheaper than a bare DS2278; (3) Socket S720 EU price (~EUR 307 w/ dock) breaks the EUR 260 ceiling; (4) DS2278 scanner-only starts ~EUR 110-122, kit with cradle ~EUR 185. VERIFICATION GAPS (12-call Firecrawl budget, no fallback needed - Firecrawl worked throughout): current amazon.de prices for Netum NT-1228BL/C750, Tera HW0002/D5100, Inateck BCST-73/91, and all Eyoyo/Symcode data are unverified; memory-mode CAPACITY figures are unverified for every candidate (all budget/mid units use the same export mechanism: buffered scans replay as keystrokes into any focused field, so export lands directly into Google Sheets/Excel on any host); Zebra 1.8m/IP52 and Honeywell 1.8m drop figures are from datasheet knowledge, not re-scraped. FX note: USD prices converted at approximate mid-2026 rates and flagged; all EUR prices quoted are directly from EU retailers (idealo.de, jarltech.com). SYNTHESIS HINT for the orchestrator: for (a) offline garage stocktake the verified-batch-mode Tera HW0002 (budget) or a cradle-kit pro (QBT2500 at ~EUR 118 / DS2278 kit at ~EUR 185, both with out-of-range buffering and glove-friendly triggers) fit best; for (b) Shopify POS on Android any of them works via HID mode, with DS2278 the only one that is both Shopify-NAMED and in budget."
+ },
+ "procurement": {
+  "retailers": [
+   {
+    "name": "Scan Malta",
+    "url": "https://www.scanmalta.com/shop/catalogsearch/result/?q=tablet",
+    "findings": "Largest local tablet range (193 search results). Live prices (EUR, scraped 2026-07-09): Samsung Galaxy Tab A9+ 11\" 256GB WiFi EUR 245; Galaxy Tab A11 8.7\" 64GB EUR 149 (out of stock); Galaxy Tab A11+ 11\" 128GB 5G EUR 229-279; Galaxy Tab S10 Lite 10.9\" WiFi EUR 349; Galaxy Tab S10 Ultra 256GB (ex-display) EUR 869 in stock. Also budget rugged options: Blackview Active 7 11\" 4G rugged tablet EUR 225, Blackview Active 10 Pro 5G rugged EUR 399. No iPads appeared on the tablet search page (Scan lists iPad in site keywords but Apple stock not visible in this search). Prices are competitive - Tab A9+ 256GB at EUR 245 is close to normal EU street price, no dramatic Malta markup on Samsung here."
+   },
+   {
+    "name": "Klikk",
+    "url": "https://klikk.com.mt/shop?c=1029&t=_android-tablets",
+    "findings": "Active Android tablet category with physical stock indicator ('In Stock - Birkirkara'). Seen: Galaxy Tab S10 Ultra 14.6\" 256GB Cellular EUR 1279; Galaxy Tab A11 8.7\" 128GB WiFi+Cellular (product page live, price not captured in snippet); Galaxy Tab S10 Lite 10.9\" WiFi listed; clearance Tab S8+ also listed. Also sells tablet accessories (screen protectors ~EUR 19.90). A real buy-today option; verify A11/A11+ price on page."
+   },
+   {
+    "name": "Forestals",
+    "url": "https://forestals.com/product/tablet-ipad-air-11-11th-gen-128-purple-w/",
+    "findings": "Sells both Samsung and Apple. Galaxy Tab A11 8.7\" 64GB EUR 149.01 in stock. Apple iPad 11\" A16 128GB WiFi discounted EUR 399 (was EUR 449) - in stock; this is the cheapest new iPad found in Malta and EUR 120 below iCentre's price for the same class. Free delivery on orders over EUR 30. (Forestals group also runs The Core / Apple premium reseller; results surfaced on forestals.com.)"
+   },
+   {
+    "name": "iCentre (Apple reseller)",
+    "url": "https://www.icentre.com.mt/collections/ipad",
+    "findings": "Full official iPad range, all shown In Stock (scraped 2026-07-09): iPad 11\" (A16) from EUR 519; iPad Air (M2) from EUR 599; iPad Air (M3) from EUR 599; iPad Air (M4) from EUR 839; iPad mini 7 from EUR 699; iPad Pro (M4) from EUR 1119; iPad Pro (M5) from EUR 1329. Note iCentre's entry iPad at EUR 519 vs Forestals' EUR 399 for an iPad 11\" A16 128GB - a large same-island spread, so shop around; iCentre pricing sits above typical EU RRP (classic Malta Apple-reseller markup)."
+   },
+   {
+    "name": "Sound Machine",
+    "url": "https://soundmachine.com.mt/product-category/smart-tech/tablets/",
+    "findings": "Samsung dealer (Psaila Street, Birkirkara) with a live Tablets category. Seen: Galaxy Tab A11+ 5G 6GB/128GB WiFi EUR 299 incl. VAT - EUR 20-70 more than Scan Malta's price for the same A11+ 5G class (EUR 229-279), so Sound Machine runs at a premium. Also stocks Samsung official accessories (Tab A9+ Book Cover spec sheets hosted on site)."
+   },
+   {
+    "name": "Intercomp",
+    "url": "https://www.intercomp.com.mt",
+    "findings": "No public tablet or barcode-scanner product/price listings surfaced via web search (domain-restricted search returned zero indexed product pages). Appears to operate B2B/quote-based rather than as a browsable consumer webshop. Current tablet stock and prices: unknown - would need a direct quote request."
+   }
+  ],
+  "amazon": "Amazon.de and Amazon.it are both usable from Malta and are the standard route for Maltese buyers (no Amazon presence on the island - r/malta discussion: https://www.reddit.com/r/malta/comments/14rk519/how_does_ordering_from_amazon_work/). Amazon.de publishes international delivery rates of EUR 4.99 per delivery + EUR 0.99/kg for Standard Delivery quoted at 2-4 working days (https://www.amazon.de/-/en/gp/help/customer/display.html?nodeId=GA6MMBQJBJ5QYUDW); real-world Malta delivery commonly runs about 1-2 weeks. Amazon.it has an equivalent international shipping program. Gotchas commonly reported by Malta buyers: (1) many third-party Marketplace sellers exclude Malta at checkout - filter for items sold/shipped by Amazon or showing 'Delivers to Malta'; (2) some categories (large items, lithium-battery-heavy gear) can be restricted; (3) parcel-forwarding services (DE/UK/IT address) exist as a workaround when a seller refuses Malta, at extra cost/time. For consumer electronics like tablets, MiFi routers, cases and Netum-class barcode scanners, Amazon-fulfilled listings generally ship to Malta without issue.",
+  "accessories": [
+   {
+    "item": "Rugged tablet case with rotating hand strap (Galaxy Tab A9+/A11+ 11\" class) - e.g. ZenRich, SEYMAC, HXCASEAC",
+    "price_eur": "unknown (EUR price not shown in search snippets - verify on the Amazon listing before quoting)",
+    "notes": "Multiple hand-strap rugged cases confirmed to exist for exactly this tablet class: ZenRich rugged case with adjustable/rotatable hand strap (amazon B0D5M48F7V), HXCASEAC 360-rotating stand + hand strap (B0CLXM6QYZ), SEYMAC with hand strap + detachable shoulder strap for Tab A11+/A9+ (B0CKYN8HLD). Buy via Amazon.de/.it delivery to Malta; not seen at local retailers (local shops stock Samsung Book Covers instead, e.g. Sound Machine).",
+    "source": "https://www.amazon.com/SEYMAC-stock-Case-Samsung-Galaxy/dp/B0CKYN8HLD"
+   },
+   {
+    "item": "Adjustable tablet stand / wall-or-desk mount for garage desk (gooseneck clamp or table stand)",
+    "price_eur": "10.20-32.99 (Amazon.de tablet-mount bestseller price band)",
+    "notes": "Amazon.de 'Tablet Mounts' bestseller list shows the whole category runs EUR 10-33: offers from EUR 10.20, EUR 15.97, EUR 19.05, EUR 24.61, EUR 32.99. Concrete options: woleyi 50cm gooseneck clamp holder up to 12.9\" (amazon.de B09BKNW22G), StarTech adjustable tablet table stand (amazon.de B0BMVYY645). Ships to Malta via Amazon.de.",
+    "source": "https://www.amazon.de/-/en/gp/bestsellers/computers/52172910031"
+   },
+   {
+    "item": "4G LTE portable MiFi router - TP-Link M7350 (150 Mbps, battery, SIM slot)",
+    "price_eur": "~56 (converted from USD 61.06 at wifi-stock.com; original price in USD)",
+    "notes": "TP-Link M7350 confirmed current product (official TP-Link page). EU reseller wifi-stock.com lists it at USD 61.06 (~EUR 56); UK refurb/bundle deals exist around GBP 25-30. Expect roughly EUR 50-70 new on Amazon.de delivered to Malta. Alternative: newer TP-Link M7000/M7200 class is usually cheaper.",
+    "source": "https://www.wifi-stock.com/details/tp-link-mobile-wi-fi-m7350-4g-lte-router.html"
+   },
+   {
+    "item": "Malta prepaid data SIM for the MiFi (GO / Epic / Melita)",
+    "price_eur": "~6-20 per month (Epic prepaid: 4GB/28d EUR 5.99; 8GB + 200min/200SMS/28d EUR 9.99; Melita ~EUR 20/mo unlimited-data class)",
+    "notes": "Epic prepaid data bundles documented at EUR 5.99 (4GB/28 days) and EUR 9.99 (8GB/28 days) - prepaid-data-sim-card wiki Malta page. Melita sells prepaid top-up plans incl. a 50GB auto-top-up pack (melita.com/mobile/top-up-plans) and users report ~EUR 20/month unlimited-data offers. Starter packs across GO/Epic/Melita run EUR 5-15 (myrent.mt guide). For a garage tablet, EUR 10/month of prepaid data is a realistic budget. GO-specific prepaid data pricing: unknown (not captured).",
+    "source": "https://prepaid-data-sim-card.fandom.com/wiki/Malta"
+   },
+   {
+    "item": "Barcode scanner bought locally in Malta (Zebra / Honeywell)",
+    "price_eur": "unknown (local suppliers are quote-based; budget Netum-class not found locally - use Amazon, typically EUR 20-40 class there, verify listing)",
+    "notes": "Yes, Zebra and Honeywell ARE available locally: Sirap Malta (sirap.com.mt) carries Zebra's full range - barcode scanners, label printers, mobile computers, supplies - with local support; iLab Malta (ilabmalta.com) is a Honeywell Scanning & Mobility distributor with a browsable catalog (e.g. Honeywell Granit 1990iSR rugged IP67 scanner). Both are B2B/POS suppliers - expect quote-based pricing and a markup vs Amazon, in exchange for local warranty/support. Tagit Malta did not surface in results (unverified).",
+    "source": "https://www.sirap.com.mt/brands/zebra/"
+   },
+   {
+    "item": "Label printer bought locally in Malta (Zebra)",
+    "price_eur": "unknown (quote-based via Sirap Malta)",
+    "notes": "Zebra label printers plus genuine label/ribbon supplies are stocked and supported locally by Sirap Malta - the natural local source for a garage labelling setup. Consumer-class alternatives (Brother QL / Dymo / Niimbot) via Amazon.de/.it to Malta if budget matters; no local price captured.",
+    "source": "https://www.sirap.com.mt/brands/zebra/"
+   }
+  ],
+  "notes": "Method: Firecrawl only (12 calls: 2 scrapes + 10 searches), no fallback needed; all prices scraped/read 2026-07-09. Key buying picture for Malta: (1) Android tablets are genuinely well-priced locally - Scan Malta's Galaxy Tab A9+ 11\\\" 256GB at EUR 245 and Forestals' Tab A11 at EUR 149 show little/no Malta markup, and Klikk/Sound Machine give same-day physical pickup in Birkirkara; (2) Apple is where Malta markup bites - the same entry iPad 11\\\" A16 spans EUR 399 (Forestals, discounted) to EUR 519 (iCentre), so compare before buying; (3) Intercomp has no public webshop pricing - skip unless you want a B2B quote; (4) professional barcode/label hardware (Zebra via Sirap, Honeywell via iLab Malta) is locally available but quote-priced; cheap Netum-class scanners and rugged hand-strap cases are Amazon-to-Malta purchases (~1-2 weeks). Caveats: Klikk's Tab A11 exact price, GO prepaid data pricing, and exact EUR prices of the hand-strap cases were not captured (marked unknown rather than estimated); TP-Link M7350 price converted from USD 61.06. Amazon.de international rate (EUR 4.99 + EUR 0.99/kg) is the published standard international tariff - confirm Malta eligibility per item at checkout."
+ },
+ "shortlist": {
+  "reasoning": "Gating logic: the heaviest-weighted requirement (updates alive in 2031+) eliminates most of the field outright — Tab A9+ (security ends Oct 2027), Tab S9 FE (~Oct 2028, and it now costs MORE than the newer S10 FE), Tab Active5/Active5 Pro (Jan 2029 / May 2030 — the rugged tablets counterintuitively fail), and the whole Blackview/Oukitel/Doogee class (no formal policy, ~1-2 updates in practice). The iPad 11 (A16) at EUR 399 (Forestals, Malta, in stock) would pass on precedent but the client prefers Android, so it stays a benchmark, not a bundle. That leaves exactly two Android tablets: Galaxy Tab A11+ 5G (support floor 30 Dec 2031 per endoflife.date, reportedly Samsung-confirmed 7 years = 2032; 5G premium only ~EUR 27 — ideal for unreliable garage Wi-Fi) and Galaxy Tab S10 FE (7-year support to Apr 2032, and the ONLY in-budget tablet with IP68 dust protection — directly relevant to garages). Both tablets are buyable in Malta today (Scan Malta lists the A11+ 128GB 5G at EUR 229-279; the S10 FE class via Scan Malta/Klikk or amazon.de delivery). Update longevity is doubly load-bearing: Shopify's Tap-to-Pay-on-Android needs a security patch within the last 12 months — though note Malta lacks in-person Shopify Payments anyway, so the owner records Revolut Reader/cash sales as POS custom payment types (documented, fee-free, works offline). Scanners: Shopify's current docs support ANY HID scanner (pair in Android settings + 'Allow HID mode'), so Socket Mobile (~EUR 307, no batch mode — worst offline fit) is not required. Offline resilience favors scanners with verified batch/memory mode: Zebra DS2278 is the only scanner both ON Shopify's named-support list AND in budget, with batch mode, 1.8m drop/IP52, and a charging-cradle kit at EUR 184.65 — plus local Zebra support via Sirap Malta. Netum NT-1228BL (~EUR 41-45) is the honest budget pick (2D, triple connectivity, documented storage mode with unverified capacity). Tera HW0002 has the best-documented budget batch mode but no verified EU price, so it's flagged as a swap-in rather than priced into a tier. HID quirks stated honestly in every tier: Android hides the on-screen keyboard while an HID scanner is connected (fix: Settings > Physical keyboard > Show on-screen keyboard), variant barcodes surface the master product for a manual tap, external scanners only add to cart (inventory counts go through Stocky with the same HID scanner), and HID is one-scan-at-a-time. Bundle math: Value = A11+ 5G + Netum + rugged case ≈ EUR 300 (deliberate undershoot — all hard requirements still met); Recommended = A11+ 5G + Zebra DS2278 cradle kit + case ≈ EUR 440 (best requirement-per-euro: 2031+ tablet with cheap cellular + the only Shopify-named in-budget scanner); Rugged/Premium = S10 FE 5G + DS2278 kit + mount ≈ EUR 630 (IP68 + 2032 support + pro scanner, inside the EUR 700 cap with margin — the only overshoot risk is Malta shipping premiums, flagged).",
+  "tiers": [
+   {
+    "tier": "Value",
+    "tablet": "Samsung Galaxy Tab A11+ 5G 128GB (EUR 229 at Scan Malta; EUR 225.98 idealo.de)",
+    "scanner": "Netum NT-1228BL 2D Bluetooth scanner (~EUR 41-45, amazon.de/netum.net; converted from USD 47.99)",
+    "est_total_eur": "~295-300 (229 + ~45 + ~25 case) — deliberately undershoots the EUR 400-700 band",
+    "use_case": "Pick this if you want the cheapest setup that still meets every hard requirement — updates to end-2031, built-in 5G, and a working 2D scanner — and you accept consumer-grade scanner build.",
+    "rationale": "The A11+ 5G is the value anchor of the entire sweep: Android 16, security updates to 30 Dec 2031 (endoflife.date; Samsung reportedly confirmed 7 years = 2032), and cellular for only ~EUR 27 over Wi-Fi — solving the unreliable-garage-Wi-Fi problem at the tablet level. The Netum NT-1228BL adds a true 2D imager with Bluetooth + 2.4GHz dongle + USB and a documented storage/batch mode (capacity unverified — check the manual before relying on it for big stocktakes). It works with Shopify POS via the generic HID route: pair in Android Bluetooth settings, enable 'Allow HID mode' in POS settings; known quirks are on-screen-keyboard suppression (one-time Android setting fix), manual variant tap, and cart-only scanning (inventory counts go through Stocky). A ~EUR 25 rugged hand-strap case (ZenRich/SEYMAC via amazon.de) covers garage dust since the A11+ has no IP rating.",
+    "extras": [
+     "Rugged hand-strap case for 11-inch A11+ (~EUR 25, amazon.de to Malta)",
+     "Malta prepaid data SIM for the 5G slot (Epic 8GB/28d EUR 9.99)"
+    ]
+   },
+   {
+    "tier": "Recommended",
+    "tablet": "Samsung Galaxy Tab A11+ 5G 128GB (EUR 229 at Scan Malta; EUR 225.98 idealo.de)",
+    "scanner": "Zebra DS2278 cradle kit DS2278-SR7U2100PRW (EUR 184.65, idealo.de — scanner + presentation/charging cradle + USB)",
+    "est_total_eur": "~440 (229 + 185 + ~25 case)",
+    "use_case": "The default pick for a solo owner who wants zero scanner drama: the only scanner that is both ON Shopify's named supported-hardware list and inside budget, paired with the best-value 2031+ Android tablet.",
+    "rationale": "This bundle maximizes requirement-coverage per euro. Tablet: same A11+ 5G as Value — support to Dec 2031/2032, built-in cellular kills the garage Wi-Fi problem, mainstream One UI is the simplest option for a non-technical owner, and it's in stock locally (Scan Malta, Birkirkara pickup at Klikk/Sound Machine for the class). Scanner: the Zebra DS2278 is on Shopify's OFFICIAL supported-scanner list with its own setup page (Shopify's HID guide even links Zebra's quick-start for HID mode) — so setup is follow-the-doc, not forum archaeology. Its cordless batch mode buffers scans out of Bluetooth range and replays them on reconnect (one-time 123Scan config on any PC), covering offline stocktakes; 1.8m drop spec and IP52 sealing survive garage-and-van duty; the kit's charging cradle means it's always topped up and findable. Zebra is also locally supported in Malta via Sirap. Same honest HID quirks apply: keyboard suppression fix, variant tap, cart-only scans (Stocky for counts).",
+    "extras": [
+     "Rugged hand-strap case for A11+ (~EUR 25, amazon.de)",
+     "Optional gooseneck/desk tablet mount for the garage counter (EUR 10-33, amazon.de)"
+    ]
+   },
+   {
+    "tier": "Rugged/Premium",
+    "tablet": "Samsung Galaxy Tab S10 FE 5G 128GB (EUR 411, idealo.at; Wi-Fi EUR 402.90 idealo.de — S10 Lite class visible locally at Scan Malta/Klikk)",
+    "scanner": "Zebra DS2278 cradle kit DS2278-SR7U2100PRW (EUR 184.65, idealo.de)",
+    "est_total_eur": "~625-655 (411 + 185 + ~30 mount/case) — inside EUR 700, but Malta/Amazon shipping premiums could push it to the cap; flagged",
+    "use_case": "Pick this if the tablet will live in the dusty garage full-time and you want the longest, toughest runway: the only in-budget Android with a real IP68 dust rating plus 7-year updates to April 2032.",
+    "rationale": "The S10 FE is the only candidate that combines IP68 dust/water sealing (directly relevant to garage stock rooms — no case can fully substitute for sealed ports), 7 generations of updates to Apr 2032, a stronger Exynos 1580 + 8GB RAM for the smoothest POS experience over a 6-7 year life, and 5G for ~EUR 10-50 over Wi-Fi. Note the dedicated rugged tablets (Tab Active5, Blackview class) were REJECTED despite tougher shells because their updates die in 2029 or have no policy at all — the S10 FE is the rugged-enough choice that actually survives the 2031 requirement. The DS2278 kit carries over from Recommended as the pro scanner: Shopify-named support, batch mode for offline stocktakes, 1.8m drop/IP52, charging cradle, local Zebra channel via Sirap Malta. Same HID quirks as all Android scanners (keyboard suppression, variant tap, Stocky for inventory counts).",
+    "extras": [
+     "Gooseneck clamp or desk mount for a fixed POS station (EUR 10-33, amazon.de)",
+     "Optional TP-Link M7350 4G MiFi (~EUR 56) + Epic prepaid SIM (EUR 9.99/8GB) as a shared garage hotspot if you'd rather keep the tablet on Wi-Fi",
+     "Samsung Book Cover or rugged case (~EUR 25-30)"
+    ]
+   }
+  ],
+  "finalists": [
+   {
+    "name": "Samsung Galaxy Tab A11+ 5G 128GB (Dec 2025)",
+    "type": "tablet",
+    "claims": [
+     "EUR 229-279 at Scan Malta (in stock, scraped 2026-07-09); EUR 225.98 on idealo.de — the 5G premium over Wi-Fi is only ~EUR 27",
+     "OS and security updates run to 30 Dec 2031 per endoflife.date; Samsung community/press reports say Samsung confirmed 7 years (= end 2032) — treat Dec 2031 as the contractual floor",
+     "Ships Android 16, far above Shopify POS Android's minimum (Android 10 + Google services); long patch runway also preserves Tap-to-Pay-on-Android eligibility (patch within last 12 months) through ~2031",
+     "No IP rating — mitigate garage dust with a ~EUR 25 rugged hand-strap case (ZenRich/SEYMAC/HXCASEAC via amazon.de to Malta)"
+    ]
+   },
+   {
+    "name": "Samsung Galaxy Tab S10 FE 128GB (Apr 2025, SM-X520)",
+    "type": "tablet",
+    "claims": [
+     "Wi-Fi from EUR 402.90 (idealo.de); 5G from EUR 411 (idealo.at); buyable from Malta via amazon.de delivery or local Samsung dealers (Scan Malta/Klikk stock the adjacent S10 range)",
+     "7 generations of OS upgrades — support listed to 03 Apr 2032 on endoflife.date, mirroring Samsung's official security.samsungmobile.com scope",
+     "IP68 dust/water rated — the ONLY tablet in budget that passes the 2031 update requirement AND has real dust protection for a garage",
+     "Ships Android 15 with 8GB RAM/Exynos 1580 — comfortably meets Shopify POS Android requirements with headroom for a 6-7 year service life"
+    ]
+   },
+   {
+    "name": "Netum NT-1228BL",
+    "type": "scanner",
+    "claims": [
+     "~EUR 41-45 (netum.net sale price USD 47.99 converted at mid-2026 rates; listed on amazon.de but the live EUR price was not captured — verify at checkout)",
+     "True 2D CMOS imager (QR/Data Matrix/PDF417/EAN, reads from screens) with triple connectivity: Bluetooth HID + 2.4GHz dongle + wired USB",
+     "Netum documents a storage/batch mode (scans buffered offline, replayed as keystrokes on reconnect) but the CAPACITY figure is unverified — confirm in the manual before relying on it for large stocktakes",
+     "Works with Shopify POS on Android via the generic HID route (pair in Android settings + 'Allow HID mode' in POS); it is NOT on Shopify's named-support list"
+    ]
+   },
+   {
+    "name": "Zebra DS2278 (kit DS2278-SR7U2100PRW)",
+    "type": "scanner",
+    "claims": [
+     "EUR 184.65 for the kit with presentation/charging cradle + USB on idealo.de; scanner-only configs from EUR 109-122; Zebra also has a local Malta channel (Sirap Malta) for quote-based purchase with local support",
+     "OFFICIALLY on Shopify's named supported-scanner list with its own setup page — Shopify's HID guide links the DS2278 Quick Start Guide for HID mode; works on Shopify POS Android via HID + 'Allow HID mode'",
+     "Cordless batch mode buffers scans while out of Bluetooth range and transmits on reconnection (configured once via Zebra 123Scan on a PC) — capacity figure not re-verified this sweep",
+     "1.8m drop-to-concrete and IP52 sealing per Zebra datasheet (figures from prior knowledge, not re-scraped) — gun-grip trigger is glove-friendly for garage/van work"
+    ]
+   }
+  ]
+ },
+ "verified": [
+  {
+   "name": "Samsung Galaxy Tab A11+ 5G 128GB (Dec 2025)",
+   "price_eur_current": "5G 128GB: EUR 279.00 at Scan Malta (in stock, live 2026-07-09); from EUR 225.98 in Germany via idealo.de. Wi-Fi 128GB: EUR 229.00 Scan Malta / from EUR 198.90 idealo.de. Realistic Malta street price for the 5G unit: EUR 226-279 depending on route.",
+   "malta_route": "Buy local at Scan Malta: 5G 128GB Silver EUR 279 in stock (scanmalta.com, SKU TAB-L37327), Wi-Fi 128GB EUR 229 in stock. The ~EUR 50 saving via Germany (idealo best offer EUR 225.98; many idealo shops do not ship to Malta) is largely eaten by shipping and slower returns, and Scan Malta gives immediate pickup + local warranty handling. Bonus: Scan Malta stocks a fitted rugged strap case (\"Just in Case\" Tab A11+ rugged shockproof w/ screen protector + handle strap, EUR 39.95 special price, in stock) — cheaper and faster than the amazon.de case options actually live today (HXCASEAC EUR 46.68; ZenRich currently no offers). Amazon.de remains the fallback if Scan Malta stock lapses.",
+   "checks": [
+    {
+     "claim": "EUR 229-279 at Scan Malta (in stock, scraped 2026-07-09); EUR 225.98 on idealo.de - the 5G premium over Wi-Fi is only ~EUR 27",
+     "verdict": "CONFIRMED",
+     "evidence": "Scan Malta live 2026-07-09: Wi-Fi 128GB Grey EUR 229.00 in stock (https://www.scanmalta.com/shop/samsung-galaxy-tab-a11-11-128gb-6gb-android-wifi-grey-tablet.html); 5G 128GB Silver EUR 279.00 in stock, SKU TAB-L37327 (https://www.scanmalta.com/shop/samsung-galaxy-tab-a11-11-128gb-6gb-android-wifi-cellular-5g-silver-tablet.html). idealo.de 128GB 5G grau 'ab 225,98 EUR' (https://www.idealo.de/preisvergleich/OffersOfProduct/208364601_-galaxy-tab-a11-128gb-5g-grau-samsung.html); 128GB WiFi grau 'ab 198,90 EUR' (https://www.idealo.de/preisvergleich/OffersOfProduct/208364592_-galaxy-tab-a11-128gb-wifi-grau-samsung.html) -> 5G premium EUR 27.08 on idealo.",
+     "note": "The ~EUR 27 5G premium holds only on idealo.de/Germany. At Scan Malta the 5G premium is EUR 50 (229 -> 279). Scan Malta also sells a 256GB/8GB 5G at EUR 319 in stock."
+    },
+    {
+     "claim": "OS and security updates run to 30 Dec 2031 per endoflife.date; Samsung community/press reports say Samsung confirmed 7 years (= end 2032) - treat Dec 2031 as the contractual floor",
+     "verdict": "CONFIRMED",
+     "evidence": "endoflife.date/samsung-galaxy-tab (live search snippet 2026-07-09): 'Galaxy Tab A11+ ... (30 Dec 2025) ... Ends in 5 years (30 Dec 2031)' (https://endoflife.date/samsung-galaxy-tab). 7-year reports: Wikipedia 'Tab A11+ initially have Android 16 (One UI 8.0). Both tablets will receive 7 years of software and security updates (with support ending within 2032)' (https://en.wikipedia.org/wiki/Samsung_Galaxy_Tab_A11); Notebookcheck 'seven-year update promise' (https://www.notebookcheck.net/Samsung-Galaxy-Tab-A11-Cheap-tablet-with-seven-year-update-promise.1140784.0.html); Samsung EU community thread confirms 7 years of patches for Tab A11+ (https://eu.community.samsung.com/t5/other-smartphones/end-of-life-for-your-samsung/td-p/14886811).",
+     "note": "Internal inconsistency the claim glosses over: endoflife.date's 30 Dec 2031 is only 6 years from its listed 30 Dec 2025 release; Samsung's confirmed 7 years would run to ~Dec 2032. Neither is 'contractual' - endoflife.date is a community tracker and I could not verify the Tab A11+ row on Samsung's official security workscope page (security.samsungmobile.com) in this session. Treating Dec 2031 as the planning floor is sound and conservative."
+    },
+    {
+     "claim": "Ships Android 16, far above Shopify POS Android's minimum (Android 10 + Google services); long patch runway also preserves Tap-to-Pay-on-Android eligibility (patch within last 12 months) through ~2031",
+     "verdict": "CONFIRMED",
+     "evidence": "Ships Android 16 (One UI 8.0): https://en.wikipedia.org/wiki/Samsung_Galaxy_Tab_A11 and idealo spec line '128 GB, Android 16' (https://www.idealo.de/preisvergleich/Liste/123349630/samsung-tab-a11-64gb.html). Shopify POS FAQ (scraped live): Android minimum version 10.0 with Google Play Services / Google Mobile Services required (https://help.shopify.com/en/manual/sell-in-person/shopify-pos/faq). Tap to Pay on Android (live): 'Your Android device needs to be on the Android 13 or higher version. Your Android device's last Android security patch update must be from within the last 12 months' (https://help.shopify.com/en/manual/sell-in-person/shopify-pos/payment-management/tap-to-pay-android).",
+     "note": "Two sharpenings: (1) Tap to Pay's real OS floor is Android 13+, not the POS app's Android 10 - Tab A11+ on Android 16 clears both comfortably. (2) With security patches to at least 30 Dec 2031, the patch-within-12-months condition holds to ~Dec 2032, so 'through ~2031' is conservative and correct. Unverified residual risks for a Malta deployment: Shopify also maintains a Tap-to-Pay supported-device list (device-gating beyond raw specs), and Tap to Pay requires Shopify Payments, whose availability in Malta was not verified in this session - check before relying on Tap to Pay."
+    },
+    {
+     "claim": "No IP rating - mitigate garage dust with a ~EUR 25 rugged hand-strap case (ZenRich/SEYMAC/HXCASEAC via amazon.de to Malta)",
+     "verdict": "REFUTED",
+     "evidence": "No-IP-rating half is confirmed: Samsung's official IP-rating support page lists only Tab S10 among tablets as IP-rated (https://www.samsung.com/us/support/answer/ANS10001610/); SamMobile confirms non-rugged Galaxy Tabs lack water/dust resistance (https://www.sammobile.com/news/are-samsung-galaxy-tablets-water-resistant/); no spec source lists an IP rating for Tab A11+. The ~EUR 25 case price is refuted by live amazon.de checks (2026-07-09): ZenRich Tab A11+ 2025 rugged strap case (amazon.de/dp/B0FQBYF8XT) shows 'No featured offers available' - not currently purchasable; HXCASEAC Tab A11+ case with screen protector + wrist strap is EUR 46.68 in stock (https://www.amazon.de/-/en/HXCASEAC-Case-Samsung-Galaxy-Plus/dp/B0FVLGXQS3); SEYMAC A11+ cases were only found live on amazon.com (US), not priced on .de.",
+     "note": "Corrected fact: a rugged hand-strap case for the Tab A11+ realistically costs EUR 40-47 today, not ~EUR 25 - and the best route is local, not amazon.de: Scan Malta stocks the 'Just in Case' Tab A11+ rugged shockproof case with screen protector and handle strap at EUR 39.95 special price, in stock (https://www.scanmalta.com/shop/just-in-case-samsung-galaxy-tab-a11-11-black-rugged-shockproof-case-w-screen-protector-and-handle-strap.html). The dust-mitigation strategy itself is valid; only the price/sourcing was wrong."
+    }
+   ]
+  },
+  {
+   "name": "Samsung Galaxy Tab S10 FE 128GB (SM-X520)",
+   "price_eur_current": "EUR 402.90 (Wi-Fi 128GB, idealo.de lowest, live) / EUR 411.00 (5G 128GB, idealo.at lowest, live); Malta local street price EUR 469.00 in stock at Scan Malta. Realistic range EUR 403-469.",
+   "malta_route": "Best route: buy local from Scan Malta — exact model (Tab S10 FE 10.9\" 128GB/8GB Wi-Fi Grey) in stock at EUR 469 with local warranty and no shipping risk (https://www.scanmalta.com/shop/samsung-galaxy-tab-s10-fe-10-9-128gb-8gb-android-wifi-grey-tablet.html); Klikk Malta also lists the exact model (https://klikk.com.mt/product/34681_samsung-galaxy-tab-s10-fe-10-9-inch-128gb--8gb-android-wi-fi-tablet-grey), and Sound Machine Malta is a third local option. The amazon.de route (~EUR 403 + shipping) saves roughly EUR 40-60 IF the listing ships to Malta — Malta deliverability of the specific amazon.de listing was not verified, so treat the ~EUR 66 local premium as the price of certainty and same-week availability.",
+   "checks": [
+    {
+     "claim": "Wi-Fi from EUR 402.90 (idealo.de); 5G from EUR 411 (idealo.at); buyable from Malta via amazon.de delivery or local Samsung dealers (Scan Malta/Klikk stock the adjacent S10 range)",
+     "verdict": "CONFIRMED",
+     "evidence": "idealo.de live: 'Samsung Galaxy Tab S10 FE ab 402.9' with 128GB Wi-Fi grau offer at 402,90 EUR (https://www.idealo.de/preisvergleich/OffersOfProduct/206193285_-galaxy-tab-s10-fe-samsung.html and https://www.idealo.de/preisvergleich/OffersOfProduct/206193321_-galaxy-tab-s10-fe-128gb-wifi-grau-samsung.html). idealo.at live: 'Galaxy Tab S10 FE 128GB 5G Gray ab EUR 411,00' (https://www.idealo.at/preisvergleich/OffersOfProduct/206193327_-galaxy-tab-s10-fe-128gb-5g-gray-samsung.html). Malta local: Scan Malta has the EXACT model in stock at EUR 469 (https://www.scanmalta.com/shop/samsung-galaxy-tab-s10-fe-10-9-128gb-8gb-android-wifi-grey-tablet.html); Klikk lists it too (https://klikk.com.mt/product/34681_samsung-galaxy-tab-s10-fe-10-9-inch-128gb--8gb-android-wi-fi-tablet-grey).",
+     "note": "Claim is understated in one respect: Scan Malta and Klikk stock the exact Tab S10 FE 128GB (SM-X520), not merely the 'adjacent S10 range'. idealo.at Wi-Fi is even cheaper (EUR 399, Blue). The amazon.de-to-Malta delivery leg was NOT independently verified for this specific listing; Malta buyability is nonetheless proven via local dealers."
+    },
+    {
+     "claim": "7 generations of OS upgrades — support listed to 03 Apr 2032 on endoflife.date, mirroring Samsung's official security.samsungmobile.com scope",
+     "verdict": "CONFIRMED",
+     "evidence": "endoflife.date live: 'Galaxy Tab S10 FE ... (03 Apr 2025). Ends in 5 years and 9 months. (03 Apr 2032)' at https://endoflife.date/samsung-galaxy-tab. Release date 2025-04-02 corroborated by Samsung Global Newsroom launch article (https://news.samsung.com/global/galaxy-tab-s10-fe-series-brings-intelligent-experiences-to-the-forefront-with-premium-versatile-design, dated 2025-04-02).",
+     "note": "Two accuracy caveats found adversarially: (1) the entry is on endoflife.date/samsung-galaxy-tab — the endoflife.date/samsung-mobile product (434 entries) contains ZERO tablets, so cite the right page; (2) the 'mirroring security.samsungmobile.com' attribution could not be verified — endoflife.date's Samsung entries link doc.samsungmobile.com per-device pages as their source, and security.samsungmobile.com's scope page lists update frequency, not end dates. The 03 Apr 2032 date itself (7 years from launch) stands."
+    },
+    {
+     "claim": "IP68 dust/water rated — the ONLY tablet in budget that passes the 2031 update requirement AND has real dust protection for a garage",
+     "verdict": "UNCLEAR",
+     "evidence": "IP68 sub-claim CONFIRMED: Samsung US official product page 'Durability: IP68-rated water and dust resistance' (https://www.samsung.com/us/tablets/galaxy-tab-s10-fe/) and Samsung support page ANS10005059 (https://www.samsung.com/us/support/answer/ANS10005059/). Update horizon to Apr 2032 confirmed (https://endoflife.date/samsung-galaxy-tab).",
+     "note": "The IP68 rating and the >2031 update horizon are both individually confirmed with live sources. The 'ONLY tablet in budget' superlative is NOT verifiable and is at risk: Samsung's Galaxy Tab Active5 family is also IP68-rated (rugged line) and the Tab S10 FE+ shares IP68; whether they fall 'in budget' or pass a 2031 update bar was not checkable within call budget. Treat the exclusivity wording as marketing-grade, not fact — the practical conclusion (rare combination of IP68 + 2032 support near EUR 400) remains sound; even Klikk's listing calls the S10 FE series 'some of the only IP68-rated tablets out there'."
+    },
+    {
+     "claim": "Ships Android 15 with 8GB RAM/Exynos 1580 — comfortably meets Shopify POS Android requirements with headroom for a 6-7 year service life",
+     "verdict": "CONFIRMED",
+     "evidence": "Samsung Global Newsroom launch article (2025-04-02): Android 15, Exynos 1580, IP68, configs '8 GB + 128 GB' and '12 GB + 256 GB' (https://news.samsung.com/global/galaxy-tab-s10-fe-series-brings-intelligent-experiences-to-the-forefront-with-premium-versatile-design); corroborated by Samsung US support page (https://www.samsung.com/us/support/answer/ANS10005059/). Shopify POS hardware requirements: 'Android version 10.0 or higher' (https://help.shopify.com/en/manual/sell-in-person/hardware/getting-started); Tap to Pay on Android needs Android 13+ (https://help.shopify.com/en/manual/sell-in-person/shopify-pos/payment-management/tap-to-pay-android). Android 15 exceeds both; update support to 03 Apr 2032 (https://endoflife.date/samsung-galaxy-tab) covers a 6-7 year service life.",
+     "note": "The 128GB variant has 8GB RAM (256GB variant has 12GB) — claim matches the 128GB SKU exactly. Shopify publishes no RAM/chipset minimum, so 'comfortably meets with headroom' is fair: the binding requirements are OS version (met by 5 major versions) and security-patch recency for Tap to Pay (met until 2032)."
+    }
+   ]
+  },
+  {
+   "name": "Netum NT-1228BL",
+   "checks": [
+    {
+     "claim": "~EUR 41-45 (netum.net sale price USD 47.99 converted at mid-2026 rates; listed on amazon.de but the live EUR price was not captured — verify at checkout)",
+     "verdict": "REFUTED",
+     "evidence": "netum.net product page shows sale price USD 47.99 (regular USD 57.99) — that component is exact (https://www.netum.net/products/nt-1228bl-barcode-scanner). However the live amazon.de price, captured 2026-07-09, is EUR 46.34 (list EUR 54.69), in stock, sold by 'NETUM Official store' (https://www.amazon.de/dp/B07CBS52KJ). amazon.it is EUR 54.90, in stock, same seller (https://www.amazon.it/dp/B07CBS52KJ).",
+     "note": "Corrected fact: realistic live EUR street price is EUR 46.34 on amazon.de (EUR 54.90 on amazon.it) — slightly ABOVE the claimed 41-45 band. The 41-45 figure only holds for a direct netum.net order (USD 47.99 converted, before shipping); netum.net ships EU orders from a Prague warehouse in 3-7 working days per the product page."
+    },
+    {
+     "claim": "True 2D CMOS imager (QR/Data Matrix/PDF417/EAN, reads from screens) with triple connectivity: Bluetooth HID + 2.4GHz dongle + wired USB",
+     "verdict": "CONFIRMED",
+     "evidence": "Manufacturer product page states CMOS sensor, reads 1D/2D barcodes (QR, Data Matrix, PDF417, EAN) from screen or paper (https://www.netum.net/products/nt-1228bl-barcode-scanner). The official manual has dedicated sections for all three transports: Wired Mode (USB), Wireless Mode (2.4G receiver, one-to-one pairing), and Bluetooth Mode incl. Bluetooth HID (https://doc2.netum.net/NT-1228BL/en/ — wired.html, wireless.html, bluetooth.html), plus a full 2D symbologies chapter listing QR Code, Data Matrix, PDF417, EAN-8/EAN-13 (https://doc2.netum.net/NT-1228BL/en/barcode.html). Amazon EU listing title: '3 in 1 ... Wireless / USB Cablato / Bluetooth' (https://www.amazon.it/dp/B07CBS52KJ); amazon.com listing states Bluetooth HID/SPP/BLE (https://www.amazon.com/NETUM-Bluetooth-Handheld-Wireless-NT-1228BL/dp/B07CBS52KJ).",
+     "note": "One caveat: capability is confirmed in the firmware/manual, but whether the 2.4GHz USB receiver dongle is physically included varies by listing/bundle — the netum.net page extraction indicated the dongle may not be in the box on the direct listing, while the Amazon EU '3 in 1' listing advertises it. Check box contents for the specific listing before buying if 2.4G mode matters."
+    },
+    {
+     "claim": "Netum documents a storage/batch mode (scans buffered offline, replayed as keystrokes on reconnect) but the CAPACITY figure is unverified — confirm in the manual before relying on it for large stocktakes",
+     "verdict": "CONFIRMED",
+     "evidence": "Official manual 'Working Mode' chapter documents Storage Mode explicitly: outside 2.4G/Bluetooth range 'all scanned data will be stored directly in the scanner ... upload the data when the scanner is in the receiving signal range', with programming barcodes for Data Upload, Total Storage Quantity check, Clear Stored Barcode, and Enable/Disable Automatic Storage Mode (https://doc2.netum.net/NT-1228BL/en/working.html).",
+     "note": "The claim's caution is validated: the official manual states NO capacity figure (no barcode count or memory size) anywhere in the Storage Mode section. A '2000 codes' figure surfaced in one marketing-page extraction but could not be verified in official manual text — treat capacity as unknown and empirically test before a large stocktake."
+    },
+    {
+     "claim": "Works with Shopify POS on Android via the generic HID route (pair in Android settings + 'Allow HID mode' in POS); it is NOT on Shopify's named-support list",
+     "verdict": "CONFIRMED",
+     "evidence": "Shopify Help Center HID barcode scanners page: 'You can use most HID scanners with Shopify POS ... you need to pair and connect it through your device's system settings', then 'activate the Allow HID mode setting in Shopify POS' (POS > Settings > Allow HID mode); page includes Android-specific on-screen-keyboard steps confirming Android support (https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/hid-scanners). Shopify's named/documented scanner list contains only Zebra DS2208, Zebra DS2278, and Socket Mobile 1D/2D scanners — Netum does not appear (https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners).",
+     "note": "Exactly as claimed: generic-HID route is officially supported ('most HID scanners'), the 'Allow HID mode' toggle is real and literally named, and Netum is absent from the named-support list — so it works as a keyboard-emulation scanner without Shopify-specific integration (no app-mode features)."
+    }
+   ],
+   "price_eur_current": "EUR 46.34 live on amazon.de (2026-07-09, sold by NETUM Official store, list EUR 54.69); EUR 54.90 on amazon.it; netum.net direct USD 47.99 (approx. EUR 41-44 before shipping). Realistic EUR street price: ~EUR 46-55.",
+   "malta_route": "No Malta local stockist of Netum found (search surfaced only netum.net, Amazon and Walmart US — nothing Malta-based). Best routes: (1) amazon.de at EUR 46.34 (https://www.amazon.de/dp/B07CBS52KJ) — cheapest Amazon EU price, ~EUR 8.56 below amazon.it; item is seller-fulfilled by 'NETUM Official store', so Malta delivery eligibility and shipping cost must be verified at checkout. (2) netum.net direct (https://www.netum.net/products/nt-1228bl-barcode-scanner) at USD 47.99 (~EUR 41-44) shipping EU orders from a Prague (Czech) warehouse in 3-7 working days — intra-EU, no customs, likely cheapest if shipping to Malta is offered at reasonable cost. Avoid amazon.it (EUR 54.90, same seller, more expensive). Recommendation: netum.net direct if Malta shipping quote at checkout is under ~EUR 5, otherwise amazon.de."
+  },
+  {
+   "name": "Zebra DS2278 (kit DS2278-SR7U2100PRW)",
+   "checks": [
+    {
+     "claim": "EUR 184.65 for the kit with presentation/charging cradle + USB on idealo.de; scanner-only configs from EUR 109-122; Zebra also has a local Malta channel (Sirap Malta) for quote-based purchase with local support",
+     "verdict": "CONFIRMED",
+     "evidence": "Live idealo.de listing for product 6814346 (DS2278-SR7U2100PRW, 'kabellos, USB, Bluetooth, 2D Imager, mit Basisstation') shows 'ab 184.65 EUR | Vergleiche 30 Angebote' — https://www.idealo.de/preisvergleich/OffersOfProduct/6814346_-ds2278-sr7u2100prw-zebra-technologies.html. Scanner-only idealo listing 208689093 shows 'ab 121.68 EUR' (48 offers) — https://www.idealo.de/preisvergleich/OffersOfProduct/208689093_-ds2278-zebra-technologies.html. Sirap is Zebra's Malta partner: 'Zebra's full range in Malta... supplied and supported by Sirap' — https://www.sirap.com.mt/brands/zebra/ (Facebook: 'premier business partner for Zebra in Malta' — https://www.facebook.com/sirapltd/).",
+     "note": "Caveats: idealo blocks direct scraping (503 basic + stealth), so prices verified via today's live search-index titles for the idealo URLs, not an on-page fetch. Scanner-only floor observed today is EUR 121.68 — inside the claimed 109-122 band but the EUR 109 floor was not observed this sweep. Sirap confirmed as the local Zebra channel with support; the specific 'quote-based' purchase mechanics were not directly verified (B2B reseller, no public web-shop pricing found)."
+    },
+    {
+     "claim": "OFFICIALLY on Shopify's named supported-scanner list with its own setup page; Shopify's HID guide links the DS2278 Quick Start Guide for HID mode; works on Shopify POS Android via HID + 'Allow HID mode'",
+     "verdict": "CONFIRMED",
+     "evidence": "Dedicated Shopify setup page scraped live: https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/zebra-ds2278-barcode-scanner (pairing via 'HID Bluetooth Classic' barcode on Android/iOS, USB via POS Hub, Application vs USB Keyboard (HID) mode barcodes). Named on Shopify's barcode-scanner lists: https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners and https://help.shopify.com/en/manual/sell-in-person/hardware/supported-hardware/barcode-scanners. Shopify's HID guide table links exactly 'Zebra DS2278 barcode scanner — DS2278 Digital Scanner Quick Start Guide (page 6)' at https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/guide/product/ds2278-qsg-en.pdf, and documents 'Activate the Allow HID mode setting in Shopify POS: Settings > Turn on Allow HID mode' — https://help.shopify.com/en/manual/sell-in-person/hardware/barcode-scanners/hid-scanners.",
+     "note": "Every sub-claim survived adversarial checking against the live pages. Android Bluetooth-HID pairing additionally requires app permissions 'Nearby devices: Allow' and 'Pause app activity if unused: Off' per the DS2278 page. Shopify's recommended (most reliable) route is USB via the Shopify POS Hub with the scanner in its cradle."
+    },
+    {
+     "claim": "Cordless batch mode buffers scans while out of Bluetooth range and transmits on reconnection (configured once via Zebra 123Scan on a PC) — capacity figure not re-verified this sweep",
+     "verdict": "CONFIRMED",
+     "evidence": "Zebra support article: 'Out of Range Batch Mode — the digital scanner starts storing bar code data when it loses its connection... Data transmission is triggered by reestablishing the connection' — https://support.zebra.com/article/000022565 (scraped live). DS2278-specific: the official DS2278 Product Reference Guide contains the Out of Range Batch Mode parameter ('Note to Out of Range Batch Mode about Auto-Reconnect') — https://www.zebra.com/content/dam/support-dam/en/documentation/unrestricted/guide/product/ds2278-prg-en.pdf; reseller FAQ for the DS2278 confirms enabling it 'by scanning the Out of Range Batch Mode configuration code in the DS2278 manual' — https://posguys.com/faq/details/2304/.",
+     "note": "Core mechanism confirmed for the DS2278. Two corrections to the framing: (1) no PC/123Scan is required — the normal method is scanning the parameter barcode once from the DS2278 Product Reference Guide (123Scan is an optional alternative config tool); (2) Zebra warns 'Do not use Out of Range Batch Mode with the Auto-Reconnect Feature' — batched scans do not trigger reconnection, so reconnection behavior must be configured accordingly. Capacity: the support article's ~30,720-byte buffer formula is stated for the DS8178 sibling; DS2278-specific capacity not verified this sweep (zebra.com blocked full PDF scrape with 406)."
+    },
+    {
+     "claim": "1.8m drop-to-concrete and IP52 sealing per Zebra datasheet — gun-grip trigger is glove-friendly for garage/van work",
+     "verdict": "REFUTED",
+     "evidence": "Drop spec is 1.5 m, not 1.8 m. Zebra's own DS2200-series spec sheet: 'Designed to withstand multiple drops at 5.0 ft./1.5 m to concrete' — https://www.zebra.com/us/en/products/spec-sheets/scanners/general-purpose-scanners/handheld/ds2200-series.html (zebra.com blocks scraping; wording verified via live search snippet of that page). Corroborated by distributor spec pages: Ingram Micro 'multiple drops at 5.0 ft./1.5 m to concrete... IP52' — https://hu-new.ingrammicro.com/site/productdetail?id=V368184; labelingsolutions.com '1.5m (5ft) drop to concrete. IP52' — https://labelingsolutions.com/product/zebra-ds2278-cordless-2d-hand-held-retail-standard-white-ds2278-sr00006zzww/.",
+     "note": "Corrected facts: drop = 1.5 m (5 ft) to concrete; IP52 sealing IS correct (confirmed by the same sources). 'Gun-grip' is a mischaracterization — the DS2278 is a straight handheld trigger scanner, not a pistol/gun-grip form factor, and glove-friendliness is not an attribute in the Zebra datasheet (unverified marketing gloss). Still a reasonable durability tier for garage/van use, but quote 1.5 m/IP52, not 1.8 m."
+    }
+   ],
+   "price_eur_current": "Kit DS2278-SR7U2100PRW (scanner + presentation/charging cradle + USB): from EUR 184.65 on idealo.de (30 offers, live 2026-07-09) — realistic street price ~EUR 185-230 delivered. Scanner-only DS2278 configs: from EUR 121.68 on idealo.de (48 offers). Amazon.de lists the exact kit SKU (https://www.amazon.de/-/en/Zebra-DS2278-SR7U2100PRW-DS2278-SR-CRADLE-SCANNER/dp/B07B6S822X) but its live price was not retrievable this sweep (unknown).",
+   "malta_route": "Best price route: order the kit from a German retailer via idealo.de (lowest EUR 184.65) or Amazon.de/.it (exact SKU B07B6S822X on Amazon.de ships to Malta; verify Malta delivery + shipping at checkout, typically ~EUR 10-20). Local route: Sirap Ltd, San Gwann (https://www.sirap.com.mt/brands/zebra/) is Zebra's premier partner in Malta — no public web-shop pricing, so expect a quote, likely above the German street price, but with local warranty handling and support; worth it if on-site support or a Maltese VAT invoice matters. Recommendation: Amazon.de/idealo.de retailer for price, Sirap for supported procurement."
+  }
+ ]
+}
