@@ -115,34 +115,25 @@ var Insights = (function () {
    * NEVER adopt/overwrite a pre-existing USER tab that happens to share the name. If the preferred
    * name is already taken by someone else's tab, we create a distinctly-suffixed one instead.
    */
-  function ownTab_(name, idKey) {
+  /** Get (or create) one of the tool's own visible output tabs, reusing the existing tab of that
+   *  exact name IN PLACE so refresh never spawns duplicates. Never adopts the data/helper tab. */
+  function ownTab_(name) {
     var ss = SpreadsheetApp.getActive();
-    var id = Settings.get(idKey, '');
-    if (id) {
-      var found = ss.getSheets().filter(function (s) { return String(s.getSheetId()) === id; })[0];
-      if (found) return found;
-    }
-    // Upgrade path: an earlier version created these tabs BY NAME without storing an id. If the
-    // default-named tab already exists, ADOPT it (record its id + reuse it) rather than spawning a
-    // "… 2" duplicate and orphaning the original — but NEVER adopt the data tab or a hidden helper.
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
     var existing = ss.getSheetByName(name);
-    if (existing && existing.getName() !== dataName && !/^_hike_/.test(existing.getName())) {
-      Settings.set(idKey, String(existing.getSheetId()));
-      return existing;
-    }
+    if (existing && existing.getName() !== dataName && !/^_hike_/.test(name)) return existing;
     var nm = name, n = 2;
     while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
-    var sh = ss.insertSheet(nm, ss.getSheets().length);
-    Settings.set(idKey, String(sh.getSheetId()));
-    return sh;
+    return ss.insertSheet(nm, ss.getSheets().length);
   }
-  function chartsTab_() { return ownTab_(CHARTS_TAB, 'CHARTS_SHEET_ID'); }
+  function chartsTab_() { return ownTab_(CHARTS_TAB); }
 
-  function clearOurCharts_(dataSheet) {
-    var stored = {};
-    try { JSON.parse(Settings.get(CHART_IDS_KEY, '[]')).forEach(function (id) { stored[id] = 1; }); } catch (e) { /* ignore */ }
-    dataSheet.getCharts().forEach(function (c) { if (stored[c.getChartId()]) dataSheet.removeChart(c); });
+  /** Remove any '<name> 2/3/…' duplicate output tabs a prior (id-tracking) version may have spawned. */
+  function cleanupDuplicateTabs_() {
+    var ss = SpreadsheetApp.getActive();
+    ss.getSheets().forEach(function (s) {
+      if (/^(Hike Insights|Stock overview) \d+$/.test(s.getName())) { try { ss.deleteSheet(s); } catch (e) { /* ignore */ } }
+    });
   }
 
   function addChart_(sheet, type, range, title, offX, offY) {
@@ -183,7 +174,7 @@ var Insights = (function () {
     if (keyIdx === -1) keyIdx = findCol_(norm, ['barcode'], null);
     if (keyIdx === -1 || !want.length) return;
 
-    var ov = ownTab_(OVERVIEW_TAB, 'OVERVIEW_SHEET_ID');
+    var ov = ownTab_(OVERVIEW_TAB);
     if (ov.getSheetId() === data.getSheetId()) return; // never operate on the data tab itself
     ov.clearConditionalFormatRules();
     ov.clear();
@@ -259,14 +250,21 @@ var Insights = (function () {
 
   /** Build/refresh the charts. interactive=true shows a confirmation alert at the end. */
   function rebuild(interactive) {
+    cleanupDuplicateTabs_();
     var agg = compute_();
     var ranges = writeHelper_(agg);
     var dataSheet = SheetIO.dataSheet();
     var chartsTab = chartsTab_();
-    var pre = chartsTab.getCharts().map(function (c) { return c.getChartId(); });
-    // One-time migration: earlier versions embedded the charts in the data tab — remove those once.
-    if (Settings.get('INSIGHTS_MIGRATED', '') !== 'yes') { clearOurCharts_(dataSheet); Settings.set('INSIGHTS_MIGRATED', 'yes'); }
-    clearOurCharts_(chartsTab);
+    // One-time migration: the earliest version embedded charts in the DATA tab — remove those
+    // (by the ids stored then) exactly once.
+    if (Settings.get('INSIGHTS_MIGRATED', '') !== 'yes') {
+      var stored = {};
+      try { JSON.parse(Settings.get(CHART_IDS_KEY, '[]')).forEach(function (id) { stored[id] = 1; }); } catch (e) { /* ignore */ }
+      dataSheet.getCharts().forEach(function (c) { if (stored[c.getChartId()]) dataSheet.removeChart(c); });
+      Settings.set('INSIGHTS_MIGRATED', 'yes');
+    }
+    // The charts tab is entirely ours — clear ALL its charts, then rebuild fresh (no id tracking).
+    chartsTab.getCharts().forEach(function (c) { chartsTab.removeChart(c); });
 
     var specs = [];
     if (ranges.value) specs.push([Charts.ChartType.BAR, ranges.value, 'Inventory value by category' + (agg.costBasis ? ' (at cost)' : ' (at retail)')]);
@@ -279,9 +277,6 @@ var Insights = (function () {
     specs.forEach(function (s, i) { var p = slots[i] || [0, i * 250]; addChart_(chartsTab, s[0], s[1], s[2], p[0], p[1]); });
     var built = specs.length;
 
-    var post = chartsTab.getCharts();
-    var ours = post.filter(function (c) { return pre.indexOf(c.getChartId()) === -1; }).map(function (c) { return c.getChartId(); });
-    Settings.set(CHART_IDS_KEY, JSON.stringify(ours));
     // The charts float over the grid, so the Insights tab needs no big empty grid behind them.
     if (chartsTab.getMaxRows() > 30) chartsTab.deleteRows(31, chartsTab.getMaxRows() - 30);
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }

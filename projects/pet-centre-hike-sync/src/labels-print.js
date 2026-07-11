@@ -16,15 +16,12 @@ var LabelsPrint = (function () {
   /** The LABELS tab = the non-data, non-hidden tab whose top rows carry Barcode + Name headers. */
   function findLabelsSheet() {
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
-    // Never mistake the tool's OWN visible output tabs (charts / stock overview) for the LABELS
-    // tab — they carry Name + Barcode headers too. Skip them by tracked sheetId AND by name.
-    var ours = {};
-    ['OVERVIEW_SHEET_ID', 'CHARTS_SHEET_ID'].forEach(function (k) { var id = Settings.get(k, ''); if (id) ours[id] = 1; });
-    var ownNames = { 'Stock overview': 1, 'Hike Insights': 1 };
     var sheets = SpreadsheetApp.getActive().getSheets();
     for (var i = 0; i < sheets.length; i++) {
       var sh = sheets[i], n = sh.getName();
-      if (n === dataName || /^_hike_/.test(n) || ownNames[n] || ours[String(sh.getSheetId())]) continue;
+      // Skip the data/helper tabs and the tool's OWN visible output tabs (charts / stock overview,
+      // including any transient '… 2' duplicate) — they carry Name + Barcode headers too.
+      if (n === dataName || /^_hike_/.test(n) || /^(Stock overview|Hike Insights)( \d+)?$/.test(n)) continue;
       if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) continue;
       var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
       var hasBc = false, hasName = false;
