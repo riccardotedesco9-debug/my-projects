@@ -16,10 +16,15 @@ var LabelsPrint = (function () {
   /** The LABELS tab = the non-data, non-hidden tab whose top rows carry Barcode + Name headers. */
   function findLabelsSheet() {
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
+    // Never mistake the tool's OWN visible output tabs (charts / stock overview) for the LABELS
+    // tab — they carry Name + Barcode headers too. Skip them by tracked sheetId AND by name.
+    var ours = {};
+    ['OVERVIEW_SHEET_ID', 'CHARTS_SHEET_ID'].forEach(function (k) { var id = Settings.get(k, ''); if (id) ours[id] = 1; });
+    var ownNames = { 'Stock overview': 1, 'Hike Insights': 1 };
     var sheets = SpreadsheetApp.getActive().getSheets();
     for (var i = 0; i < sheets.length; i++) {
       var sh = sheets[i], n = sh.getName();
-      if (n === dataName || /^_hike_/.test(n)) continue;
+      if (n === dataName || /^_hike_/.test(n) || ownNames[n] || ours[String(sh.getSheetId())]) continue;
       if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) continue;
       var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
       var hasBc = false, hasName = false;
@@ -33,6 +38,23 @@ var LabelsPrint = (function () {
       if (hasBc && hasName) return sh;
     }
     return null;
+  }
+
+  /** Is the DATA tab's Barcode column stored as NUMBERS? (what the LABELS lookup compares against) */
+  function dataBarcodeIsNumeric_() {
+    try {
+      var sh = SheetIO.dataSheet();
+      var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+      var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+      var hr = MergeEngine.findHeaderRow(scan);
+      if (hr === -1) return false;
+      var bc = -1;
+      scan[hr].forEach(function (h, i) { if (ValueUtils.normHeader(h) === 'barcode' && bc === -1) bc = i; });
+      if (bc === -1 || lastRow <= hr + 1) return false;
+      var colv = sh.getRange(hr + 2, bc + 1, lastRow - hr - 1, 1).getValues();
+      for (var i = 0; i < colv.length; i++) if (colv[i][0] !== '' && colv[i][0] != null) return typeof colv[i][0] === 'number';
+      return false;
+    } catch (e) { return false; }
   }
 
   /** Locate the Barcode column + header row on the labels tab (1-based; -1 if absent). */
@@ -60,14 +82,15 @@ var LabelsPrint = (function () {
     var nameCol = norm.indexOf('name'), bcCol = norm.indexOf('barcode');
     var priceCol = norm.indexOf('retail price');
     if (priceCol === -1) for (var i = 0; i < norm.length; i++) if (/_retail price$/.test(norm[i])) { priceCol = i; break; }
-    var rows = [];
-    for (var r = hr + 1; r < values.length && rows.length < CATALOG_MAX; r++) {
+    var rows = [], truncated = false;
+    for (var r = hr + 1; r < values.length; r++) {
+      if (rows.length >= CATALOG_MAX) { truncated = true; break; } // truncated ONLY when we hit the cap
       var name = nameCol !== -1 ? String(values[r][nameCol] == null ? '' : values[r][nameCol]) : '';
       var bc = bcCol !== -1 ? ValueUtils.normString(values[r][bcCol]) : '';
       if (!name && !bc) continue;
       rows.push([name, bc, priceCol !== -1 ? String(values[r][priceCol]) : '']);
     }
-    return { rows: rows, truncated: (values.length - hr - 1) > rows.length };
+    return { rows: rows, truncated: truncated };
   }
 
   /** Snapshot the labels tab (values + formulas) into a hidden backup; keep the newest 3. */
@@ -101,34 +124,36 @@ var LabelsPrint = (function () {
     try {
       backupLabels_(labels);
       var lastRow = labels.getLastRow();
-      var start = loc.headerRow + 1;
+      var start = loc.headerRow + 1, lastNonEmpty = -1;
       if (lastRow >= start) {
         var col = labels.getRange(start, loc.bcCol, lastRow - loc.headerRow, 1).getValues();
-        var lastNonEmpty = -1;
         for (var i = 0; i < col.length; i++) if (ValueUtils.normString(col[i][0]) !== '') lastNonEmpty = i;
         if (lastNonEmpty !== -1) start = loc.headerRow + 1 + lastNonEmpty + 1; // append after the last barcode
       }
       var need = start + clean.length - 1;
       if (labels.getMaxRows() < need) labels.insertRowsAfter(labels.getMaxRows(), need - labels.getMaxRows());
 
-      // Copy the lookup formulas (name/price/etc.) down from the row above, UNLESS they
-      // already extend to the new rows (e.g. an ARRAYFORMULA populates every row).
-      var templateRow = start - 1 >= loc.headerRow + 1 ? start - 1 : -1;
-      if (templateRow !== -1) {
-        var lastCol = labels.getLastColumn();
-        var tf = labels.getRange(templateRow, 1, 1, lastCol).getFormulas()[0];
-        for (var c = 0; c < tf.length; c++) {
-          if (!tf[c] || (c + 1) === loc.bcCol) continue;
-          if (labels.getRange(start, c + 1).getFormula()) continue; // already auto-extends
-          labels.getRange(templateRow, c + 1).copyTo(labels.getRange(start, c + 1, clean.length, 1));
-        }
+      // Copy the lookup formulas (name/price/…) onto the new rows. Template = the last existing
+      // barcode row, or (when the barcode column is still empty) the first data row under the
+      // header. Skip a column that already auto-extends (ARRAYFORMULA); never overwrite the template.
+      var templateRow = lastNonEmpty !== -1 ? start - 1 : (loc.headerRow + 1);
+      var fillStart = templateRow === start ? start + 1 : start;
+      var fillCount = start + clean.length - fillStart;
+      var tf = labels.getRange(templateRow, 1, 1, labels.getLastColumn()).getFormulas()[0];
+      for (var c = 0; c < tf.length && fillCount > 0; c++) {
+        if (!tf[c] || (c + 1) === loc.bcCol) continue;
+        if (labels.getRange(fillStart, c + 1).getFormula()) continue; // already auto-extends
+        labels.getRange(templateRow, c + 1).copyTo(labels.getRange(fillStart, c + 1, fillCount, 1));
       }
-      // Match the barcode column's existing storage type so the lookup formulas still match:
-      // if existing barcodes are stored as NUMBERS (a common sheet quirk), write all-digit
-      // barcodes as numbers; otherwise keep them as text (which preserves leading zeros).
-      var sampleBc = templateRow !== -1 ? labels.getRange(templateRow, loc.bcCol).getValue() : '';
+
+      // Write barcodes in the storage type the lookup expects. Prefer the labels tab's existing
+      // barcode type; if that column is empty, match the DATA tab's barcode type (what the lookup
+      // compares against). Numbers for all-digit barcodes; else text (keeps leading zeros).
+      var sampleBc = labels.getRange(templateRow, loc.bcCol).getValue();
+      var numeric = typeof sampleBc === 'number';
+      if (!numeric && ValueUtils.normString(sampleBc) === '') numeric = dataBarcodeIsNumeric_();
       var bcRange = labels.getRange(start, loc.bcCol, clean.length, 1);
-      if (typeof sampleBc === 'number') {
+      if (numeric) {
         bcRange.setValues(clean.map(function (b) { return [/^\d+$/.test(b) ? Number(b) : b]; }));
       } else {
         bcRange.setNumberFormat('@'); // text — preserves leading zeros

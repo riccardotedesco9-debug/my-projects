@@ -54,8 +54,9 @@ var SheetIO = (function () {
   }
 
   /**
-   * Apply a MergeEngine plan: per-row contiguous runs for changed cells only, then
-   * one block append below the last row. No deletes, no clears of user data.
+   * Apply a MergeEngine plan: batched per column (one read+write per changed column), then
+   * one block append below the last row. No deletes, no clears of user data — and untouched
+   * cells (including any user FORMULA in a mapped column) are preserved exactly.
    * Returns { appendStartRow, appendCount } (1-based, 0 when nothing appended).
    */
   function applyPlan(plan) {
@@ -75,7 +76,11 @@ var SheetIO = (function () {
       var minRow = changes[0][0], maxRow = changes[0][0];
       changes.forEach(function (x) { if (x[0] < minRow) minRow = x[0]; if (x[0] > maxRow) maxRow = x[0]; });
       var range = sh.getRange(minRow + 1, col + 1, maxRow - minRow + 1, 1);
-      var vals = range.getValues();
+      // Preserve untouched cells EXACTLY — including any user formula. getValues() flattens a
+      // formula to its computed value, so re-apply each untouched cell's formula (a leading-'='
+      // string becomes a formula again on setValues); only the changed rows get the new value.
+      var vals = range.getValues(), fs = range.getFormulas();
+      for (var i = 0; i < vals.length; i++) if (fs[i][0] !== '') vals[i][0] = fs[i][0];
       changes.forEach(function (x) { vals[x[0] - minRow][0] = x[1]; });
       range.setValues(vals);
     });

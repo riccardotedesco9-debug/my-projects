@@ -808,8 +808,9 @@ var SheetIO = (function () {
   }
 
   /**
-   * Apply a MergeEngine plan: per-row contiguous runs for changed cells only, then
-   * one block append below the last row. No deletes, no clears of user data.
+   * Apply a MergeEngine plan: batched per column (one read+write per changed column), then
+   * one block append below the last row. No deletes, no clears of user data — and untouched
+   * cells (including any user FORMULA in a mapped column) are preserved exactly.
    * Returns { appendStartRow, appendCount } (1-based, 0 when nothing appended).
    */
   function applyPlan(plan) {
@@ -829,7 +830,11 @@ var SheetIO = (function () {
       var minRow = changes[0][0], maxRow = changes[0][0];
       changes.forEach(function (x) { if (x[0] < minRow) minRow = x[0]; if (x[0] > maxRow) maxRow = x[0]; });
       var range = sh.getRange(minRow + 1, col + 1, maxRow - minRow + 1, 1);
-      var vals = range.getValues();
+      // Preserve untouched cells EXACTLY — including any user formula. getValues() flattens a
+      // formula to its computed value, so re-apply each untouched cell's formula (a leading-'='
+      // string becomes a formula again on setValues); only the changed rows get the new value.
+      var vals = range.getValues(), fs = range.getFormulas();
+      for (var i = 0; i < vals.length; i++) if (fs[i][0] !== '') vals[i][0] = fs[i][0];
       changes.forEach(function (x) { vals[x[0] - minRow][0] = x[1]; });
       range.setValues(vals);
     });
@@ -1533,10 +1538,15 @@ var LabelsPrint = (function () {
   /** The LABELS tab = the non-data, non-hidden tab whose top rows carry Barcode + Name headers. */
   function findLabelsSheet() {
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
+    // Never mistake the tool's OWN visible output tabs (charts / stock overview) for the LABELS
+    // tab — they carry Name + Barcode headers too. Skip them by tracked sheetId AND by name.
+    var ours = {};
+    ['OVERVIEW_SHEET_ID', 'CHARTS_SHEET_ID'].forEach(function (k) { var id = Settings.get(k, ''); if (id) ours[id] = 1; });
+    var ownNames = { 'Stock overview': 1, 'Hike Insights': 1 };
     var sheets = SpreadsheetApp.getActive().getSheets();
     for (var i = 0; i < sheets.length; i++) {
       var sh = sheets[i], n = sh.getName();
-      if (n === dataName || /^_hike_/.test(n)) continue;
+      if (n === dataName || /^_hike_/.test(n) || ownNames[n] || ours[String(sh.getSheetId())]) continue;
       if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) continue;
       var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
       var hasBc = false, hasName = false;
@@ -1550,6 +1560,23 @@ var LabelsPrint = (function () {
       if (hasBc && hasName) return sh;
     }
     return null;
+  }
+
+  /** Is the DATA tab's Barcode column stored as NUMBERS? (what the LABELS lookup compares against) */
+  function dataBarcodeIsNumeric_() {
+    try {
+      var sh = SheetIO.dataSheet();
+      var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+      var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+      var hr = MergeEngine.findHeaderRow(scan);
+      if (hr === -1) return false;
+      var bc = -1;
+      scan[hr].forEach(function (h, i) { if (ValueUtils.normHeader(h) === 'barcode' && bc === -1) bc = i; });
+      if (bc === -1 || lastRow <= hr + 1) return false;
+      var colv = sh.getRange(hr + 2, bc + 1, lastRow - hr - 1, 1).getValues();
+      for (var i = 0; i < colv.length; i++) if (colv[i][0] !== '' && colv[i][0] != null) return typeof colv[i][0] === 'number';
+      return false;
+    } catch (e) { return false; }
   }
 
   /** Locate the Barcode column + header row on the labels tab (1-based; -1 if absent). */
@@ -1577,14 +1604,15 @@ var LabelsPrint = (function () {
     var nameCol = norm.indexOf('name'), bcCol = norm.indexOf('barcode');
     var priceCol = norm.indexOf('retail price');
     if (priceCol === -1) for (var i = 0; i < norm.length; i++) if (/_retail price$/.test(norm[i])) { priceCol = i; break; }
-    var rows = [];
-    for (var r = hr + 1; r < values.length && rows.length < CATALOG_MAX; r++) {
+    var rows = [], truncated = false;
+    for (var r = hr + 1; r < values.length; r++) {
+      if (rows.length >= CATALOG_MAX) { truncated = true; break; } // truncated ONLY when we hit the cap
       var name = nameCol !== -1 ? String(values[r][nameCol] == null ? '' : values[r][nameCol]) : '';
       var bc = bcCol !== -1 ? ValueUtils.normString(values[r][bcCol]) : '';
       if (!name && !bc) continue;
       rows.push([name, bc, priceCol !== -1 ? String(values[r][priceCol]) : '']);
     }
-    return { rows: rows, truncated: (values.length - hr - 1) > rows.length };
+    return { rows: rows, truncated: truncated };
   }
 
   /** Snapshot the labels tab (values + formulas) into a hidden backup; keep the newest 3. */
@@ -1618,34 +1646,36 @@ var LabelsPrint = (function () {
     try {
       backupLabels_(labels);
       var lastRow = labels.getLastRow();
-      var start = loc.headerRow + 1;
+      var start = loc.headerRow + 1, lastNonEmpty = -1;
       if (lastRow >= start) {
         var col = labels.getRange(start, loc.bcCol, lastRow - loc.headerRow, 1).getValues();
-        var lastNonEmpty = -1;
         for (var i = 0; i < col.length; i++) if (ValueUtils.normString(col[i][0]) !== '') lastNonEmpty = i;
         if (lastNonEmpty !== -1) start = loc.headerRow + 1 + lastNonEmpty + 1; // append after the last barcode
       }
       var need = start + clean.length - 1;
       if (labels.getMaxRows() < need) labels.insertRowsAfter(labels.getMaxRows(), need - labels.getMaxRows());
 
-      // Copy the lookup formulas (name/price/etc.) down from the row above, UNLESS they
-      // already extend to the new rows (e.g. an ARRAYFORMULA populates every row).
-      var templateRow = start - 1 >= loc.headerRow + 1 ? start - 1 : -1;
-      if (templateRow !== -1) {
-        var lastCol = labels.getLastColumn();
-        var tf = labels.getRange(templateRow, 1, 1, lastCol).getFormulas()[0];
-        for (var c = 0; c < tf.length; c++) {
-          if (!tf[c] || (c + 1) === loc.bcCol) continue;
-          if (labels.getRange(start, c + 1).getFormula()) continue; // already auto-extends
-          labels.getRange(templateRow, c + 1).copyTo(labels.getRange(start, c + 1, clean.length, 1));
-        }
+      // Copy the lookup formulas (name/price/…) onto the new rows. Template = the last existing
+      // barcode row, or (when the barcode column is still empty) the first data row under the
+      // header. Skip a column that already auto-extends (ARRAYFORMULA); never overwrite the template.
+      var templateRow = lastNonEmpty !== -1 ? start - 1 : (loc.headerRow + 1);
+      var fillStart = templateRow === start ? start + 1 : start;
+      var fillCount = start + clean.length - fillStart;
+      var tf = labels.getRange(templateRow, 1, 1, labels.getLastColumn()).getFormulas()[0];
+      for (var c = 0; c < tf.length && fillCount > 0; c++) {
+        if (!tf[c] || (c + 1) === loc.bcCol) continue;
+        if (labels.getRange(fillStart, c + 1).getFormula()) continue; // already auto-extends
+        labels.getRange(templateRow, c + 1).copyTo(labels.getRange(fillStart, c + 1, fillCount, 1));
       }
-      // Match the barcode column's existing storage type so the lookup formulas still match:
-      // if existing barcodes are stored as NUMBERS (a common sheet quirk), write all-digit
-      // barcodes as numbers; otherwise keep them as text (which preserves leading zeros).
-      var sampleBc = templateRow !== -1 ? labels.getRange(templateRow, loc.bcCol).getValue() : '';
+
+      // Write barcodes in the storage type the lookup expects. Prefer the labels tab's existing
+      // barcode type; if that column is empty, match the DATA tab's barcode type (what the lookup
+      // compares against). Numbers for all-digit barcodes; else text (keeps leading zeros).
+      var sampleBc = labels.getRange(templateRow, loc.bcCol).getValue();
+      var numeric = typeof sampleBc === 'number';
+      if (!numeric && ValueUtils.normString(sampleBc) === '') numeric = dataBarcodeIsNumeric_();
       var bcRange = labels.getRange(start, loc.bcCol, clean.length, 1);
-      if (typeof sampleBc === 'number') {
+      if (numeric) {
         bcRange.setValues(clean.map(function (b) { return [/^\d+$/.test(b) ? Number(b) : b]; }));
       } else {
         bcRange.setNumberFormat('@'); // text — preserves leading zeros
@@ -1834,11 +1864,25 @@ var Insights = (function () {
     return ranges;
   }
 
-  /** Get (or create) the dedicated, visible tab that holds the charts. */
-  function chartsTab_() {
+  /**
+   * Get (or create) one of the tool's own visible output tabs, tracked by stored sheetId so we
+   * NEVER adopt/overwrite a pre-existing USER tab that happens to share the name. If the preferred
+   * name is already taken by someone else's tab, we create a distinctly-suffixed one instead.
+   */
+  function ownTab_(name, idKey) {
     var ss = SpreadsheetApp.getActive();
-    return ss.getSheetByName(CHARTS_TAB) || ss.insertSheet(CHARTS_TAB, ss.getSheets().length);
+    var id = Settings.get(idKey, '');
+    if (id) {
+      var found = ss.getSheets().filter(function (s) { return String(s.getSheetId()) === id; })[0];
+      if (found) return found;
+    }
+    var nm = name, n = 2;
+    while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
+    var sh = ss.insertSheet(nm, ss.getSheets().length);
+    Settings.set(idKey, String(sh.getSheetId()));
+    return sh;
   }
+  function chartsTab_() { return ownTab_(CHARTS_TAB, 'CHARTS_SHEET_ID'); }
 
   function clearOurCharts_(dataSheet) {
     var stored = {};
@@ -1884,7 +1928,8 @@ var Insights = (function () {
     if (keyIdx === -1) keyIdx = findCol_(norm, ['barcode'], null);
     if (keyIdx === -1 || !want.length) return;
 
-    var ov = ss.getSheetByName(OVERVIEW_TAB) || ss.insertSheet(OVERVIEW_TAB, ss.getSheets().length);
+    var ov = ownTab_(OVERVIEW_TAB, 'OVERVIEW_SHEET_ID');
+    if (ov.getSheetId() === data.getSheetId()) return; // never operate on the data tab itself
     ov.clearConditionalFormatRules();
     ov.clear();
     // Grow the grid to fit the header + QUERY spill BEFORE writing it, so a catalog that grew
@@ -1894,7 +1939,7 @@ var Insights = (function () {
     if (ov.getMaxColumns() < want.length) ov.insertColumnsAfter(ov.getMaxColumns(), want.length - ov.getMaxColumns());
     ov.getRange(1, 1, 1, want.length).setValues([want.map(function (c) { return c.label; })]).setFontWeight('bold');
     var sel = want.map(function (c) { return colLetter_(c.idx + 1); }).join(', ');
-    var rng = "'" + dataName + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
+    var rng = "'" + dataName.replace(/'/g, "''") + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
     ov.getRange(2, 1).setFormula('=IFERROR(QUERY(' + rng + ', "select ' + sel + ' where ' +
       colLetter_(keyIdx + 1) + ' is not null", 0), "No products yet.")');
     ov.setFrozenRows(1);
@@ -1937,17 +1982,23 @@ var Insights = (function () {
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
     var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    if (stockCol === -1 || reorderCol === -1) return; // nothing to add → leave ALL existing rules untouched
+    var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
+    var formula = '=AND($' + s + firstRow + '<=$' + rc + firstRow + ',$' + rc + firstRow + '>0)';
+    var squash = function (f) { return String(f || '').replace(/\s+/g, ''); };
+    // Remove ONLY our own previous rule — matched by BOTH the reserved red AND our exact
+    // low-stock formula — so a user's rule that merely shares the colour is never touched.
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var b = r.getBooleanCondition();
-      return !b || b.getBackground() !== LOW_STOCK_RED;
+      if (!b) return true;
+      var ours = b.getBackground() === LOW_STOCK_RED &&
+        b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA &&
+        squash((b.getCriteriaValues() || [])[0]) === squash(formula);
+      return !ours;
     });
-    if (stockCol !== -1 && reorderCol !== -1) {
-      var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
-      var range = dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1);
-      kept.push(SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied('=AND($' + s + firstRow + '<=$' + rc + firstRow + ',$' + rc + firstRow + '>0)')
-        .setBackground(LOW_STOCK_RED).setRanges([range]).build());
-    }
+    kept.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(formula).setBackground(LOW_STOCK_RED)
+      .setRanges([dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1)]).build());
     dataSheet.setConditionalFormatRules(kept);
   }
 

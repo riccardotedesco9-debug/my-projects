@@ -110,11 +110,25 @@ var Insights = (function () {
     return ranges;
   }
 
-  /** Get (or create) the dedicated, visible tab that holds the charts. */
-  function chartsTab_() {
+  /**
+   * Get (or create) one of the tool's own visible output tabs, tracked by stored sheetId so we
+   * NEVER adopt/overwrite a pre-existing USER tab that happens to share the name. If the preferred
+   * name is already taken by someone else's tab, we create a distinctly-suffixed one instead.
+   */
+  function ownTab_(name, idKey) {
     var ss = SpreadsheetApp.getActive();
-    return ss.getSheetByName(CHARTS_TAB) || ss.insertSheet(CHARTS_TAB, ss.getSheets().length);
+    var id = Settings.get(idKey, '');
+    if (id) {
+      var found = ss.getSheets().filter(function (s) { return String(s.getSheetId()) === id; })[0];
+      if (found) return found;
+    }
+    var nm = name, n = 2;
+    while (ss.getSheetByName(nm)) { nm = name + ' ' + n; n++; }
+    var sh = ss.insertSheet(nm, ss.getSheets().length);
+    Settings.set(idKey, String(sh.getSheetId()));
+    return sh;
   }
+  function chartsTab_() { return ownTab_(CHARTS_TAB, 'CHARTS_SHEET_ID'); }
 
   function clearOurCharts_(dataSheet) {
     var stored = {};
@@ -160,7 +174,8 @@ var Insights = (function () {
     if (keyIdx === -1) keyIdx = findCol_(norm, ['barcode'], null);
     if (keyIdx === -1 || !want.length) return;
 
-    var ov = ss.getSheetByName(OVERVIEW_TAB) || ss.insertSheet(OVERVIEW_TAB, ss.getSheets().length);
+    var ov = ownTab_(OVERVIEW_TAB, 'OVERVIEW_SHEET_ID');
+    if (ov.getSheetId() === data.getSheetId()) return; // never operate on the data tab itself
     ov.clearConditionalFormatRules();
     ov.clear();
     // Grow the grid to fit the header + QUERY spill BEFORE writing it, so a catalog that grew
@@ -170,7 +185,7 @@ var Insights = (function () {
     if (ov.getMaxColumns() < want.length) ov.insertColumnsAfter(ov.getMaxColumns(), want.length - ov.getMaxColumns());
     ov.getRange(1, 1, 1, want.length).setValues([want.map(function (c) { return c.label; })]).setFontWeight('bold');
     var sel = want.map(function (c) { return colLetter_(c.idx + 1); }).join(', ');
-    var rng = "'" + dataName + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
+    var rng = "'" + dataName.replace(/'/g, "''") + "'!A" + (hr + 2) + ':' + colLetter_(lastCol);
     ov.getRange(2, 1).setFormula('=IFERROR(QUERY(' + rng + ', "select ' + sel + ' where ' +
       colLetter_(keyIdx + 1) + ' is not null", 0), "No products yet.")');
     ov.setFrozenRows(1);
@@ -213,17 +228,23 @@ var Insights = (function () {
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
     var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    if (stockCol === -1 || reorderCol === -1) return; // nothing to add → leave ALL existing rules untouched
+    var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
+    var formula = '=AND($' + s + firstRow + '<=$' + rc + firstRow + ',$' + rc + firstRow + '>0)';
+    var squash = function (f) { return String(f || '').replace(/\s+/g, ''); };
+    // Remove ONLY our own previous rule — matched by BOTH the reserved red AND our exact
+    // low-stock formula — so a user's rule that merely shares the colour is never touched.
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var b = r.getBooleanCondition();
-      return !b || b.getBackground() !== LOW_STOCK_RED;
+      if (!b) return true;
+      var ours = b.getBackground() === LOW_STOCK_RED &&
+        b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA &&
+        squash((b.getCriteriaValues() || [])[0]) === squash(formula);
+      return !ours;
     });
-    if (stockCol !== -1 && reorderCol !== -1) {
-      var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
-      var range = dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1);
-      kept.push(SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied('=AND($' + s + firstRow + '<=$' + rc + firstRow + ',$' + rc + firstRow + '>0)')
-        .setBackground(LOW_STOCK_RED).setRanges([range]).build());
-    }
+    kept.push(SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(formula).setBackground(LOW_STOCK_RED)
+      .setRanges([dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1)]).build());
     dataSheet.setConditionalFormatRules(kept);
   }
 
