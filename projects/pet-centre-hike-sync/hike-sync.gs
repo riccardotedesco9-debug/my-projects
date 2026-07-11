@@ -1792,18 +1792,15 @@ var Insights = (function () {
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
   var OVERVIEW_ID_KEY = 'OVERVIEW_SHEET_ID'; // obsolete "Stock overview" tab id — used once to remove it
   var CHARTS_ID_KEY = 'CHARTS_SHEET_ID';     // stored sheetId of our "Hike Insights" tab
-  // Progressive low-stock heat: bands on the STOCK column (the "…_Stock" level, NOT Stock on hand)
-  // that get redder as stock falls toward/below each product's REORDER LEVEL. Ordered most-severe
-  // FIRST — Google applies the first matching rule, so a deeper band wins. Each reserved colour
-  // marks the rule as OURS so re-runs replace rather than stack.
-  var STOCK_TIERS = [
-    { bg: '#cc0000', abs: 0 },   // out of stock (≤ 0): darkest
-    { bg: '#e06666', mul: 0.5 }, // ≤ 50% of reorder: deep red
-    { bg: '#f4c7c3', mul: 1 },   // at/below reorder: red
-    { bg: '#fce5cd', mul: 1.5 }  // approaching reorder (≤ 1.5×): amber
-  ];
-  // Colours from this + earlier versions (incl. an old gradient) — recognized so a rebuild removes ours cleanly.
-  var STOCK_REDS = ['#cc0000', '#e06666', '#f4c7c3', '#f4cccc', '#fce5cd'];
+  // Low-stock heat on the STOCK ON HAND column: a computed, continuous red gradient whose
+  // intensity tracks how much stock is left as a share of the product's reorder level
+  // (on-hand ÷ reorder). Reddest at 0% (out of stock), fading to no fill at/above LOW_STOCK_CAP.
+  // Painted as cell backgrounds because a per-row two-column ratio can't drive Sheets' native
+  // colour-scale. Recomputed on each refresh.
+  var STOCK_DARK = [153, 0, 0]; // RGB at 0% stock (darkest red); fades to white as the ratio rises
+  var LOW_STOCK_CAP = 1.5;      // ratio (on-hand ÷ reorder) at/above which a cell gets no fill
+  // Legacy conditional-format colours from earlier versions — recognized so a rebuild strips them.
+  var STOCK_REDS = ['#990000', '#cc0000', '#e06666', '#ea9999', '#f4c7c3', '#f9dcd9', '#fce5cd', '#f4cccc'];
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
@@ -1998,17 +1995,16 @@ var Insights = (function () {
   }
 
   /**
-   * Progressive low-stock heat on the STOCK column ONLY (Hike's "…_Stock" = Available stock, NOT
-   * "…_Stock on hand"), graded by how far stock has fallen toward/below that product's REORDER
-   * LEVEL: amber approaching it (≤1.5×), red at/below, deeper red under half, darkest when out of
-   * stock (≤0). EVERY band requires a reorder level > 0 — a product with no reorder level set is
-   * never coloured (there's no threshold to judge "low" against). Boolean conditional-format rules
-   * (live — they recolour by themselves); most-severe first so the deeper band wins; blank cells
-   * stay clean. Also forces the stock + reorder-level columns to a plain integer format so a
-   * sheet-applied currency format can't show these unit counts as money (e.g. reorder €3.00), and
-   * clears any highlight left on the on-hand column by an earlier version. Removes our previous
-   * rules first so re-runs replace rather than stack; user rules are untouched. No-op if there is
-   * no stock column.
+   * Low-stock heat on the STOCK ON HAND column: a computed, continuous red gradient whose depth
+   * tracks how much stock is left as a share of the product's REORDER LEVEL (on-hand ÷ reorder) —
+   * reddest at 0% (out of stock), fading to no fill at/above LOW_STOCK_CAP× reorder. Products with
+   * no reorder level set are left clean (no threshold to judge "low" against). Painted as cell
+   * backgrounds (a per-row two-column ratio can't drive Sheets' native colour-scale), recomputed
+   * each refresh — so it updates on sync/refresh rather than instantly as you type. Also forces the
+   * stock + reorder-level count columns to a plain integer format (kills a stray currency format
+   * showing counts as money), strips any conditional-format rule an earlier version left on the
+   * stock columns, and clears any stale fill on the Available-stock column. No-op if there's no
+   * stock column.
    */
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
@@ -2017,53 +2013,71 @@ var Insights = (function () {
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
-    // Colour the plain Stock (Available) column — NOT Stock on hand. Detect both: the on-hand
-    // column is only located so we can strip any highlight off it (owner wants Stock only).
-    var stockCol = findCol_(norm, ['stock'], /_stock$/);
+    // Highlight the STOCK ON HAND column; also locate the plain Stock (Available) column so any
+    // highlight an earlier version left on it can be cleared.
     var onHandCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
-    if (stockCol === -1) stockCol = onHandCol; // fall back only if there's no plain Stock column
-    if (stockCol === -1) return;               // no stock column at all → leave existing rules untouched
+    var availCol = findCol_(norm, ['stock'], /_stock$/);
+    var target = onHandCol !== -1 ? onHandCol : availCol; // fall back to Available if no on-hand column
+    if (target === -1) return;
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
-    var firstRow = hr + 2, stockA1 = stockCol + 1;
-    var sCell = '$' + colLetter_(stockA1) + firstRow;
-    var rCell = reorderCol !== -1 ? '$' + colLetter_(reorderCol + 1) + firstRow : null;
+    var firstRow = hr + 2;
+    if (lastRow < firstRow) return;
+    var nRows = lastRow - firstRow + 1;
 
     // Count columns → plain integer format (cosmetic; kills a stray currency format on counts).
     var toInt = function (col) {
       if (col !== -1) dataSheet.getRange(firstRow, col + 1, dataSheet.getMaxRows() - firstRow + 1, 1).setNumberFormat('0');
     };
-    toInt(stockCol); toInt(reorderCol);
+    toInt(target); toInt(reorderCol);
 
-    // Strip our previous rules so re-runs don't stack AND so nothing lingers on the on-hand
-    // column from earlier versions: drop (a) any boolean rule in our reserved palette, (b) any
-    // single-column gradient (ours), and (c) any single-column rule sitting on the on-hand
-    // column. A user's own multi-column / differently-coloured rules are left alone.
+    // Strip conditional-format rules an earlier version left on the stock columns: any boolean
+    // rule in our reserved palette, any single-column gradient, or any single-column rule on the
+    // stock / on-hand columns. A user's own multi-column / other-coloured rules are left alone.
     var reds = {}; STOCK_REDS.forEach(function (c) { reds[c] = 1; });
-    var onHandA1 = onHandCol !== -1 ? onHandCol + 1 : -1;
+    var stockA1s = {};
+    if (onHandCol !== -1) stockA1s[onHandCol + 1] = 1;
+    if (availCol !== -1) stockA1s[availCol + 1] = 1;
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var rs = r.getRanges();
       var single = rs.length === 1 && rs[0].getNumColumns() === 1;
       var b = r.getBooleanCondition();
       if (b && b.getBackground() && reds[b.getBackground()]) return false;
       if (r.getGradientCondition() && single) return false;
-      if (single && onHandA1 !== -1 && rs[0].getColumn() === onHandA1) return false;
+      if (single && stockA1s[rs[0].getColumn()]) return false;
       return true;
     });
-
-    // Graded bands on the Stock column, keyed to the reorder level — most-severe FIRST (Google
-    // applies the first matching rule, so a deeper band wins). EVERY band needs reorder > 0, so a
-    // product with no reorder level set is never coloured (nothing to measure "low" against).
-    if (rCell) {
-      var range = dataSheet.getRange(firstRow, stockA1, dataSheet.getMaxRows() - firstRow + 1, 1);
-      STOCK_TIERS.forEach(function (t) {
-        var cond = t.abs !== undefined ? sCell + '<=' + t.abs : sCell + '<=' + rCell + '*' + t.mul;
-        var formula = '=AND(' + sCell + '<>"",' + rCell + '>0,' + cond + ')';
-        kept.push(SpreadsheetApp.newConditionalFormatRule()
-          .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
-      });
-    }
     dataSheet.setConditionalFormatRules(kept);
+
+    // Clear any stale fill on the Available-stock column (we only paint the target now).
+    if (availCol !== -1 && availCol !== target) {
+      dataSheet.getRange(firstRow, availCol + 1, nRows, 1).setBackground(null);
+    }
+
+    // Paint the target column by ratio (null = no fill).
+    var onVals = dataSheet.getRange(firstRow, target + 1, nRows, 1).getValues();
+    var reVals = reorderCol !== -1 ? dataSheet.getRange(firstRow, reorderCol + 1, nRows, 1).getValues() : null;
+    var bg = [];
+    for (var i = 0; i < nRows; i++) bg.push([ratioColor_(onVals[i][0], reVals ? reVals[i][0] : 0)]);
+    dataSheet.getRange(firstRow, target + 1, nRows, 1).setBackgrounds(bg);
   }
+
+  /**
+   * Red shade for a stock-on-hand cell by how much stock is left vs its reorder level. Returns null
+   * (no fill) when there's no reorder level, the cell is blank/non-numeric, or stock is at/above
+   * LOW_STOCK_CAP× the reorder level. Otherwise interpolates STOCK_DARK (at 0%) → white (at the cap).
+   */
+  function ratioColor_(onHand, reorder) {
+    var re = ValueUtils.parseNumeric(reorder);
+    if (re === null || re <= 0) return null;
+    var on = ValueUtils.parseNumeric(onHand);
+    if (on === null) return null;
+    var ratio = on / re;
+    if (ratio >= LOW_STOCK_CAP) return null;
+    var f = Math.max(0, Math.min(1, ratio / LOW_STOCK_CAP)); // 0 (empty) → 1 (at cap)
+    var chan = function (dark) { return Math.round(dark + (255 - dark) * f); };
+    return '#' + hex2_(chan(STOCK_DARK[0])) + hex2_(chan(STOCK_DARK[1])) + hex2_(chan(STOCK_DARK[2]));
+  }
+  function hex2_(n) { var s = n.toString(16); return s.length < 2 ? '0' + s : s; }
 
   /** Build/refresh the charts. interactive=true shows a confirmation alert at the end. */
   function rebuild(interactive) {
