@@ -63,7 +63,7 @@ Open **Hike Sync → Command center** for a live dashboard and a guide to every 
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
 - **Insights charts (build / refresh)** — summary charts (value by category, product mix,
-  stock health, price bands) anchored to the right of the data; also enables the red
+  stock health, price bands) in a dedicated "Hike Insights" tab; also enables the red
   low-stock highlight (stock cells at/below the Hike reorder level).
 - **Show column filters** — filter dropdowns on every column (e.g. depleted stock, status).
 - **Delete products no longer in Hike…** — opt-in cleanup that removes rows flagged

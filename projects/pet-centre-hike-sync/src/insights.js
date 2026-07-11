@@ -11,6 +11,7 @@ var Insights = (function () {
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
   var TITLE = 'Hike Insights: ';
   var LOW_STOCK_RED = '#f4c7c3'; // reserved tint: marks OUR low-stock rule so re-runs don't stack
+  var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
 
@@ -96,7 +97,7 @@ var Insights = (function () {
     function put(col, header, rows) {
       var table = [header].concat(rows);
       sh.getRange(1, col, table.length, 2).setValues(table);
-      return sh.getRange(1, col, table.length, 2);
+      return sh.getRange(2, col, rows.length, 2); // DATA rows only — keeps the header text out of the chart categories
     }
     if (agg.have.value) ranges.value = put(1, ['Category', 'Inventory value (€)'], agg.valueByCat.length ? agg.valueByCat : [['(no data)', 0]]);
     if (agg.have.cat) ranges.mix = put(4, ['Type', 'Products'], agg.mixByType.length ? agg.mixByType : [['(no data)', 0]]);
@@ -108,10 +109,10 @@ var Insights = (function () {
     return ranges;
   }
 
-  /** Anchor column for the charts: just right of the data (getLastColumn already includes
-   *  the note column). Uses getLastColumn — never a full-sheet read. */
-  function anchorCol_(dataSheet) {
-    return dataSheet.getLastColumn() + 2;
+  /** Get (or create) the dedicated, visible tab that holds the charts. */
+  function chartsTab_() {
+    var ss = SpreadsheetApp.getActive();
+    return ss.getSheetByName(CHARTS_TAB) || ss.insertSheet(CHARTS_TAB, ss.getSheets().length);
   }
 
   function clearOurCharts_(dataSheet) {
@@ -120,14 +121,14 @@ var Insights = (function () {
     dataSheet.getCharts().forEach(function (c) { if (stored[c.getChartId()]) dataSheet.removeChart(c); });
   }
 
-  function addChart_(dataSheet, type, range, title, row, col) {
-    var chart = dataSheet.newChart().setChartType(type).addRange(range)
+  function addChart_(sheet, type, range, title, row, col) {
+    var chart = sheet.newChart().setChartType(type).addRange(range)
       .setPosition(row, col, 0, 0)
       .setOption('title', TITLE + title)
-      .setOption('width', 420).setOption('height', 240)
+      .setOption('width', 460).setOption('height', 280)
       .setOption('legend', { position: type === Charts.ChartType.PIE ? 'right' : 'none' })
       .build();
-    dataSheet.insertChart(chart);
+    sheet.insertChart(chart);
   }
 
   function colLetter_(n) { // 1-based column index → A1 letters (handles AA, AB, …)
@@ -170,23 +171,24 @@ var Insights = (function () {
     var agg = compute_();
     var ranges = writeHelper_(agg);
     var dataSheet = SheetIO.dataSheet();
-    var col = anchorCol_(dataSheet);
-    var pre = dataSheet.getCharts().map(function (c) { return c.getChartId(); });
-    clearOurCharts_(dataSheet);
+    var chartsTab = chartsTab_();
+    var pre = chartsTab.getCharts().map(function (c) { return c.getChartId(); });
+    // One-time migration: earlier versions embedded the charts in the data tab — remove those once.
+    if (Settings.get('INSIGHTS_MIGRATED', '') !== 'yes') { clearOurCharts_(dataSheet); Settings.set('INSIGHTS_MIGRATED', 'yes'); }
+    clearOurCharts_(chartsTab);
 
     var specs = [];
     if (ranges.value) specs.push([Charts.ChartType.BAR, ranges.value, 'Inventory value by category' + (agg.costBasis ? ' (at cost)' : ' (at retail)')]);
     if (ranges.mix) specs.push([agg.mixByType.length <= 6 ? Charts.ChartType.PIE : Charts.ChartType.BAR, ranges.mix, 'Product mix by type']);
-    if (ranges.health) specs.push([Charts.ChartType.COLUMN, ranges.health, 'Stock health']);
+    if (ranges.health) specs.push([Charts.ChartType.PIE, ranges.health, 'Stock health']);
     if (ranges.bands) specs.push([Charts.ChartType.COLUMN, ranges.bands, 'Price-band distribution']);
 
-    // Compact 2×2 grid just right of the data — keeps the chart band shallow so trimming
-    // trailing empty rows never has to leave hundreds of rows just to host the charts.
-    var slots = [[2, col], [2, col + 8], [15, col], [15, col + 8]];
-    specs.forEach(function (s, i) { var p = slots[i] || [2 + i * 13, col]; addChart_(dataSheet, s[0], s[1], s[2], p[0], p[1]); });
+    // 2×2 grid on the dedicated Insights tab (top-left) — charts never overlap the data now.
+    var slots = [[2, 1], [2, 9], [18, 1], [18, 9]];
+    specs.forEach(function (s, i) { var p = slots[i] || [2 + i * 16, 1]; addChart_(chartsTab, s[0], s[1], s[2], p[0], p[1]); });
     var built = specs.length;
 
-    var post = dataSheet.getCharts();
+    var post = chartsTab.getCharts();
     var ours = post.filter(function (c) { return pre.indexOf(c.getChartId()) === -1; }).map(function (c) { return c.getChartId(); });
     Settings.set(CHART_IDS_KEY, JSON.stringify(ours));
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }
@@ -196,7 +198,7 @@ var Insights = (function () {
       if (!agg.have.value) skipped.push('inventory value (needs a Cost/Retail price + Stock column)');
       if (!agg.have.cat) skipped.push('product mix (needs a Category/Type column)');
       SpreadsheetApp.getUi().alert('Insights updated',
-        built + ' chart(s) built to the right of your data (' + agg.products + ' products' +
+        built + ' chart(s) built in the "' + CHARTS_TAB + '" tab (' + agg.products + ' products' +
         (agg.have.value ? ', ~€' + Math.round(agg.totalValue).toLocaleString() + ' inventory value' : '') + ').' +
         (skipped.length ? '\n\nSkipped: ' + skipped.join('; ') + '.' : ''), SpreadsheetApp.getUi().ButtonSet.OK);
     }

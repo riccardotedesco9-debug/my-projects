@@ -17,6 +17,7 @@ function onOpen() {
     .addItem('Print price labels…', 'menuPrintLabels')
     .addItem('Insights charts (build / refresh)', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
+    .addItem('Trim empty rows', 'menuTrim')
     .addSeparator()
     .addItem('Setup…', 'menuSetup')
     .addItem('Delete products no longer in Hike…', 'menuPurgeMissing')
@@ -39,8 +40,17 @@ function menuFilters() {
   guardedMenu_(function () {
     SheetIO.enableFilters();
     SpreadsheetApp.getUi().alert('Column filters added',
-      'Click the filter icon on any column header to filter — e.g. by depleted stock or status. ' +
-      'Re-run this after adding a lot of products to extend the filter to the new rows.', SpreadsheetApp.getUi().ButtonSet.OK);
+      'Click the filter icon on any column header to filter — including the "Hike Sync Note" column ' +
+      '(in Hike / not) and the stock column. Re-run this after new columns or lots of new rows appear.',
+      SpreadsheetApp.getUi().ButtonSet.OK);
+  });
+}
+function menuTrim() {
+  guardedMenu_(function () {
+    var removed = SheetIO.trimToData();
+    SpreadsheetApp.getUi().alert(removed > 0
+      ? 'Removed ' + removed + ' empty trailing row(s). Only blank rows below your data were removed — no data was touched.'
+      : 'No empty trailing rows to remove.');
   });
 }
 

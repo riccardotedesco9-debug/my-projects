@@ -92,8 +92,9 @@ var Dashboard = (function () {
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
         '<li><b>Turn ON/OFF API auto-sync</b> — schedule the API pull every 15 minutes.</li>' +
         '<li><b>Print price labels…</b> — search products, tick the ones you want, add their barcodes to the labels tab.</li>' +
-        '<li><b>Insights charts</b> — build/refresh the summary charts shown to the right of your data.</li>' +
-        '<li><b>Show column filters</b> — add filter dropdowns to every column (filter by depleted stock, status, …).</li>' +
+        '<li><b>Insights charts</b> — build/refresh the summary charts in a dedicated "Hike Insights" tab.</li>' +
+        '<li><b>Show column filters</b> — filter dropdowns on every column (depleted stock, in-Hike status, …).</li>' +
+        '<li><b>Trim empty rows</b> — remove blank trailing rows from the data tab (never touches data).</li>' +
         '<li><b>Setup…</b> — set the data tab, optional watch folder, and failure-alert email.</li>' +
         '<li><b>Delete products no longer in Hike…</b> — remove rows flagged "not in last import" (backup + typed DELETE confirm).</li>' +
         '<li><b>Run self-test</b> — sandbox-only safety gauntlet (restores the sheet after).</li>' +

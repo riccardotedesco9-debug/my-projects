@@ -194,17 +194,17 @@ var SheetIO = (function () {
     range.setBackgrounds(tints);
   }
 
-  var MIN_GRID_ROWS = 40; // keep enough rows for the insight charts even on a tiny catalog
-
   /**
-   * Trim trailing EMPTY rows so the tab isn't padded with hundreds of blank rows. Only
-   * removes rows below the last data row (which have no content), and keeps a small floor
-   * so the embedded insight charts always have grid rows to anchor in.
+   * Trim trailing EMPTY rows so the tab isn't padded with hundreds of blank rows. Only ever
+   * removes rows BELOW the last data row (they hold no content) — never touches data. Returns
+   * how many rows were removed.
    */
   function trimToData() {
     var sh = dataSheet();
-    var keep = Math.max(sh.getLastRow(), MIN_GRID_ROWS);
-    if (sh.getMaxRows() > keep) sh.deleteRows(keep + 1, sh.getMaxRows() - keep);
+    var keep = Math.max(sh.getLastRow(), 1);
+    var extra = sh.getMaxRows() - keep;
+    if (extra > 0) sh.deleteRows(keep + 1, extra);
+    return extra > 0 ? extra : 0;
   }
 
   /**
