@@ -217,16 +217,17 @@ var Insights = (function () {
   }
 
   /**
-   * Progressive low-stock heat on the STOCK column (Hike's "…_Stock" = Available stock, NOT
+   * Progressive low-stock heat on the STOCK column ONLY (Hike's "…_Stock" = Available stock, NOT
    * "…_Stock on hand"), graded by how far stock has fallen toward/below that product's REORDER
    * LEVEL: amber approaching it (≤1.5×), red at/below, deeper red under half, darkest when out of
-   * stock (≤0, flagged even without a reorder level). Boolean conditional-format rules (live —
-   * they recolour by themselves); most-severe first so the deeper band wins. Every rule requires
-   * the cell to be non-blank so a blank/placeholder column stays clean. Also forces the stock +
-   * reorder-level columns to a plain integer format so a sheet-applied currency format can't show
-   * these unit counts as money (e.g. reorder level €3.00). Removes our previous rules (these tiers
-   * or an older gradient) first so re-runs replace rather than stack; user rules are untouched.
-   * No-op if there is no stock column.
+   * stock (≤0). EVERY band requires a reorder level > 0 — a product with no reorder level set is
+   * never coloured (there's no threshold to judge "low" against). Boolean conditional-format rules
+   * (live — they recolour by themselves); most-severe first so the deeper band wins; blank cells
+   * stay clean. Also forces the stock + reorder-level columns to a plain integer format so a
+   * sheet-applied currency format can't show these unit counts as money (e.g. reorder €3.00), and
+   * clears any highlight left on the on-hand column by an earlier version. Removes our previous
+   * rules first so re-runs replace rather than stack; user rules are untouched. No-op if there is
+   * no stock column.
    */
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
@@ -235,11 +236,12 @@ var Insights = (function () {
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
-    // Prefer the plain Stock (Available) column; fall back to Stock on hand only if there's no
-    // plain Stock, so the highlight still works on sheets that only carry the on-hand field.
+    // Colour the plain Stock (Available) column — NOT Stock on hand. Detect both: the on-hand
+    // column is only located so we can strip any highlight off it (owner wants Stock only).
     var stockCol = findCol_(norm, ['stock'], /_stock$/);
-    if (stockCol === -1) stockCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
-    if (stockCol === -1) return; // no stock column → leave ALL existing rules untouched
+    var onHandCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
+    if (stockCol === -1) stockCol = onHandCol; // fall back only if there's no plain Stock column
+    if (stockCol === -1) return;               // no stock column at all → leave existing rules untouched
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
     var firstRow = hr + 2, stockA1 = stockCol + 1;
     var sCell = '$' + colLetter_(stockA1) + firstRow;
@@ -251,34 +253,34 @@ var Insights = (function () {
     };
     toInt(stockCol); toInt(reorderCol);
 
+    // Strip our previous rules so re-runs don't stack AND so nothing lingers on the on-hand
+    // column from earlier versions: drop (a) any boolean rule in our reserved palette, (b) any
+    // single-column gradient (ours), and (c) any single-column rule sitting on the on-hand
+    // column. A user's own multi-column / differently-coloured rules are left alone.
     var reds = {}; STOCK_REDS.forEach(function (c) { reds[c] = 1; });
+    var onHandA1 = onHandCol !== -1 ? onHandCol + 1 : -1;
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
+      var rs = r.getRanges();
+      var single = rs.length === 1 && rs[0].getNumColumns() === 1;
       var b = r.getBooleanCondition();
-      if (b) { // strip an older boolean low-stock tier of ours (reserved colour + custom formula)
-        return !(b.getBackground() && reds[b.getBackground()] &&
-          b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA);
-      }
-      var g = r.getGradientCondition();
-      if (g) { // strip our previous single-column gradient (from the earlier version)
-        var rs = r.getRanges();
-        return !(rs.length === 1 && rs[0].getNumColumns() === 1);
-      }
+      if (b && b.getBackground() && reds[b.getBackground()]) return false;
+      if (r.getGradientCondition() && single) return false;
+      if (single && onHandA1 !== -1 && rs[0].getColumn() === onHandA1) return false;
       return true;
     });
 
-    // Most-severe tier FIRST — Google applies the first matching rule, so a deeper band wins.
-    var range = dataSheet.getRange(firstRow, stockA1, dataSheet.getMaxRows() - firstRow + 1, 1);
-    STOCK_TIERS.forEach(function (t) {
-      var formula;
-      if (t.abs !== undefined) {
-        formula = '=AND(' + sCell + '<>"",' + sCell + '<=' + t.abs + ')'; // out of stock — no reorder needed
-      } else {
-        if (!rCell) return; // graded bands need a reorder-level column
-        formula = '=AND(' + sCell + '<>"",' + rCell + '>0,' + sCell + '<=' + rCell + '*' + t.mul + ')';
-      }
-      kept.push(SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
-    });
+    // Graded bands on the Stock column, keyed to the reorder level — most-severe FIRST (Google
+    // applies the first matching rule, so a deeper band wins). EVERY band needs reorder > 0, so a
+    // product with no reorder level set is never coloured (nothing to measure "low" against).
+    if (rCell) {
+      var range = dataSheet.getRange(firstRow, stockA1, dataSheet.getMaxRows() - firstRow + 1, 1);
+      STOCK_TIERS.forEach(function (t) {
+        var cond = t.abs !== undefined ? sCell + '<=' + t.abs : sCell + '<=' + rCell + '*' + t.mul;
+        var formula = '=AND(' + sCell + '<>"",' + rCell + '>0,' + cond + ')';
+        kept.push(SpreadsheetApp.newConditionalFormatRule()
+          .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
+      });
+    }
     dataSheet.setConditionalFormatRules(kept);
   }
 
