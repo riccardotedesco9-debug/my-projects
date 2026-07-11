@@ -17,6 +17,7 @@ function onOpen() {
     .addItem('Print price labels…', 'menuPrintLabels')
     .addItem('Refresh insight charts', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
+    .addItem('Fit columns to content', 'menuFitColumns')
     .addItem('Trim empty rows', 'menuTrim')
     .addSeparator()
     .addItem('Setup…', 'menuSetup')
@@ -35,6 +36,15 @@ function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
 function menuSelfTest() { guardedMenu_(function () { SelfTest.run(); }); }
 function menuPrintLabels() { guardedMenu_(function () { LabelsPrint.openDialog(); }); }
 function menuInsights() { guardedMenu_(function () { Insights.rebuild(true); }); }
+function menuFitColumns() {
+  guardedMenu_(function () {
+    var capped = SheetIO.fitColumns();
+    SpreadsheetApp.getUi().alert('Columns fitted',
+      'Each column on the DATA SHEET was resized to fit its content' +
+      (capped > 0 ? ' (' + capped + ' very wide column(s), e.g. Description, were capped so they don\'t dominate).' : '.') +
+      '\n\nRun this again any time after the data changes.', SpreadsheetApp.getUi().ButtonSet.OK);
+  });
+}
 function menuPurgeMissing() { guardedMenu_(function () { PurgeMissing.run(); }); }
 function menuFilters() {
   guardedMenu_(function () {

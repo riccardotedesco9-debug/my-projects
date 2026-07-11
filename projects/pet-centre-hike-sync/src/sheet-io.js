@@ -262,6 +262,23 @@ var SheetIO = (function () {
     return true;
   }
 
+  /**
+   * Auto-fit every data-tab column width to its content, then cap very wide columns so one long
+   * field (e.g. an HTML Description) can't dominate the view. View-only, non-destructive — it
+   * changes widths only, never data. Returns the number of columns capped.
+   */
+  function fitColumns() {
+    var sh = dataSheet();
+    var lastCol = sh.getLastColumn();
+    if (lastCol < 1) return 0;
+    sh.autoResizeColumns(1, lastCol);
+    var MAX_W = 320, capped = 0;
+    for (var c = 1; c <= lastCol; c++) {
+      if (sh.getColumnWidth(c) > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+    }
+    return capped;
+  }
+
   return {
     dataSheet: dataSheet,
     readAll: readAll,
@@ -270,6 +287,7 @@ var SheetIO = (function () {
     writeSyncNotes: writeSyncNotes,
     trimToData: trimToData,
     enableFilters: enableFilters,
+    fitColumns: fitColumns,
     ensureStockColumn: ensureStockColumn,
     BACKUP_PREFIX: BACKUP_PREFIX
   };

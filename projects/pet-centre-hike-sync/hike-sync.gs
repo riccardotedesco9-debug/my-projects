@@ -1018,6 +1018,23 @@ var SheetIO = (function () {
     return true;
   }
 
+  /**
+   * Auto-fit every data-tab column width to its content, then cap very wide columns so one long
+   * field (e.g. an HTML Description) can't dominate the view. View-only, non-destructive — it
+   * changes widths only, never data. Returns the number of columns capped.
+   */
+  function fitColumns() {
+    var sh = dataSheet();
+    var lastCol = sh.getLastColumn();
+    if (lastCol < 1) return 0;
+    sh.autoResizeColumns(1, lastCol);
+    var MAX_W = 320, capped = 0;
+    for (var c = 1; c <= lastCol; c++) {
+      if (sh.getColumnWidth(c) > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+    }
+    return capped;
+  }
+
   return {
     dataSheet: dataSheet,
     readAll: readAll,
@@ -1026,6 +1043,7 @@ var SheetIO = (function () {
     writeSyncNotes: writeSyncNotes,
     trimToData: trimToData,
     enableFilters: enableFilters,
+    fitColumns: fitColumns,
     ensureStockColumn: ensureStockColumn,
     BACKUP_PREFIX: BACKUP_PREFIX
   };
@@ -1774,8 +1792,16 @@ var Insights = (function () {
   var CHART_IDS_KEY = 'INSIGHTS_CHART_IDS';
   var OVERVIEW_ID_KEY = 'OVERVIEW_SHEET_ID'; // obsolete "Stock overview" tab id — used once to remove it
   var CHARTS_ID_KEY = 'CHARTS_SHEET_ID';     // stored sheetId of our "Hike Insights" tab
-  var TITLE = 'Hike Insights: ';
-  var LOW_STOCK_RED = '#f4c7c3'; // reserved tint: marks OUR low-stock rule so re-runs don't stack
+  var LOW_STOCK_RED = '#f4c7c3'; // legacy single-tint low-stock rule — still recognized for cleanup
+  // Graded low-stock scale: progressively redder as stock falls relative to its reorder level.
+  // Ordered most-severe FIRST — Google applies the first matching rule, so a deeper tier wins.
+  // Each reserved colour marks the rule as OURS so re-runs replace rather than stack.
+  var STOCK_TIERS = [
+    { bg: '#cc0000', abs: 0 },   // out of stock (≤ 0): darkest
+    { bg: '#e06666', mul: 0.5 }, // ≤ 50% of reorder: deep red
+    { bg: '#f4c7c3', mul: 1 },   // at/below reorder: red
+    { bg: '#fce5cd', mul: 1.5 }  // approaching reorder (≤ 1.5×): amber
+  ];
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
@@ -1951,13 +1977,16 @@ var Insights = (function () {
   }
 
   function addChart_(sheet, type, range, title, offX, offY) {
-    var chart = sheet.newChart().setChartType(type).addRange(range)
+    var isPie = type === Charts.ChartType.PIE;
+    var b = sheet.newChart().setChartType(type).addRange(range)
       .setPosition(1, 1, offX, offY) // anchor A1 + pixel offset → exact tiling, independent of col widths
-      .setOption('title', TITLE + title)
-      .setOption('width', 380).setOption('height', 240)
-      .setOption('legend', { position: type === Charts.ChartType.PIE ? 'right' : 'none' })
-      .build();
-    sheet.insertChart(chart);
+      .setOption('title', title) // tab is already named "Hike Insights" — no redundant prefix, less truncation
+      .setOption('titleTextStyle', { fontSize: 13 })
+      .setOption('width', 440).setOption('height', 280)
+      .setOption('legend', { position: isPie ? 'right' : 'none' });
+    if (isPie) b.setOption('pieSliceText', 'percentage'); // % on each slice — more info, no clutter
+    else b.setOption('annotations', { alwaysOutside: true }).setOption('bar', { groupWidth: '72%' });
+    sheet.insertChart(b.build());
   }
 
   function colLetter_(n) { // 1-based column index → A1 letters (handles AA, AB, …)
@@ -1967,10 +1996,13 @@ var Insights = (function () {
   }
 
   /**
-   * Live red highlight on the stock column when on-hand ≤ reorder level (both come from Hike).
-   * A conditional-format rule (not a per-sync tint) so it updates by itself as values change.
-   * Re-applied each rebuild over the full column so later-added rows are covered; identified by
-   * its reserved red so re-runs replace rather than stack. No-op if either column is absent.
+   * Graded low-stock highlight on the stock column: progressively redder the further on-hand
+   * falls relative to its reorder level (out of stock = darkest). Conditional-format rules (not
+   * per-sync tints) so they update by themselves as values change; re-applied each rebuild over
+   * the full column so later-added rows are covered. Only products with a reorder level > 0 are
+   * highlighted (an untracked/empty stock column stays clean). Our tiers are identified by their
+   * reserved colours + a custom formula, so re-runs replace rather than stack and a user's own
+   * rules are never touched. No-op if either column is absent.
    */
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
@@ -1983,21 +2015,26 @@ var Insights = (function () {
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
     if (stockCol === -1 || reorderCol === -1) return; // nothing to add → leave ALL existing rules untouched
     var firstRow = hr + 2, s = colLetter_(stockCol + 1), rc = colLetter_(reorderCol + 1);
-    var formula = '=AND($' + s + firstRow + '<=$' + rc + firstRow + ',$' + rc + firstRow + '>0)';
-    var squash = function (f) { return String(f || '').replace(/\s+/g, ''); };
-    // Remove ONLY our own previous rule — matched by BOTH the reserved red AND our exact
-    // low-stock formula — so a user's rule that merely shares the colour is never touched.
+    var sCell = '$' + s + firstRow, rCell = '$' + rc + firstRow;
+
+    // Every colour we own (current tiers + the legacy single tint) — used to strip our previous
+    // rules without touching a user rule that merely shares a colour.
+    var ours = {}; ours[LOW_STOCK_RED] = 1; STOCK_TIERS.forEach(function (t) { ours[t.bg] = 1; });
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var b = r.getBooleanCondition();
       if (!b) return true;
-      var ours = b.getBackground() === LOW_STOCK_RED &&
-        b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA &&
-        squash((b.getCriteriaValues() || [])[0]) === squash(formula);
-      return !ours;
+      return !(b.getBackground() && ours[b.getBackground()] &&
+        b.getCriteriaType() === SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA);
     });
-    kept.push(SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(formula).setBackground(LOW_STOCK_RED)
-      .setRanges([dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1)]).build());
+
+    // Most-severe tier FIRST — Google applies the first matching rule, so a deeper band wins.
+    var range = dataSheet.getRange(firstRow, stockCol + 1, dataSheet.getMaxRows() - firstRow + 1, 1);
+    STOCK_TIERS.forEach(function (t) {
+      var test = t.abs !== undefined ? sCell + '<=' + t.abs : sCell + '<=' + rCell + '*' + t.mul;
+      var formula = '=AND(' + rCell + '>0,' + test + ')';
+      kept.push(SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
+    });
     dataSheet.setConditionalFormatRules(kept);
   }
 
@@ -2025,13 +2062,17 @@ var Insights = (function () {
     if (ranges.health) specs.push([Charts.ChartType.PIE, ranges.health, 'Stock health']);
     if (ranges.bands) specs.push([Charts.ChartType.COLUMN, ranges.bands, 'Price-band distribution']);
 
-    // Tight 2×2 grid anchored at A1 with pixel offsets (chart 380×240 + a 10px gap).
-    var slots = [[0, 0], [390, 0], [0, 250], [390, 250]];
-    specs.forEach(function (s, i) { var p = slots[i] || [0, i * 250]; addChart_(chartsTab, s[0], s[1], s[2], p[0], p[1]); });
-    var built = specs.length;
+    // 2×2 grid anchored at A1 with pixel offsets (chart 440×280 + a 10px gap). Pie charts fill
+    // the TOP row, bar/column charts the BOTTOM row (slots run left→right, top→bottom).
+    var slots = [[0, 0], [450, 0], [0, 290], [450, 290]];
+    var pies = [], bars = [];
+    specs.forEach(function (s) { (s[0] === Charts.ChartType.PIE ? pies : bars).push(s); });
+    var ordered = pies.concat(bars);
+    ordered.forEach(function (s, i) { var p = slots[i] || [0, i * 290]; addChart_(chartsTab, s[0], s[1], s[2], p[0], p[1]); });
+    var built = ordered.length;
 
     // The charts float over the grid, so the Insights tab needs no big empty grid behind them.
-    if (chartsTab.getMaxRows() > 30) chartsTab.deleteRows(31, chartsTab.getMaxRows() - 30);
+    if (chartsTab.getMaxRows() > 34) chartsTab.deleteRows(35, chartsTab.getMaxRows() - 34);
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }
     try { focusDataSheet_(dataSheet); } catch (e) { /* freeze is best-effort */ }
 
@@ -2489,6 +2530,7 @@ function onOpen() {
     .addItem('Print price labels…', 'menuPrintLabels')
     .addItem('Refresh insight charts', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
+    .addItem('Fit columns to content', 'menuFitColumns')
     .addItem('Trim empty rows', 'menuTrim')
     .addSeparator()
     .addItem('Setup…', 'menuSetup')
@@ -2507,6 +2549,15 @@ function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
 function menuSelfTest() { guardedMenu_(function () { SelfTest.run(); }); }
 function menuPrintLabels() { guardedMenu_(function () { LabelsPrint.openDialog(); }); }
 function menuInsights() { guardedMenu_(function () { Insights.rebuild(true); }); }
+function menuFitColumns() {
+  guardedMenu_(function () {
+    var capped = SheetIO.fitColumns();
+    SpreadsheetApp.getUi().alert('Columns fitted',
+      'Each column on the DATA SHEET was resized to fit its content' +
+      (capped > 0 ? ' (' + capped + ' very wide column(s), e.g. Description, were capped so they don\'t dominate).' : '.') +
+      '\n\nRun this again any time after the data changes.', SpreadsheetApp.getUi().ButtonSet.OK);
+  });
+}
 function menuPurgeMissing() { guardedMenu_(function () { PurgeMissing.run(); }); }
 function menuFilters() {
   guardedMenu_(function () {
