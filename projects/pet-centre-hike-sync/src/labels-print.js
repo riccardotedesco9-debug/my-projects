@@ -168,19 +168,21 @@ var LabelsPrint = (function () {
         labels.getRange(templateRow, c + 1).copyTo(labels.getRange(fillStart, c + 1, fillCount, 1));
       }
 
-      // Write barcodes in the storage type the lookup expects. Prefer the labels tab's existing
-      // barcode type; if that column is empty, match the DATA tab's barcode type (what the lookup
-      // compares against). Numbers for all-digit barcodes; else text (keeps leading zeros).
-      var sampleBc = labels.getRange(templateRow, loc.bcCol).getValue();
-      var numeric = typeof sampleBc === 'number';
-      if (!numeric && ValueUtils.normString(sampleBc) === '') numeric = dataBarcodeIsNumeric_();
+      // Write barcodes in the type the LABEL LOOKUPS compare against — i.e. the DATA tab's barcode
+      // column, NOT the labels column's own format. The tab's price/name lookups are XLOOKUP/VLOOKUP
+      // into 'DATA SHEET'!<barcode>; a strict XLOOKUP only matches when the key type matches, so a
+      // barcode stored as text won't match a numeric DATA column (the price silently stays blank
+      // even though a coercing name VLOOKUP still resolves). We ALSO force the cell format so a
+      // pre-existing text ('@') format on the labels column can't coerce a number back to text.
+      var numeric = dataBarcodeIsNumeric_();
       var bcRange = labels.getRange(start, loc.bcCol, clean.length, 1);
       if (numeric) {
-        // All-digit barcodes → numbers (what the lookup compares against); a non-digit value is
+        bcRange.setNumberFormat('0'); // plain number — overrides any '@' text format on the column
+        // All-digit barcodes → numbers (matching the DATA lookup key); a non-digit value is
         // formulaSafe'd so a crafted "barcode" like =HYPERLINK(...) can't land as a live formula.
         bcRange.setValues(clean.map(function (b) { return [/^\d+$/.test(b) ? Number(b) : ValueUtils.formulaSafe(b)]; }));
       } else {
-        bcRange.setNumberFormat('@'); // text — preserves leading zeros
+        bcRange.setNumberFormat('@'); // text — matches a text DATA barcode column, preserves leading zeros
         bcRange.setValues(clean.map(function (b) { return [b]; }));
       }
 
