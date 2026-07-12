@@ -1014,17 +1014,25 @@ var SheetIO = (function () {
 
   /**
    * Auto-fit every data-tab column width to its content, then cap very wide columns so one long
-   * field (e.g. an HTML Description) can't dominate the view. View-only, non-destructive — it
-   * changes widths only, never data. Returns the number of columns capped.
+   * field (e.g. an HTML Description) can't dominate the view — but never so narrow that the
+   * HEADER text is cut off (autoResizeColumns under-measures the bold header, and long
+   * "Outlet_…" headers are often wider than their column's data). View-only, non-destructive —
+   * it changes widths only, never data. Returns the number of columns capped.
    */
   function fitColumns() {
     var sh = dataSheet();
-    var lastCol = sh.getLastColumn();
+    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
     if (lastCol < 1) return 0;
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var headers = hr === -1 ? [] : sh.getRange(hr + 1, 1, 1, lastCol).getValues()[0];
     sh.autoResizeColumns(1, lastCol);
     var MAX_W = 320, capped = 0;
     for (var c = 1; c <= lastCol; c++) {
-      if (sh.getColumnWidth(c) > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+      // Width the header text needs: ~7px per character (bold 10pt) + padding + filter icon.
+      var headerNeed = Math.min(MAX_W, ValueUtils.normString(headers[c - 1]).length * 7 + 34);
+      var w = sh.getColumnWidth(c);
+      if (w > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+      else if (w < headerNeed) sh.setColumnWidth(c, headerNeed);
     }
     return capped;
   }
@@ -2407,7 +2415,7 @@ var Dashboard = (function () {
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
         '<li><b>Turn ON/OFF API auto-sync</b> — schedule the API pull every 15 minutes.</li>' +
         '<li><b>Print price labels…</b> — search products, tick the ones you want, add their barcodes to the labels tab.</li>' +
-        '<li><b>Refresh charts + stock colours</b> — rebuild the charts ("Hike Insights" tab) and re-apply the stock colour-grading on the DATA SHEET.</li>' +
+        '<li><b>Refresh visuals</b> — rebuild the charts ("Hike Insights" tab) and re-apply the stock colour-grading + formatting on the DATA SHEET.</li>' +
         '<li><b>Show column filters</b> — filter dropdowns on every column (depleted stock, in-Hike status, …).</li>' +
         '<li><b>Fit columns to content</b> — auto-size the data tab\'s columns (very wide ones capped).</li>' +
         '<li><b>Trim empty rows</b> — remove blank trailing rows from the data tab (never touches data).</li>' +
@@ -2664,7 +2672,7 @@ function onOpen() {
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
     .addSeparator()
     .addItem('Print price labels…', 'menuPrintLabels')
-    .addItem('Refresh charts + stock colours', 'menuInsights')
+    .addItem('Refresh visuals', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
     .addItem('Fit columns to content', 'menuFitColumns')
     .addItem('Trim empty rows', 'menuTrim')

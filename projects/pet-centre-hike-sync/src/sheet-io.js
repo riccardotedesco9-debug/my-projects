@@ -264,17 +264,25 @@ var SheetIO = (function () {
 
   /**
    * Auto-fit every data-tab column width to its content, then cap very wide columns so one long
-   * field (e.g. an HTML Description) can't dominate the view. View-only, non-destructive — it
-   * changes widths only, never data. Returns the number of columns capped.
+   * field (e.g. an HTML Description) can't dominate the view — but never so narrow that the
+   * HEADER text is cut off (autoResizeColumns under-measures the bold header, and long
+   * "Outlet_…" headers are often wider than their column's data). View-only, non-destructive —
+   * it changes widths only, never data. Returns the number of columns capped.
    */
   function fitColumns() {
     var sh = dataSheet();
-    var lastCol = sh.getLastColumn();
+    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
     if (lastCol < 1) return 0;
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var headers = hr === -1 ? [] : sh.getRange(hr + 1, 1, 1, lastCol).getValues()[0];
     sh.autoResizeColumns(1, lastCol);
     var MAX_W = 320, capped = 0;
     for (var c = 1; c <= lastCol; c++) {
-      if (sh.getColumnWidth(c) > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+      // Width the header text needs: ~7px per character (bold 10pt) + padding + filter icon.
+      var headerNeed = Math.min(MAX_W, ValueUtils.normString(headers[c - 1]).length * 7 + 34);
+      var w = sh.getColumnWidth(c);
+      if (w > MAX_W) { sh.setColumnWidth(c, MAX_W); capped++; }
+      else if (w < headerNeed) sh.setColumnWidth(c, headerNeed);
     }
     return capped;
   }

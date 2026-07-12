@@ -62,7 +62,7 @@ and flagged "Not in last Hike import" in the note column.
 Open **Hike Sync → Command center** for a live dashboard and a guide to every action. In short:
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
-- **Refresh charts + stock colours** — summary charts (value by category, product mix, stock
+- **Refresh visuals** — summary charts (value by category, product mix, stock
   health, price bands) in a "Hike Insights" tab (pies on top, bars below, colour legend at the
   bottom). Also re-applies the live stock colour-grading on the DATA SHEET's **Stock on hand**
   column — green (healthy, above reorder level) blending through yellow (reorder now), orange

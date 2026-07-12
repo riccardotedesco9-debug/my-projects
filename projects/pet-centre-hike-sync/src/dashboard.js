@@ -98,7 +98,7 @@ var Dashboard = (function () {
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
         '<li><b>Turn ON/OFF API auto-sync</b> — schedule the API pull every 15 minutes.</li>' +
         '<li><b>Print price labels…</b> — search products, tick the ones you want, add their barcodes to the labels tab.</li>' +
-        '<li><b>Refresh charts + stock colours</b> — rebuild the charts ("Hike Insights" tab) and re-apply the stock colour-grading on the DATA SHEET.</li>' +
+        '<li><b>Refresh visuals</b> — rebuild the charts ("Hike Insights" tab) and re-apply the stock colour-grading + formatting on the DATA SHEET.</li>' +
         '<li><b>Show column filters</b> — filter dropdowns on every column (depleted stock, in-Hike status, …).</li>' +
         '<li><b>Fit columns to content</b> — auto-size the data tab\'s columns (very wide ones capped).</li>' +
         '<li><b>Trim empty rows</b> — remove blank trailing rows from the data tab (never touches data).</li>' +
