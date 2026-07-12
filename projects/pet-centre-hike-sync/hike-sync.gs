@@ -732,10 +732,16 @@ var Settings = (function () {
       throw new Error('Tab "' + tab + '" was not found — nothing was saved.');
     }
     set('DATA_SHEET_NAME', tab);
-    // Optional explicit labels tab ('' = auto-detect). Validate it exists if the owner pinned one.
+    // Optional explicit labels tab ('' = auto-detect). If the owner pinned one, it must exist AND
+    // look like a labels tab (Barcode + Name headers) — otherwise the pin would be silently ignored.
     var labels = ValueUtils.normString(form.labels);
-    if (labels && !SpreadsheetApp.getActive().getSheetByName(labels)) {
-      throw new Error('Labels tab "' + labels + '" was not found — nothing was saved.');
+    if (labels) {
+      if (!SpreadsheetApp.getActive().getSheetByName(labels)) {
+        throw new Error('Labels tab "' + labels + '" was not found — nothing was saved.');
+      }
+      if (LabelsPrint.labelsCandidates().indexOf(labels) === -1) {
+        throw new Error('Tab "' + labels + '" doesn\'t look like a labels tab (needs Barcode + Name headers in its top rows) — nothing was saved.');
+      }
     }
     set('LABELS_SHEET_NAME', labels);
     var folderId = form.folder ? CsvImport.parseFileId(form.folder) : '';
@@ -2189,8 +2195,9 @@ var Insights = (function () {
       var id = String(s.getSheetId());
       if (s.getName() === dataName || id === trackedCharts) return;
       if (!(/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName()))) return;
-      // Delete only if it's genuinely one of ours — not a client tab that happens to share the name.
-      var ours = isOurTab_(s) || id === overviewId || s.getLastRow() === 0;
+      // Delete only if it's genuinely one of ours — not a client tab that happens to share the
+      // name. isOurTab_ = has charts (and empty grid / our legend); tracked id = our old overview.
+      var ours = isOurTab_(s) || id === overviewId;
       if (!ours) return;
       try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
     });
@@ -2674,22 +2681,31 @@ var Preflight = (function () {
     rows.push(row_(tz === 'Europe/Malta' ? 'PASS' : 'WARN', 'Timezone',
       esc(tz) + (tz === 'Europe/Malta' ? '' : ' — expected Europe/Malta (paste appsscript.json). Cosmetic: affects stamp times only.')));
 
-    // 2. DATA tab (+ multi-candidate warning).
+    // 2. DATA tab (+ multi-candidate warning). Resolve the SAME tab the sync will write to:
+    // dataSheet() uses stored DATA_SHEET_NAME or the 'DATA SHEET' default; fall back to a
+    // candidate only when neither exists, so the report matches reality.
     var candidates = Settings.dataTabCandidates();
-    var stored = Settings.get('DATA_SHEET_NAME', '');
-    var effName = (stored && ss.getSheetByName(stored)) ? stored : (candidates[0] || '');
+    var isPinned = !!Settings.get('DATA_SHEET_NAME', '');
+    var syncTarget = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
+    var effName = ss.getSheetByName(syncTarget) ? syncTarget : (candidates[0] || '');
+    var effNote = isPinned ? ' (chosen in Setup)'
+      : (effName === syncTarget ? ' (default "' + esc(syncTarget) + '" — pick one in Setup to be sure)'
+        : ' (auto-detected; not pinned — choose it in Setup)');
     if (!effName) {
       rows.push(row_('CHECK', 'Data tab', 'No tab has a Name+SKU+Barcode header in its top ' +
         MergeEngine.HEADER_SCAN_ROWS + ' rows. Pick/fix it in Setup.'));
     } else {
       rows.push(row_(candidates.length > 1 ? 'WARN' : 'PASS', 'Data tab',
-        '"' + esc(effName) + '"' + (stored ? ' (chosen in Setup)' : ' (auto-detected)') +
+        '"' + esc(effName) + '"' + effNote +
         (candidates.length > 1 ? ' — but ' + candidates.length + ' tabs look like product data: ' +
           esc(candidates.join(', ')) + '. Confirm the right one in Setup — writes go only to this tab.' : '')));
 
       // 3 + 4. Header row + columns on the effective data tab.
       var sh = ss.getSheetByName(effName);
       var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+      if (lastCol < 1) {
+        rows.push(row_('CHECK', '· Header row', '"' + esc(effName) + '" is empty — import products first, or pick the right tab in Setup.'));
+      } else {
       var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
       var hr = MergeEngine.findHeaderRow(scan);
       if (hr === -1) {
@@ -2713,7 +2729,8 @@ var Preflight = (function () {
         });
         var prefix = HikeFieldMap.detectOutletPrefix(headers);
         rows.push(row_(prefix ? 'PASS' : 'WARN', '· Outlet prefix',
-          prefix ? '"' + esc(prefix) + '"' + (candidates.length ? '' : '') : 'none — plain (single-outlet) column names'));
+          prefix ? '"' + esc(prefix) + '"' : 'none — plain (single-outlet) column names'));
+      }
       }
     }
 
@@ -2904,8 +2921,15 @@ var SelfTest = (function () {
 
       // 11. Data-safety: a USER tab that happens to be named "Stock overview" and holds content is
       //     NEVER deleted by an insights rebuild — only the tool's own output tabs are cleaned up.
+      //     This runs a REAL Insights.rebuild (which also builds the charts tab + applies stock
+      //     colours), so it's gated to a genuine sandbox NAME — never the ALLOW_SELF_TEST escape
+      //     hatch — so it can't leave a production sheet with rebuilt visuals or altered formatting.
       var ssa = SpreadsheetApp.getActive();
-      if (!ssa.getSheetByName('Stock overview')) {
+      if (ssa.getName().toLowerCase().indexOf('sandbox') === -1) {
+        results.push('PASS — user-tab-survives check skipped (only runs on a "sandbox" sheet)');
+      } else if (ssa.getSheetByName('Stock overview')) {
+        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
+      } else {
         var uov = ssa.insertSheet('Stock overview');
         uov.getRange(1, 1, 2, 1).setValues([['my own notes'], ['keep me']]);
         try { Insights.rebuild(false); } catch (e2) { /* rebuild is best-effort in the test */ }
@@ -2913,8 +2937,6 @@ var SelfTest = (function () {
         results.push(check_('a user "Stock overview" tab with content survives a rebuild',
           !!survived && survived.getRange(2, 1).getValue() === 'keep me'));
         if (survived) ssa.deleteSheet(survived);
-      } else {
-        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
       }
     } catch (e) {
       results.push('CRASH — ' + e.message);
@@ -2926,7 +2948,7 @@ var SelfTest = (function () {
     var allPass = results.every(function (r) { return r.indexOf('PASS') === 0; });
     SyncLog.logRun({ source: 'self-test', ok: allPass, message: results.join(' | ') });
     SpreadsheetApp.getUi().alert('Hike Sync self-test (' + (allPass ? 'ALL PASS' : 'FAILURES — see below') + ')\n\n' +
-      results.join('\n') + '\n\nThe sheet has been restored to its pre-test state.');
+      results.join('\n') + '\n\nThe DATA tab has been restored to its pre-test state.');
   }
 
   /**

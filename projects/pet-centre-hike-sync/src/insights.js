@@ -243,8 +243,9 @@ var Insights = (function () {
       var id = String(s.getSheetId());
       if (s.getName() === dataName || id === trackedCharts) return;
       if (!(/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName()))) return;
-      // Delete only if it's genuinely one of ours — not a client tab that happens to share the name.
-      var ours = isOurTab_(s) || id === overviewId || s.getLastRow() === 0;
+      // Delete only if it's genuinely one of ours — not a client tab that happens to share the
+      // name. isOurTab_ = has charts (and empty grid / our legend); tracked id = our old overview.
+      var ours = isOurTab_(s) || id === overviewId;
       if (!ours) return;
       try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
     });

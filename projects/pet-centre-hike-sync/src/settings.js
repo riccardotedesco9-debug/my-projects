@@ -150,10 +150,16 @@ var Settings = (function () {
       throw new Error('Tab "' + tab + '" was not found — nothing was saved.');
     }
     set('DATA_SHEET_NAME', tab);
-    // Optional explicit labels tab ('' = auto-detect). Validate it exists if the owner pinned one.
+    // Optional explicit labels tab ('' = auto-detect). If the owner pinned one, it must exist AND
+    // look like a labels tab (Barcode + Name headers) — otherwise the pin would be silently ignored.
     var labels = ValueUtils.normString(form.labels);
-    if (labels && !SpreadsheetApp.getActive().getSheetByName(labels)) {
-      throw new Error('Labels tab "' + labels + '" was not found — nothing was saved.');
+    if (labels) {
+      if (!SpreadsheetApp.getActive().getSheetByName(labels)) {
+        throw new Error('Labels tab "' + labels + '" was not found — nothing was saved.');
+      }
+      if (LabelsPrint.labelsCandidates().indexOf(labels) === -1) {
+        throw new Error('Tab "' + labels + '" doesn\'t look like a labels tab (needs Barcode + Name headers in its top rows) — nothing was saved.');
+      }
     }
     set('LABELS_SHEET_NAME', labels);
     var folderId = form.folder ? CsvImport.parseFileId(form.folder) : '';

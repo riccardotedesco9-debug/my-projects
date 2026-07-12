@@ -139,8 +139,15 @@ var SelfTest = (function () {
 
       // 11. Data-safety: a USER tab that happens to be named "Stock overview" and holds content is
       //     NEVER deleted by an insights rebuild — only the tool's own output tabs are cleaned up.
+      //     This runs a REAL Insights.rebuild (which also builds the charts tab + applies stock
+      //     colours), so it's gated to a genuine sandbox NAME — never the ALLOW_SELF_TEST escape
+      //     hatch — so it can't leave a production sheet with rebuilt visuals or altered formatting.
       var ssa = SpreadsheetApp.getActive();
-      if (!ssa.getSheetByName('Stock overview')) {
+      if (ssa.getName().toLowerCase().indexOf('sandbox') === -1) {
+        results.push('PASS — user-tab-survives check skipped (only runs on a "sandbox" sheet)');
+      } else if (ssa.getSheetByName('Stock overview')) {
+        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
+      } else {
         var uov = ssa.insertSheet('Stock overview');
         uov.getRange(1, 1, 2, 1).setValues([['my own notes'], ['keep me']]);
         try { Insights.rebuild(false); } catch (e2) { /* rebuild is best-effort in the test */ }
@@ -148,8 +155,6 @@ var SelfTest = (function () {
         results.push(check_('a user "Stock overview" tab with content survives a rebuild',
           !!survived && survived.getRange(2, 1).getValue() === 'keep me'));
         if (survived) ssa.deleteSheet(survived);
-      } else {
-        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
       }
     } catch (e) {
       results.push('CRASH — ' + e.message);
@@ -161,7 +166,7 @@ var SelfTest = (function () {
     var allPass = results.every(function (r) { return r.indexOf('PASS') === 0; });
     SyncLog.logRun({ source: 'self-test', ok: allPass, message: results.join(' | ') });
     SpreadsheetApp.getUi().alert('Hike Sync self-test (' + (allPass ? 'ALL PASS' : 'FAILURES — see below') + ')\n\n' +
-      results.join('\n') + '\n\nThe sheet has been restored to its pre-test state.');
+      results.join('\n') + '\n\nThe DATA tab has been restored to its pre-test state.');
   }
 
   /**
