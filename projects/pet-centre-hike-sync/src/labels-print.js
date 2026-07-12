@@ -54,7 +54,7 @@ var LabelsPrint = (function () {
     } catch (e) { return false; }
   }
 
-  /** Locate the Barcode column + header row on the labels tab (1-based; -1 if absent). */
+  /** Locate the Barcode/Name/Price columns + header row on the labels tab (1-based; -1 if absent). */
   function locateCols(sh) {
     var data = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
     var bcCol = -1, headerRow = -1;
@@ -63,8 +63,33 @@ var LabelsPrint = (function () {
         if (ValueUtils.normHeader(data[r][c]) === 'barcode') { bcCol = c + 1; headerRow = r + 1; break; }
       }
     }
-    return { bcCol: bcCol, headerRow: headerRow };
+    var nameCol = -1, priceCol = -1;
+    if (headerRow !== -1) {
+      var hdr = data[headerRow - 1];
+      for (var c2 = 0; c2 < hdr.length; c2++) {
+        var n = ValueUtils.normHeader(hdr[c2]);
+        if (n === 'name' && nameCol === -1) nameCol = c2 + 1;
+        if (n === 'price' && priceCol === -1) priceCol = c2 + 1;
+      }
+    }
+    return { bcCol: bcCol, headerRow: headerRow, nameCol: nameCol, priceCol: priceCol };
   }
+
+  /** DATA-tab lookup targets (0-based indexes) for synthesizing label formulas. */
+  function dataLookupCols_() {
+    var sh = SheetIO.dataSheet();
+    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+    var hr = MergeEngine.findHeaderRow(scan);
+    if (hr === -1) return null;
+    var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
+    var price = norm.indexOf('retail price');
+    if (price === -1) for (var i = 0; i < norm.length; i++) if (/_retail price$/.test(norm[i])) { price = i; break; }
+    return { sheet: sh, name: norm.indexOf('name'), bc: norm.indexOf('barcode'), price: price };
+  }
+
+  /** Column letter of a sheet's 1-based column (via A1 notation — no letter math). */
+  function colL_(sh, col) { return sh.getRange(1, col).getA1Notation().replace(/\d+$/, ''); }
 
   /**
    * Load the whole catalog ONCE for instant client-side search. Returns compact positional
@@ -158,9 +183,37 @@ var LabelsPrint = (function () {
         bcRange.setNumberFormat('@'); // text — preserves leading zeros
         bcRange.setValues(clean.map(function (b) { return [b]; }));
       }
+
+      // Guarantee "add the barcode, the rest fills itself": if a Name/Price cell on a new row
+      // ended up with NO formula (e.g. the tab's price cells were pasted as plain values at
+      // some point, so there was no template formula to copy), synthesize the barcode lookup
+      // into the DATA tab ourselves. Only ever writes into EMPTY cells of the just-added rows.
+      var lk = dataLookupCols_();
+      if (lk && lk.bc !== -1) {
+        var bcL = colL_(labels, loc.bcCol);
+        var dq = "'" + lk.sheet.getName().replace(/'/g, "''") + "'";
+        var dataBcL = colL_(lk.sheet, lk.bc + 1);
+        var synth = function (labCol, dataIdx) {
+          if (labCol === -1 || dataIdx === -1 || labCol === loc.bcCol) return;
+          var rng = labels.getRange(start, labCol, clean.length, 1);
+          var fs = rng.getFormulas(), vs = rng.getValues();
+          var dCol = colL_(lk.sheet, dataIdx + 1);
+          for (var i = 0; i < clean.length; i++) {
+            if (fs[i][0] === '' && ValueUtils.normString(vs[i][0]) === '') {
+              labels.getRange(start + i, labCol).setFormula(
+                '=IFERROR(INDEX(' + dq + '!' + dCol + ':' + dCol + ',MATCH($' + bcL + (start + i) + ',' + dq + '!' + dataBcL + ':' + dataBcL + ',0)),"")');
+            }
+          }
+        };
+        synth(loc.nameCol, lk.name);
+        synth(loc.priceCol, lk.price);
+      }
       SpreadsheetApp.flush();
-      return clean.length + ' product(s) added to "' + labels.getName() + '" (rows ' + start + '–' + (start + clean.length - 1) +
-        '). The tab\'s name/price formulas fill them in. A backup was saved first.';
+      // Confirmation popup (toast) — the dialog closes itself on success, so confirm here.
+      SpreadsheetApp.getActive().toast(clean.length + ' product(s) added to "' + labels.getName() +
+        '" (rows ' + start + '–' + (start + clean.length - 1) + ') — labels ready to print. A backup was saved first.',
+        'Print labels', 8);
+      return clean.length + ' product(s) added.';
     } finally {
       lock.releaseLock();
     }
@@ -212,7 +265,7 @@ var LabelsPrint = (function () {
       'results.addEventListener("change",function(e){var el=e.target;if(el&&el.type==="checkbox"){var b=el.getAttribute("data-bc");if(el.checked)sel[b]=el.getAttribute("data-nm");else delete sel[b];renderSel();}});' +
       'selBox.addEventListener("click",function(e){var p=e.target;if(p&&p.className==="pill"){delete sel[p.getAttribute("data-bc")];renderSel();filter();}});' +
       'function addSel(){addBtn.disabled=true;msg.style.color="#777";msg.textContent="Adding\\u2026";' +
-      'google.script.run.withSuccessHandler(function(txt){msg.style.color="#137333";msg.textContent=txt;sel={};renderSel();filter();}).' +
+      'google.script.run.withSuccessHandler(function(){google.script.host.close();}).' + // server shows a toast; dialog closes itself
       'withFailureHandler(function(e){msg.style.color="#c5221f";msg.textContent=e.message;addBtn.disabled=false;}).hikeAddToLabels(Object.keys(sel));}' +
       'google.script.run.withSuccessHandler(function(res){if(res.error){results.innerHTML="<div class=\\"muted\\" style=\\"padding:8px\\">"+esc(res.error)+"</div>";return;}' +
       'all=res.rows;idx=all.map(function(r){return (r[0]+" "+r[1]).toLowerCase();});q.disabled=false;q.focus();filter();' +

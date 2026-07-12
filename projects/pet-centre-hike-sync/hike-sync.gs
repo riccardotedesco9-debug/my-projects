@@ -1638,7 +1638,7 @@ var LabelsPrint = (function () {
     } catch (e) { return false; }
   }
 
-  /** Locate the Barcode column + header row on the labels tab (1-based; -1 if absent). */
+  /** Locate the Barcode/Name/Price columns + header row on the labels tab (1-based; -1 if absent). */
   function locateCols(sh) {
     var data = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
     var bcCol = -1, headerRow = -1;
@@ -1647,8 +1647,33 @@ var LabelsPrint = (function () {
         if (ValueUtils.normHeader(data[r][c]) === 'barcode') { bcCol = c + 1; headerRow = r + 1; break; }
       }
     }
-    return { bcCol: bcCol, headerRow: headerRow };
+    var nameCol = -1, priceCol = -1;
+    if (headerRow !== -1) {
+      var hdr = data[headerRow - 1];
+      for (var c2 = 0; c2 < hdr.length; c2++) {
+        var n = ValueUtils.normHeader(hdr[c2]);
+        if (n === 'name' && nameCol === -1) nameCol = c2 + 1;
+        if (n === 'price' && priceCol === -1) priceCol = c2 + 1;
+      }
+    }
+    return { bcCol: bcCol, headerRow: headerRow, nameCol: nameCol, priceCol: priceCol };
   }
+
+  /** DATA-tab lookup targets (0-based indexes) for synthesizing label formulas. */
+  function dataLookupCols_() {
+    var sh = SheetIO.dataSheet();
+    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+    var hr = MergeEngine.findHeaderRow(scan);
+    if (hr === -1) return null;
+    var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
+    var price = norm.indexOf('retail price');
+    if (price === -1) for (var i = 0; i < norm.length; i++) if (/_retail price$/.test(norm[i])) { price = i; break; }
+    return { sheet: sh, name: norm.indexOf('name'), bc: norm.indexOf('barcode'), price: price };
+  }
+
+  /** Column letter of a sheet's 1-based column (via A1 notation — no letter math). */
+  function colL_(sh, col) { return sh.getRange(1, col).getA1Notation().replace(/\d+$/, ''); }
 
   /**
    * Load the whole catalog ONCE for instant client-side search. Returns compact positional
@@ -1742,9 +1767,37 @@ var LabelsPrint = (function () {
         bcRange.setNumberFormat('@'); // text — preserves leading zeros
         bcRange.setValues(clean.map(function (b) { return [b]; }));
       }
+
+      // Guarantee "add the barcode, the rest fills itself": if a Name/Price cell on a new row
+      // ended up with NO formula (e.g. the tab's price cells were pasted as plain values at
+      // some point, so there was no template formula to copy), synthesize the barcode lookup
+      // into the DATA tab ourselves. Only ever writes into EMPTY cells of the just-added rows.
+      var lk = dataLookupCols_();
+      if (lk && lk.bc !== -1) {
+        var bcL = colL_(labels, loc.bcCol);
+        var dq = "'" + lk.sheet.getName().replace(/'/g, "''") + "'";
+        var dataBcL = colL_(lk.sheet, lk.bc + 1);
+        var synth = function (labCol, dataIdx) {
+          if (labCol === -1 || dataIdx === -1 || labCol === loc.bcCol) return;
+          var rng = labels.getRange(start, labCol, clean.length, 1);
+          var fs = rng.getFormulas(), vs = rng.getValues();
+          var dCol = colL_(lk.sheet, dataIdx + 1);
+          for (var i = 0; i < clean.length; i++) {
+            if (fs[i][0] === '' && ValueUtils.normString(vs[i][0]) === '') {
+              labels.getRange(start + i, labCol).setFormula(
+                '=IFERROR(INDEX(' + dq + '!' + dCol + ':' + dCol + ',MATCH($' + bcL + (start + i) + ',' + dq + '!' + dataBcL + ':' + dataBcL + ',0)),"")');
+            }
+          }
+        };
+        synth(loc.nameCol, lk.name);
+        synth(loc.priceCol, lk.price);
+      }
       SpreadsheetApp.flush();
-      return clean.length + ' product(s) added to "' + labels.getName() + '" (rows ' + start + '–' + (start + clean.length - 1) +
-        '). The tab\'s name/price formulas fill them in. A backup was saved first.';
+      // Confirmation popup (toast) — the dialog closes itself on success, so confirm here.
+      SpreadsheetApp.getActive().toast(clean.length + ' product(s) added to "' + labels.getName() +
+        '" (rows ' + start + '–' + (start + clean.length - 1) + ') — labels ready to print. A backup was saved first.',
+        'Print labels', 8);
+      return clean.length + ' product(s) added.';
     } finally {
       lock.releaseLock();
     }
@@ -1796,7 +1849,7 @@ var LabelsPrint = (function () {
       'results.addEventListener("change",function(e){var el=e.target;if(el&&el.type==="checkbox"){var b=el.getAttribute("data-bc");if(el.checked)sel[b]=el.getAttribute("data-nm");else delete sel[b];renderSel();}});' +
       'selBox.addEventListener("click",function(e){var p=e.target;if(p&&p.className==="pill"){delete sel[p.getAttribute("data-bc")];renderSel();filter();}});' +
       'function addSel(){addBtn.disabled=true;msg.style.color="#777";msg.textContent="Adding\\u2026";' +
-      'google.script.run.withSuccessHandler(function(txt){msg.style.color="#137333";msg.textContent=txt;sel={};renderSel();filter();}).' +
+      'google.script.run.withSuccessHandler(function(){google.script.host.close();}).' + // server shows a toast; dialog closes itself
       'withFailureHandler(function(e){msg.style.color="#c5221f";msg.textContent=e.message;addBtn.disabled=false;}).hikeAddToLabels(Object.keys(sel));}' +
       'google.script.run.withSuccessHandler(function(res){if(res.error){results.innerHTML="<div class=\\"muted\\" style=\\"padding:8px\\">"+esc(res.error)+"</div>";return;}' +
       'all=res.rows;idx=all.map(function(r){return (r[0]+" "+r[1]).toLowerCase();});q.disabled=false;q.focus();filter();' +
@@ -1816,11 +1869,11 @@ var LabelsPrint = (function () {
 /**
  * Insights: at-a-glance charts on their own "Hike Insights" tab (pies top row, bars below,
  * colour legend underneath), plus the live stock colour-grading on the DATA SHEET's stock
- * column. Aggregates are computed in one pass over the data and written to a hidden helper
- * tab (_hike_insights) that the charts read from. The only marks made on the data tab are
- * the conditional-format bands + number format on the stock/reorder columns and a hover
- * note on the stock header — no data cells are ever written.
- * Rebuilt on demand from the menu and refreshed after each successful sync.
+ * column. The charts read LIVE aggregate formulas on a hidden helper tab (_hike_insights),
+ * so they update by themselves as data changes — a rebuild is only needed when columns
+ * physically move. The only marks made on the data tab are the conditional-format bands +
+ * number format on the stock/reorder columns and a hover note on the stock header — no
+ * data cells are ever written. Rebuilt on demand from the menu and after each sync.
  */
 var Insights = (function () {
   var HELPER = '_hike_insights';
@@ -1860,7 +1913,8 @@ var Insights = (function () {
     return -1;
   }
 
-  /** One pass over the data tab → the aggregate tables the charts need. */
+  /** One pass over the data tab → column positions, which charts apply, and the alert stats.
+   *  (The chart DATA itself is live formulas — see writeHelper_ — not these snapshots.) */
   function compute_() {
     var values = SheetIO.readAll();
     var hr = MergeEngine.findHeaderRow(values);
@@ -1874,7 +1928,7 @@ var Insights = (function () {
     var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
     var valueBasisCol = costCol !== -1 ? costCol : retailCol; // asset value = stock × cost (fallback retail)
 
-    var byValue = {}, byCount = {}, health = { out: 0, low: 0, ok: 0 };
+    var byCount = {}, health = { out: 0, low: 0, ok: 0 };
     var bands = [0, 0, 0, 0, 0]; // €0-5, 5-10, 10-20, 20-50, 50+
     var products = 0, totalValue = 0, stockHasData = false;
 
@@ -1887,9 +1941,7 @@ var Insights = (function () {
       byCount[cat] = (byCount[cat] || 0) + 1;
 
       if (valueBasisCol !== -1 && stockCol !== -1) {
-        var v = num_(row[stockCol]) * num_(row[valueBasisCol]);
-        byValue[cat] = (byValue[cat] || 0) + v;
-        totalValue += v;
+        totalValue += num_(row[stockCol]) * num_(row[valueBasisCol]);
       }
       if (stockCol !== -1) {
         if (ValueUtils.normString(row[stockCol]) !== '') stockHasData = true;
@@ -1908,45 +1960,76 @@ var Insights = (function () {
     return {
       products: products, totalValue: totalValue,
       costBasis: costCol !== -1,
+      headerRow: hr,
+      cols: { cat: catCol, retail: retailCol, valueBasis: valueBasisCol, stock: stockCol, reorder: reorderCol },
       // An empty placeholder stock column (no data yet) must NOT drive the value/health charts —
       // blanks would read as zero stock. Require the stock column to actually contain values.
       have: { cat: catCol !== -1, value: valueBasisCol !== -1 && stockCol !== -1 && stockHasData, health: stockCol !== -1 && stockHasData, price: retailCol !== -1 },
-      valueByCat: topN_(byValue, 10), mixByType: topN_(byCount, 8),
+      mixCount: Object.keys(byCount).length,
       health: health, bands: bands
     };
   }
 
-  /** Sort a {key:number} map desc, keep top n, roll the rest into "Other (k)". */
-  function topN_(map, n) {
-    var arr = Object.keys(map).map(function (k) { return [k, map[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
-    if (arr.length <= n) return arr;
-    var head = arr.slice(0, n);
-    var rest = arr.slice(n).reduce(function (s, x) { return s + x[1]; }, 0);
-    head.push(['Other (' + (arr.length - n) + ')', rest]);
-    return head;
-  }
-
-  /** Write the aggregate tables to the hidden helper tab; return each table's A1 range. */
+  /**
+   * Plant LIVE aggregate formulas on the hidden helper tab; return each table's range. The
+   * charts read these ranges, and because the cells are formulas over the data tab (QUERY /
+   * SUMPRODUCT / COUNTIFS), the charts update BY THEMSELVES as values change — no refresh
+   * needed. A rebuild is only required when columns physically move (it re-derives the
+   * references). Category text arrives as QUERY RESULTS (evaluated values, never entered as
+   * cell input), so a product name starting with '=' cannot become a formula here.
+   */
   function writeHelper_(agg) {
     var ss = SpreadsheetApp.getActive();
     var sh = ss.getSheetByName(HELPER);
     if (!sh) { sh = ss.insertSheet(HELPER, ss.getSheets().length); sh.hideSheet(); }
     sh.clearContents();
+    var dataName = "'" + Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME).replace(/'/g, "''") + "'";
+    var fr = agg.headerRow + 2; // first data row, 1-based; ranges are open-ended so new rows count
+    var colRange = function (i) { var L = colLetter_(i + 1); return dataName + '!' + L + fr + ':' + L; };
     var ranges = {};
-    function put(col, header, rows) {
-      var table = [header].concat(rows);
-      // Category/type labels are product text from Hike — formulaSafe the label column so a name
-      // beginning with =/+/-/@ can't become a live formula in this (auto-evaluated) helper tab.
-      var safe = table.map(function (t) { return [ValueUtils.formulaSafe(t[0]), t[1]]; });
-      sh.getRange(1, col, safe.length, 2).setValues(safe);
-      return sh.getRange(2, col, rows.length, 2); // DATA rows only — keeps the header text out of the chart categories
+
+    // Inventory value by category: top 10 by stock × cost (fallback retail). Array literal +
+    // ARRAYFORMULA does the per-row multiply QUERY can't; N() coerces blanks/text to 0.
+    if (agg.have.value) {
+      sh.getRange(1, 1, 1, 2).setValues([['Category', 'Inventory value (€)']]);
+      sh.getRange(2, 1).setFormula(
+        '=IFERROR(QUERY({' + colRange(agg.cols.cat) + ',ARRAYFORMULA(N(' + colRange(agg.cols.stock) + ')*N(' + colRange(agg.cols.valueBasis) + '))},' +
+        '"select Col1, sum(Col2) where Col1 <> \'\' group by Col1 order by sum(Col2) desc limit 10", 0),)');
+      ranges.value = sh.getRange(2, 1, 10, 2);
     }
-    if (agg.have.value) ranges.value = put(1, ['Category', 'Inventory value (€)'], agg.valueByCat.length ? agg.valueByCat : [['(no data)', 0]]);
-    if (agg.have.cat) ranges.mix = put(4, ['Type', 'Products'], agg.mixByType.length ? agg.mixByType : [['(no data)', 0]]);
-    if (agg.have.health) ranges.health = put(7, ['Stock status', 'Products'],
-      [['Out of stock', agg.health.out], ['At/below reorder', agg.health.low], ['Healthy', agg.health.ok]]);
-    if (agg.have.price) ranges.bands = put(10, ['Price band', 'Products'],
-      [['€0–5', agg.bands[0]], ['€5–10', agg.bands[1]], ['€10–20', agg.bands[2]], ['€20–50', agg.bands[3]], ['€50+', agg.bands[4]]]);
+    // Product mix: top 8 categories by product count.
+    if (agg.have.cat) {
+      sh.getRange(1, 4, 1, 2).setValues([['Type', 'Products']]);
+      sh.getRange(2, 4).setFormula(
+        '=IFERROR(QUERY({' + colRange(agg.cols.cat) + '},' +
+        '"select Col1, count(Col1) where Col1 <> \'\' group by Col1 order by count(Col1) desc limit 8", 0),)');
+      ranges.mix = sh.getRange(2, 4, 8, 2);
+    }
+    // Stock health: out (numeric ≤ 0) / at-below reorder / healthy — mirrors the cell colours.
+    if (agg.have.health) {
+      var S = colRange(agg.cols.stock);
+      var R = agg.cols.reorder !== -1 ? colRange(agg.cols.reorder) : null;
+      sh.getRange(1, 7, 4, 1).setValues([['Stock status'], ['Out of stock'], ['At/below reorder'], ['Healthy']]);
+      sh.getRange(1, 8).setValue('Products');
+      sh.getRange(2, 8).setFormula('=SUMPRODUCT(ISNUMBER(' + S + ')*(' + S + '<=0))');
+      sh.getRange(3, 8).setFormula(R
+        ? '=SUMPRODUCT(ISNUMBER(' + S + ')*(' + S + '>0)*ISNUMBER(' + R + ')*(' + R + '>0)*(' + S + '<=' + R + '))'
+        : '=0');
+      sh.getRange(4, 8).setFormula('=SUMPRODUCT(ISNUMBER(' + S + ')*(' + S + '>0))-H3');
+      ranges.health = sh.getRange(2, 7, 3, 2);
+    }
+    // Price bands: live COUNTIFS on the retail column (blank/text cells aren't counted).
+    if (agg.have.price) {
+      var P = colRange(agg.cols.retail);
+      sh.getRange(1, 10, 6, 1).setValues([['Price band'], ['€0–5'], ['€5–10'], ['€10–20'], ['€20–50'], ['€50+']]);
+      sh.getRange(1, 11).setValue('Products');
+      sh.getRange(2, 11).setFormula('=COUNTIF(' + P + ',"<5")');
+      sh.getRange(3, 11).setFormula('=COUNTIFS(' + P + ',">=5",' + P + ',"<10")');
+      sh.getRange(4, 11).setFormula('=COUNTIFS(' + P + ',">=10",' + P + ',"<20")');
+      sh.getRange(5, 11).setFormula('=COUNTIFS(' + P + ',">=20",' + P + ',"<50")');
+      sh.getRange(6, 11).setFormula('=COUNTIF(' + P + ',">=50")');
+      ranges.bands = sh.getRange(2, 10, 5, 2);
+    }
     SpreadsheetApp.flush();
     return ranges;
   }
@@ -2147,7 +2230,7 @@ var Insights = (function () {
 
     var specs = [];
     if (ranges.value) specs.push([Charts.ChartType.BAR, ranges.value, 'Inventory value by category' + (agg.costBasis ? ' (at cost)' : ' (at retail)')]);
-    if (ranges.mix) specs.push([agg.mixByType.length <= 6 ? Charts.ChartType.PIE : Charts.ChartType.BAR, ranges.mix, 'Product mix by type']);
+    if (ranges.mix) specs.push([agg.mixCount <= 6 ? Charts.ChartType.PIE : Charts.ChartType.BAR, ranges.mix, 'Product mix by type']);
     if (ranges.health) specs.push([Charts.ChartType.PIE, ranges.health, 'Stock health']);
     if (ranges.bands) specs.push([Charts.ChartType.COLUMN, ranges.bands, 'Price-band distribution']);
 
