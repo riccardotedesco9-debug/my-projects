@@ -106,6 +106,23 @@ var HikeApi = (function () {
       SyncLog.logRun({ source: 'api', ok: false, message: 'First API sync must be run manually (menu → Sync from Hike API now); auto-sync then continues incrementally.' });
       return;
     }
+    // Interactive first FULL pull on an already-large catalog: paging tens of thousands of
+    // products at Hike's 60/min rate limit can outrun the 6-minute execution cap and die
+    // mid-fetch (nothing written, but the watermark never advances — it would just die again).
+    // Seeding via a file import is instant and sets the same baseline, so steer there.
+    if (!incremental && interactive) {
+      var sh = SheetIO.dataSheet();
+      if (sh.getLastRow() > 5000) {
+        var ui = SpreadsheetApp.getUi();
+        var goOn = ui.alert('Large catalog — seed by file instead?',
+          'This is the FIRST API sync, which downloads the whole catalog and can exceed Google\'s ' +
+          '6-minute limit on a catalog this size (nothing would be written).\n\n' +
+          'Recommended: run "Import Hike export file…" once with a fresh "Export all details" file — ' +
+          'instant, same result — then API auto-sync continues incrementally from there.\n\n' +
+          'Try the full API pull anyway?', ui.ButtonSet.YES_NO);
+        if (goOn !== ui.Button.YES) return;
+      }
+    }
     var fetchStartedAt = new Date().toISOString();
     var products = fetchProducts(watermark || null);
 
@@ -136,7 +153,6 @@ var HikeApi = (function () {
   return {
     handleCallback: handleCallback,
     connectPrompt: connectPrompt,
-    fetchProducts: fetchProducts,
     syncNow: syncNow
   };
 })();

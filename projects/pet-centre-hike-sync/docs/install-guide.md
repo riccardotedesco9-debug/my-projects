@@ -62,12 +62,17 @@ and flagged "Not in last Hike import" in the note column.
 Open **Hike Sync → Command center** for a live dashboard and a guide to every action. In short:
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
-- **Refresh insight charts** — summary charts (value by category, product mix, stock health,
-  price bands) in a "Hike Insights" tab (pies on top, bars below). Also re-applies the progressive
-  low-stock highlight on the DATA SHEET's Stock column, graded by each product's reorder level
-  (amber approaching → red at/below → deeper red under half → darkest when out of stock), and
-  forces the Stock/Reorder-level count columns to a plain integer format. Inventory lives on the
-  DATA SHEET itself — header row + Name column are frozen.
+- **Refresh charts + stock colours** — summary charts (value by category, product mix, stock
+  health, price bands) in a "Hike Insights" tab (pies on top, bars below, colour legend at the
+  bottom). Also re-applies the live stock colour-grading on the DATA SHEET's **Stock on hand**
+  column — green (healthy, above reorder level) blending through yellow (reorder now), orange
+  (running low) and red (almost out) to dark red (out of stock); products with no reorder level
+  set stay uncoloured — and forces the Stock/Reorder-level count columns to a plain integer
+  format. Inventory lives on the DATA SHEET itself — header row + Name column are frozen, and
+  the Stock on hand header carries a hover note explaining the colours.
+  *Note: the tool owns the formatting rules on the Stock / Stock on hand columns — any custom
+  colour rule you add to those two columns is replaced on the next refresh. Rules on every
+  other column are never touched.*
 - **Show column filters** — filter dropdowns on every column (e.g. depleted stock, status).
 - **Fit columns to content** — auto-size the DATA SHEET columns (very wide ones are capped).
 - **Delete products no longer in Hike…** — opt-in cleanup that removes rows flagged

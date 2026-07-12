@@ -1,9 +1,10 @@
 /**
- * Insights: at-a-glance charts embedded on the DATA SHEET, anchored just to the right of
- * the product columns. The aggregates are computed in one pass over the data and written
- * to a hidden helper tab (_hike_insights); the charts read from there. Nothing is written
- * into the data columns themselves, so the sync's row-appends / note column never collide
- * with the charts (which are floating objects) or their source cells (a separate tab).
+ * Insights: at-a-glance charts on their own "Hike Insights" tab (pies top row, bars below,
+ * colour legend underneath), plus the live stock colour-grading on the DATA SHEET's stock
+ * column. Aggregates are computed in one pass over the data and written to a hidden helper
+ * tab (_hike_insights) that the charts read from. The only marks made on the data tab are
+ * the conditional-format bands + number format on the stock/reorder columns and a hover
+ * note on the stock header — no data cells are ever written.
  * Rebuilt on demand from the menu and refreshed after each successful sync.
  */
 var Insights = (function () {
@@ -18,17 +19,23 @@ var Insights = (function () {
   // the reorder point and deepens as stock falls toward empty, using FEW strongly-contrasting
   // shades so each severity reads at a glance. `mul` = ratio ceiling: cell coloured when
   // on-hand ≤ reorder × mul. Most-severe (lowest %) FIRST — Google applies the first match.
+  // Anchor meanings — green healthy / yellow reorder-now / orange running-low / red almost-out /
+  // dark-red out — with blended in-between shades so one colour transitions subtly into the next
+  // instead of flat blanket bands. Still few enough steps that each severity reads at a glance.
   var STOCK_TIERS = [
     { bg: '#7f0000', mul: 0 },        // OUT of stock (0) — dark red
-    { bg: '#e06666', mul: 0.34 },     // ALMOST OUT — ≤ ~⅓ of reorder — red
-    { bg: '#f6b26b', mul: 0.67 },     // RUNNING LOW — ≤ ~⅔ of reorder — orange
-    { bg: '#ffe599', mul: 1.0 },      // REORDER NOW — at/below reorder — yellow
-    { bg: '#b6d7a8', catchAll: true } // HEALTHY — above the reorder level — green
+    { bg: '#a32317', mul: 0.15 },     //   ↓ dark-red → red blend
+    { bg: '#cc4125', mul: 0.3 },      // ALMOST OUT — red
+    { bg: '#e06666', mul: 0.45 },     //   ↓ red → orange blend (soft red)
+    { bg: '#ec8e59', mul: 0.6 },      //   ↓ orange-red
+    { bg: '#f6b26b', mul: 0.75 },     // RUNNING LOW — orange
+    { bg: '#fbcf82', mul: 0.9 },      //   ↓ orange → yellow blend
+    { bg: '#ffe599', mul: 1.0 },      // REORDER NOW — at/below the reorder level — yellow
+    { bg: '#dbe5a2', mul: 1.25 },     //   ↓ yellow → green blend (just above reorder)
+    { bg: '#b6d7a8', catchAll: true } // HEALTHY — comfortably above the reorder level — green
   ];                                  // (no reorder level set → left blank; can't judge health)
-  // Every colour we've used (this ramp + legacy tints/gradient) — recognized so a rebuild strips ours.
-  var STOCK_REDS = STOCK_TIERS.map(function (t) { return t.bg; })
-    .concat(['#990000', '#cc0000', '#c0000a', '#d93636', '#ea9999', '#f4c7c3', '#f9dcd9', '#fce5cd', '#f4cccc']);
   var CHARTS_TAB = 'Hike Insights'; // visible tab that holds the charts (never overlaps the data)
+  var LEGEND_ROW = 30; // first row of the colour legend on the charts tab (charts float over ~rows 1–28)
 
   function num_(v) { var n = ValueUtils.parseNumeric(v); return n === null ? 0 : n; }
 
@@ -122,7 +129,7 @@ var Insights = (function () {
     if (agg.have.value) ranges.value = put(1, ['Category', 'Inventory value (€)'], agg.valueByCat.length ? agg.valueByCat : [['(no data)', 0]]);
     if (agg.have.cat) ranges.mix = put(4, ['Type', 'Products'], agg.mixByType.length ? agg.mixByType : [['(no data)', 0]]);
     if (agg.have.health) ranges.health = put(7, ['Stock status', 'Products'],
-      [['Out of stock', agg.health.out], ['Below reorder', agg.health.low], ['Healthy', agg.health.ok]]);
+      [['Out of stock', agg.health.out], ['At/below reorder', agg.health.low], ['Healthy', agg.health.ok]]);
     if (agg.have.price) ranges.bands = put(10, ['Price band', 'Products'],
       [['€0–5', agg.bands[0]], ['€5–10', agg.bands[1]], ['€10–20', agg.bands[2]], ['€20–50', agg.bands[3]], ['€50+', agg.bands[4]]]);
     SpreadsheetApp.flush();
@@ -138,9 +145,12 @@ var Insights = (function () {
 
   /** Does an existing same-named tab clearly belong to THIS tool (a leftover from an older
    *  version), vs. a user tab that merely shares the name? Our charts tab is floating charts
-   *  over an empty grid. */
+   *  over an empty grid — or over nothing but our own legend block. */
   function isOurTab_(sheet) {
-    return sheet.getCharts().length > 0 && sheet.getLastRow() <= 1;
+    if (sheet.getCharts().length === 0) return false;
+    if (sheet.getLastRow() <= 1) return true;
+    var marker = sheet.getMaxRows() >= LEGEND_ROW ? String(sheet.getRange(LEGEND_ROW, 1).getValue()) : '';
+    return marker.indexOf('Stock colour legend') === 0;
   }
 
   /**
@@ -250,9 +260,11 @@ var Insights = (function () {
     if (lastRow < firstRow) return;
     var nRows = lastRow - firstRow + 1;
 
-    // Count columns → plain integer format (cosmetic; kills a stray currency format on counts).
+    // Count columns → plain number format (kills a stray currency format showing counts as €).
+    // '0.###' renders integers as integers but PRESERVES fractional counts — pet stores sell
+    // loose goods by weight, so a stock of 2.5 kg must not display rounded to "3".
     var toInt = function (col) {
-      if (col !== -1) dataSheet.getRange(firstRow, col + 1, maxRows - firstRow + 1, 1).setNumberFormat('0');
+      if (col !== -1) dataSheet.getRange(firstRow, col + 1, maxRows - firstRow + 1, 1).setNumberFormat('0.###');
     };
     toInt(target); toInt(reorderCol);
 
@@ -261,20 +273,18 @@ var Insights = (function () {
     dataSheet.getRange(firstRow, target + 1, nRows, 1).setBackground(null);
     if (availCol !== -1 && availCol !== target) dataSheet.getRange(firstRow, availCol + 1, nRows, 1).setBackground(null);
 
-    // Strip our previous conditional-format rules (reserved palette, single-column gradient, or
-    // any single-column rule on the stock/on-hand columns) so re-runs don't stack. User rules kept.
-    var reds = {}; STOCK_REDS.forEach(function (c) { reds[c] = 1; });
+    // Strip ONLY rules confined to the stock/on-hand columns so re-runs don't stack and leftovers
+    // from earlier versions are cleared. Everything is scoped to those columns — several of our
+    // palette hexes are standard Google swatches, so an unscoped palette/gradient match would
+    // silently delete a USER's own rule on some other column (e.g. their expiry-date red).
+    // The tool owns all formatting on the stock columns (documented in the header note + guide).
     var stockA1s = {};
     if (onHandCol !== -1) stockA1s[onHandCol + 1] = 1;
     if (availCol !== -1) stockA1s[availCol + 1] = 1;
     var kept = dataSheet.getConditionalFormatRules().filter(function (r) {
       var rs = r.getRanges();
       var single = rs.length === 1 && rs[0].getNumColumns() === 1;
-      var b = r.getBooleanCondition();
-      if (b && b.getBackground() && reds[b.getBackground()]) return false;
-      if (r.getGradientCondition() && single) return false;
-      if (single && stockA1s[rs[0].getColumn()]) return false;
-      return true;
+      return !(single && stockA1s[rs[0].getColumn()]);
     });
 
     // Add the LIVE bands on the on-hand column, gated on reorder > 0 (no threshold → no colour).
@@ -283,14 +293,21 @@ var Insights = (function () {
       var rCell = '$' + colLetter_(reorderCol + 1) + firstRow;
       var range = dataSheet.getRange(firstRow, target + 1, maxRows - firstRow + 1, 1);
       STOCK_TIERS.forEach(function (t) {
-        // catchAll (green) = any non-blank cell with a reorder level that no worse band matched
+        // catchAll (green) = any NUMERIC cell with a reorder level that no worse band matched
         // (i.e. stock above reorder). Placed last, so first-match leaves it only the healthy rows.
+        // ISNUMBER keeps text like "n/a" (which fails every <= band) from grading green.
         var formula = t.catchAll
-          ? '=AND(' + tCell + '<>"",' + rCell + '>0)'
+          ? '=AND(ISNUMBER(' + tCell + '),' + rCell + '>0)'
           : '=AND(' + tCell + '<>"",' + rCell + '>0,' + tCell + '<=' + rCell + '*' + t.mul + ')';
         kept.push(SpreadsheetApp.newConditionalFormatRule()
           .whenFormulaSatisfied(formula).setBackground(t.bg).setRanges([range]).build());
       });
+      // Hover note on the column header: what the colours mean, right where they appear.
+      dataSheet.getRange(hr + 1, target + 1).setNote(
+        'Colour = stock left vs this product\'s reorder level (live):\n' +
+        'green healthy · yellow at/below reorder · orange running low · red almost out · dark red out of stock.\n' +
+        'Shades blend between these. Rows with no reorder level are not coloured.\n' +
+        'Full legend: bottom of the "Hike Insights" tab. (Set by Hike Sync.)');
     }
     dataSheet.setConditionalFormatRules(kept);
   }
@@ -328,8 +345,13 @@ var Insights = (function () {
     ordered.forEach(function (s, i) { var p = slots[i] || [0, i * 290]; addChart_(chartsTab, s[0], s[1], s[2], p[0], p[1]); });
     var built = ordered.length;
 
-    // The charts float over the grid, so the Insights tab needs no big empty grid behind them.
-    if (chartsTab.getMaxRows() > 34) chartsTab.deleteRows(35, chartsTab.getMaxRows() - 34);
+    writeLegend_(chartsTab);
+    // The charts float over the grid; keep just enough rows for them + the legend below — but
+    // only trim when nothing sits beneath (if a user typed notes below the legend, leave them).
+    var keepRows = LEGEND_ROW + 8;
+    if (chartsTab.getMaxRows() > keepRows && chartsTab.getLastRow() <= keepRows) {
+      chartsTab.deleteRows(keepRows + 1, chartsTab.getMaxRows() - keepRows);
+    }
     try { applyLowStockRule_(dataSheet); } catch (e) { /* highlight is best-effort */ }
     try { focusDataSheet_(dataSheet); } catch (e) { /* freeze is best-effort */ }
 
@@ -340,10 +362,44 @@ var Insights = (function () {
       SpreadsheetApp.getUi().alert('Insights updated',
         built + ' chart(s) in the "' + CHARTS_TAB + '" tab (' + agg.products + ' products' +
         (agg.have.value ? ', ~€' + Math.round(agg.totalValue).toLocaleString() + ' inventory value' : '') + ').' +
-        '\nLow-stock cells are highlighted red on the DATA SHEET.' +
+        '\nStock on hand is colour-graded on the DATA SHEET — green (healthy) through yellow (reorder now) to dark red (out), by each product\'s reorder level. Legend: bottom of the "' + CHARTS_TAB + '" tab.' +
         (skipped.length ? '\n\nSkipped: ' + skipped.join('; ') + '.' : ''), SpreadsheetApp.getUi().ButtonSet.OK);
     }
   }
 
-  return { rebuild: rebuild, HELPER: HELPER };
+  /**
+   * Small colour legend under the charts: what each DATA-SHEET stock shade means. Written to a
+   * fixed block (LEGEND_ROW..+7) that is cleared and rewritten every rebuild; the title doubles
+   * as the isOurTab_ marker. Shows the anchor colours only — the in-between blends are implied.
+   */
+  function writeLegend_(sheet) {
+    if (sheet.getMaxRows() < LEGEND_ROW + 7) sheet.insertRowsAfter(sheet.getMaxRows(), LEGEND_ROW + 7 - sheet.getMaxRows());
+    if (sheet.getMaxColumns() < 2) sheet.insertColumnsAfter(sheet.getMaxColumns(), 2 - sheet.getMaxColumns());
+    var block = sheet.getRange(LEGEND_ROW, 1, 8, 2);
+    try { block.breakApart(); } catch (e) { /* not merged yet */ }
+    block.clearContent().setBackground(null);
+    sheet.getRange(LEGEND_ROW, 1, 1, 2).merge().setValue('Stock colour legend — Stock on hand vs reorder level').setFontWeight('bold');
+    var anchor = function (m) { // anchor colour for a ratio ceiling (null = the healthy catch-all)
+      for (var i = 0; i < STOCK_TIERS.length; i++) {
+        if (m === null ? STOCK_TIERS[i].catchAll : STOCK_TIERS[i].mul === m) return STOCK_TIERS[i].bg;
+      }
+      return null;
+    };
+    var rows = [
+      [anchor(null), 'Healthy — above the reorder level'],
+      [anchor(1.0), 'Reorder now — at/below the reorder level'],
+      [anchor(0.75), 'Running low — under ~¾ of the reorder level'],
+      [anchor(0.3), 'Almost out — under ~⅓ of the reorder level'],
+      [anchor(0), 'Out of stock — none left']
+    ];
+    rows.forEach(function (r, i) {
+      if (r[0]) sheet.getRange(LEGEND_ROW + 1 + i, 1).setBackground(r[0]);
+      sheet.getRange(LEGEND_ROW + 1 + i, 2).setValue(r[1]);
+    });
+    sheet.getRange(LEGEND_ROW + 6, 2)
+      .setValue('Shades blend smoothly between these anchors. Products with no reorder level set are not coloured.')
+      .setFontColor('#777777');
+  }
+
+  return { rebuild: rebuild };
 })();

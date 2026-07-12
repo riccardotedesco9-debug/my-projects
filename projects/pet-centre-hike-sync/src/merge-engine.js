@@ -261,9 +261,6 @@ var MergeEngine = (function () {
 
   return {
     findHeaderRow: findHeaderRow,
-    mapHeaders: mapHeaders,
-    skuKey: skuKey,
-    bcKey: bcKey,
     rowKey: rowKey,
     headerSignature: headerSignature,
     buildPlan: buildPlan

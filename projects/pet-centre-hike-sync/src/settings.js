@@ -158,7 +158,6 @@ var Settings = (function () {
     set: set,
     remove: remove,
     DEFAULTS: DEFAULTS,
-    detectDataTab: detectDataTab,
     setupWizard: setupWizard,
     applySetup: applySetup,
     ensureTrigger: ensureTrigger_

@@ -57,6 +57,12 @@ var Dashboard = (function () {
       '</b><span class="muted"> ' + esc(detail) + '</span></div>';
   }
 
+  /** Inline colour swatch + label for the stock-colour legend. */
+  function sw_(hex, label) {
+    return '<span style="white-space:nowrap"><span style="display:inline-block;width:12px;height:12px;' +
+      'border-radius:3px;background:' + hex + ';margin-right:5px;vertical-align:-1px"></span>' + esc(label) + '</span>';
+  }
+
   function show() {
     var h = gather_();
     var rows = h.recent.map(function (e) {
@@ -92,13 +98,23 @@ var Dashboard = (function () {
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
         '<li><b>Turn ON/OFF API auto-sync</b> — schedule the API pull every 15 minutes.</li>' +
         '<li><b>Print price labels…</b> — search products, tick the ones you want, add their barcodes to the labels tab.</li>' +
-        '<li><b>Refresh insight charts</b> — rebuild the charts ("Hike Insights" tab) and re-apply the red low-stock highlight on the DATA SHEET.</li>' +
+        '<li><b>Refresh charts + stock colours</b> — rebuild the charts ("Hike Insights" tab) and re-apply the stock colour-grading on the DATA SHEET.</li>' +
         '<li><b>Show column filters</b> — filter dropdowns on every column (depleted stock, in-Hike status, …).</li>' +
+        '<li><b>Fit columns to content</b> — auto-size the data tab\'s columns (very wide ones capped).</li>' +
         '<li><b>Trim empty rows</b> — remove blank trailing rows from the data tab (never touches data).</li>' +
         '<li><b>Setup…</b> — set the data tab, optional watch folder, and failure-alert email.</li>' +
         '<li><b>Delete products no longer in Hike…</b> — remove rows flagged "not in last import" (backup + typed DELETE confirm).</li>' +
         '<li><b>Run self-test</b> — sandbox-only safety gauntlet (restores the sheet after).</li>' +
       '</ul>' +
+      '<h3>Stock colours (on the data tab\'s Stock on hand column)</h3>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin:6px 0 2px;font-size:12px">' +
+        sw_('#b6d7a8', 'Healthy — above reorder level') +
+        sw_('#ffe599', 'Reorder now — at/below reorder') +
+        sw_('#f6b26b', 'Running low') +
+        sw_('#cc4125', 'Almost out') +
+        sw_('#7f0000', 'Out of stock') +
+      '</div>' +
+      '<p class="muted" style="font-size:11px;margin:4px 0 0">Shades blend between these; rows with no reorder level set are not coloured. Full legend on the "Hike Insights" tab.</p>' +
       '<h3>What is guaranteed</h3><div class="rule">' +
         'Hike is the source of truth; this only ever <b>reads</b> Hike and writes into the data tab. ' +
         'It <b>never deletes rows automatically</b> — deletion happens only via the opt-in "Delete products no longer ' +

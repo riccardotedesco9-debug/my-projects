@@ -222,5 +222,5 @@ var LabelsPrint = (function () {
     ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(560), 'Print price labels');
   }
 
-  return { findLabelsSheet: findLabelsSheet, locateCols: locateCols, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog };
+  return { findLabelsSheet: findLabelsSheet, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog };
 })();

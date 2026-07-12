@@ -133,10 +133,8 @@ var HikeFieldMap = (function () {
   }
 
   return {
-    detectOutletPrefix: detectOutletPrefix,
     productsToIncoming: productsToIncoming,
-    pickImageUrl: pickImageUrl,
-    stripHtml: stripHtml
+    pickImageUrl: pickImageUrl
   };
 })();
 

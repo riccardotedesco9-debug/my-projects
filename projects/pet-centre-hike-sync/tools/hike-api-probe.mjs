@@ -112,7 +112,7 @@ const OUTLET_SUFFIXES = ['Tax', 'Cost price', 'Retail price', 'Stock', 'Stock on
   const headers = BASE_HEADERS.concat(OUTLET_SUFFIXES.map((s) => outletName + '_' + s));
   const mapped = HikeFieldMap.productsToIncoming(items, headers);
   console.log('\n=== MAPPER OUTPUT (first product, non-empty cells) ===');
-  console.log('detected outlet prefix:', JSON.stringify(HikeFieldMap.detectOutletPrefix(headers)));
+  console.log('outlet prefix in use:', JSON.stringify(outletName)); // (detectOutletPrefix is module-internal now)
   const row = mapped.rows[0] || [];
   headers.forEach((h, i) => { if (row[i] !== null && row[i] !== undefined && String(row[i]) !== '') console.log('  ' + h + ' = ' + JSON.stringify(row[i])); });
   if (mapped.warnings.length) console.log('mapper warnings:', mapped.warnings.join(' | '));

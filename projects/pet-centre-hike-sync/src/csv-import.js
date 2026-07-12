@@ -45,6 +45,20 @@ var CsvImport = (function () {
     }
   }
 
+  /**
+   * After a settled FULL file import, seed the API watermark (only when none exists yet) so a
+   * later "Sync from Hike API" starts INCREMENTALLY instead of re-downloading the whole catalog
+   * (which can exceed the 6-minute limit on a big store). The file's creation time approximates
+   * when the export was made; 24h of slack is subtracted so products edited around export time
+   * can't slip through the gap — over-fetching is harmless because the merge is idempotent.
+   */
+  function seedApiWatermark_(file, result) {
+    if (!result || (result.reason !== 'applied' && result.reason !== 'nothing-to-do')) return;
+    if (Settings.get('HIKE_SYNC_FROM', '')) return; // API lane already has its own watermark
+    var t = file.getDateCreated().getTime() - 24 * 3600 * 1000;
+    Settings.set('HIKE_SYNC_FROM', new Date(t).toISOString());
+  }
+
   /** Menu: paste a file link/ID → interactive sync with preview. */
   function importFilePrompt() {
     var ui = SpreadsheetApp.getUi();
@@ -54,7 +68,8 @@ var CsvImport = (function () {
     var id = parseFileId(ans.getResponseText());
     if (!id) { ui.alert('Could not find a Drive file ID in that text.'); return; }
     var data = readExport(id);
-    SyncRunner.run('file: ' + data.fileName, data, true);
+    var result = SyncRunner.run('file: ' + data.fileName, data, true);
+    seedApiWatermark_(DriveApp.getFileById(id), result);
   }
 
   /** Menu: import the newest export file from the watch folder, interactively. */
@@ -71,7 +86,8 @@ var CsvImport = (function () {
     }
     if (!newest) { ui.alert('No export files (.csv/.xlsx) found in the watch folder.'); return; }
     var data = readExport(newest.getId());
-    SyncRunner.run('folder: ' + data.fileName, data, true);
+    var result = SyncRunner.run('folder: ' + data.fileName, data, true);
+    seedApiWatermark_(newest, result);
   }
 
   /** Time-trigger handler: process not-yet-imported files, oldest first. */
@@ -93,7 +109,8 @@ var CsvImport = (function () {
       processed.push(f.getId());
       try {
         var data = readExport(f.getId());
-        SyncRunner.run('watch: ' + data.fileName, data, false);
+        var result = SyncRunner.run('watch: ' + data.fileName, data, false);
+        seedApiWatermark_(f, result);
       } catch (e) {
         SyncLog.alertFailure('Watch-folder import failed', f.getName() + ': ' + e.message);
       }
@@ -103,7 +120,6 @@ var CsvImport = (function () {
 
   return {
     parseFileId: parseFileId,
-    readExport: readExport,
     importFilePrompt: importFilePrompt,
     importLatestFromFolder: importLatestFromFolder,
     folderWatchTick: folderWatchTick
