@@ -115,6 +115,57 @@ var LabelsPrint = (function () {
     return { rows: rows, truncated: truncated };
   }
 
+  /**
+   * Set the labels tab up for SCANNING: install one ARRAYFORMULA in the Name and Price columns
+   * that looks up the WHOLE barcode column against the DATA tab, so scanning a barcode into any
+   * row auto-fills name + price with no menu action and no per-row formula. Also sets the barcode
+   * column to the DATA barcode column's type, so a scanned value matches the (type-strict) lookup.
+   * One-time; backs the tab up first and replaces the Name/Price columns below the header.
+   */
+  function setupScanning() {
+    var labels = findLabelsSheet();
+    if (!labels) throw new Error('Could not find your LABELS tab (it needs Barcode + Name headers in the top rows).');
+    var loc = locateCols(labels);
+    if (loc.bcCol === -1) throw new Error('Could not find the Barcode column on the LABELS tab.');
+    if (loc.nameCol === -1 && loc.priceCol === -1) throw new Error('Could not find a Name or Price column on the LABELS tab.');
+    var lk = dataLookupCols_();
+    if (!lk || lk.bc === -1) throw new Error('Could not find the Barcode column on the DATA tab.');
+
+    var lock = LockService.getDocumentLock();
+    if (!lock.tryLock(30000)) throw new Error('Another operation is running — try again in a minute.');
+    try {
+      backupLabels_(labels);
+      var firstRow = loc.headerRow + 1, maxRows = labels.getMaxRows(), n = maxRows - firstRow + 1;
+      var dq = "'" + lk.sheet.getName().replace(/'/g, "''") + "'";
+      var bcL = colL_(labels, loc.bcCol);
+      var dBc = colL_(lk.sheet, lk.bc + 1);
+
+      // Barcode column type = the DATA barcode column's type, so scanned values match the lookup.
+      var numeric = dataBarcodeIsNumeric_();
+      labels.getRange(firstRow, loc.bcCol, n, 1).setNumberFormat(numeric ? '0' : '@');
+
+      // One array-formula per lookup column. VLOOKUP over a virtual {barcode, target} array works
+      // whatever the columns' physical order; the IF() keeps blank rows blank so unscanned rows
+      // stay empty. Clear the column below the header first so the array can spill.
+      var install = function (labCol, dataIdx) {
+        if (labCol === -1 || dataIdx === -1) return 0;
+        var dCol = colL_(lk.sheet, dataIdx + 1);
+        labels.getRange(firstRow, labCol, n, 1).clearContent();
+        labels.getRange(firstRow, labCol).setFormula(
+          '=ARRAYFORMULA(IF($' + bcL + firstRow + ':$' + bcL + '="","",' +
+          'IFERROR(VLOOKUP($' + bcL + firstRow + ':$' + bcL + ',{' + dq + '!$' + dBc + ':$' + dBc + ',' + dq + '!$' + dCol + ':$' + dCol + '},2,FALSE),"")))');
+        return 1;
+      };
+      var cols = install(loc.nameCol, lk.name) + install(loc.priceCol, lk.price);
+      SpreadsheetApp.flush();
+      SpreadsheetApp.getActive().toast('Scanning is set up on "' + labels.getName() + '". Scan a barcode into the ' +
+        bcL + ' column — the name/price fill in automatically. A backup was saved first.', 'Label scanning', 8);
+      return cols + ' lookup column(s) set to auto-fill.';
+    } finally {
+      lock.releaseLock();
+    }
+  }
+
   /** Snapshot the labels tab (values + formulas) into a hidden backup; keep the newest 3. */
   function backupLabels_(labels) {
     var ss = SpreadsheetApp.getActive();
@@ -277,5 +328,5 @@ var LabelsPrint = (function () {
     ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(560), 'Print price labels');
   }
 
-  return { findLabelsSheet: findLabelsSheet, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog };
+  return { findLabelsSheet: findLabelsSheet, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog, setupScanning: setupScanning };
 })();

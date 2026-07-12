@@ -15,6 +15,7 @@ function onOpen() {
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
     .addSeparator()
     .addItem('Print price labels…', 'menuPrintLabels')
+    .addItem('Set up label scanning', 'menuSetupScanning')
     .addItem('Refresh visuals', 'menuInsights')
     .addItem('Show column filters', 'menuFilters')
     .addItem('Fit columns to content', 'menuFitColumns')
@@ -35,6 +36,17 @@ function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
 function menuSelfTest() { guardedMenu_(function () { SelfTest.run(); }); }
 function menuPrintLabels() { guardedMenu_(function () { LabelsPrint.openDialog(); }); }
+function menuSetupScanning() {
+  guardedMenu_(function () {
+    var ui = SpreadsheetApp.getUi();
+    var ok = ui.alert('Set up label scanning',
+      'This makes the labels tab auto-fill: scan (or type) a barcode into the barcode column and the ' +
+      'name + price appear on that row by themselves — no dragging, empty rows stay blank.\n\n' +
+      'It replaces the Name/Price columns below the header with one auto-fill formula each ' +
+      '(a backup of the tab is saved first). Continue?', ui.ButtonSet.YES_NO);
+    if (ok === ui.Button.YES) LabelsPrint.setupScanning();
+  });
+}
 function menuInsights() { guardedMenu_(function () { Insights.rebuild(true); }); }
 function menuFitColumns() {
   guardedMenu_(function () {

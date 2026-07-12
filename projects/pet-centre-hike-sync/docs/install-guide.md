@@ -62,6 +62,10 @@ and flagged "Not in last Hike import" in the note column.
 Open **Hike Sync → Command center** for a live dashboard and a guide to every action. In short:
 - **Print price labels…** — search products, tick the ones you want; their barcodes are
   appended to the LABELS tab (backed up first) and its formulas fill in name/price.
+- **Set up label scanning** — one-time: replaces the LABELS tab's Name/Price columns with one
+  auto-fill formula each (backup saved first), so scanning — or typing — a barcode into the
+  barcode column fills name + price on that row by itself. No dragging; empty rows stay blank.
+  Run once after install (and again only if the labels tab's columns are restructured).
 - **Refresh visuals** — summary charts (value by category, product mix, stock
   health, price bands) in a "Hike Insights" tab (pies on top, bars below, colour legend at the
   bottom). Also re-applies the live stock colour-grading on the DATA SHEET's **Stock on hand**
