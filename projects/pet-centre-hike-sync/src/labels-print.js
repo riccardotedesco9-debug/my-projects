@@ -13,27 +13,43 @@ var LabelsPrint = (function () {
   var CATALOG_MAX = 50000; // payload guard for very large catalogs
   var BACKUP_PREFIX = '_hike_labels_backup_';
 
-  /** The LABELS tab = the non-data, non-hidden tab whose top rows carry Barcode + Name headers. */
-  function findLabelsSheet() {
+  /** Does a tab carry Barcode + Name headers in its top rows (and isn't a data/tool tab)? */
+  function looksLikeLabels_(sh) {
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
-    var sheets = SpreadsheetApp.getActive().getSheets();
-    for (var i = 0; i < sheets.length; i++) {
-      var sh = sheets[i], n = sh.getName();
-      // Skip the data/helper tabs and the tool's OWN visible output tabs (charts / stock overview,
-      // including any transient '… 2' duplicate) — they carry Name + Barcode headers too.
-      if (n === dataName || /^_hike_/.test(n) || /^(Stock overview|Hike Insights)( \d+)?$/.test(n)) continue;
-      if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) continue;
-      var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
-      var hasBc = false, hasName = false;
-      scan.forEach(function (row) {
-        row.forEach(function (cell) {
-          var h = ValueUtils.normHeader(cell);
-          if (h === 'barcode') hasBc = true;
-          if (h === 'name') hasName = true;
-        });
+    var n = sh.getName();
+    if (n === dataName || /^_hike_/.test(n) || /^(Stock overview|Hike Insights)( \d+)?$/.test(n)) return false;
+    if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) return false;
+    var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
+    var hasBc = false, hasName = false;
+    scan.forEach(function (row) {
+      row.forEach(function (cell) {
+        var h = ValueUtils.normHeader(cell);
+        if (h === 'barcode') hasBc = true;
+        if (h === 'name') hasName = true;
       });
-      if (hasBc && hasName) return sh;
+    });
+    return hasBc && hasName;
+  }
+
+  /** Every tab that looks like a price-label sheet (Barcode + Name). Usually one; surfaced by
+   *  Setup/Preflight so a multi-tab sheet's right labels tab is chosen deliberately. */
+  function labelsCandidates() {
+    return SpreadsheetApp.getActive().getSheets().filter(looksLikeLabels_).map(function (s) { return s.getName(); });
+  }
+
+  /**
+   * The LABELS tab. Prefers the tab pinned in Setup (LABELS_SHEET_NAME) when it exists and still
+   * carries Barcode + Name headers; otherwise auto-detects the first non-data/non-tool tab with
+   * those headers. Explicit choice beats guessing on a sheet with many tabs.
+   */
+  function findLabelsSheet() {
+    var pinned = Settings.get('LABELS_SHEET_NAME', '');
+    if (pinned) {
+      var ps = SpreadsheetApp.getActive().getSheetByName(pinned);
+      if (ps && looksLikeLabels_(ps)) return ps;
     }
+    var sheets = SpreadsheetApp.getActive().getSheets();
+    for (var i = 0; i < sheets.length; i++) if (looksLikeLabels_(sheets[i])) return sheets[i];
     return null;
   }
 
@@ -42,7 +58,7 @@ var LabelsPrint = (function () {
     try {
       var sh = SheetIO.dataSheet();
       var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-      var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+      var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
       var hr = MergeEngine.findHeaderRow(scan);
       if (hr === -1) return false;
       var bc = -1;
@@ -79,7 +95,7 @@ var LabelsPrint = (function () {
   function dataLookupCols_() {
     var sh = SheetIO.dataSheet();
     var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+    var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return null;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
@@ -328,5 +344,8 @@ var LabelsPrint = (function () {
     ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(560), 'Print price labels');
   }
 
-  return { findLabelsSheet: findLabelsSheet, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog, setupScanning: setupScanning };
+  return {
+    findLabelsSheet: findLabelsSheet, labelsCandidates: labelsCandidates, locateCols: locateCols,
+    catalog: catalog, addToLabels: addToLabels, openDialog: openDialog, setupScanning: setupScanning
+  };
 })();

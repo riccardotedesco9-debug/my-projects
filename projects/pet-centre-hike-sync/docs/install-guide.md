@@ -32,21 +32,42 @@ The first time you use the menu, Google asks for permissions and shows
 1. Click **Advanced** → **Go to (project name) (unsafe)** → **Allow**.
 2. This grants the script access under *your* account only; nobody else gains access.
 
-## Step 3 — Setup
+## Step 3 — Preflight check (verify before anything is written)
 
-**Hike Sync → Setup…** opens a short form with three settings:
+**Hike Sync → Preflight check (read-only)**. This writes nothing — it shows exactly what the
+tool detected on *this* sheet, so you can confirm it before syncing (your on-site sanity check):
 
-1. **Data tab** — the tab holding the products (it auto-detects the one with
-   Name/SKU/Barcode headers; usually "DATA SHEET").
-2. **Auto-import folder** (optional) — paste a Drive folder link. Any Hike export dropped
-   there is imported automatically within a few minutes.
-3. **Failure-alert email** (optional).
+- **Drive service / OAuth2 library / Timezone** — confirms the manifest (Step 1.3) actually
+  loaded. If Drive shows **CHECK/MISSING**, `.xlsx` imports won't work; if OAuth2 is missing,
+  the API lane won't. Re-paste `appsscript.json` and re-run Preflight.
+- **Data tab** — the tab it will sync. If it says several tabs "look like product data", make
+  sure the right one is picked in Setup (writes only ever go to that tab).
+- **Header row + columns** — confirms it found Name/SKU/Barcode and shows which columns it
+  matched for price/stock/reorder (with the real header text). Fix wording/position if a
+  required one says NOT FOUND.
+- **Labels tab** — the tab Print-labels / scanning will use (and whose Name/Price columns
+  scanning setup overwrites). Pin the right one in Setup if there are several candidates.
 
-Saving only stores preferences — it never touches product data. If the data tab has no
-stock column, Setup also appends an empty **"Stock on hand"** placeholder column (additive
-and safe) so the stock insights can work now (if Hike stock is present) or later.
+Green **PASS** everywhere (WARNs are usually fine) → proceed. Resolve any **CHECK** first.
 
-## Step 4 — First import (this is the safety gate)
+## Step 4 — Setup
+
+**Hike Sync → Setup…** opens a short form:
+
+1. **Data tab** — the tab holding the products (auto-detects the Name/SKU/Barcode tab; usually
+   "DATA SHEET"). If several tabs match, it warns you — pick the real catalog.
+2. **Labels tab** — the price-label sheet (Barcode + Name/Price). Leave on *auto-detect* unless
+   the wrong tab is picked. "Set up label scanning" writes to this tab.
+3. **Auto-import folder** (optional) — paste a Drive folder link. Any Hike export dropped there
+   is imported automatically within a few minutes.
+4. **Failure-alert email** (optional).
+
+Saving only stores preferences — it makes **no** structural change to your tabs. The only column
+the tool ever adds is the **"Hike Sync Note"** status column (added by the sync itself, after you
+approve the first import); your existing stock/price/reorder columns are updated in place, never
+duplicated.
+
+## Step 5 — First import (this is the safety gate)
 
 1. In Hike: **Products → EXPORT → Export all details**, save the file to Drive.
 2. **Hike Sync → Import Hike export file…** and paste the file's link.
@@ -84,18 +105,32 @@ Open **Hike Sync → Command center** for a live dashboard and a guide to every 
 
 ## Optional — Automatic API sync (Hike Plus plan only)
 
-1. Riccardo registers an app on developer.hikeup.com and adds this install's
-   **Return URI** (shown by **Hike Sync → Connect Hike API…**) to it.
-2. Run **Connect Hike API…**, paste the App Id/Secret, click the connect link while
-   logged into the Hike store, approve.
-3. **Hike Sync → Sync from Hike API now** for a first manual run, then
-   **Turn ON API auto-sync** (every 15 minutes, incremental, well inside Hike's rate
-   limits).
+Do a **file import first** (Step 5) — it seeds the incremental watermark, so the first API run
+pulls only recent changes instead of the whole catalog (which can exceed Google's 6-minute limit
+on a big store). Then:
+
+1. Register an app on developer.hikeup.com and add this install's **Return URI** to it — the
+   exact URI is shown by **Hike Sync → Connect Hike API…** (it's unique to this install).
+2. Run **Connect Hike API…**, paste the App Id/Secret, click the connect link while logged into
+   the Hike store, approve.
+3. **Hike Sync → Sync from Hike API now** for a first manual run, then **Turn ON API auto-sync**
+   (every 15 minutes, incremental, well inside Hike's rate limits).
 
 ## Security note
 
 Anyone with **edit** access to the spreadsheet can open its script and read the stored
 Hike credentials. Keep the editor list to people you'd trust with the Hike account.
+
+## Troubleshooting (on-site, no dev tools needed)
+
+| Symptom | Cause / fix |
+|---|---|
+| `.xlsx` import does nothing / errors | Drive advanced service missing — re-paste `appsscript.json` (Step 1.3), re-run **Preflight**. (`.csv` imports don't need it.) |
+| "Connect Hike API" errors / won't authorize | OAuth2 library missing (re-paste manifest), or the Return URI isn't registered in the Partner Dashboard, or the plan isn't Hike Plus. |
+| Wrong tab is being synced / labelled | Pick the correct **Data tab** / **Labels tab** in **Setup**; re-run **Preflight** to confirm. |
+| Preflight says "header not found" | Move the Name/SKU/Barcode header into the top 10 rows of the data tab, or pick the right tab in Setup. |
+| A chart tab or overview tab seems to have vanished | Restore from **File → Version history**, and make sure you're on the current build (older builds could over-eagerly clean tabs). |
+| Scanned barcode shows no name/price | Run **Set up label scanning** on the correct labels tab (Preflight names it); it installs the auto-fill formula. |
 
 ## If something ever looks wrong
 

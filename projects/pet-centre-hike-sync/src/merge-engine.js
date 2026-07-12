@@ -12,7 +12,7 @@ var MergeEngine = (function () {
     return typeof ValueUtils !== 'undefined' ? ValueUtils : require('./value-utils.js');
   }
 
-  var HEADER_SCAN_ROWS = 5;
+  var HEADER_SCAN_ROWS = 10; // scan the top N rows for the header (allows title/banner rows above it)
   var REQUIRED_HEADERS = ['name', 'sku', 'barcode'];
 
   /** Find the header row (contains Name+SKU+Barcode) in the first few rows. -1 if absent. */
@@ -260,6 +260,7 @@ var MergeEngine = (function () {
   }
 
   return {
+    HEADER_SCAN_ROWS: HEADER_SCAN_ROWS,
     findHeaderRow: findHeaderRow,
     rowKey: rowKey,
     headerSignature: headerSignature,

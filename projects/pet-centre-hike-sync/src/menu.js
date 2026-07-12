@@ -5,6 +5,7 @@
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Hike Sync')
     .addItem('Command center', 'menuDashboard')
+    .addItem('Preflight check (read-only)', 'menuPreflight')
     .addSeparator()
     .addItem('Import Hike export file…', 'menuImportFile')
     .addItem('Import newest from watch folder', 'menuImportLatest')
@@ -34,13 +35,22 @@ function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
+function menuPreflight() { guardedMenu_(function () { Preflight.show(); }); }
 function menuSelfTest() { guardedMenu_(function () { SelfTest.run(); }); }
 function menuPrintLabels() { guardedMenu_(function () { LabelsPrint.openDialog(); }); }
 function menuSetupScanning() {
   guardedMenu_(function () {
     var ui = SpreadsheetApp.getUi();
-    var ok = ui.alert('Set up label scanning',
-      'This makes the labels tab auto-fill: scan (or type) a barcode into the barcode column and the ' +
+    var target = LabelsPrint.findLabelsSheet();
+    if (!target) {
+      ui.alert('No labels tab found',
+        'This needs a price-label tab with Barcode + Name headers. Set it in Hike Sync → Setup, then try again.',
+        ui.ButtonSet.OK);
+      return;
+    }
+    var ok = ui.alert('Set up label scanning on "' + target.getName() + '"',
+      'Target tab: "' + target.getName() + '" — if that\'s the wrong tab, cancel and pick it in Setup first.\n\n' +
+      'This makes that tab auto-fill: scan (or type) a barcode into the barcode column and the ' +
       'name + price appear on that row by themselves — no dragging, empty rows stay blank.\n\n' +
       'It replaces the Name/Price columns below the header with one auto-fill formula each ' +
       '(a backup of the tab is saved first). Continue?', ui.ButtonSet.YES_NO);

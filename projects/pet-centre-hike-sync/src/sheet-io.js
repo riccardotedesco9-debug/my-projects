@@ -233,33 +233,9 @@ var SheetIO = (function () {
     var existing = sh.getFilter();
     if (existing) existing.remove();
     var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues());
     if (hr === -1) throw new Error('Header row (Name / SKU / Barcode) not found — run Setup and import first.');
     sh.getRange(hr + 1, 1, lastRow - hr, lastCol).createFilter();
-  }
-
-  /**
-   * If the data tab has NO stock column, append an EMPTY "Stock on hand" column at the end —
-   * additive and safe (never touches existing data, never causes an import to abort), a ready
-   * placeholder for future stock tracking. No-op when a stock column already exists (stock then
-   * works out of the box). Returns true only when it added the column.
-   */
-  function ensureStockColumn() {
-    var sh = dataSheet();
-    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-    if (lastCol < 1) return false;
-    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
-    var hr = MergeEngine.findHeaderRow(scan);
-    if (hr === -1) return false;
-    var hasStock = scan[hr].some(function (h) {
-      var n = ValueUtils.normHeader(h);
-      return n === 'stock on hand' || n === 'on hand' || n === 'stock' || /_stock on hand$/.test(n);
-    });
-    if (hasStock) return false;
-    var col = lastCol + 1;
-    if (sh.getMaxColumns() < col) sh.insertColumnsAfter(sh.getMaxColumns(), col - sh.getMaxColumns());
-    sh.getRange(hr + 1, col).setValue('Stock on hand');
-    return true;
   }
 
   /**
@@ -273,7 +249,7 @@ var SheetIO = (function () {
     var sh = dataSheet();
     var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
     if (lastCol < 1) return 0;
-    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues());
     var headers = hr === -1 ? [] : sh.getRange(hr + 1, 1, 1, lastCol).getValues()[0];
     sh.autoResizeColumns(1, lastCol);
     var MAX_W = 320, capped = 0;
@@ -296,7 +272,6 @@ var SheetIO = (function () {
     trimToData: trimToData,
     enableFilters: enableFilters,
     fitColumns: fitColumns,
-    ensureStockColumn: ensureStockColumn,
     BACKUP_PREFIX: BACKUP_PREFIX
   };
 })();

@@ -135,6 +135,14 @@ test('header row below a preamble row is found; row indexes stay correct', () =>
   assert.equal(plan.updates[0].rowIndex, 2);
 });
 
+test('header scan window is 10 rows: a header on row 8 is found, beyond row 10 is not', () => {
+  const header = ['Name', 'SKU', 'Barcode'];
+  const junk = (n) => Array.from({ length: n }, () => ['note', '', '']);
+  assert.equal(MergeEngine.HEADER_SCAN_ROWS, 10);
+  assert.equal(MergeEngine.findHeaderRow([...junk(7), header, ['a', 'b', 'c']]), 7); // 8th row, inside window
+  assert.equal(MergeEngine.findHeaderRow([...junk(11), header]), -1);                // 12th row, past window
+});
+
 test('null incoming cells mean "leave the sheet value alone" (API lane)', () => {
   const row = [null, null, 'PC1234567891011', null, null, null, null, null, null, '€13.00', null, null];
   const plan = MergeEngine.buildPlan(sheet(), { headers: HEADERS, rows: [row] }, {});

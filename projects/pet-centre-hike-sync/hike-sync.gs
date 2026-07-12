@@ -175,7 +175,7 @@ var MergeEngine = (function () {
     return typeof ValueUtils !== 'undefined' ? ValueUtils : require('./value-utils.js');
   }
 
-  var HEADER_SCAN_ROWS = 5;
+  var HEADER_SCAN_ROWS = 10; // scan the top N rows for the header (allows title/banner rows above it)
   var REQUIRED_HEADERS = ['name', 'sku', 'barcode'];
 
   /** Find the header row (contains Name+SKU+Barcode) in the first few rows. -1 if absent. */
@@ -423,6 +423,7 @@ var MergeEngine = (function () {
   }
 
   return {
+    HEADER_SCAN_ROWS: HEADER_SCAN_ROWS,
     findHeaderRow: findHeaderRow,
     rowKey: rowKey,
     headerSignature: headerSignature,
@@ -569,6 +570,7 @@ var HikeFieldMap = (function () {
   }
 
   return {
+    detectOutletPrefix: detectOutletPrefix,
     productsToIncoming: productsToIncoming,
     pickImageUrl: pickImageUrl
   };
@@ -595,6 +597,7 @@ var Settings = (function () {
 
   var DEFAULTS = {
     DATA_SHEET_NAME: 'DATA SHEET',
+    LABELS_SHEET_NAME: '', // '' = auto-detect the labels tab; set in Setup to pin it explicitly
     BACKUP_KEEP: '3',
     NOTE_COLUMN_HEADER: 'Hike Sync Note',
     IGNORE_UNMATCHED: 'no',
@@ -603,26 +606,28 @@ var Settings = (function () {
     FIRST_APPLY_DONE: '' // set to 'yes' after the first human-confirmed apply
   };
 
-  /** Detect which tab looks like the Hike product data tab (has Name/SKU/Barcode headers). */
-  function detectDataTab() {
-    var sheets = SpreadsheetApp.getActive().getSheets();
-    for (var i = 0; i < sheets.length; i++) {
-      var name = sheets[i].getName();
-      if (/^_hike_/.test(name)) continue;
-      var rows = Math.min(5, sheets[i].getLastRow());
-      var cols = sheets[i].getLastColumn();
-      if (rows < 1 || cols < 3) continue;
-      var values = sheets[i].getRange(1, 1, rows, cols).getValues();
-      if (MergeEngine.findHeaderRow(values) !== -1) return name;
-    }
-    return null;
+  /** Every non-_hike_ tab whose top rows carry a Name/SKU/Barcode header row — i.e. every tab that
+   *  looks like Hike product data. On a multi-tab sheet there may be more than one; the caller/UI
+   *  surfaces that so the right one is chosen deliberately rather than silently taking the first. */
+  function dataTabCandidates() {
+    var out = [];
+    SpreadsheetApp.getActive().getSheets().forEach(function (sh) {
+      var name = sh.getName();
+      if (/^_hike_/.test(name)) return;
+      var rows = Math.min(MergeEngine.HEADER_SCAN_ROWS, sh.getLastRow());
+      var cols = sh.getLastColumn();
+      if (rows < 1 || cols < 3) return;
+      if (MergeEngine.findHeaderRow(sh.getRange(1, 1, rows, cols).getValues()) !== -1) out.push(name);
+    });
+    return out;
   }
 
   /**
-   * Setup: one self-explaining form (HTML modal) for the three preferences the sync needs —
-   * which tab holds the product data, an optional auto-import Drive folder, and an optional
-   * failure-alert email. It only SAVES preferences; it never touches product data. Saving is
-   * done by hikeSaveSetup -> applySetup via google.script.run.
+   * Setup: one self-explaining form (HTML modal) for the preferences the sync needs — which tab
+   * holds the product data, which tab is the price-label sheet, an optional auto-import Drive
+   * folder, and an optional failure-alert email. It only SAVES preferences; the only structural
+   * change the tool ever makes is the additive "Hike Sync Note" status column (added by the sync
+   * itself, not here). Saving is done by hikeSaveSetup -> applySetup via google.script.run.
    */
   function setupWizard() {
     var active = SpreadsheetApp.getActive();
@@ -631,13 +636,28 @@ var Settings = (function () {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
       });
     }
-    var detected = detectDataTab();
-    var chosen = get('DATA_SHEET_NAME', '') || detected || DEFAULTS.DATA_SHEET_NAME;
-    var options = active.getSheets().map(function (s) { return s.getName(); })
-      .filter(function (n) { return !/^_hike_/.test(n); })
-      .map(function (n) {
-        return '<option value="' + esc(n) + '"' + (n === chosen ? ' selected' : '') + '>' +
-          esc(n) + (n === detected ? ' — looks like your data tab' : '') + '</option>';
+    var candidates = dataTabCandidates();          // every tab that looks like product data
+    var isCand = {}; candidates.forEach(function (n) { isCand[n] = 1; });
+    var detected = candidates[0] || null;
+    var chosenData = get('DATA_SHEET_NAME', '') || detected || DEFAULTS.DATA_SHEET_NAME;
+    var allTabs = active.getSheets().map(function (s) { return s.getName(); })
+      .filter(function (n) { return !/^_hike_/.test(n); });
+    var dataOptions = allTabs.map(function (n) {
+      return '<option value="' + esc(n) + '"' + (n === chosenData ? ' selected' : '') + '>' +
+        esc(n) + (isCand[n] ? ' — looks like product data' : '') + '</option>';
+    }).join('');
+    var multiWarn = candidates.length > 1
+      ? '<p class="warn">' + candidates.length + ' tabs look like product data (' + esc(candidates.join(', ')) +
+        '). Pick the real catalog — the sync only ever writes to the one chosen here.</p>' : '';
+
+    // Labels tab: auto-detected suggestion + a chosen/stored value (blank = auto-detect).
+    var autoLabels = ''; try { var ls = LabelsPrint.findLabelsSheet(); autoLabels = ls ? ls.getName() : ''; } catch (e) { }
+    var chosenLabels = get('LABELS_SHEET_NAME', '');
+    var labelsOptions = '<option value=""' + (chosenLabels ? '' : ' selected') + '>(auto-detect' +
+      (autoLabels ? ': ' + esc(autoLabels) : '') + ')</option>' +
+      allTabs.filter(function (n) { return n !== chosenData; }).map(function (n) {
+        return '<option value="' + esc(n) + '"' + (n === chosenLabels ? ' selected' : '') + '>' +
+          esc(n) + (n === autoLabels ? ' — looks like your labels tab' : '') + '</option>';
       }).join('');
 
     // Show the watch folder as a clickable link (round-trips through parseFileId on save).
@@ -653,6 +673,7 @@ var Settings = (function () {
       'body{font:13px/1.55 system-ui,Segoe UI,Arial;color:#1a2b3c;margin:0;padding:16px}' +
       'h2{color:#12a5a5;margin:0 0 8px;font-size:16px}' +
       '.lead{background:#f3faf9;border-left:3px solid #12a5a5;padding:9px 11px;border-radius:4px;margin:0 0 4px}' +
+      '.warn{background:#fff4e5;border-left:3px solid #e8871e;padding:7px 10px;border-radius:4px;margin:6px 0 0;font-size:12px}' +
       'label{display:block;font-weight:600;margin:16px 0 4px}.opt{font-weight:400;color:#888}' +
       'select,input{width:100%;box-sizing:border-box;padding:6px 8px;font:inherit;border:1px solid #bbb;border-radius:4px}' +
       '.help{color:#777;margin:5px 0 0;font-size:12px}' +
@@ -660,21 +681,27 @@ var Settings = (function () {
       'button:disabled{opacity:.6;cursor:default}.msg{margin-top:12px;font-size:12px;min-height:16px}' +
       '</style>' +
       '<h2>Hike Sync — Setup</h2>' +
-      '<div class="lead">Setup just saves <b>three preferences</b> so the sync knows where to work. ' +
-      'It does <b>not</b> change your products — the first real sync still shows you a preview to approve.</div>' +
+      '<div class="lead">Setup just saves <b>where to work</b>. It does <b>not</b> change your products — ' +
+      'the only column the tool ever adds is a "Hike Sync Note" status column, and the first real sync ' +
+      'always shows a preview to approve first. Tip: run <b>Preflight check</b> to see what the tool detected.</div>' +
 
       '<label>1. Which tab holds your product data?</label>' +
-      '<select id="tab">' + options + '</select>' +
+      '<select id="tab">' + dataOptions + '</select>' + multiWarn +
       '<p class="help">The tab the sync keeps up to date from Hike (your catalog). Your price-label ' +
-      'lookup reads from this tab. Normally the one marked above.</p>' +
+      'lookup reads from this tab. Writes only ever go to this tab (plus the tool\'s own hidden tabs).</p>' +
 
-      '<label>2. Auto-import folder <span class="opt">— optional</span></label>' +
+      '<label>2. Which tab is your price-label sheet? <span class="opt">— for Print labels / scanning</span></label>' +
+      '<select id="labels">' + labelsOptions + '</select>' +
+      '<p class="help">The tab you print price labels from (Barcode + Name/Price). Leave on auto-detect ' +
+      'unless the wrong tab is picked. "Set up label scanning" replaces this tab\'s Name/Price columns.</p>' +
+
+      '<label>3. Auto-import folder <span class="opt">— optional</span></label>' +
       '<input id="folder" type="text" value="' + esc(folderPrefill) + '" ' +
       'placeholder="Paste a Google Drive folder link — or leave blank">' +
       '<p class="help">Drop Hike export files into this Drive folder and the newest is imported ' +
       'automatically every few minutes. Leave blank to import by hand from the menu whenever you like.</p>' +
 
-      '<label>3. Failure-alert email <span class="opt">— optional</span></label>' +
+      '<label>4. Failure-alert email <span class="opt">— optional</span></label>' +
       '<input id="email" type="text" value="' + esc(get('ALERT_EMAIL', '')) + '" ' +
       'placeholder="you@example.com — or leave blank">' +
       '<p class="help">Emailed only if a sync ever fails or is stopped for safety. Leave blank for none.</p>' +
@@ -688,12 +715,13 @@ var Settings = (function () {
       'google.script.run.withSuccessHandler(function(t){m.style.color="#137333";m.textContent=t;' +
       'b.textContent="Saved \\u2713";}).withFailureHandler(function(e){m.style.color="#c5221f";' +
       'm.textContent=e.message;b.disabled=false;}).hikeSaveSetup({' +
-      'tab:document.getElementById("tab").value,folder:document.getElementById("folder").value,' +
+      'tab:document.getElementById("tab").value,labels:document.getElementById("labels").value,' +
+      'folder:document.getElementById("folder").value,' +
       'email:document.getElementById("email").value});}' +
       '<\/script>';
 
     SpreadsheetApp.getUi().showModalDialog(
-      HtmlService.createHtmlOutput(html).setWidth(520).setHeight(600), 'Hike Sync — Setup');
+      HtmlService.createHtmlOutput(html).setWidth(540).setHeight(660), 'Hike Sync — Setup');
   }
 
   /** Persist the Setup form (called from the dialog via google.script.run -> hikeSaveSetup). */
@@ -704,20 +732,22 @@ var Settings = (function () {
       throw new Error('Tab "' + tab + '" was not found — nothing was saved.');
     }
     set('DATA_SHEET_NAME', tab);
-    // Ensure a stock column exists (additive placeholder if missing) so stock-based insights /
-    // low-stock highlighting can work — now if Hike stock is already there, or later. Additive
-    // and guarded: it never blocks setup and never touches existing data.
-    var stockAdded = false;
-    try { stockAdded = SheetIO.ensureStockColumn(); } catch (e) { /* additive — best-effort */ }
+    // Optional explicit labels tab ('' = auto-detect). Validate it exists if the owner pinned one.
+    var labels = ValueUtils.normString(form.labels);
+    if (labels && !SpreadsheetApp.getActive().getSheetByName(labels)) {
+      throw new Error('Labels tab "' + labels + '" was not found — nothing was saved.');
+    }
+    set('LABELS_SHEET_NAME', labels);
     var folderId = form.folder ? CsvImport.parseFileId(form.folder) : '';
     set('WATCH_FOLDER_ID', folderId || '');
     set('ALERT_EMAIL', ValueUtils.normString(form.email));
     ensureTrigger_('folderWatchTick', folderId ? 5 : 0);
     return 'Saved. Data tab: "' + tab + '"' +
+      (labels ? ', labels tab: "' + labels + '"' : ', labels tab: auto-detect') +
       (folderId ? ', auto-import folder ON (checked every 5 min)' : ', auto-import folder off') +
       (ValueUtils.normString(form.email) ? ', failure alerts on' : '') +
-      (stockAdded ? '. Added a "Stock on hand" placeholder column for future stock tracking' : '') +
-      '. Next: run "Import Hike export file…" — the first run always previews before writing.';
+      '. The tool adds only a "Hike Sync Note" status column (your stock/price columns are updated in place). ' +
+      'Next: run "Import Hike export file…" — the first run always previews before writing.';
   }
 
   /**
@@ -738,6 +768,7 @@ var Settings = (function () {
     set: set,
     remove: remove,
     DEFAULTS: DEFAULTS,
+    dataTabCandidates: dataTabCandidates,
     setupWizard: setupWizard,
     applySetup: applySetup,
     ensureTrigger: ensureTrigger_
@@ -983,33 +1014,9 @@ var SheetIO = (function () {
     var existing = sh.getFilter();
     if (existing) existing.remove();
     var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
-    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues());
     if (hr === -1) throw new Error('Header row (Name / SKU / Barcode) not found — run Setup and import first.');
     sh.getRange(hr + 1, 1, lastRow - hr, lastCol).createFilter();
-  }
-
-  /**
-   * If the data tab has NO stock column, append an EMPTY "Stock on hand" column at the end —
-   * additive and safe (never touches existing data, never causes an import to abort), a ready
-   * placeholder for future stock tracking. No-op when a stock column already exists (stock then
-   * works out of the box). Returns true only when it added the column.
-   */
-  function ensureStockColumn() {
-    var sh = dataSheet();
-    var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-    if (lastCol < 1) return false;
-    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
-    var hr = MergeEngine.findHeaderRow(scan);
-    if (hr === -1) return false;
-    var hasStock = scan[hr].some(function (h) {
-      var n = ValueUtils.normHeader(h);
-      return n === 'stock on hand' || n === 'on hand' || n === 'stock' || /_stock on hand$/.test(n);
-    });
-    if (hasStock) return false;
-    var col = lastCol + 1;
-    if (sh.getMaxColumns() < col) sh.insertColumnsAfter(sh.getMaxColumns(), col - sh.getMaxColumns());
-    sh.getRange(hr + 1, col).setValue('Stock on hand');
-    return true;
   }
 
   /**
@@ -1023,7 +1030,7 @@ var SheetIO = (function () {
     var sh = dataSheet();
     var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
     if (lastCol < 1) return 0;
-    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues());
+    var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues());
     var headers = hr === -1 ? [] : sh.getRange(hr + 1, 1, 1, lastCol).getValues()[0];
     sh.autoResizeColumns(1, lastCol);
     var MAX_W = 320, capped = 0;
@@ -1046,7 +1053,6 @@ var SheetIO = (function () {
     trimToData: trimToData,
     enableFilters: enableFilters,
     fitColumns: fitColumns,
-    ensureStockColumn: ensureStockColumn,
     BACKUP_PREFIX: BACKUP_PREFIX
   };
 })();
@@ -1597,27 +1603,43 @@ var LabelsPrint = (function () {
   var CATALOG_MAX = 50000; // payload guard for very large catalogs
   var BACKUP_PREFIX = '_hike_labels_backup_';
 
-  /** The LABELS tab = the non-data, non-hidden tab whose top rows carry Barcode + Name headers. */
-  function findLabelsSheet() {
+  /** Does a tab carry Barcode + Name headers in its top rows (and isn't a data/tool tab)? */
+  function looksLikeLabels_(sh) {
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
-    var sheets = SpreadsheetApp.getActive().getSheets();
-    for (var i = 0; i < sheets.length; i++) {
-      var sh = sheets[i], n = sh.getName();
-      // Skip the data/helper tabs and the tool's OWN visible output tabs (charts / stock overview,
-      // including any transient '… 2' duplicate) — they carry Name + Barcode headers too.
-      if (n === dataName || /^_hike_/.test(n) || /^(Stock overview|Hike Insights)( \d+)?$/.test(n)) continue;
-      if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) continue;
-      var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
-      var hasBc = false, hasName = false;
-      scan.forEach(function (row) {
-        row.forEach(function (cell) {
-          var h = ValueUtils.normHeader(cell);
-          if (h === 'barcode') hasBc = true;
-          if (h === 'name') hasName = true;
-        });
+    var n = sh.getName();
+    if (n === dataName || /^_hike_/.test(n) || /^(Stock overview|Hike Insights)( \d+)?$/.test(n)) return false;
+    if (sh.getLastRow() < 1 || sh.getLastColumn() < 1) return false;
+    var scan = sh.getRange(1, 1, Math.min(3, sh.getLastRow()), sh.getLastColumn()).getValues();
+    var hasBc = false, hasName = false;
+    scan.forEach(function (row) {
+      row.forEach(function (cell) {
+        var h = ValueUtils.normHeader(cell);
+        if (h === 'barcode') hasBc = true;
+        if (h === 'name') hasName = true;
       });
-      if (hasBc && hasName) return sh;
+    });
+    return hasBc && hasName;
+  }
+
+  /** Every tab that looks like a price-label sheet (Barcode + Name). Usually one; surfaced by
+   *  Setup/Preflight so a multi-tab sheet's right labels tab is chosen deliberately. */
+  function labelsCandidates() {
+    return SpreadsheetApp.getActive().getSheets().filter(looksLikeLabels_).map(function (s) { return s.getName(); });
+  }
+
+  /**
+   * The LABELS tab. Prefers the tab pinned in Setup (LABELS_SHEET_NAME) when it exists and still
+   * carries Barcode + Name headers; otherwise auto-detects the first non-data/non-tool tab with
+   * those headers. Explicit choice beats guessing on a sheet with many tabs.
+   */
+  function findLabelsSheet() {
+    var pinned = Settings.get('LABELS_SHEET_NAME', '');
+    if (pinned) {
+      var ps = SpreadsheetApp.getActive().getSheetByName(pinned);
+      if (ps && looksLikeLabels_(ps)) return ps;
     }
+    var sheets = SpreadsheetApp.getActive().getSheets();
+    for (var i = 0; i < sheets.length; i++) if (looksLikeLabels_(sheets[i])) return sheets[i];
     return null;
   }
 
@@ -1626,7 +1648,7 @@ var LabelsPrint = (function () {
     try {
       var sh = SheetIO.dataSheet();
       var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-      var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+      var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
       var hr = MergeEngine.findHeaderRow(scan);
       if (hr === -1) return false;
       var bc = -1;
@@ -1663,7 +1685,7 @@ var LabelsPrint = (function () {
   function dataLookupCols_() {
     var sh = SheetIO.dataSheet();
     var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
-    var scan = sh.getRange(1, 1, Math.min(5, lastRow || 1), lastCol).getValues();
+    var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return null;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
@@ -1912,7 +1934,10 @@ var LabelsPrint = (function () {
     ui.showModalDialog(HtmlService.createHtmlOutput(html).setWidth(520).setHeight(560), 'Print price labels');
   }
 
-  return { findLabelsSheet: findLabelsSheet, catalog: catalog, addToLabels: addToLabels, openDialog: openDialog, setupScanning: setupScanning };
+  return {
+    findLabelsSheet: findLabelsSheet, labelsCandidates: labelsCandidates, locateCols: locateCols,
+    catalog: catalog, addToLabels: addToLabels, openDialog: openDialog, setupScanning: setupScanning
+  };
 })();
 
 
@@ -1966,6 +1991,25 @@ var Insights = (function () {
     return -1;
   }
 
+  // Single source of truth for column detection — used by compute_ (charts), applyLowStockRule_
+  // (colours) AND Preflight, so the Preflight report shows EXACTLY the columns the code will use.
+  var COLSPEC = {
+    cat: { exact: ['category', 'product type', 'type', 'brand'], rx: null },
+    retail: { exact: ['retail price', 'price'], rx: /_retail price$/ },
+    cost: { exact: ['cost price', 'cost'], rx: /_cost price$/ },
+    stock: { exact: ['stock on hand', 'on hand', 'stock'], rx: /_stock on hand$/ }, // charts value/health basis
+    onHand: { exact: ['stock on hand', 'on hand'], rx: /_stock on hand$/ },        // colour target
+    avail: { exact: ['stock'], rx: /_stock$/ },                                    // Available (fallback target)
+    reorder: { exact: ['reorder level'], rx: /_reorder level$/ }
+  };
+
+  /** Resolve every known column index from a normalized header row (via COLSPEC). Pure. */
+  function detectColumns(norm) {
+    var out = {};
+    Object.keys(COLSPEC).forEach(function (k) { out[k] = findCol_(norm, COLSPEC[k].exact, COLSPEC[k].rx); });
+    return out;
+  }
+
   /** One pass over the data tab → column positions, which charts apply, and the alert stats.
    *  (The chart DATA itself is live formulas — see writeHelper_ — not these snapshots.) */
   function compute_() {
@@ -1974,11 +2018,8 @@ var Insights = (function () {
     if (hr === -1) throw new Error('Could not find the header row — run Setup and import once first.');
     var norm = values[hr].map(function (h) { return ValueUtils.normHeader(h); });
 
-    var catCol = findCol_(norm, ['category', 'product type', 'type', 'brand'], null);
-    var retailCol = findCol_(norm, ['retail price', 'price'], /_retail price$/);
-    var costCol = findCol_(norm, ['cost price', 'cost'], /_cost price$/);
-    var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
-    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    var c = detectColumns(norm);
+    var catCol = c.cat, retailCol = c.retail, costCol = c.cost, stockCol = c.stock, reorderCol = c.reorder;
     var valueBasisCol = costCol !== -1 ? costCol : retailCol; // asset value = stock × cost (fallback retail)
 
     var byCount = {}, health = { out: 0, low: 0, ok: 0 };
@@ -2133,19 +2174,25 @@ var Insights = (function () {
   /**
    * Housekeeping before a rebuild: remove the now-retired "Stock overview" tab (inventory lives
    * on the DATA SHEET itself now) and any leftover numbered "Hike Insights N" duplicate from an
-   * older version. Never touches the data tab or our currently-tracked charts tab.
+   * older version. A same-named tab is deleted ONLY when it is provably OURS — recognizably a
+   * tool output tab (isOurTab_), the tool's tracked old-overview id, or an empty tab. A CLIENT
+   * tab that merely shares one of these names (and carries their data) is NEVER deleted. Never
+   * touches the data tab or our currently-tracked charts tab.
    */
   function cleanupDuplicateTabs_() {
     var ss = SpreadsheetApp.getActive();
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
     var trackedCharts = String(Settings.get(CHARTS_ID_KEY, ''));
+    var overviewId = String(Settings.get(OVERVIEW_ID_KEY, ''));
     var removed = false;
     ss.getSheets().forEach(function (s) {
       var id = String(s.getSheetId());
       if (s.getName() === dataName || id === trackedCharts) return;
-      if (/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName())) {
-        try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
-      }
+      if (!(/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName()))) return;
+      // Delete only if it's genuinely one of ours — not a client tab that happens to share the name.
+      var ours = isOurTab_(s) || id === overviewId || s.getLastRow() === 0;
+      if (!ours) return;
+      try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
     });
     if (removed) Settings.remove(OVERVIEW_ID_KEY);
   }
@@ -2156,7 +2203,7 @@ var Insights = (function () {
     try {
       var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
       if (lastCol < 1 || lastRow < 1) return;
-      var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow), lastCol).getValues());
+      var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow), lastCol).getValues());
       if (hr === -1) return;
       if (sh.getFrozenRows() < hr + 1) sh.setFrozenRows(hr + 1);
       if (sh.getFrozenColumns() < 1) sh.setFrozenColumns(1);
@@ -2196,17 +2243,17 @@ var Insights = (function () {
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
     if (lastCol < 1 || lastRow < 2) return;
-    var scan = dataSheet.getRange(1, 1, Math.min(5, lastRow), lastCol).getValues();
+    var scan = dataSheet.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow), lastCol).getValues();
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
     // Highlight the STOCK ON HAND column; also locate the plain Stock (Available) column so any
     // highlight an earlier version left on it can be cleared.
-    var onHandCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
-    var availCol = findCol_(norm, ['stock'], /_stock$/);
+    var cols = detectColumns(norm);
+    var onHandCol = cols.onHand, availCol = cols.avail;
     var target = onHandCol !== -1 ? onHandCol : availCol; // fall back to Available if no on-hand column
     if (target === -1) return;
-    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    var reorderCol = cols.reorder;
     var firstRow = hr + 2, maxRows = dataSheet.getMaxRows();
     if (lastRow < firstRow) return;
     var nRows = lastRow - firstRow + 1;
@@ -2352,7 +2399,7 @@ var Insights = (function () {
       .setFontColor('#777777');
   }
 
-  return { rebuild: rebuild };
+  return { rebuild: rebuild, detectColumns: detectColumns };
 })();
 
 
@@ -2546,6 +2593,7 @@ var Dashboard = (function () {
       '<h3>Recent activity</h3>' +
       '<table><tr><th>When</th><th>Source</th><th>Result</th><th>upd/add</th><th>Note</th></tr>' + rows + '</table>' +
       '<h3>What each menu action does</h3><ul>' +
+        '<li><b>Preflight check (read-only)</b> — shows what the tool detected (data tab, columns, labels tab, manifest) without writing anything. Run it first on a new sheet.</li>' +
         '<li><b>Import Hike export file…</b> — pick a Hike "Export all details" file; preview then apply.</li>' +
         '<li><b>Import newest from watch folder</b> — import the latest export dropped in the watched Drive folder.</li>' +
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +
@@ -2579,6 +2627,133 @@ var Dashboard = (function () {
       '</div>';
 
     SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(660).setHeight(600), 'Hike Sync — Command Center');
+  }
+
+  return { show: show };
+})();
+
+
+// ======================================================================
+// preflight.js
+// ======================================================================
+/**
+ * Preflight: a READ-ONLY "what did the tool detect on this sheet?" report. Writes nothing.
+ * It exists so the sheet can be verified before any sync — especially on a client's richer,
+ * multi-tab sheet where Claude/clasp aren't available to catch a misfire. Every line is produced
+ * by the SAME detectors the real code uses (Settings.dataTabCandidates, MergeEngine.findHeaderRow,
+ * Insights.detectColumns, HikeFieldMap.detectOutletPrefix, LabelsPrint.*), so the report equals
+ * reality. Verdicts: PASS (fine) · WARN (works, but eyeball it) · CHECK (fix before syncing).
+ */
+var Preflight = (function () {
+  function esc(v) {
+    return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+  /** A1 column letter for a 1-based column on a sheet (no letter math). */
+  function letter_(sh, col1) { return col1 < 1 ? '—' : sh.getRange(1, col1).getA1Notation().replace(/\d+$/, ''); }
+
+  function row_(verdict, label, detail) {
+    var color = verdict === 'PASS' ? '#137333' : verdict === 'WARN' ? '#e8871e' : verdict === 'CHECK' ? '#c5221f' : '#777';
+    return '<tr><td style="color:' + color + ';font-weight:700;white-space:nowrap">' + verdict + '</td>' +
+      '<td><b>' + esc(label) + '</b></td><td class="muted">' + detail + '</td></tr>';
+  }
+
+  function show() {
+    var ss = SpreadsheetApp.getActive();
+    var rows = [];
+
+    // 1. Manifest / services (a manifest-less paste is otherwise a silent failure).
+    var hasDrive = (typeof Drive !== 'undefined'); // advanced service — xlsx conversion
+    var hasOAuth = (typeof OAuth2 !== 'undefined'); // library — Hike API OAuth
+    var tz = Session.getScriptTimeZone();
+    rows.push(row_(hasDrive ? 'PASS' : 'CHECK', 'Drive service (.xlsx import)',
+      hasDrive ? 'enabled' : 'MISSING — paste appsscript.json. .xlsx imports fail without it (.csv still works).'));
+    rows.push(row_(hasOAuth ? 'PASS' : 'CHECK', 'OAuth2 library (Hike API)',
+      hasOAuth ? 'present' : 'MISSING — paste appsscript.json. The API auto-sync lane fails without it (file import still works).'));
+    rows.push(row_(tz === 'Europe/Malta' ? 'PASS' : 'WARN', 'Timezone',
+      esc(tz) + (tz === 'Europe/Malta' ? '' : ' — expected Europe/Malta (paste appsscript.json). Cosmetic: affects stamp times only.')));
+
+    // 2. DATA tab (+ multi-candidate warning).
+    var candidates = Settings.dataTabCandidates();
+    var stored = Settings.get('DATA_SHEET_NAME', '');
+    var effName = (stored && ss.getSheetByName(stored)) ? stored : (candidates[0] || '');
+    if (!effName) {
+      rows.push(row_('CHECK', 'Data tab', 'No tab has a Name+SKU+Barcode header in its top ' +
+        MergeEngine.HEADER_SCAN_ROWS + ' rows. Pick/fix it in Setup.'));
+    } else {
+      rows.push(row_(candidates.length > 1 ? 'WARN' : 'PASS', 'Data tab',
+        '"' + esc(effName) + '"' + (stored ? ' (chosen in Setup)' : ' (auto-detected)') +
+        (candidates.length > 1 ? ' — but ' + candidates.length + ' tabs look like product data: ' +
+          esc(candidates.join(', ')) + '. Confirm the right one in Setup — writes go only to this tab.' : '')));
+
+      // 3 + 4. Header row + columns on the effective data tab.
+      var sh = ss.getSheetByName(effName);
+      var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
+      var scan = sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow || 1), lastCol).getValues();
+      var hr = MergeEngine.findHeaderRow(scan);
+      if (hr === -1) {
+        rows.push(row_('CHECK', '· Header row', 'not found in the top ' + MergeEngine.HEADER_SCAN_ROWS +
+          ' rows of "' + esc(effName) + '". Move the header up or pick the right tab.'));
+      } else {
+        var headers = scan[hr];
+        var norm = headers.map(function (h) { return ValueUtils.normHeader(h); });
+        rows.push(row_('PASS', '· Header row', 'row ' + (hr + 1)));
+        var cols = Insights.detectColumns(norm);
+        var fields = [
+          ['Name', norm.indexOf('name'), true], ['SKU', norm.indexOf('sku'), true], ['Barcode', norm.indexOf('barcode'), true],
+          ['Retail price', cols.retail, false], ['Cost price', cols.cost, false],
+          ['Stock on hand', cols.onHand, false], ['Stock (available)', cols.avail, false], ['Reorder level', cols.reorder, false]
+        ];
+        fields.forEach(function (f) {
+          var i = f[1], required = f[2];
+          rows.push(row_(i !== -1 ? 'PASS' : (required ? 'CHECK' : 'WARN'), '· ' + f[0],
+            i !== -1 ? 'col ' + letter_(sh, i + 1) + ' — "' + esc(headers[i]) + '"'
+              : (required ? 'NOT FOUND — required; imports abort without it' : 'not found — related colour/chart feature is off')));
+        });
+        var prefix = HikeFieldMap.detectOutletPrefix(headers);
+        rows.push(row_(prefix ? 'PASS' : 'WARN', '· Outlet prefix',
+          prefix ? '"' + esc(prefix) + '"' + (candidates.length ? '' : '') : 'none — plain (single-outlet) column names'));
+      }
+    }
+
+    // 5. LABELS tab (+ multi-candidate warning + which columns "Set up label scanning" would touch).
+    var labelsCands = LabelsPrint.labelsCandidates();
+    var labels = LabelsPrint.findLabelsSheet();
+    if (!labels) {
+      rows.push(row_('WARN', 'Labels tab', 'none found (needs Barcode + Name headers). Print labels / scanning are unavailable until one is set in Setup.'));
+    } else {
+      var loc = LabelsPrint.locateCols(labels);
+      rows.push(row_(labelsCands.length > 1 ? 'WARN' : 'PASS', 'Labels tab',
+        '"' + esc(labels.getName()) + '"' +
+        (labelsCands.length > 1 ? ' — ' + labelsCands.length + ' candidates: ' + esc(labelsCands.join(', ')) + '. Pin the right one in Setup.' : '') +
+        '. "Set up label scanning" overwrites this tab\'s Name/Price columns (backed up first).'));
+      rows.push(row_('PASS', '· Labels columns', 'Barcode ' + letter_(labels, loc.bcCol) +
+        ', Name ' + letter_(labels, loc.nameCol) + ', Price ' + letter_(labels, loc.priceCol)));
+    }
+
+    // 6. Pre-existing tool tabs (namespace check).
+    var hikeTabs = ss.getSheets().map(function (s) { return s.getName(); }).filter(function (n) { return /^_hike_/.test(n); });
+    if (hikeTabs.length) rows.push(row_('PASS', 'Tool tabs', esc(hikeTabs.join(', ')) + ' (hidden; created by the tool)'));
+
+    // 7. State.
+    var applied = Settings.get('FIRST_APPLY_DONE', '') === 'yes';
+    rows.push(row_(applied ? 'PASS' : 'WARN', 'First sync confirmed',
+      applied ? 'yes' : 'not yet — the first import shows a preview before writing anything'));
+
+    var html =
+      '<style>' +
+      'body{font:13px/1.5 system-ui,Segoe UI,Arial;color:#1a2b3c;margin:0;padding:14px}' +
+      'h2{color:#12a5a5;margin:0 0 8px;font-size:16px}' +
+      '.lead{background:#f3faf9;border-left:3px solid #12a5a5;padding:9px 11px;border-radius:4px;margin:0 0 10px}' +
+      'table{border-collapse:collapse;width:100%;font-size:12px}td{text-align:left;padding:4px 8px;border-bottom:1px solid #eee;vertical-align:top}' +
+      '.muted{color:#555}' +
+      '</style>' +
+      '<h2>Hike Sync — Preflight (read-only)</h2>' +
+      '<div class="lead">Nothing is written. This is what the tool detected on <b>this</b> sheet — check each line before you sync. ' +
+      'The only column the tool ever adds is the "Hike Sync Note" status column; your stock/price columns are updated in place, never duplicated.</div>' +
+      '<table>' + rows.join('') + '</table>';
+    SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutput(html).setWidth(640).setHeight(620), 'Hike Sync — Preflight');
   }
 
   return { show: show };
@@ -2726,6 +2901,21 @@ var SelfTest = (function () {
       // 10. Duplicate SKU within one import — last occurrence wins, never a duplicate row
       var p10 = plan_(ctx, [ctx.headers[ctx.skuCol], ctx.headers[ctx.priceCol]], [[ctx.firstSku, 1], [ctx.firstSku, 2]]);
       results.push(check_('duplicate SKU in import — last wins, no duplicate row', p10.ok && p10.updates.length === 1 && p10.appends.length === 0, p10.errors.join(' ')));
+
+      // 11. Data-safety: a USER tab that happens to be named "Stock overview" and holds content is
+      //     NEVER deleted by an insights rebuild — only the tool's own output tabs are cleaned up.
+      var ssa = SpreadsheetApp.getActive();
+      if (!ssa.getSheetByName('Stock overview')) {
+        var uov = ssa.insertSheet('Stock overview');
+        uov.getRange(1, 1, 2, 1).setValues([['my own notes'], ['keep me']]);
+        try { Insights.rebuild(false); } catch (e2) { /* rebuild is best-effort in the test */ }
+        var survived = ssa.getSheetByName('Stock overview');
+        results.push(check_('a user "Stock overview" tab with content survives a rebuild',
+          !!survived && survived.getRange(2, 1).getValue() === 'keep me'));
+        if (survived) ssa.deleteSheet(survived);
+      } else {
+        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
+      }
     } catch (e) {
       results.push('CRASH — ' + e.message);
     } finally {
@@ -2799,6 +2989,7 @@ var SelfTest = (function () {
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Hike Sync')
     .addItem('Command center', 'menuDashboard')
+    .addItem('Preflight check (read-only)', 'menuPreflight')
     .addSeparator()
     .addItem('Import Hike export file…', 'menuImportFile')
     .addItem('Import newest from watch folder', 'menuImportLatest')
@@ -2828,13 +3019,22 @@ function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
+function menuPreflight() { guardedMenu_(function () { Preflight.show(); }); }
 function menuSelfTest() { guardedMenu_(function () { SelfTest.run(); }); }
 function menuPrintLabels() { guardedMenu_(function () { LabelsPrint.openDialog(); }); }
 function menuSetupScanning() {
   guardedMenu_(function () {
     var ui = SpreadsheetApp.getUi();
-    var ok = ui.alert('Set up label scanning',
-      'This makes the labels tab auto-fill: scan (or type) a barcode into the barcode column and the ' +
+    var target = LabelsPrint.findLabelsSheet();
+    if (!target) {
+      ui.alert('No labels tab found',
+        'This needs a price-label tab with Barcode + Name headers. Set it in Hike Sync → Setup, then try again.',
+        ui.ButtonSet.OK);
+      return;
+    }
+    var ok = ui.alert('Set up label scanning on "' + target.getName() + '"',
+      'Target tab: "' + target.getName() + '" — if that\'s the wrong tab, cancel and pick it in Setup first.\n\n' +
+      'This makes that tab auto-fill: scan (or type) a barcode into the barcode column and the ' +
       'name + price appear on that row by themselves — no dragging, empty rows stay blank.\n\n' +
       'It replaces the Name/Price columns below the header with one auto-fill formula each ' +
       '(a backup of the tab is saved first). Continue?', ui.ButtonSet.YES_NO);

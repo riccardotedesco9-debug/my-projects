@@ -16,7 +16,7 @@ const srcDir = path.join(root, 'src');
 const ORDER = [
   'value-utils.js', 'merge-engine.js', 'hike-field-map.js', 'settings.js', 'sheet-io.js',
   'sync-log.js', 'sync-runner.js', 'csv-import.js', 'hike-api.js', 'labels-print.js', 'insights.js',
-  'purge-missing.js', 'dashboard.js', 'self-test.js', 'menu.js'
+  'purge-missing.js', 'dashboard.js', 'preflight.js', 'self-test.js', 'menu.js'
 ];
 
 const header = `/**

@@ -93,6 +93,7 @@ var Dashboard = (function () {
       '<h3>Recent activity</h3>' +
       '<table><tr><th>When</th><th>Source</th><th>Result</th><th>upd/add</th><th>Note</th></tr>' + rows + '</table>' +
       '<h3>What each menu action does</h3><ul>' +
+        '<li><b>Preflight check (read-only)</b> — shows what the tool detected (data tab, columns, labels tab, manifest) without writing anything. Run it first on a new sheet.</li>' +
         '<li><b>Import Hike export file…</b> — pick a Hike "Export all details" file; preview then apply.</li>' +
         '<li><b>Import newest from watch folder</b> — import the latest export dropped in the watched Drive folder.</li>' +
         '<li><b>Sync from Hike API now</b> — pull changed products from Hike (needs Connect Hike API + a Plus plan).</li>' +

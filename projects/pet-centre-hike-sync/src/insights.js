@@ -45,6 +45,25 @@ var Insights = (function () {
     return -1;
   }
 
+  // Single source of truth for column detection — used by compute_ (charts), applyLowStockRule_
+  // (colours) AND Preflight, so the Preflight report shows EXACTLY the columns the code will use.
+  var COLSPEC = {
+    cat: { exact: ['category', 'product type', 'type', 'brand'], rx: null },
+    retail: { exact: ['retail price', 'price'], rx: /_retail price$/ },
+    cost: { exact: ['cost price', 'cost'], rx: /_cost price$/ },
+    stock: { exact: ['stock on hand', 'on hand', 'stock'], rx: /_stock on hand$/ }, // charts value/health basis
+    onHand: { exact: ['stock on hand', 'on hand'], rx: /_stock on hand$/ },        // colour target
+    avail: { exact: ['stock'], rx: /_stock$/ },                                    // Available (fallback target)
+    reorder: { exact: ['reorder level'], rx: /_reorder level$/ }
+  };
+
+  /** Resolve every known column index from a normalized header row (via COLSPEC). Pure. */
+  function detectColumns(norm) {
+    var out = {};
+    Object.keys(COLSPEC).forEach(function (k) { out[k] = findCol_(norm, COLSPEC[k].exact, COLSPEC[k].rx); });
+    return out;
+  }
+
   /** One pass over the data tab → column positions, which charts apply, and the alert stats.
    *  (The chart DATA itself is live formulas — see writeHelper_ — not these snapshots.) */
   function compute_() {
@@ -53,11 +72,8 @@ var Insights = (function () {
     if (hr === -1) throw new Error('Could not find the header row — run Setup and import once first.');
     var norm = values[hr].map(function (h) { return ValueUtils.normHeader(h); });
 
-    var catCol = findCol_(norm, ['category', 'product type', 'type', 'brand'], null);
-    var retailCol = findCol_(norm, ['retail price', 'price'], /_retail price$/);
-    var costCol = findCol_(norm, ['cost price', 'cost'], /_cost price$/);
-    var stockCol = findCol_(norm, ['stock on hand', 'on hand', 'stock'], /_stock on hand$/);
-    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    var c = detectColumns(norm);
+    var catCol = c.cat, retailCol = c.retail, costCol = c.cost, stockCol = c.stock, reorderCol = c.reorder;
     var valueBasisCol = costCol !== -1 ? costCol : retailCol; // asset value = stock × cost (fallback retail)
 
     var byCount = {}, health = { out: 0, low: 0, ok: 0 };
@@ -212,19 +228,25 @@ var Insights = (function () {
   /**
    * Housekeeping before a rebuild: remove the now-retired "Stock overview" tab (inventory lives
    * on the DATA SHEET itself now) and any leftover numbered "Hike Insights N" duplicate from an
-   * older version. Never touches the data tab or our currently-tracked charts tab.
+   * older version. A same-named tab is deleted ONLY when it is provably OURS — recognizably a
+   * tool output tab (isOurTab_), the tool's tracked old-overview id, or an empty tab. A CLIENT
+   * tab that merely shares one of these names (and carries their data) is NEVER deleted. Never
+   * touches the data tab or our currently-tracked charts tab.
    */
   function cleanupDuplicateTabs_() {
     var ss = SpreadsheetApp.getActive();
     var dataName = Settings.get('DATA_SHEET_NAME', Settings.DEFAULTS.DATA_SHEET_NAME);
     var trackedCharts = String(Settings.get(CHARTS_ID_KEY, ''));
+    var overviewId = String(Settings.get(OVERVIEW_ID_KEY, ''));
     var removed = false;
     ss.getSheets().forEach(function (s) {
       var id = String(s.getSheetId());
       if (s.getName() === dataName || id === trackedCharts) return;
-      if (/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName())) {
-        try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
-      }
+      if (!(/^Stock overview( \d+)?$/.test(s.getName()) || /^Hike Insights \d+$/.test(s.getName()))) return;
+      // Delete only if it's genuinely one of ours — not a client tab that happens to share the name.
+      var ours = isOurTab_(s) || id === overviewId || s.getLastRow() === 0;
+      if (!ours) return;
+      try { ss.deleteSheet(s); removed = true; } catch (e) { /* ignore */ }
     });
     if (removed) Settings.remove(OVERVIEW_ID_KEY);
   }
@@ -235,7 +257,7 @@ var Insights = (function () {
     try {
       var lastCol = sh.getLastColumn(), lastRow = sh.getLastRow();
       if (lastCol < 1 || lastRow < 1) return;
-      var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(5, lastRow), lastCol).getValues());
+      var hr = MergeEngine.findHeaderRow(sh.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow), lastCol).getValues());
       if (hr === -1) return;
       if (sh.getFrozenRows() < hr + 1) sh.setFrozenRows(hr + 1);
       if (sh.getFrozenColumns() < 1) sh.setFrozenColumns(1);
@@ -275,17 +297,17 @@ var Insights = (function () {
   function applyLowStockRule_(dataSheet) {
     var lastCol = dataSheet.getLastColumn(), lastRow = dataSheet.getLastRow();
     if (lastCol < 1 || lastRow < 2) return;
-    var scan = dataSheet.getRange(1, 1, Math.min(5, lastRow), lastCol).getValues();
+    var scan = dataSheet.getRange(1, 1, Math.min(MergeEngine.HEADER_SCAN_ROWS, lastRow), lastCol).getValues();
     var hr = MergeEngine.findHeaderRow(scan);
     if (hr === -1) return;
     var norm = scan[hr].map(function (h) { return ValueUtils.normHeader(h); });
     // Highlight the STOCK ON HAND column; also locate the plain Stock (Available) column so any
     // highlight an earlier version left on it can be cleared.
-    var onHandCol = findCol_(norm, ['stock on hand', 'on hand'], /_stock on hand$/);
-    var availCol = findCol_(norm, ['stock'], /_stock$/);
+    var cols = detectColumns(norm);
+    var onHandCol = cols.onHand, availCol = cols.avail;
     var target = onHandCol !== -1 ? onHandCol : availCol; // fall back to Available if no on-hand column
     if (target === -1) return;
-    var reorderCol = findCol_(norm, ['reorder level'], /_reorder level$/);
+    var reorderCol = cols.reorder;
     var firstRow = hr + 2, maxRows = dataSheet.getMaxRows();
     if (lastRow < firstRow) return;
     var nRows = lastRow - firstRow + 1;
@@ -431,5 +453,5 @@ var Insights = (function () {
       .setFontColor('#777777');
   }
 
-  return { rebuild: rebuild };
+  return { rebuild: rebuild, detectColumns: detectColumns };
 })();

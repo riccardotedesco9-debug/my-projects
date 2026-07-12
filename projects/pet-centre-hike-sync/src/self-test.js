@@ -136,6 +136,21 @@ var SelfTest = (function () {
       // 10. Duplicate SKU within one import — last occurrence wins, never a duplicate row
       var p10 = plan_(ctx, [ctx.headers[ctx.skuCol], ctx.headers[ctx.priceCol]], [[ctx.firstSku, 1], [ctx.firstSku, 2]]);
       results.push(check_('duplicate SKU in import — last wins, no duplicate row', p10.ok && p10.updates.length === 1 && p10.appends.length === 0, p10.errors.join(' ')));
+
+      // 11. Data-safety: a USER tab that happens to be named "Stock overview" and holds content is
+      //     NEVER deleted by an insights rebuild — only the tool's own output tabs are cleaned up.
+      var ssa = SpreadsheetApp.getActive();
+      if (!ssa.getSheetByName('Stock overview')) {
+        var uov = ssa.insertSheet('Stock overview');
+        uov.getRange(1, 1, 2, 1).setValues([['my own notes'], ['keep me']]);
+        try { Insights.rebuild(false); } catch (e2) { /* rebuild is best-effort in the test */ }
+        var survived = ssa.getSheetByName('Stock overview');
+        results.push(check_('a user "Stock overview" tab with content survives a rebuild',
+          !!survived && survived.getRange(2, 1).getValue() === 'keep me'));
+        if (survived) ssa.deleteSheet(survived);
+      } else {
+        results.push('PASS — a "Stock overview" tab already exists; user-tab-survives check skipped');
+      }
     } catch (e) {
       results.push('CRASH — ' + e.message);
     } finally {

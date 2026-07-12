@@ -16,16 +16,18 @@ Open the sheet → **Hike Sync** menu:
 | Action | What it does |
 |---|---|
 | **Command center** | Read-only dashboard: health, recent activity, action guide, guarantees. Start here. |
+| **Preflight check (read-only)** | Reports what the tool detected on this sheet — data tab (warns if several), header row, matched columns, labels tab, and whether the manifest's Drive service + OAuth2 library loaded. Writes nothing. Run it before syncing on a new sheet. |
 | **Import Hike export file…** | Pick a Hike "Export all details" file (.csv/.xlsx) → preview → apply. Works on any Hike plan. |
 | **Import newest from watch folder** | Import the latest export dropped in the configured Drive folder. |
 | **Sync from Hike API now** | Pull changed products from Hike's API (needs *Connect Hike API* + a Hike **Plus** plan). |
 | **Connect Hike API… / Turn ON/OFF auto-sync** | One-time API connect; schedule the pull every 15 min. |
 | **Print price labels…** | Search the catalog, tick items, append their barcodes to the LABELS tab (its formulas fill name/price). |
-| **Refresh visuals** | Build/refresh the charts ("Hike Insights" tab: pies on top, bars below, colour legend at the bottom) and re-apply the live stock colour-grading + number formats on the DATA SHEET's Stock on hand column — green → yellow → orange → red → dark red as stock falls vs each product's reorder level. |
+| **Set up label scanning** | One-time: makes the labels tab auto-fill — scan/type a barcode into the barcode column and name + price appear on that row by themselves (no dragging; empty rows stay blank). Names the target tab and backs it up first. |
+| **Refresh visuals** | Rebuild the charts ("Hike Insights" tab: pies on top, bars below, colour legend at the bottom) and re-apply the live stock colour-grading + number formats on the DATA SHEET's Stock on hand column — green → yellow → orange → red → dark red as stock falls vs each product's reorder level. The charts read **live formulas**, so they self-update as data changes — a refresh is only needed after columns move. |
 | **Show column filters** | Add filter dropdowns to every column (depleted stock, in-Hike status, category…). |
 | **Fit columns to content** | Auto-size every DATA SHEET column to its content; very wide columns (e.g. Description) are capped. |
 | **Trim empty rows** | Remove blank trailing rows from the data tab (only empty rows below the data; never touches data). |
-| **Setup…** | Choose the data tab, optional watch folder, failure-alert email. |
+| **Setup…** | Choose the data tab **and** the labels tab, optional watch folder, failure-alert email. Makes no structural change to your tabs. |
 | **Delete products no longer in Hike…** | Opt-in purge of rows flagged "not in last import" — backup + typed DELETE confirm. |
 | **Run self-test (sandbox only)** | Safety gauntlet on a sandbox copy; restores the sheet after. |
 
