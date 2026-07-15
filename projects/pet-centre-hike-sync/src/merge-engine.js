@@ -119,7 +119,9 @@ var MergeEngine = (function () {
     var hm = mapHeaders(sheetHeaders, incoming.headers);
     if (hm.unmatched.length && !opts.ignoreUnmatched) {
       plan.errors.push('The import has columns the sheet does not have: ' + hm.unmatched.join(', ') +
-        '. Nothing was written. (Sheet layout may be out of date — align it once manually, or enable "ignore extra columns".)');
+        '. Nothing was written. This usually means the sheet\'s header row doesn\'t match this export ' +
+        '(commonly a different outlet name in the column headers) — align the sheet\'s header row to the ' +
+        'export once, then re-run.');
       return plan;
     }
     if (hm.unmatched.length) plan.warnings.push('Ignored import-only columns: ' + hm.unmatched.join(', '));

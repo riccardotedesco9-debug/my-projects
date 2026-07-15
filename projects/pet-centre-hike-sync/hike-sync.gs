@@ -282,7 +282,9 @@ var MergeEngine = (function () {
     var hm = mapHeaders(sheetHeaders, incoming.headers);
     if (hm.unmatched.length && !opts.ignoreUnmatched) {
       plan.errors.push('The import has columns the sheet does not have: ' + hm.unmatched.join(', ') +
-        '. Nothing was written. (Sheet layout may be out of date — align it once manually, or enable "ignore extra columns".)');
+        '. Nothing was written. This usually means the sheet\'s header row doesn\'t match this export ' +
+        '(commonly a different outlet name in the column headers) — align the sheet\'s header row to the ' +
+        'export once, then re-run.');
       return plan;
     }
     if (hm.unmatched.length) plan.warnings.push('Ignored import-only columns: ' + hm.unmatched.join(', '));
@@ -1318,9 +1320,17 @@ var CsvImport = (function () {
   function readExport(fileId) {
     var file = DriveApp.getFileById(fileId);
     var name = file.getName();
-    var table = (/\.csv$/i.test(name) || /^text\//.test(file.getMimeType()))
-      ? readCsv_(file)
-      : readViaConversion_(file);
+    var mime = file.getMimeType();
+    var table;
+    if (mime === MimeType.GOOGLE_SHEETS) {
+      // Already a native Google Sheet (e.g. the owner used File → "Save as Google Sheets"):
+      // read it straight — no Drive file conversion, so the xlsx converter can't error here.
+      table = readNativeSheet_(SpreadsheetApp.openById(fileId));
+    } else if (/\.csv$/i.test(name) || /^text\//.test(mime)) {
+      table = readCsv_(file);
+    } else {
+      table = readViaConversion_(file);
+    }
     var headerRow = MergeEngine.findHeaderRow(table);
     if (headerRow === -1) {
       throw new Error('"' + name + '" does not look like a Hike product export (no Name/SKU/Barcode header row found).');
@@ -1333,12 +1343,34 @@ var CsvImport = (function () {
     return Utilities.parseCsv(text);
   }
 
-  /** Convert xlsx → temporary Google Sheet (Drive advanced service), read it, trash the temp. */
+  /** Read a linked NATIVE Google Sheet. A "Save as Google Sheets" of a Hike export is single-tab,
+   *  but if the owner links a multi-tab workbook by mistake, pick the tab whose top rows carry the
+   *  Name/SKU/Barcode header (the product tab) rather than blindly tab 0; fall back to the first. */
+  function readNativeSheet_(spreadsheet) {
+    var sheets = spreadsheet.getSheets();
+    for (var i = 0; i < sheets.length; i++) {
+      if (sheets[i].getLastRow() < 1 || sheets[i].getLastColumn() < 1) continue;
+      var vals = sheets[i].getDataRange().getValues();
+      if (MergeEngine.findHeaderRow(vals) !== -1) return vals;
+    }
+    return sheets[0].getDataRange().getValues();
+  }
+
+  /** Convert xlsx → temporary Google Sheet (Drive advanced service), read it, trash the temp.
+   *  Some Drive setups reject the programmatic convert with a 400; catch it and tell the owner
+   *  how to convert by hand (File → "Save as Google Sheets") instead of surfacing "Bad Request". */
   function readViaConversion_(file) {
-    var created = Drive.Files.create(
-      { name: '[tmp] hike import — auto-deleted', mimeType: 'application/vnd.google-apps.spreadsheet' },
-      file.getBlob()
-    );
+    var created;
+    try {
+      created = Drive.Files.create(
+        { name: 'tmp-hike-import-auto-deleted', mimeType: MimeType.GOOGLE_SHEETS },
+        file.getBlob()
+      );
+    } catch (e) {
+      throw new Error('Could not read "' + file.getName() + '" automatically (' + e.message +
+        '). Open it in Google Sheets, use File → "Save as Google Sheets", then import that ' +
+        'Google Sheet\'s link instead.');
+    }
     try {
       return SpreadsheetApp.openById(created.id).getSheets()[0].getDataRange().getValues();
     } finally {
@@ -1514,22 +1546,28 @@ var HikeApi = (function () {
       var resp = fetchJson_(q);
       var batch = resp.items || [];
       items = items.concat(batch);
-      if (!resp.next || !batch.length) break;
+      if (!resp.next || !batch.length) return items; // fully drained
       // Rebuild the query ourselves (docs' next-link drops Sync_From); trust its Skip_count.
       var m = String(resp.next).match(/Skip_count=(\d+)/i);
-      if (!m) break;
+      if (!m) return items;
       skip = parseInt(m[1], 10);
     }
-    return items;
+    // Ran out of page budget with more still to fetch: fail loudly rather than treat a partial
+    // pull as the whole catalog — a truncated full pull would false-flag real products "missing".
+    throw new Error('Hike returned more than ' + (MAX_PAGES * PAGE_SIZE) + ' products — too many for one API sync. ' +
+      'Use "Import Hike export file…" for the initial load; incremental auto-sync then stays small.');
   }
 
   /**
    * Pull changed products and run the merge. The incremental watermark only advances
    * when the run succeeds (applied or genuinely nothing to do), so a cancelled
    * preview never causes missed changes.
+   * @param {boolean} forceFull ignore the watermark and pull the WHOLE catalog (full reconcile,
+   *        so a product deleted locally but still in Hike is re-added). The stored watermark is
+   *        NOT cleared here — it advances only on success — so cancelling leaves auto-sync intact.
    */
-  function syncNow(interactive) {
-    var watermark = Settings.get('HIKE_SYNC_FROM', '');
+  function syncNow(interactive, forceFull) {
+    var watermark = forceFull ? '' : Settings.get('HIKE_SYNC_FROM', '');
     var incremental = !!watermark; // a watermark pull carries only changed products
     // A scheduled (non-interactive) run must NOT attempt the first full pull: it can page the
     // whole catalog (up to 200 requests), exceed the 6-minute limit, and then repeat every
@@ -1547,12 +1585,16 @@ var HikeApi = (function () {
       var sh = SheetIO.dataSheet();
       if (sh.getLastRow() > 5000) {
         var ui = SpreadsheetApp.getUi();
-        var goOn = ui.alert('Large catalog — seed by file instead?',
-          'This is the FIRST API sync, which downloads the whole catalog and can exceed Google\'s ' +
-          '6-minute limit on a catalog this size (nothing would be written).\n\n' +
-          'Recommended: run "Import Hike export file…" once with a fresh "Export all details" file — ' +
-          'instant, same result — then API auto-sync continues incrementally from there.\n\n' +
-          'Try the full API pull anyway?', ui.ButtonSet.YES_NO);
+        // Same 6-minute-timeout protection for both entry points, but honest copy: a forceFull run
+        // is a deliberate re-sync, not the "first" sync.
+        var msg = (forceFull
+          ? 'A full re-sync downloads your WHOLE Hike catalog, which can exceed Google\'s 6-minute limit '
+          : 'This is the FIRST API sync, which downloads the whole catalog and can exceed Google\'s 6-minute limit ') +
+          'on a catalog this size (nothing would be written if it times out).\n\n' +
+          'Faster alternative: run "Import Hike export file…" with a fresh "Export all details" file — ' +
+          'it also re-adds deleted products, instantly.\n\n' +
+          'Try the full API pull anyway?';
+        var goOn = ui.alert('Large catalog — ' + (forceFull ? 'full re-sync' : 'seed by file instead?'), msg, ui.ButtonSet.YES_NO);
         if (goOn !== ui.Button.YES) return;
       }
     }
@@ -1560,8 +1602,13 @@ var HikeApi = (function () {
     var products = fetchProducts(watermark || null);
 
     if (!products.length) {
-      SyncLog.logRun({ source: 'api', ok: true, message: 'No product changes since ' + (watermark || 'the beginning') + '.' });
-      if (interactive) SpreadsheetApp.getUi().alert('Hike reports no product changes since the last sync.');
+      // A full pull returning nothing means the catalog is empty; an incremental one means no
+      // changes since the watermark — say the accurate one for each.
+      SyncLog.logRun({ source: 'api', ok: true,
+        message: forceFull ? 'Full re-sync: Hike returned no products (catalog empty).' : 'No product changes since ' + (watermark || 'the beginning') + '.' });
+      if (interactive) SpreadsheetApp.getUi().alert(forceFull
+        ? 'Hike returned no products — nothing to reconcile.'
+        : 'Hike reports no product changes since the last sync.');
       Settings.set('HIKE_SYNC_FROM', fetchStartedAt);
       return;
     }
@@ -1583,10 +1630,28 @@ var HikeApi = (function () {
     }
   }
 
+  /**
+   * Manual "make the sheet match Hike exactly, now": a full reconcile that re-adds any product
+   * deleted locally and re-checks every field. Scheduled auto-sync stays incremental for speed;
+   * this is the button for when the sheet has drifted from Hike (e.g. rows deleted by hand).
+   */
+  function fullResyncNow() {
+    var ui = SpreadsheetApp.getUi();
+    var go = ui.alert('Full re-sync from Hike',
+      'This re-downloads your WHOLE Hike catalog and reconciles the sheet against it:\n' +
+      '• products deleted from the sheet but still in Hike are re-added\n' +
+      '• every product\'s details are re-checked against Hike\n' +
+      '• Hike is only read (never changed); a backup + preview come first\n\n' +
+      'Use this if the sheet has drifted from Hike. Continue?', ui.ButtonSet.YES_NO);
+    if (go !== ui.Button.YES) return;
+    syncNow(true, true);
+  }
+
   return {
     handleCallback: handleCallback,
     connectPrompt: connectPrompt,
-    syncNow: syncNow
+    syncNow: syncNow,
+    fullResyncNow: fullResyncNow
   };
 })();
 
@@ -3017,6 +3082,7 @@ function onOpen() {
     .addItem('Import newest from watch folder', 'menuImportLatest')
     .addSeparator()
     .addItem('Sync from Hike API now', 'menuApiSync')
+    .addItem('Full re-sync from Hike (re-add deleted)', 'menuApiFullResync')
     .addItem('Connect Hike API…', 'menuConnectHike')
     .addItem('Turn ON API auto-sync (every 15 min)', 'menuEnableAutoSync')
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
@@ -3038,6 +3104,7 @@ function onOpen() {
 function menuImportFile() { guardedMenu_(function () { CsvImport.importFilePrompt(); }); }
 function menuImportLatest() { guardedMenu_(function () { CsvImport.importLatestFromFolder(); }); }
 function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
+function menuApiFullResync() { guardedMenu_(function () { HikeApi.fullResyncNow(); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }

@@ -17,9 +17,17 @@ var CsvImport = (function () {
   function readExport(fileId) {
     var file = DriveApp.getFileById(fileId);
     var name = file.getName();
-    var table = (/\.csv$/i.test(name) || /^text\//.test(file.getMimeType()))
-      ? readCsv_(file)
-      : readViaConversion_(file);
+    var mime = file.getMimeType();
+    var table;
+    if (mime === MimeType.GOOGLE_SHEETS) {
+      // Already a native Google Sheet (e.g. the owner used File → "Save as Google Sheets"):
+      // read it straight — no Drive file conversion, so the xlsx converter can't error here.
+      table = readNativeSheet_(SpreadsheetApp.openById(fileId));
+    } else if (/\.csv$/i.test(name) || /^text\//.test(mime)) {
+      table = readCsv_(file);
+    } else {
+      table = readViaConversion_(file);
+    }
     var headerRow = MergeEngine.findHeaderRow(table);
     if (headerRow === -1) {
       throw new Error('"' + name + '" does not look like a Hike product export (no Name/SKU/Barcode header row found).');
@@ -32,12 +40,34 @@ var CsvImport = (function () {
     return Utilities.parseCsv(text);
   }
 
-  /** Convert xlsx → temporary Google Sheet (Drive advanced service), read it, trash the temp. */
+  /** Read a linked NATIVE Google Sheet. A "Save as Google Sheets" of a Hike export is single-tab,
+   *  but if the owner links a multi-tab workbook by mistake, pick the tab whose top rows carry the
+   *  Name/SKU/Barcode header (the product tab) rather than blindly tab 0; fall back to the first. */
+  function readNativeSheet_(spreadsheet) {
+    var sheets = spreadsheet.getSheets();
+    for (var i = 0; i < sheets.length; i++) {
+      if (sheets[i].getLastRow() < 1 || sheets[i].getLastColumn() < 1) continue;
+      var vals = sheets[i].getDataRange().getValues();
+      if (MergeEngine.findHeaderRow(vals) !== -1) return vals;
+    }
+    return sheets[0].getDataRange().getValues();
+  }
+
+  /** Convert xlsx → temporary Google Sheet (Drive advanced service), read it, trash the temp.
+   *  Some Drive setups reject the programmatic convert with a 400; catch it and tell the owner
+   *  how to convert by hand (File → "Save as Google Sheets") instead of surfacing "Bad Request". */
   function readViaConversion_(file) {
-    var created = Drive.Files.create(
-      { name: '[tmp] hike import — auto-deleted', mimeType: 'application/vnd.google-apps.spreadsheet' },
-      file.getBlob()
-    );
+    var created;
+    try {
+      created = Drive.Files.create(
+        { name: 'tmp-hike-import-auto-deleted', mimeType: MimeType.GOOGLE_SHEETS },
+        file.getBlob()
+      );
+    } catch (e) {
+      throw new Error('Could not read "' + file.getName() + '" automatically (' + e.message +
+        '). Open it in Google Sheets, use File → "Save as Google Sheets", then import that ' +
+        'Google Sheet\'s link instead.');
+    }
     try {
       return SpreadsheetApp.openById(created.id).getSheets()[0].getDataRange().getValues();
     } finally {

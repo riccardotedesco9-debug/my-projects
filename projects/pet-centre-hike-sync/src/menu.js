@@ -11,6 +11,7 @@ function onOpen() {
     .addItem('Import newest from watch folder', 'menuImportLatest')
     .addSeparator()
     .addItem('Sync from Hike API now', 'menuApiSync')
+    .addItem('Full re-sync from Hike (re-add deleted)', 'menuApiFullResync')
     .addItem('Connect Hike API…', 'menuConnectHike')
     .addItem('Turn ON API auto-sync (every 15 min)', 'menuEnableAutoSync')
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
@@ -32,6 +33,7 @@ function onOpen() {
 function menuImportFile() { guardedMenu_(function () { CsvImport.importFilePrompt(); }); }
 function menuImportLatest() { guardedMenu_(function () { CsvImport.importLatestFromFolder(); }); }
 function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
+function menuApiFullResync() { guardedMenu_(function () { HikeApi.fullResyncNow(); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
