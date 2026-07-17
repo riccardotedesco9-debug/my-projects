@@ -64,6 +64,82 @@ check("work shift renders as 💼 with label dropped", () => {
   assert.doesNotMatch(out, /\(work/i, "work label not shown as a parenthetical");
 });
 
+// 2b. WORK cancels OFF: a date with a work shift renders the shift and does
+//     NOT lead with "OFF", even if an OFF marker is also stored for that date.
+check("OFF + work shift → 💼 shown, no leading OFF", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(2), start_time: "00:00", end_time: "00:00", label: "off" },
+      { date: d(2), start_time: "09:00", end_time: "17:00", label: "work (Pet Centre, Mellieħa)" },
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /💼\s09:00–17:00/, "work shift shown");
+  const dayLine = out.split("\n").find((l) => l.includes("💼")) ?? "";
+  assert.doesNotMatch(dayLine, /OFF/, "a working day never leads with OFF");
+});
+
+// 2c. Boundary: OFF + a PERSONAL activity (no work) still leads with OFF —
+//     the work-cancels-OFF rule must not bleed into genuine days off.
+check("OFF + gym (no work) still leads with OFF", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(2), start_time: "00:00", end_time: "00:00", label: "off" },
+      { date: d(2), start_time: "18:00", end_time: "19:00", label: "💪 gym" },
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /OFF[^\n]*\+[^\n]*gym/, "OFF still leads on a genuine day off");
+});
+
+// 2d. External calendar events surface on the schedule: a timed event shows
+//     cleanly (calendar: prefix stripped), an all-day event renders as a
+//     compact [📅 …] tag that does NOT bury the day's real timed entry.
+check("external calendar events: timed shown, all-day is a compact tag", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(1), start_time: "00:00", end_time: "23:59", label: "all-day calendar: Trip to Rome" },
+      { date: d(1), start_time: "14:00", end_time: "15:00", label: "calendar: Dentist" },
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /14:00–15:00 \(Dentist\)/, "external timed event shown, prefix stripped");
+  // The 📅 emoji is glued to its text with a non-breaking space (U+00A0),
+  // which \s matches — a literal " " would not.
+  assert.match(out, /\[📅\sTrip to Rome\]/, "all-day event rendered as a compact tag");
+  assert.doesNotMatch(out, /ALL-DAY CALENDAR/i, "all-day did not dominate the line");
+  assert.doesNotMatch(out, /calendar:/i, "'calendar:' prefix stripped in display");
+});
+
+// 2e. An EXTERNAL calendar event whose title contains "work" must NOT be
+//     treated as a rota shift: it stays shown by name (not 💼) and does NOT
+//     suppress a real OFF marker (guards against re-introducing Bug 4 for
+//     calendar titles like "Work drinks").
+check("external 'work'-titled event does not cancel OFF or render as 💼", () => {
+  const out = renderScheduleForDisplay(
+    json([
+      { date: d(2), start_time: "00:00", end_time: "00:00", label: "off" },
+      { date: d(2), start_time: "20:00", end_time: "22:00", label: "calendar: Work drinks" },
+    ]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /OFF[^\n]*\+[^\n]*Work drinks/, "OFF still leads; external 'work' title does not cancel it");
+  assert.match(out, /20:00–22:00 \(Work drinks\)/, "shown by name, 'calendar:' stripped");
+  const dayLine = out.split("\n").find((l) => l.includes("Work drinks")) ?? "";
+  assert.doesNotMatch(dayLine, /💼/, "external 'work' title not rendered as rota 💼");
+});
+
+// 2f. A sanitised contact's TIMED calendar event ("calendar (busy)", no colon)
+//     renders as "(busy)", not the redundant "(calendar (busy))".
+check("sanitised contact timed calendar event renders as (busy)", () => {
+  const out = renderScheduleForDisplay(
+    json([{ date: d(1), start_time: "14:00", end_time: "15:00", label: "calendar (busy)" }]),
+    TZ,
+  ).join("\n");
+  assert.match(out, /14:00–15:00 \(busy\)/, "sanitised timed calendar event shows as (busy)");
+  assert.doesNotMatch(out, /\(calendar \(busy\)\)/, "no redundant 'calendar (busy)'");
+});
+
 // 3. Exact-duplicate entries collapse to one; non-exact dups (above) do not.
 check("exact-duplicate entry collapses to one", () => {
   const out = renderScheduleForDisplay(

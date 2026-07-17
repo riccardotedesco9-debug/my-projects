@@ -40,9 +40,9 @@ import {
   sendTextMessage,
   type InlineKeyboard,
 } from "./telegram-client.js";
-import { classifyMime, mapMimeType, arrayBufferToBase64, bufferToText, spreadsheetToText } from "./schedule-parser.js";
+import { classifyMime, mapMimeType, arrayBufferToBase64, bufferToText, spreadsheetToText, buildWeekdayLookup } from "./schedule-parser.js";
 import { formatSnapshot, todayInTimezone, todayIsoInTimezone, isoDateOffset } from "./turn-handler-snapshot.js";
-import { listCalendarEventsInWindow, probeCallerCalendarHealth, sanitiseContactCalendarEvent } from "./google-calendar.js";
+import { listCalendarEventsInWindow, probeCallerCalendarHealth, sanitiseContactCalendarEvent, filterExternalCalendarEvents } from "./google-calendar.js";
 import type { Snapshot } from "./d1-client.js";
 import {
   TOOL_SCHEMAS,
@@ -114,6 +114,9 @@ function buildSystemPrompt(todayLabel: string, timezone: string): string {
 
 Today is ${todayLabel} in the caller's timezone (${timezone}).
 
+WEEKDAY → DATE (caller's timezone). Resolve any weekday or relative day the caller names ("Wednesday", "next Tuesday", "this Friday", "tomorrow") to its ISO date using THIS table before you call any tool that takes a date — do NOT compute day-of-week arithmetic yourself, getting "next Tuesday" off by a day is a real and recurring failure. "Next <weekday>" = the SECOND matching row when today is that weekday, otherwise the first upcoming one.
+${buildWeekdayLookup(timezone)}
+
 Ground every reply in the [STATE] block. It lists the caller's profile + schedule, their contacts (with each contact's live schedule, freeform facts, and language), and whether they've connected Google Calendar. Don't claim facts not in [STATE]. If anything in the prior conversation turns conflicts with [STATE], trust [STATE] — chat history is a record of what was said, [STATE] is the ground truth of what is. EXCEPTION: when the caller verbally corrects a value already in [STATE] in the current burst ("actually it's 7 not 6", "I meant 8", "no, Tuesday"), trust the correction immediately AND persist it in the SAME turn. Tool routing for corrections: parse_schedule for shift-rota corrections (replaces only overlapping entries on the date, keeps the rest), **add_personal_event for one-off occasion corrections** (append-only, clearly an addition not a correction), upsert_knowledge for profile-fact corrections. The caller's correction IS the new ground truth — do not re-surface the old value, do not ask "are you sure?", do not flag the conflict back to them. State-vs-history is a tiebreaker for ambient drift, not a license to interrogate the caller about something they just told you. If they said "it's 7" once, it's 7 — never ask again about that value. Three common mistakes to avoid: (1) Time confabulation — when stating a specific time (e.g. "you finish at midnight"), re-check against [STATE]. 15:00–00:00 ≠ 17:00–02:00. (2) Person misclassification — when listing "who's working / off today" across many contacts, go person by person through [STATE] and verify each one's entry for that specific date. With 10+ contacts it's easy to misread one entry and wrongly mark someone as OFF when they're working. If a contact has no entry for a date but has shifts for surrounding dates, say "no data for that date" — don't assume OFF. (3) Off-day miscounting — when answering "how many off days do I have", count DISTINCT DATES, not entries (one date with OFF + a gym block is ONE off day, not two). Default scope is upcoming only — count dates AT OR AFTER the "── today ──" divider in [STATE]. Past dates are visible for "was I off yesterday?" queries, but exclude them from "this week / coming up" counts unless the caller explicitly asks about the past.
 
 Mental model. The bot is NOT the meetup hub — **Google Calendar is**. Your job is short: help people find a time, write it to both calendars via book_meetup, step aside. Post-booking coordination ("are we still on?", changes) belongs on the calendar event itself. Minimise chatter after booking.
@@ -141,7 +144,7 @@ TOOL ROUTING — hard rules, do NOT improvise around them:
 - **parse_schedule** is ONLY for fresh shift-rota uploads (new screenshots, CSVs, "here's my week"). It is NOT a tidy-up / dedupe / move tool. Never re-call parse_schedule to "clean" existing data — that pattern came from before remove_schedule_entry existed and is now obsolete. Re-uploading the same shifts to "force clean state" stacks duplicates rather than removing them.
 - **remove_schedule_entry** is THE tool for ANY destructive intent on a non-meetup entry: delete, drop, cancel, undo, tidy, dedupe duplicates, "remove the second copy". One entry per call; if the caller wants to clear multiple, call it multiple times.
 - **Moving an entry** to a different time = remove_schedule_entry (old) THEN add_personal_event (new). There is no in-place edit tool; do the two-step.
-- **mirror_to_calendar** is for closing a sync gap: an entry exists in the bot's [STATE] but the same date in [STATE]'s calendar enrichment doesn't list a matching event. Use it only to push existing entries to GCal — never for new commitments (add_personal_event does both sides itself).
+- **mirror_to_calendar** pushes an existing bot entry to Google Calendar. It is IDEMPOTENT — if a same-title event already sits at that time it creates nothing and returns already_exists — so calling it can never make a duplicate. Use it only to catch up historical entries that predate auto-mirroring, and only when the caller asks; never for new commitments (add_personal_event / book_meetup already mirror on save). NOTE: [STATE]'s calendar enrichment lists only EXTERNAL events (booked outside MeetSync); your own saved entries are NOT echoed back there, so never infer "it's missing from my calendar" from its absence in the enrichment.
 
 NEVER claim a limitation that contradicts the tools you have. If the caller asks to delete, dedupe, or move something and you previously told them "I can't" — that was wrong; the tool exists, use it now and acknowledge the earlier mistake briefly ("actually I can — let me clean it"). Saying "I can't delete individual entries" is a hard fail.
 
@@ -155,7 +158,7 @@ TRUST [STATE] OVER CHAT HISTORY — [STATE] is rebuilt from D1 every turn and is
 
 WHOLE-SCHEDULE SLEEP AUDIT — when the caller asks to "revise" / "check" / "review" sessions for sleep ("revise yoga sessions for sleep accomodation", "make sure all my workouts fit sleep", "audit my schedule for sleep gaps"), do not check just the ones labeled "yoga". Walk every NON-work entry in their schedule (gym, mobility, yin, yoga, exercise, therapy, doctor, errands, personal events) and compute the gap to the prior day's last work shift AND the next day's first work shift. Surface any entry where the gap is <9h **AND the gap actually crosses sleep hours**. CRITICAL — direction matters: a 6h gap during the DAYTIME (e.g. yoga 09:00 → work 15:00 same day, or work 07:00–16:00 → yoga 18:30 same day) is NOT a sleep concern; the caller is awake in that gap and doesn't need 8h of sleep. Only flag gaps that span the night (roughly 22:00 → 10:00 — broad enough to cover late-shift sleep patterns) AND cover at least 4 hours of that window. The programmatic sleep check in add_personal_event / book_meetup applies the same direction rule — it returns sleep_warnings only when the gap actually overlaps sleep hours. If sleep_warnings is empty on a tool result, do NOT invent extra "sleep concerns" by manual arithmetic; the math has been done correctly. Mobility/exercise at 08:00 Saturday after a Fri-night 17:00–02:00 shift IS a textbook overnight violation and must be flagged. Yoga 18:30 on the same day as work 07:00–16:00 is NOT a sleep concern — that's an evening event after a regular workday.
 
-SYNC VERB — when the caller says "ensure everything is synced" / "sync to calendar" / "everything should be on my Google Calendar", walk every personal entry in [STATE] (the date lines under the caller's schedule), look at the same date's calendar enrichment block, and check whether a same-time event already exists there. For each entry that is in the bot's schedule but NOT mirrored on the calendar, call mirror_to_calendar to push it. Skip work shifts (those are bot-only by design). Report at the end what you pushed and what was already there. Be exhaustive — don't sample 4 and call it done.
+SYNC VERB — ONLY when the caller EXPLICITLY asks to sync ("ensure everything is synced" / "sync to calendar" / "everything should be on my Google Calendar"), call mirror_to_calendar for each personal (non-work, non-meetup) entry in [STATE]. mirror_to_calendar self-dedupes (already-present events return already_exists and create nothing), so call it per entry without worrying about duplicates; report at the end what was newly pushed vs already there. Be exhaustive — don't sample 4 and call it done. NEVER do this proactively or unasked. And NEVER re-book or re-add an event you merely recall from chat or see in history: if [STATE] already shows an entry it is saved, and new entries auto-mirror on save — so there is nothing to re-create. Skip work shifts (bot-only by design).
 
 Users. Each user has ONE schedule on file. Uploads MERGE per-date: a new upload only touches the dates it covers — earlier dates from prior uploads stay put. So a user can upload Mon–Wed today and Thu–Fri next week and end up with the full week saved. Within a date the merge is overlap-driven: a new entry REPLACES any existing entry whose time window overlaps it (correction semantics — re-uploading Wed work as 12–20 replaces the prior 09–17), but PRESERVES any existing entry that doesn't overlap (so "I'm working Fri 9–5" added on top of an existing Fri exercising 6–7pm keeps both — they coexist as "💼 09:00–17:00, 18:00–19:00 (exercising)" in [STATE]). OFF markers (00:00–00:00) are inert — they never overlap with anything, so a vacation upload on Mon–Fri preserves any existing partials (doctor, gym, booked meetups) on those dates. Don't tell the user "your previous schedule was wiped" — that's no longer true. The full upload history is preserved indefinitely (no pruning). The [STATE] block only inlines an active window (today−14d → today+60d) to keep turns cheap; for any date OUTSIDE that window the user asks about ("what was September?", "did I work last Christmas?", "anything penciled for December?") call query_schedule_history before answering. The hidden-date hint lines in [STATE] tell you exactly how many older/further dates exist on file. **To DISPLAY the caller's schedule — "schedule", "show my schedule", "what's my whole schedule", "the full thing", "what have I got coming up", any open-ended schedule-display request — call show_schedule. It renders their ENTIRE upcoming schedule deterministically (today through the last stored date, no cap, work as 💼, sensitive items as "(appointment)") and sends it to the user verbatim. You NEVER hand-type, summarise, or re-list the schedule yourself — that risks silently dropping an entry. show_schedule is terminal; do not also call reply with the schedule. For a SPECIFIC out-of-window date the caller asks about in prose ("did I work last Christmas?", "anything penciled for December?"), use query_schedule_history and answer in words. The 14d/60d [STATE] window is token economy on routine turns, never a display cap.** Each user has their own private contacts list. When the caller names someone new, call add_contact — phone is OPTIONAL. Most contacts don't use Telegram; just create them by name and save their schedule. If a phone IS given, the bot shadow-tracks so the link fires automatically when that number joins. Do NOT offer invite URLs. Never gatekeep on phone — create the contact and move on.
 
@@ -173,6 +176,7 @@ Schedule encoding (schedule_json entries are BUSY windows; everything else is fr
 - BUSY all day / hectic / uncertain: start='00:00', end='23:59', label='hectic' (or 'volunteer'/'work'/etc.)
 - Partial busy: the busy times
 - OFF day with activities: a date may carry BOTH a 00:00–00:00 OFF marker AND one or more partial-busy entries (e.g. gym 18:00–19:00). The OFF marker means "off work / main commitment"; the partial entries are personal activities ON that off day. NOT contradictory — both are real. If the user says "Mon off but going to the gym 6–7pm", emit BOTH; never drop one. In [STATE] you'll see this as "Mon  OFF + 18:00–19:00 (gym)" on a single line.
+- WORK cancels OFF: the OFF-plus-activity rule is ONLY for personal activities on a genuine day off. A real WORK shift means the day is NOT off — a working date gets the work entry and NO 00:00–00:00 OFF marker. Never emit both a work shift and OFF for the same date. In [STATE] a working day renders as "💼 09:00–17:00" (no leading OFF), even if the source also said "off".
 
 Anti-examples:
 - "Free from noon" → store 00:00–12:00 busy, NOT 12:00–23:59
@@ -180,7 +184,7 @@ Anti-examples:
 - "Tue off, gym 6–7pm" → store {Tue 00:00–00:00 off} AND {Tue 18:00–19:00 gym}. Do NOT collapse to just the gym (loses "off" status) or just the OFF (loses gym block). Both entries together are correct.
 - Vacation / leave / holiday / "I'm off Mon–Fri" / "away next week" → ALWAYS encode each date as 00:00–00:00 OFF (label='vacation' / 'leave' / 'off'), NEVER as 00:00–23:59. The OFF encoding is what lets the merge preserve any prior appointments (doctor, gym, booked meetups) on those dates. Encoding vacation as all-day-busy will REPLACE and silently wipe those entries — the exact bug the user complained about.
 
-When describing such a day to the user, lead with the OFF status, then the activity: "you're off Tuesday — just gym 6–7pm" — NOT "you're working 6–7pm Tuesday" (wrong, they're off) and NOT "you're fully free Tuesday" (wrong, gym blocks 6–7pm). Same goes when describing contacts' schedules.
+When describing such a day to the user (a genuine day off with a personal activity, NO work shift), lead with the OFF status, then the activity: "you're off Tuesday — just gym 6–7pm" — NOT "you're working 6–7pm Tuesday" (wrong, they're off) and NOT "you're fully free Tuesday" (wrong, gym blocks 6–7pm). But if the day has a WORK shift, describe it as a working day, never as "off" — "you're working 09:00–17:00 Monday", not "you're off Monday". Same goes when describing contacts' schedules.
 
 In replies, never say "flexible" for uncertain days (reads as available). Say hectic/uncertain/depends. "Off"/"free" stays for confirmed free.
 
@@ -492,6 +496,14 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
       continue;
     }
     const existing = parsed ?? [];
+    // Drop the bot's own mirrored events and any pre-marker duplicate before
+    // merging: without this the enriched blob carried 2-4× copies of every
+    // bot entry (D1 row + its "calendar:" mirror read back), which is what
+    // forced the display tools to bypass this snapshot AND what drove the
+    // bot to "re-sync" events it had already booked. Only genuinely-external
+    // events reach Claude now.
+    const external = filterExternalCalendarEvents(events, existing);
+    if (external.length === 0) continue;
     // Sanitise non-caller calendar event labels before merging into the
     // snapshot. Contacts' raw GCal titles (e.g. "Therapy with Dr X @
     // Mater Dei") and locations are personally-identifying; the
@@ -500,7 +512,7 @@ async function enrichSnapshotWithCalendarEvents(snapshot: Snapshot): Promise<voi
     // slip leaks the literal title. Keep the busy-block geometry (date
     // + times + RSVP / all-day prefix) so conflict detection and
     // logistics reasoning still work, but drop the title and location.
-    const eventsForTarget = target.isCaller ? events : events.map(sanitiseContactCalendarEvent);
+    const eventsForTarget = target.isCaller ? external : external.map(sanitiseContactCalendarEvent);
     target.write(JSON.stringify([...existing, ...eventsForTarget]));
   }
   if (anyFailed) snapshot.calendarDegraded = true;

@@ -186,12 +186,6 @@ function scheduleCoverageLabel(scheduleJson: string, timezone: string): string {
 const WINDOW_DAYS_BACK = 14;
 const WINDOW_DAYS_FORWARD = 60;
 
-function isoDateWithOffset(daysOffset: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + daysOffset);
-  return d.toISOString().slice(0, 10);
-}
-
 // Group all entries by date so a date with OFF + activity (or a split
 // shift across two windows) renders on one line, not two contradictory
 // ones. Preserve insertion order within each date so labels stay stable.
@@ -284,12 +278,13 @@ function renderShiftListCompact(scheduleJson: string, indent: string, timezone: 
   const byDate = groupShiftsByDate(shifts);
   const allDates = Array.from(byDate.keys()).sort();
 
-  // Today anchor — UTC ISO, stable for comparison against ISO date strings;
-  // the +/-1 day fuzz from timezone is acceptable here (the divider is a
-  // visual hint, not a strict cutoff).
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const windowStart = isoDateWithOffset(-WINDOW_DAYS_BACK);
-  const windowEnd = isoDateWithOffset(WINDOW_DAYS_FORWARD);
+  // Today anchor in the CALLER'S timezone. A plain UTC `new Date()` drifts a
+  // day near local midnight (Malta is UTC+1/+2), which put the "── today ──"
+  // divider and window on a different date than the tz-correct "Today:" header
+  // in the same [STATE] block — the "confused about what date is what" bug.
+  const todayIso = todayIsoInTimezone(timezone);
+  const windowStart = isoDateOffset(todayIso, -WINDOW_DAYS_BACK);
+  const windowEnd = isoDateOffset(todayIso, WINDOW_DAYS_FORWARD);
 
   // Window the render to the active range. Out-of-window dates are still in
   // D1 and reachable via query_schedule_history / show_schedule; we just
@@ -616,35 +611,75 @@ function formatDayEntries(
     return true;
   });
 
+  // An external all-day CALENDAR event (vacation, birthday, all-day block)
+  // read back from Google. Detected by the "all-day calendar" label prefix
+  // (both the caller's "all-day calendar: X" and a contact's sanitised
+  // "all-day calendar (busy)"). Unlike a bot all-day-busy/hectic entry, these
+  // must NOT dominate the day — the user asked for calendar items to show,
+  // not take over — so they render as a compact tag instead.
+  const isExternalAllDay = (s: { start_time: string; end_time: string; label?: string }) =>
+    isAllDayBusy(s) && /^all-day calendar/i.test(s.label ?? "");
+
   const offEntries = deduped.filter(isOff);
-  const allDayBusy = deduped.find(isAllDayBusy);
+  const allDayBusy = deduped.find((s) => isAllDayBusy(s) && !isExternalAllDay(s));
+  const extAllDay = deduped.filter(isExternalAllDay);
   const partials = deduped.filter((s) => !isOff(s) && !isAllDayBusy(s));
 
   // Holiday annotation is a SUFFIX. Always wins for OFF/no-data days, but
   // never replaces existing partials. Format: "OFF (Sette Giugno 🎆) + 13:30–17:00 (cook)".
   const holidaySuffix = holidayName ? ` [${holidayName}]` : "";
 
+  // External all-day calendar items render as a compact tag appended like the
+  // holiday tag: "all-day calendar: Trip to Rome" → " [📅 Trip to Rome]".
+  const extTags = extAllDay.map((s) => {
+    let summary = (redactLabelForRender(s.label) ?? "")
+      .replace(/^all-day\s+/i, "")
+      .replace(/^calendar:?\s*/i, "")
+      .trim();
+    if (!summary || summary === "(busy)") summary = "all-day";
+    return summary;
+  });
+  const extSuffix = extTags.length > 0 ? ` [📅 ${extTags.join(", ")}]` : "";
+  // Meta tags (holiday + external all-day) trail whatever the day's real
+  // content is, so a timed entry is never buried by an all-day item.
+  const metaSuffix = `${holidaySuffix}${extSuffix}`;
+
   // Display-safe label: redact sensitive, then (display only) strip the
-  // "meetup: " prefix book_meetup writes so it reads cleanly to the user.
+  // internal "meetup: " / "calendar: " prefixes so an entry reads cleanly to
+  // the user ("(Dinner)" / "(Dentist)", not "(meetup: Dinner)").
   const cleanLabel = (label: string | undefined): string | undefined => {
     let safe = redactLabelForRender(label);
-    if (display && safe) safe = safe.replace(/^meetup:\s*/i, "");
+    if (display && safe) {
+      safe = safe.replace(/^(meetup|calendar):\s*/i, "");
+      // A sanitised contact's timed calendar event arrives as "calendar (busy)"
+      // (no colon, so the strip above misses it) — show it simply as "busy".
+      if (/^calendar \(busy\)$/i.test(safe)) safe = "busy";
+    }
     return safe;
   };
 
-  // All-day-busy dominates everything else on the same date — if both an
-  // OFF and a hectic-all-day are stored, the all-day-busy wins (it's the
-  // stronger signal). Should be rare; happens if a stale upload conflicts.
+  // Rota work = a bot-stored work/shift entry (💼, cancels OFF). An external
+  // CALENDAR event whose title merely contains "work"/"shift" ("Work drinks",
+  // "Shift handover") is NOT rota work — treating it as such would render it
+  // as 💼 and suppress a real OFF marker, re-introducing the "says working
+  // when off" bug for calendar titles. Calendar-sourced labels are excluded.
+  const isCalendarSourced = (label: string | undefined) => /^(all-day )?calendar\b/i.test(label ?? "");
+  const isRotaWork = (label: string | undefined) => isWorkLabel(label) && !isCalendarSourced(label);
+
+  // A bot all-day-busy / hectic entry dominates everything else on the same
+  // date — if both an OFF and a hectic-all-day are stored, the all-day-busy
+  // wins (it's the stronger signal). Should be rare; happens if a stale
+  // upload conflicts. (External all-day calendar items are excluded above.)
   if (allDayBusy) {
-    if (display && isWorkLabel(allDayBusy.label)) return "💼 all day" + holidaySuffix;
+    if (display && isWorkLabel(allDayBusy.label)) return "💼 all day" + metaSuffix;
     const safeLabel = cleanLabel(allDayBusy.label) ?? "busy all day";
-    return safeLabel.toUpperCase() + holidaySuffix;
+    return safeLabel.toUpperCase() + metaSuffix;
   }
 
   const renderPartial = (s: { start_time: string; end_time: string; label?: string }) => {
-    if (display && isWorkLabel(s.label)) return `💼 ${s.start_time}–${s.end_time}`;
+    if (display && isRotaWork(s.label)) return `💼 ${s.start_time}–${s.end_time}`;
     // The label already carries any emoji Claude chose at save time — render
-    // it verbatim (redacted + "meetup:"-stripped). Work is the one exception
+    // it verbatim (redacted + prefix-stripped). Work is the one exception
     // above: it's bulk rota data, marked with a fixed 💼.
     const safeLabel = cleanLabel(s.label);
     return safeLabel ? `${s.start_time}–${s.end_time} (${safeLabel})` : `${s.start_time}–${s.end_time}`;
@@ -656,20 +691,27 @@ function formatDayEntries(
   const sortedPartials = [...partials].sort((a, b) => a.start_time.localeCompare(b.start_time));
   const partialTokens = sortedPartials.map(renderPartial);
 
-  // OFF leads (it's the day's character) and carries the holiday tag; the
-  // timed entries follow in order.
-  if (offEntries.length > 0) {
+  // Work cancels OFF. A real work shift means the person is working that day,
+  // so don't also lead the line with "OFF" — that's the "says OFF while I'm
+  // working" bug. Scoped to bot-stored rota work only (isRotaWork): a genuine
+  // day off that carries just a personal plan (gym, dentist) — or an external
+  // calendar title that happens to contain "work" — still leads with OFF.
+  const hasWork = partials.some((s) => isRotaWork(s.label));
+
+  // OFF leads (it's the day's character) and carries the meta tags; the timed
+  // entries follow in order. Suppressed when the day has a work shift.
+  if (offEntries.length > 0 && !hasWork) {
     const rawOffLabel = cleanLabel(offEntries[0].label);
     const offLabel = rawOffLabel && rawOffLabel.toLowerCase() !== "off"
       ? `OFF (${rawOffLabel})`
       : "OFF";
-    return [`${offLabel}${holidaySuffix}`, ...partialTokens].join(" + ");
+    return [`${offLabel}${metaSuffix}`, ...partialTokens].join(" + ");
   }
 
-  // No OFF: just the chronological entries joined with " + ", holiday tag at
-  // the end so it's clearly a meta tag, not another entry.
-  if (partialTokens.length === 0) return holidaySuffix.trim();
-  return partialTokens.join(" + ") + holidaySuffix;
+  // No leading OFF: just the chronological entries joined with " + ", meta
+  // tags at the end so they're clearly meta, not another entry.
+  if (partialTokens.length === 0) return metaSuffix.trim();
+  return partialTokens.join(" + ") + metaSuffix;
 }
 
 /**

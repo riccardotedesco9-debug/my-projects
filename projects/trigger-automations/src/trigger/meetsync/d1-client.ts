@@ -656,10 +656,15 @@ export async function findChatIdsByEmails(emails: string[]): Promise<string[]> {
 
 /**
  * Append a single busy block to a user's latest_schedule_json. Used by
- * book_meetup so a booked event becomes part of the user's "memory schedule"
- * — future overlap compute will see the slot as busy and won't suggest it
- * again. Idempotent-ish: appends regardless, since duplicate busy blocks
- * don't break the matcher (they just overlap).
+ * book_meetup / add_personal_event so a booked event becomes part of the
+ * user's "memory schedule" — future overlap compute will see the slot as busy
+ * and won't suggest it again.
+ *
+ * Exact-tuple idempotent: if an identical (date, start, end, label) block is
+ * already stored, this is a no-op. Without this guard, a re-booked meetup
+ * (the "Nonno/Owen got booked again" report) or a double-fired tool call
+ * silently stacked a second identical row. Near-duplicates (different time or
+ * label) are still appended — a genuine second commitment is worth keeping.
  *
  * If the user has no schedule yet, creates one with just this block.
  */
@@ -675,6 +680,10 @@ export async function appendBusyBlockToUser(
   // Corrupt blob → start a new one with just the new block. Same
   // behaviour as before, just routed through the central parse helper.
   const shifts: ScheduleShift[] = parseScheduleBlob(user.latest_schedule_json) ?? [];
+  const isDuplicate = shifts.some(
+    (s) => s.date === date && s.start_time === startTime && s.end_time === endTime && (s.label ?? "") === label,
+  );
+  if (isDuplicate) return;
   shifts.push({ date, start_time: startTime, end_time: endTime, label });
   await updateUserLatestSchedule(chatId, JSON.stringify(shifts));
 }

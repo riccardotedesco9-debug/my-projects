@@ -36,7 +36,7 @@ const parseResultSchema = z.object({
  * window from there. Still compute subsequent days in UTC stride
  * (stable, no DST surprises inside the table itself).
  */
-function buildWeekdayLookup(timezone: string): string {
+export function buildWeekdayLookup(timezone: string): string {
   const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const lines: string[] = [];
 
@@ -131,6 +131,7 @@ Core principles when reading ANY schedule image:
 - **Be exhaustive.** Extract EVERY shift/entry visible in the target's row/column. Do not stop early.
 - **Both busy AND free days matter.** If a day in the target's row is explicitly OFF / blank / "—" / "rest" / coloured as non-working, emit a framing-B placeholder (00:00–00:00, label "OFF"). Don't silently skip.
 - **OFF + activities on the same day (IMPORTANT).** "Off day" means "off from work / main commitment", NOT "no plans whatsoever". If a day is marked OFF on the rota but the input ALSO mentions a personal activity for that same date (e.g. "Mon off, gym 18:00–19:00", "rest day — yoga 7am", "off but have a dentist 10–11"), emit **BOTH**: the 00:00–00:00 OFF placeholder AND the partial-busy activity entry on the same date. The OFF marker preserves the "I'm not working today" semantic; the activity entry preserves the actual blocked time. Never collapse one into the other. Same applies to typed text — "Tue I'm off but doing a 5k run 6–7pm" → emit one entry {Tue, 00:00, 00:00, "off"} AND a second entry {Tue, 18:00, 19:00, "5k run"}.
+- **WORK cancels OFF (do NOT emit both for a working day).** The emit-BOTH rule above is ONLY for OFF + a PERSONAL activity (gym, yoga, dentist, errands). It does NOT apply to work. If the target has a real WORK shift on a date, that date is NOT an off day — emit ONLY the work shift entry, never also a 00:00–00:00 OFF marker for it. A work shift already means "not off". So a rota showing "Mon 09:00–17:00" is a single work entry for Monday, with no OFF placeholder; only truly non-working days (blank / "—" / "rest" / "OFF" with no shift) get the OFF placeholder.
 - **Split shifts on one day.** If the target has TWO OR MORE time windows on the same day (e.g. Diego's Fri: "HK 12:00–14:00 / Deliveries 14:00–17:00"), emit each window as its own entry on that same date. Never collapse them into one range.
 - **Shifts spanning two rows.** If the rota uses one row per shift (not per person), a single person may have two or more rows on the same day. Read ALL of the target's rows for each date — don't stop at the first match.
 - **Ignore non-schedule distractions.** Email headers, logos, signatures, app chrome — all noise.

@@ -51,13 +51,55 @@ function isoOffsetForDate(dateIso: string, timezone: string): string {
  *   "all-day calendar: …" → "all-day calendar (busy)"
  *   "calendar: …"         → "calendar (busy)"
  */
-export function sanitiseContactCalendarEvent(
-  ev: { date: string; start_time: string; end_time: string; label?: string },
-): { date: string; start_time: string; end_time: string; label?: string } {
+export function sanitiseContactCalendarEvent<
+  T extends { date: string; start_time: string; end_time: string; label?: string },
+>(ev: T): T {
   const label = ev.label ?? "";
   const isAllDay = label.startsWith("all-day ");
   const opaque = isAllDay ? "all-day calendar (busy)" : "calendar (busy)";
   return { ...ev, label: opaque };
+}
+
+/**
+ * A calendar event read back as a shift-shaped busy block. `origin`
+ * distinguishes events MeetSync itself created (tagged via extendedProperties
+ * on write) from events the user booked elsewhere. The bot's own events are
+ * already represented in D1, so the enrichment/display layers drop them to
+ * avoid double-showing; only `external` events are genuinely new information.
+ */
+export interface CalendarBusyBlock {
+  date: string;
+  start_time: string;
+  end_time: string;
+  label: string;
+  origin: "bot" | "external";
+}
+
+/** The private extendedProperties key MeetSync stamps on every event it
+ *  creates, so it can recognise its own mirror when reading the calendar back. */
+const MEETSYNC_ORIGIN_KEY = "meetsync";
+
+/**
+ * Reduce a calendar read to just the events worth ADDING to a stored
+ * schedule — i.e. genuinely external ones the user booked elsewhere:
+ *   - drop the bot's own mirrored events (origin "bot") — already in D1;
+ *   - drop any remaining event whose (date,start,end) already matches a
+ *     stored entry. This is the belt-and-braces fallback for events the bot
+ *     created BEFORE the origin marker shipped (they read as "external").
+ * Compares on the time-tuple only, never the label: a booked meetup is
+ * stored in D1 as "meetup: X" but read back from Google as "calendar: X".
+ */
+export function filterExternalCalendarEvents(
+  events: CalendarBusyBlock[],
+  existingShifts: Array<{ date: string; start_time: string; end_time: string }>,
+): CalendarBusyBlock[] {
+  const existingTuples = new Set(
+    existingShifts.map((s) => `${s.date}|${s.start_time}|${s.end_time}`),
+  );
+  return events.filter((ev) => {
+    if (ev.origin === "bot") return false;
+    return !existingTuples.has(`${ev.date}|${ev.start_time}|${ev.end_time}`);
+  });
 }
 
 interface CalendarEvent {
@@ -66,6 +108,7 @@ interface CalendarEvent {
   end: { dateTime: string; timeZone: string };
   description?: string;
   attendees?: Array<{ email: string }>;
+  extendedProperties?: { private?: Record<string, string> };
 }
 
 /**
@@ -95,6 +138,9 @@ export async function createCalendarEvent(
     start: { dateTime: `${date}T${startTime}:00`, timeZone: timezone },
     end: { dateTime: `${date}T${endTime}:00`, timeZone: timezone },
     description: "Scheduled via MeetSync",
+    // Tag so we can tell our own mirror apart from externally-booked events
+    // when reading the calendar back (see listCalendarEventsInWindow).
+    extendedProperties: { private: { [MEETSYNC_ORIGIN_KEY]: "1" } },
   };
   if (attendeeEmails.length > 0) {
     event.attendees = attendeeEmails.map((email) => ({ email }));
@@ -132,7 +178,7 @@ export async function listCalendarEventsInWindow(
   startDateISO: string, // YYYY-MM-DD
   endDateISO: string, // YYYY-MM-DD (inclusive)
   timezone: string = "Europe/Malta",
-): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> {
+): Promise<CalendarBusyBlock[]> {
   const auth = await getFreshAccessToken(chatId);
   if (!auth.ok) return [];
   const accessToken = auth.accessToken;
@@ -161,9 +207,10 @@ export async function listCalendarEventsInWindow(
     start?: { dateTime?: string; date?: string };
     end?: { dateTime?: string; date?: string };
     attendees?: Array<{ self?: boolean; responseStatus?: string }>;
+    extendedProperties?: { private?: Record<string, string> };
   };
   const perCalendarResults = await Promise.all(
-    calendarIds.map(async (calId): Promise<Array<{ date: string; start_time: string; end_time: string; label: string }>> => {
+    calendarIds.map(async (calId): Promise<CalendarBusyBlock[]> => {
       const baseUrl =
         `${CALENDAR_API}/calendars/${encodeURIComponent(calId)}/events?` +
         `singleEvents=true&orderBy=startTime&maxResults=250&` +
@@ -193,7 +240,7 @@ export async function listCalendarEventsInWindow(
         if (!data.nextPageToken) break;
         pageToken = data.nextPageToken;
       }
-      const calOut: Array<{ date: string; start_time: string; end_time: string; label: string }> = [];
+      const calOut: CalendarBusyBlock[] = [];
       for (const e of allItems) {
         if (e.status === "cancelled") continue;
         // Previously filtered transparency==="transparent", but Gmail auto-
@@ -216,6 +263,11 @@ export async function listCalendarEventsInWindow(
         const summary = e.summary?.slice(0, 40) ?? "busy";
         const locPart = e.location ? ` @ ${e.location.slice(0, 40)}` : "";
         const label = `calendar: ${summary}${locPart}`;
+        // Distinguish our own mirrored events from externally-booked ones.
+        // Events created before the marker shipped read as "external"; the
+        // enrichment/display layers tuple-dedupe those against D1 as a fallback.
+        const origin: "bot" | "external" =
+          e.extendedProperties?.private?.[MEETSYNC_ORIGIN_KEY] === "1" ? "bot" : "external";
 
         // Timed event (standard meeting).
         const startDT = e.start?.dateTime;
@@ -231,6 +283,7 @@ export async function listCalendarEventsInWindow(
               start_time: `${sMatch[2]}:${sMatch[3]}`,
               end_time: `${eMatch[2]}:${eMatch[3]}`,
               label,
+              origin,
             });
             continue;
           }
@@ -252,6 +305,7 @@ export async function listCalendarEventsInWindow(
               start_time: isFirst ? startTime : "00:00",
               end_time: isLast ? endTime : "23:59",
               label,
+              origin,
             });
             const d = new Date(cursor + "T12:00:00Z");
             d.setUTCDate(d.getUTCDate() + 1);
@@ -278,6 +332,7 @@ export async function listCalendarEventsInWindow(
               start_time: "00:00",
               end_time: "23:59",
               label: `all-day ${label}`,
+              origin,
             });
             const d = new Date(cursor + "T12:00:00Z");
             d.setUTCDate(d.getUTCDate() + 1);

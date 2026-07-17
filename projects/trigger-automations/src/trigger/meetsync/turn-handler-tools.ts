@@ -71,6 +71,7 @@ import {
   findCalendarEventsOnDate,
   deleteCalendarEvent,
   sanitiseContactCalendarEvent,
+  filterExternalCalendarEvents,
 } from "./google-calendar.js";
 import {
   todayIsoInTimezone,
@@ -1761,8 +1762,30 @@ const mirrorToCalendarTool: ToolDefinition = {
         message: "Caller's Google Calendar isn't connected (or token is invalid). Tell them honestly — nothing was written. They need to run /connect.",
       };
     }
+    const tz = resolveCallerTimezone(ctx);
+    // Guard against re-mirroring something already on the calendar — the
+    // "it re-added my booking" report. If a same-title event already sits at
+    // this start time on the date, the two sides are already in sync; do
+    // nothing rather than create a duplicate. Best-effort: a failed pre-check
+    // falls through to create so a transient read error never blocks a
+    // genuine mirror.
     try {
-      const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, resolveCallerTimezone(ctx));
+      const existing = await findCalendarEventsOnDate(ctx.callerChatId, date, title, tz);
+      // Match the full time window, not just the start, so a coincidental
+      // same-title event at the same start but a different length doesn't
+      // wrongly suppress a genuine mirror.
+      if (existing.some((e) => e.start_time === startTime && e.end_time === endTime)) {
+        return {
+          calendar_event_created: "already_exists",
+          message: `A '${title}' event already exists at ${startTime}–${endTime} on ${date} — calendar is already in sync, nothing created.`,
+          event: { date, start_time: startTime, end_time: endTime, title },
+        };
+      }
+    } catch (err) {
+      console.warn(`[mirror_to_calendar] existence pre-check failed:`, err instanceof Error ? err.message : err);
+    }
+    try {
+      const r = await createCalendarEvent(ctx.callerChatId, date, startTime, endTime, title, tz);
       if (r === true) {
         return { calendar_event_created: true, event: { date, start_time: startTime, end_time: endTime, title } };
       }
@@ -1949,6 +1972,46 @@ function chunkLinesToCodeBlocks(lines: string[], budget: number): string[] {
   return messages;
 }
 
+// How far forward to pull a person's OWN calendar events when rendering a
+// display (show_schedule / show_availability). Stored shifts render to their
+// last date with no cap, but externally-booked calendar events only need the
+// near-term window — matches the [STATE] enrichment horizon.
+const DISPLAY_CAL_WINDOW_DAYS = 60;
+
+/**
+ * Merge a person's genuinely-external Google Calendar events into their stored
+ * schedule for the deterministic display renderers. Bot-mirrored events (and
+ * any pre-marker duplicate of a stored entry) are stripped via
+ * filterExternalCalendarEvents, so an externally-booked appointment shows up
+ * on the schedule while the bot's own entries never double. Calendar surfacing
+ * is an enhancement: on no-connection / read failure, the stored JSON is
+ * returned unchanged. `sanitise` opaques a contact's titles (privacy boundary).
+ */
+async function mergeExternalCalendarForDisplay(
+  chatId: string,
+  scheduleJson: string | null,
+  tz: string,
+  sanitise: boolean,
+): Promise<string | null> {
+  try {
+    const todayISO = todayIsoInTimezone(tz);
+    const windowEnd = isoDateOffset(todayISO, DISPLAY_CAL_WINDOW_DAYS);
+    const events = await listCalendarEventsInWindow(chatId, todayISO, windowEnd, tz);
+    if (events.length === 0) return scheduleJson;
+    const existing = parseScheduleBlob(scheduleJson) ?? [];
+    let external = filterExternalCalendarEvents(events, existing);
+    if (external.length === 0) return scheduleJson;
+    if (sanitise) external = external.map(sanitiseContactCalendarEvent);
+    return JSON.stringify([...existing, ...external]);
+  } catch (err) {
+    console.warn(
+      `[display] calendar merge failed for chat=${chatId}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return scheduleJson;
+  }
+}
+
 const showScheduleTool: ToolDefinition = {
   name: "show_schedule",
   description:
@@ -1964,14 +2027,14 @@ const showScheduleTool: ToolDefinition = {
   },
   async execute(input, ctx): Promise<ToolResult> {
     const tz = resolveCallerTimezone(ctx);
-    // Read the RAW canonical schedule straight from D1 — NOT the snapshot's
-    // copy, which is calendar-ENRICHED in memory. Because the bot mirrors its
-    // own entries to Google Calendar, the enriched copy duplicates every
-    // entry (2-4×, some with a "calendar:" prefix) and pulls in all-day
-    // holiday events that would dominate and hide a day's real entries. The
-    // raw store is the bot's canonical schedule and is current (writes land
-    // in D1 first), so it renders cleanly with nothing dropped.
-    const scheduleJson = await getLatestScheduleForUser(ctx.callerChatId);
+    // Start from the RAW canonical schedule in D1 (the bot's own entries),
+    // then fold in the caller's genuinely-external Google Calendar events —
+    // an appointment they booked elsewhere should appear here too. The
+    // origin marker + tuple-dedupe (mergeExternalCalendarForDisplay) strips
+    // the bot's own mirror, so entries never double the way they did when
+    // this path naively read the calendar-enriched snapshot.
+    const rawSchedule = await getLatestScheduleForUser(ctx.callerChatId);
+    const scheduleJson = await mergeExternalCalendarForDisplay(ctx.callerChatId, rawSchedule, tz, false);
     const lines = renderScheduleForDisplay(scheduleJson, tz);
     const messages: string[] = [];
     const intro = typeof input.intro === "string" ? input.intro.trim() : "";
@@ -2016,21 +2079,35 @@ const showAvailabilityTool: ToolDefinition = {
       ? (input.only_contacts as unknown[]).filter((v): v is string => typeof v === "string").map((s) => s.toLowerCase())
       : null;
 
-    // Raw canonical schedules (see show_schedule) — read straight from D1 so
-    // the grid isn't polluted by the enriched snapshot's calendar-mirror
-    // duplicates or all-day-holiday domination.
-    const callerSchedule = await getLatestScheduleForUser(ctx.callerChatId);
+    // Canonical D1 schedules plus each person's genuinely-external calendar
+    // events (bot mirrors + pre-marker duplicates stripped by
+    // mergeExternalCalendarForDisplay). Contacts' event titles are opaqued.
+    const rawCallerSchedule = await getLatestScheduleForUser(ctx.callerChatId);
+    const callerSchedule = await mergeExternalCalendarForDisplay(ctx.callerChatId, rawCallerSchedule, tz, false);
     const people: Array<{ name: string; scheduleJson: string | null }> = [
       { name: ctx.snapshot.user.name ?? "You", scheduleJson: callerSchedule },
     ];
     const notes = await getPersonNotesForOwner(ctx.callerChatId); // excludes hidden
-    for (const n of notes) {
-      if (onlyFilter && !onlyFilter.includes(n.name.toLowerCase())) continue;
-      // Prefer the on-behalf schedule; else the linked user's canonical one.
-      let sched = n.schedule_json;
-      if (!sched && n.linked_chat_id) sched = await getLatestScheduleForUser(n.linked_chat_id);
-      if (!sched) continue;
-      people.push({ name: n.name, scheduleJson: sched });
+    // Resolve each contact's schedule in PARALLEL — each linked contact needs a
+    // Google Calendar round-trip, so a sequential loop would stack N × up-to-5s.
+    const resolved = await Promise.all(
+      notes
+        .filter((n) => !onlyFilter || onlyFilter.includes(n.name.toLowerCase()))
+        .map(async (n) => {
+          // Prefer the on-behalf schedule; else the linked user's canonical one.
+          let sched = n.schedule_json;
+          if (!sched && n.linked_chat_id) sched = await getLatestScheduleForUser(n.linked_chat_id);
+          if (!sched) return null;
+          // A linked contact has a real calendar we can read; fold in their
+          // external events too (titles opaqued for the privacy boundary).
+          if (n.linked_chat_id) {
+            sched = await mergeExternalCalendarForDisplay(n.linked_chat_id, sched, tz, true);
+          }
+          return { name: n.name, scheduleJson: sched };
+        }),
+    );
+    for (const p of resolved) {
+      if (p) people.push(p);
     }
 
     const intro = typeof input.intro === "string" ? input.intro.trim() : "";
