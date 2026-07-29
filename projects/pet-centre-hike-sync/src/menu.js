@@ -11,7 +11,6 @@ function onOpen() {
     .addItem('Import newest from watch folder', 'menuImportLatest')
     .addSeparator()
     .addItem('Sync from Hike API now', 'menuApiSync')
-    .addItem('Full re-sync from Hike (re-add deleted)', 'menuApiFullResync')
     .addItem('Connect Hike API…', 'menuConnectHike')
     .addItem('Turn ON API auto-sync (every 15 min)', 'menuEnableAutoSync')
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
@@ -22,6 +21,7 @@ function onOpen() {
     .addItem('Show column filters', 'menuFilters')
     .addItem('Fit columns to content', 'menuFitColumns')
     .addItem('Trim empty rows', 'menuTrim')
+    .addItem('Restore header row (from backup)', 'menuRestoreHeader')
     .addSeparator()
     .addItem('Setup…', 'menuSetup')
     .addItem('Delete products no longer in Hike…', 'menuPurgeMissing')
@@ -32,8 +32,10 @@ function onOpen() {
 
 function menuImportFile() { guardedMenu_(function () { CsvImport.importFilePrompt(); }); }
 function menuImportLatest() { guardedMenu_(function () { CsvImport.importLatestFromFolder(); }); }
-function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
-function menuApiFullResync() { guardedMenu_(function () { HikeApi.fullResyncNow(); }); }
+// Manual sync = a FULL reconcile (re-adds rows you deleted, snaps hand-edited cells back to Hike).
+// The background auto-sync (apiSyncTick) stays incremental for speed; only this button, which a
+// person clicks when they want the sheet to match Hike exactly, does the whole-catalog pull.
+function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true, true); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
@@ -69,6 +71,14 @@ function menuFitColumns() {
       '\n\nRun this again any time after the data changes.', SpreadsheetApp.getUi().ButtonSet.OK);
   });
 }
+function menuRestoreHeader() {
+  guardedMenu_(function () {
+    var r = SheetIO.restoreHeader();
+    SpreadsheetApp.getUi().alert(r.restored
+      ? 'Header row restored from backup "' + r.from + '" (' + r.cols + ' columns) — inserted as the top row, no products overwritten. Run Preflight to confirm, then sync.'
+      : r.reason);
+  });
+}
 function menuPurgeMissing() { guardedMenu_(function () { PurgeMissing.run(); }); }
 function menuFilters() {
   guardedMenu_(function () {
@@ -85,10 +95,11 @@ function menuTrim() {
     var gridBefore = sh.getMaxRows(), content = sh.getLastRow();
     var removed = SheetIO.trimToData();
     SpreadsheetApp.getUi().alert('Trim empty rows',
-      'Data tab: ' + content + ' row(s) have content; the grid had ' + gridBefore + ' row(s).\n\n' +
+      'Data tab: ' + content + ' row(s) had content; the grid had ' + gridBefore + ' row(s).\n\n' +
       (removed > 0
-        ? 'Removed ' + removed + ' empty trailing row(s) — only blank rows below your data, no data touched.'
-        : 'Nothing to remove — the grid already matches the content. If a low row still holds a stray value or formula, Google counts it as "used" and keeps the rows above it.') +
+        ? 'Removed ' + removed + ' empty row(s) — blank rows both BETWEEN your products (gaps) and below them. ' +
+          'Only fully-empty rows (no value or formula in any column) were removed; no data was touched.'
+        : 'Nothing to remove — no fully-empty rows found. (A row that looks blank but holds a stray value or formula in any column is kept.)') +
       '\n\nThis trims the DATA tab only; the Hike Insights charts tab sizes itself.',
       SpreadsheetApp.getUi().ButtonSet.OK);
   });

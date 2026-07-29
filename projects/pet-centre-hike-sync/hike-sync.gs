@@ -1000,16 +1000,74 @@ var SheetIO = (function () {
   }
 
   /**
-   * Trim trailing EMPTY rows so the tab isn't padded with hundreds of blank rows. Only ever
-   * removes rows BELOW the last data row (they hold no content) — never touches data. Returns
-   * how many rows were removed.
+   * Compact the data tab: remove EMPTY rows — both blank rows sitting BETWEEN products (gaps left
+   * by hand-deleting cell contents) and the blank grid rows trailing below the data. A row is only
+   * removed when it is empty across its FULL width — no values AND no formulas — so no product data
+   * (or a user formula) is ever lost. The header row and anything above it are never touched.
+   * Returns how many rows were removed.
    */
   function trimToData() {
     var sh = dataSheet();
+    var removed = 0;
+    var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if (lastRow >= 1 && lastCol >= 1) {
+      var vals = sh.getRange(1, 1, lastRow, lastCol).getValues();
+      var forms = sh.getRange(1, 1, lastRow, lastCol).getFormulas();
+      var hr = MergeEngine.findHeaderRow(vals);
+      if (hr !== -1) {
+        var rowEmpty = function (r) {
+          for (var c = 0; c < lastCol; c++) {
+            if (ValueUtils.normString(vals[r][c]) !== '' || forms[r][c] !== '') return false;
+          }
+          return true;
+        };
+        // Delete contiguous empty runs BELOW the header, bottom-up so surviving row indexes (which
+        // we test against the original snapshot) don't shift under us.
+        var r = lastRow - 1; // 0-based
+        while (r > hr) {
+          if (rowEmpty(r)) {
+            var end = r;
+            while (r > hr && rowEmpty(r)) r--;
+            sh.deleteRows(r + 2, end - r); // 1-based first empty row = (r+1)+1; count = end - r
+            removed += end - r;
+          } else { r--; }
+        }
+      }
+    }
+    // Trailing blank GRID rows below the content.
     var keep = Math.max(sh.getLastRow(), 1);
     var extra = sh.getMaxRows() - keep;
-    if (extra > 0) sh.deleteRows(keep + 1, extra);
-    return extra > 0 ? extra : 0;
+    if (extra > 0) { sh.deleteRows(keep + 1, extra); removed += extra; }
+    return removed;
+  }
+
+  /**
+   * Recovery: if the DATA tab's Name/SKU/Barcode header row was deleted by accident, put it back
+   * from the newest hidden backup (the sync's own snapshots carry the header). Inserts the header
+   * as a new top row so no product row is overwritten. No-op (with a message) when a header is
+   * already present, or when no backup with a header exists (then Version history is the fallback).
+   */
+  function restoreHeader() {
+    var sh = dataSheet();
+    if (MergeEngine.findHeaderRow(sh.getDataRange().getValues()) !== -1) {
+      return { restored: false, reason: 'A Name/SKU/Barcode header row is already present — nothing to restore.' };
+    }
+    var backups = ss().getSheets().filter(function (s) {
+      return new RegExp('^' + BACKUP_PREFIX + '\\d{6}_\\d{6}$').test(s.getName());
+    }).sort(function (a, b) { return b.getName().localeCompare(a.getName()); });
+    for (var i = 0; i < backups.length; i++) {
+      var bv = backups[i].getDataRange().getValues();
+      var hr = MergeEngine.findHeaderRow(bv);
+      if (hr !== -1) {
+        var header = bv[hr];
+        sh.insertRowBefore(1);
+        ensureGrid_(sh, 1, header.length);
+        sh.getRange(1, 1, 1, header.length).setValues([header]);
+        SpreadsheetApp.flush();
+        return { restored: true, from: backups[i].getName(), cols: header.length };
+      }
+    }
+    return { restored: false, reason: 'No backup with a header row was found — use File → Version history to roll back instead.' };
   }
 
   /**
@@ -1059,6 +1117,7 @@ var SheetIO = (function () {
     applyPlan: applyPlan,
     writeSyncNotes: writeSyncNotes,
     trimToData: trimToData,
+    restoreHeader: restoreHeader,
     enableFilters: enableFilters,
     fitColumns: fitColumns,
     BACKUP_PREFIX: BACKUP_PREFIX
@@ -1630,28 +1689,10 @@ var HikeApi = (function () {
     }
   }
 
-  /**
-   * Manual "make the sheet match Hike exactly, now": a full reconcile that re-adds any product
-   * deleted locally and re-checks every field. Scheduled auto-sync stays incremental for speed;
-   * this is the button for when the sheet has drifted from Hike (e.g. rows deleted by hand).
-   */
-  function fullResyncNow() {
-    var ui = SpreadsheetApp.getUi();
-    var go = ui.alert('Full re-sync from Hike',
-      'This re-downloads your WHOLE Hike catalog and reconciles the sheet against it:\n' +
-      '• products deleted from the sheet but still in Hike are re-added\n' +
-      '• every product\'s details are re-checked against Hike\n' +
-      '• Hike is only read (never changed); a backup + preview come first\n\n' +
-      'Use this if the sheet has drifted from Hike. Continue?', ui.ButtonSet.YES_NO);
-    if (go !== ui.Button.YES) return;
-    syncNow(true, true);
-  }
-
   return {
     handleCallback: handleCallback,
     connectPrompt: connectPrompt,
-    syncNow: syncNow,
-    fullResyncNow: fullResyncNow
+    syncNow: syncNow
   };
 })();
 
@@ -3082,7 +3123,6 @@ function onOpen() {
     .addItem('Import newest from watch folder', 'menuImportLatest')
     .addSeparator()
     .addItem('Sync from Hike API now', 'menuApiSync')
-    .addItem('Full re-sync from Hike (re-add deleted)', 'menuApiFullResync')
     .addItem('Connect Hike API…', 'menuConnectHike')
     .addItem('Turn ON API auto-sync (every 15 min)', 'menuEnableAutoSync')
     .addItem('Turn OFF API auto-sync', 'menuDisableAutoSync')
@@ -3093,6 +3133,7 @@ function onOpen() {
     .addItem('Show column filters', 'menuFilters')
     .addItem('Fit columns to content', 'menuFitColumns')
     .addItem('Trim empty rows', 'menuTrim')
+    .addItem('Restore header row (from backup)', 'menuRestoreHeader')
     .addSeparator()
     .addItem('Setup…', 'menuSetup')
     .addItem('Delete products no longer in Hike…', 'menuPurgeMissing')
@@ -3103,8 +3144,10 @@ function onOpen() {
 
 function menuImportFile() { guardedMenu_(function () { CsvImport.importFilePrompt(); }); }
 function menuImportLatest() { guardedMenu_(function () { CsvImport.importLatestFromFolder(); }); }
-function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true); }); }
-function menuApiFullResync() { guardedMenu_(function () { HikeApi.fullResyncNow(); }); }
+// Manual sync = a FULL reconcile (re-adds rows you deleted, snaps hand-edited cells back to Hike).
+// The background auto-sync (apiSyncTick) stays incremental for speed; only this button, which a
+// person clicks when they want the sheet to match Hike exactly, does the whole-catalog pull.
+function menuApiSync() { guardedMenu_(function () { HikeApi.syncNow(true, true); }); }
 function menuConnectHike() { guardedMenu_(function () { HikeApi.connectPrompt(); }); }
 function menuSetup() { guardedMenu_(function () { Settings.setupWizard(); }); }
 function menuDashboard() { guardedMenu_(function () { Dashboard.show(); }); }
@@ -3140,6 +3183,14 @@ function menuFitColumns() {
       '\n\nRun this again any time after the data changes.', SpreadsheetApp.getUi().ButtonSet.OK);
   });
 }
+function menuRestoreHeader() {
+  guardedMenu_(function () {
+    var r = SheetIO.restoreHeader();
+    SpreadsheetApp.getUi().alert(r.restored
+      ? 'Header row restored from backup "' + r.from + '" (' + r.cols + ' columns) — inserted as the top row, no products overwritten. Run Preflight to confirm, then sync.'
+      : r.reason);
+  });
+}
 function menuPurgeMissing() { guardedMenu_(function () { PurgeMissing.run(); }); }
 function menuFilters() {
   guardedMenu_(function () {
@@ -3156,10 +3207,11 @@ function menuTrim() {
     var gridBefore = sh.getMaxRows(), content = sh.getLastRow();
     var removed = SheetIO.trimToData();
     SpreadsheetApp.getUi().alert('Trim empty rows',
-      'Data tab: ' + content + ' row(s) have content; the grid had ' + gridBefore + ' row(s).\n\n' +
+      'Data tab: ' + content + ' row(s) had content; the grid had ' + gridBefore + ' row(s).\n\n' +
       (removed > 0
-        ? 'Removed ' + removed + ' empty trailing row(s) — only blank rows below your data, no data touched.'
-        : 'Nothing to remove — the grid already matches the content. If a low row still holds a stray value or formula, Google counts it as "used" and keeps the rows above it.') +
+        ? 'Removed ' + removed + ' empty row(s) — blank rows both BETWEEN your products (gaps) and below them. ' +
+          'Only fully-empty rows (no value or formula in any column) were removed; no data was touched.'
+        : 'Nothing to remove — no fully-empty rows found. (A row that looks blank but holds a stray value or formula in any column is kept.)') +
       '\n\nThis trims the DATA tab only; the Hike Insights charts tab sizes itself.',
       SpreadsheetApp.getUi().ButtonSet.OK);
   });

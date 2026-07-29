@@ -211,16 +211,74 @@ var SheetIO = (function () {
   }
 
   /**
-   * Trim trailing EMPTY rows so the tab isn't padded with hundreds of blank rows. Only ever
-   * removes rows BELOW the last data row (they hold no content) — never touches data. Returns
-   * how many rows were removed.
+   * Compact the data tab: remove EMPTY rows — both blank rows sitting BETWEEN products (gaps left
+   * by hand-deleting cell contents) and the blank grid rows trailing below the data. A row is only
+   * removed when it is empty across its FULL width — no values AND no formulas — so no product data
+   * (or a user formula) is ever lost. The header row and anything above it are never touched.
+   * Returns how many rows were removed.
    */
   function trimToData() {
     var sh = dataSheet();
+    var removed = 0;
+    var lastRow = sh.getLastRow(), lastCol = sh.getLastColumn();
+    if (lastRow >= 1 && lastCol >= 1) {
+      var vals = sh.getRange(1, 1, lastRow, lastCol).getValues();
+      var forms = sh.getRange(1, 1, lastRow, lastCol).getFormulas();
+      var hr = MergeEngine.findHeaderRow(vals);
+      if (hr !== -1) {
+        var rowEmpty = function (r) {
+          for (var c = 0; c < lastCol; c++) {
+            if (ValueUtils.normString(vals[r][c]) !== '' || forms[r][c] !== '') return false;
+          }
+          return true;
+        };
+        // Delete contiguous empty runs BELOW the header, bottom-up so surviving row indexes (which
+        // we test against the original snapshot) don't shift under us.
+        var r = lastRow - 1; // 0-based
+        while (r > hr) {
+          if (rowEmpty(r)) {
+            var end = r;
+            while (r > hr && rowEmpty(r)) r--;
+            sh.deleteRows(r + 2, end - r); // 1-based first empty row = (r+1)+1; count = end - r
+            removed += end - r;
+          } else { r--; }
+        }
+      }
+    }
+    // Trailing blank GRID rows below the content.
     var keep = Math.max(sh.getLastRow(), 1);
     var extra = sh.getMaxRows() - keep;
-    if (extra > 0) sh.deleteRows(keep + 1, extra);
-    return extra > 0 ? extra : 0;
+    if (extra > 0) { sh.deleteRows(keep + 1, extra); removed += extra; }
+    return removed;
+  }
+
+  /**
+   * Recovery: if the DATA tab's Name/SKU/Barcode header row was deleted by accident, put it back
+   * from the newest hidden backup (the sync's own snapshots carry the header). Inserts the header
+   * as a new top row so no product row is overwritten. No-op (with a message) when a header is
+   * already present, or when no backup with a header exists (then Version history is the fallback).
+   */
+  function restoreHeader() {
+    var sh = dataSheet();
+    if (MergeEngine.findHeaderRow(sh.getDataRange().getValues()) !== -1) {
+      return { restored: false, reason: 'A Name/SKU/Barcode header row is already present — nothing to restore.' };
+    }
+    var backups = ss().getSheets().filter(function (s) {
+      return new RegExp('^' + BACKUP_PREFIX + '\\d{6}_\\d{6}$').test(s.getName());
+    }).sort(function (a, b) { return b.getName().localeCompare(a.getName()); });
+    for (var i = 0; i < backups.length; i++) {
+      var bv = backups[i].getDataRange().getValues();
+      var hr = MergeEngine.findHeaderRow(bv);
+      if (hr !== -1) {
+        var header = bv[hr];
+        sh.insertRowBefore(1);
+        ensureGrid_(sh, 1, header.length);
+        sh.getRange(1, 1, 1, header.length).setValues([header]);
+        SpreadsheetApp.flush();
+        return { restored: true, from: backups[i].getName(), cols: header.length };
+      }
+    }
+    return { restored: false, reason: 'No backup with a header row was found — use File → Version history to roll back instead.' };
   }
 
   /**
@@ -270,6 +328,7 @@ var SheetIO = (function () {
     applyPlan: applyPlan,
     writeSyncNotes: writeSyncNotes,
     trimToData: trimToData,
+    restoreHeader: restoreHeader,
     enableFilters: enableFilters,
     fitColumns: fitColumns,
     BACKUP_PREFIX: BACKUP_PREFIX

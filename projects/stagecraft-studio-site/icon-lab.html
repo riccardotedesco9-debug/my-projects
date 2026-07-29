@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StageCraft — icon motion lab</title>
+<style>
+:root{
+  --bg:#08080a;--card:#141418;--border:rgba(212,178,90,.16);--border-mid:rgba(212,178,90,.30);
+  --gold:#d4b25a;--gold-light:#f0dfb0;--text:#f2efe7;--muted:#9a948c;
+  --sans:'DM Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --serif:'Cormorant Garamond',Georgia,serif;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);padding:3rem 2rem 5rem}
+h1{font-family:var(--serif);font-weight:400;font-size:2.4rem;margin-bottom:.4rem}
+.lede{color:var(--muted);font-size:.9rem;max-width:60ch;line-height:1.7;margin-bottom:2.5rem}
+.controls{display:flex;gap:.6rem;flex-wrap:wrap;margin-bottom:2.5rem}
+button{font-family:var(--sans);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;
+  background:transparent;border:1px solid var(--border-mid);color:var(--text);padding:.6rem 1.1rem;
+  border-radius:2px;cursor:pointer;transition:all .2s}
+button:hover{border-color:var(--gold);color:var(--gold-light)}
+button[aria-pressed="true"]{background:var(--gold);border-color:var(--gold);color:var(--bg)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1.5rem}
+.cell{border:1px solid var(--border);border-radius:3px;background:var(--card);padding:2rem 1.5rem 1.4rem;text-align:center}
+.stage{height:150px;display:flex;align-items:center;justify-content:center;margin-bottom:1.2rem}
+.name{font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;color:var(--gold)}
+.note{font-size:.76rem;color:var(--muted);margin-top:.4rem;line-height:1.5}
+svg{color:var(--gold);width:96px;height:96px}
+body.small svg{width:18px;height:18px}
+body.small .stage{height:40px}
+/* EVERY animated SVG part needs this. Without it a transform pivots around the
+   viewBox origin, not the shape, and the parts fly off across the canvas —
+   which is exactly what was happening. */
+svg [class]{transform-box:fill-box;transform-origin:center}
+
+/* ---------- DRONE: rotors spin, body banks and hovers, shadow reacts ---------- */
+.on .d-blade{animation:spin .34s linear infinite}
+.on .d-blade--b{animation-duration:.42s;animation-direction:reverse}
+.on .d-body{animation:bank 3s ease-in-out infinite}
+.on .d-shadow{animation:shadow 3s ease-in-out infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* translate units here are viewBox units, not screen px — -7 was nearly a third
+   of the 24-unit canvas, which is why the rotors flew out of the top */
+@keyframes bank{0%,100%{transform:translateY(0) rotate(-4deg)}50%{transform:translateY(-1.8px) rotate(4deg)}}
+@keyframes shadow{0%,100%{transform:scaleX(1);opacity:.5}50%{transform:scaleX(.72);opacity:.22}}
+
+/* ---------- PLANT: sway from the soil, leaves counter-rotate, sun pulses ---------- */
+.on .p-stem{transform-origin:50% 100%;animation:sway 3.6s ease-in-out infinite}
+.on .p-leafL{transform-origin:100% 100%;animation:leafL 3.6s ease-in-out infinite}
+.on .p-leafR{transform-origin:0% 0%;animation:leafR 3.6s ease-in-out infinite}
+.on .p-bloom{animation:bloom 3.6s ease-in-out infinite}
+.on .p-ray{animation:ray 3.6s ease-in-out infinite}
+.on .p-ray:nth-of-type(2){animation-delay:.35s}
+.on .p-ray:nth-of-type(3){animation-delay:.7s}
+@keyframes sway{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(7deg)}}
+@keyframes leafL{0%,100%{transform:rotate(6deg)}50%{transform:rotate(-8deg)}}
+@keyframes leafR{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(8deg)}}
+@keyframes bloom{0%,100%{transform:scale(1)}50%{transform:scale(1.18)}}
+@keyframes ray{0%,100%{opacity:0;transform:scale(.6)}50%{opacity:.9;transform:scale(1)}}
+
+/* ---------- GLOBE: meridians sweep round the sphere ----------
+   Three ellipses running one linear cycle a third apart. scaleX passing
+   through zero is what sells the turn; the old version stopped at .06 and
+   bounced back, which read as a squeeze rather than rotation. */
+.on .g-m{animation:turn 5s linear infinite}
+.on .g-m2{animation-delay:-1.67s}
+.on .g-m3{animation-delay:-3.33s}
+@keyframes turn{from{transform:scaleX(1)}to{transform:scaleX(-1)}}
+
+/* ---------- HOUSE: window lights up warm, glow blooms behind it ---------- */
+.on .h-window{animation:lamp 3.4s ease-in-out infinite}
+.on .h-glow{animation:glow 3.4s ease-in-out infinite}
+@keyframes lamp{0%,100%{opacity:.3}45%,70%{opacity:1}}
+@keyframes glow{0%,100%{opacity:0;transform:scale(.5)}45%,70%{opacity:.5;transform:scale(1.25)}}
+
+/* ---------- CUBE: turns on its axis with a highlight sweeping the top ---------- */
+.on .c-box{animation:turnbox 5s ease-in-out infinite}
+.on .c-shine{animation:shine 5s ease-in-out infinite}
+@keyframes turnbox{0%,100%{transform:rotate(-9deg) skewX(3deg)}50%{transform:rotate(9deg) skewX(-3deg)}}
+@keyframes shine{0%,100%{opacity:0}40%,60%{opacity:.85}}
+
+/* ---------- SOFA: the furniture draws itself into the empty room ----------
+   Cushions dropping in read as dashes appearing. Drawing the outline is
+   literally what virtual staging does — an empty room being furnished. */
+/* dasharray must match each path's real length (26 / 63 / 8 units) — a blanket
+   90 meant the line was fully drawn a third of the way in and the stroke
+   appeared to snap on rather than travel */
+/* Literal lengths per path, not var(--len): a custom property inside keyframes
+   does not interpolate, so the stroke jumped straight to fully drawn. */
+.on .s-1{stroke-dasharray:26;animation:draw26 4s ease-in-out infinite}
+.on .s-2{stroke-dasharray:63;animation:draw63 4s ease-in-out .45s infinite}
+.on .s-3{stroke-dasharray:8;animation:draw8 4s ease-in-out .9s infinite}
+@keyframes draw26{0%{stroke-dashoffset:26}40%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:26}}
+@keyframes draw63{0%{stroke-dashoffset:63}40%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:63}}
+@keyframes draw8{0%{stroke-dashoffset:8}40%,80%{stroke-dashoffset:0}100%{stroke-dashoffset:8}}
+</style>
+</head>
+<body class="on">
+
+<h1>Icon motion lab</h1>
+<p class="lede">The six hero icons at roughly five times the size they render on the site, so the movement is actually visible. Toggle to real size to check they still read at 18px. Tell me which ones are wrong and how, and I will iterate here before putting them back.</p>
+
+<div class="controls">
+  <button id="t-size" aria-pressed="false" type="button">Show at real size (18px)</button>
+  <button id="t-play" aria-pressed="true" type="button">Pause motion</button>
+</div>
+
+<div class="grid">
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse class="d-shadow" cx="12" cy="21.6" rx="5" ry="1" stroke="none" fill="currentColor" opacity=".4"/>
+        <!-- static wrapper drops the airframe slightly so the lift has headroom -->
+        <g transform="translate(0 1.2)"><g class="d-body">
+          <rect x="9" y="9" width="6" height="4.6" rx="1.2"/>
+          <path d="M6.8 7.7L9.2 9.6M17.2 7.7L14.8 9.6M6.8 14.3L9.2 13.2M17.2 14.3L14.8 13.2"/>
+          <!-- rotor hubs stay put; the BLADES spin. A rotating circle shows
+               nothing at all, which was the other half of the problem. -->
+          <circle cx="5" cy="6" r=".7" fill="currentColor" stroke="none"/>
+          <circle cx="19" cy="6" r=".7" fill="currentColor" stroke="none"/>
+          <circle cx="5" cy="16" r=".7" fill="currentColor" stroke="none"/>
+          <circle cx="19" cy="16" r=".7" fill="currentColor" stroke="none"/>
+          <path class="d-blade" d="M2.6 6h4.8"/>
+          <path class="d-blade d-blade--b" d="M16.6 6h4.8"/>
+          <path class="d-blade d-blade--b" d="M2.6 16h4.8"/>
+          <path class="d-blade" d="M16.6 16h4.8"/>
+        </g></g>
+      </svg>
+    </div>
+    <div class="name">Drone Aerials</div>
+    <p class="note">Blades spin opposite ways, airframe banks as it hovers, shadow tightens as it lifts. Lift reduced so nothing clips.</p>
+  </div>
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <g class="p-stem">
+          <path class="p-ray" d="M12 1.4v1.5" opacity="0"/>
+          <path class="p-ray" d="M8.6 2.6l.8 1.3" opacity="0"/>
+          <path class="p-ray" d="M15.4 2.6l-.8 1.3" opacity="0"/>
+          <circle class="p-bloom" cx="12" cy="6" r="2"/>
+          <path d="M12 8V16"/>
+          <path class="p-leafL" d="M12 12.4c-2.1 0-3.4-1.3-3.4-3.4 2.1 0 3.4 1.3 3.4 3.4z"/>
+          <path class="p-leafR" d="M12 14.4c2.1 0 3.4-1.3 3.4-3.4-2.1 0-3.4 1.3-3.4 3.4z"/>
+        </g>
+        <path d="M7.6 16h8.8l-1.2 5H8.8l-1.2-5z"/>
+      </svg>
+    </div>
+    <div class="name">Styling &amp; Decor</div>
+    <p class="note">Stem sways from the soil, leaves counter-rotate against it, bloom opens, sun rays flicker in sequence.</p>
+  </div>
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="2" y1="12" x2="22" y2="12"/>
+        <ellipse class="g-m g-m1" cx="12" cy="12" rx="9.4" ry="10"/>
+        <ellipse class="g-m g-m2" cx="12" cy="12" rx="9.4" ry="10"/>
+        <ellipse class="g-m g-m3" cx="12" cy="12" rx="9.4" ry="10"/>
+      </svg>
+    </div>
+    <div class="name">Virtual Walkthroughs</div>
+    <p class="note">Three meridians sweep the sphere a third of a cycle apart, so the turn is continuous in one direction.</p>
+  </div>
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <circle class="h-glow" cx="12" cy="17" r="4" stroke="none" fill="currentColor" opacity="0"/>
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/>
+        <rect class="h-window" x="9.5" y="13" width="5" height="5" rx=".6" fill="currentColor" opacity=".3" stroke="none"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    </div>
+    <div class="name">Property Photography</div>
+    <p class="note">The window warms up and a soft glow blooms behind it, like a light being switched on at dusk.</p>
+  </div>
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <g class="c-box">
+          <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+          <line x1="12" y1="22.08" x2="12" y2="12"/>
+          <path class="c-shine" d="M5.2 7.9L12 11.8l6.8-3.9" stroke-width="2.2" opacity="0"/>
+        </g>
+      </svg>
+    </div>
+    <div class="name">Product Photography</div>
+    <p class="note">The box turns on its axis with a light sweeping across the top face, like it is being inspected under a lamp.</p>
+  </div>
+
+  <div class="cell">
+    <div class="stage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path class="s-draw s-1" d="M4 11V7a2 2 0 012-2h12a2 2 0 012 2v4"/>
+        <path class="s-draw s-2" d="M2 13a2 2 0 014 0v3h12v-3a2 2 0 014 0v6H2z"/>
+        <line class="s-draw s-3" x1="8" y1="11" x2="16" y2="11"/>
+      </svg>
+    </div>
+    <div class="name">Virtual Staging</div>
+    <p class="note">The sofa draws itself into the empty room, holds, then clears — an empty space being furnished.</p>
+  </div>
+
+</div>
+
+<script>
+var size = document.getElementById('t-size');
+var play = document.getElementById('t-play');
+size.addEventListener('click', function(){
+  var small = document.body.classList.toggle('small');
+  size.setAttribute('aria-pressed', String(small));
+  size.textContent = small ? 'Show large (96px)' : 'Show at real size (18px)';
+});
+play.addEventListener('click', function(){
+  var on = document.body.classList.toggle('on');
+  play.setAttribute('aria-pressed', String(on));
+  play.textContent = on ? 'Pause motion' : 'Play motion';
+});
+</script>
+</body>
+</html>

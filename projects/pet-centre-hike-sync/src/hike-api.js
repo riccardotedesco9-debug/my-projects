@@ -165,27 +165,9 @@ var HikeApi = (function () {
     }
   }
 
-  /**
-   * Manual "make the sheet match Hike exactly, now": a full reconcile that re-adds any product
-   * deleted locally and re-checks every field. Scheduled auto-sync stays incremental for speed;
-   * this is the button for when the sheet has drifted from Hike (e.g. rows deleted by hand).
-   */
-  function fullResyncNow() {
-    var ui = SpreadsheetApp.getUi();
-    var go = ui.alert('Full re-sync from Hike',
-      'This re-downloads your WHOLE Hike catalog and reconciles the sheet against it:\n' +
-      '• products deleted from the sheet but still in Hike are re-added\n' +
-      '• every product\'s details are re-checked against Hike\n' +
-      '• Hike is only read (never changed); a backup + preview come first\n\n' +
-      'Use this if the sheet has drifted from Hike. Continue?', ui.ButtonSet.YES_NO);
-    if (go !== ui.Button.YES) return;
-    syncNow(true, true);
-  }
-
   return {
     handleCallback: handleCallback,
     connectPrompt: connectPrompt,
-    syncNow: syncNow,
-    fullResyncNow: fullResyncNow
+    syncNow: syncNow
   };
 })();
