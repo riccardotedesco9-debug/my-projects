@@ -578,6 +578,25 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
 .footer-links a{font-size:.72rem;letter-spacing:.09em;text-transform:uppercase;color:var(--text-dim);text-decoration:none;transition:color .2s;cursor:pointer}
 .footer-links a:hover{color:var(--gold)}
 .footer-r{font-size:.7rem;color:var(--text-muted);text-align:right;line-height:1.6}
+.form-privacy{margin-top:1rem;text-align:center;font-size:.68rem;color:var(--text-dim);line-height:1.7}
+.form-privacy .linkish{font-size:.68rem}
+.footer-legal{margin-top:.35rem;color:var(--text-dim);font-size:.66rem}
+.footer-legal .todo{color:var(--gold);font-style:italic}
+/* a button that reads as a link: the notice is an overlay, not a URL, so an
+   anchor would be lying about where it goes */
+.linkish{background:none;border:0;padding:0;font:inherit;color:var(--text-dim);text-decoration:underline;text-underline-offset:2px;cursor:pointer;transition:color .2s}
+.linkish:hover{color:var(--gold)}
+
+/* ===== PRIVACY NOTICE OVERLAY ===== */
+.legal{position:fixed;inset:0;z-index:300;background:rgba(6,6,8,.97);backdrop-filter:blur(4px);overflow-y:auto;display:none}
+.legal.open{display:block}
+.legal-inner{max-width:700px;margin:0 auto;padding:5rem 1.5rem 4rem}
+.legal-title{font-family:var(--serif);font-size:clamp(1.7rem,4vw,2.4rem);font-weight:300;margin-bottom:2rem;color:#fff}
+.legal-body{font-size:.85rem;line-height:1.85;color:var(--text-muted)}
+.legal-body h4{font-family:var(--sans);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);margin:1.8rem 0 .5rem;font-weight:500}
+.legal-body p{margin-bottom:.7rem}
+.legal-body a{color:var(--gold-light)}
+.legal-body .todo{color:var(--gold);font-style:italic}
 
 /* ===== MOTION ===== */
 @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
@@ -1239,6 +1258,10 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       </div>
       <div class="form-group"><label for="message">Message</label><textarea id="message" name="message" placeholder="Tell us about the project..."></textarea></div>
       <div class="form-submit"><button type="submit" class="btn-primary">Send Enquiry</button><button type="reset" class="btn-reset">Clear</button></div>
+      <!-- GDPR wants the notice available WHERE the data is collected, not just
+           linked from a footer somewhere. -->
+      <p class="form-privacy">Your details are used only to answer this enquiry.
+        <button type="button" class="linkish" data-open-privacy>How your details are handled</button></p>
       <div class="form-success" id="form-success" role="status">Opening WhatsApp with your details. Press send there and it reaches us.</div>
       <div class="form-error" id="form-error" role="alert">Something went wrong. Message us on WhatsApp instead.</div>
     </form>
@@ -1261,8 +1284,28 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     <li><a href="#why" data-go="why">About</a></li>
     <li><a href="#contact" data-go="contact">Contact</a></li>
   </ul>
-  <div class="footer-r"><div>Photo &amp; Video Production &middot; Malta &amp; Gozo</div><div style="margin-top:.1rem">&copy; 2026 StageCraft Studio. All rights reserved.</div></div>
+  <div class="footer-r">
+    <div>Photo &amp; Video Production &middot; Malta &amp; Gozo</div>
+    <!-- trader identification, required by the eCommerce Directive; filled from
+         BUSINESS in the config so there is one place to correct it -->
+    <div class="footer-legal" id="footer-legal"></div>
+    <div style="margin-top:.1rem">&copy; 2026 StageCraft Studio.
+      <button type="button" class="linkish" id="privacy-open">Privacy notice</button>
+    </div>
+  </div>
 </footer>
+
+<!-- Privacy notice. An overlay rather than a second page: this site is one
+     self-contained file, and GDPR asks for the notice to be reachable at the
+     point of collection, not for it to live at its own URL. -->
+<div class="legal" id="legal" role="dialog" aria-modal="true" aria-labelledby="legal-title">
+  <button class="gal-close" id="legal-close" type="button" aria-label="Close">&#10005;</button>
+  <div class="legal-inner">
+    <div class="section-eyebrow">Privacy</div>
+    <h3 class="legal-title" id="legal-title">How your details are handled</h3>
+    <div class="legal-body" id="legal-body"></div>
+  </div>
+</div>
 
 <!-- Structured data: published flat prices are the whole pitch, so expose them
      as Offers. Keep the figures here in step with the PRICING config below. -->
@@ -1322,6 +1365,38 @@ var WEBHOOK_URL = '';
 /* 2. WhatsApp number that receives enquiries when WEBHOOK_URL is empty.
       International format, digits only. */
 var WHATSAPP_NUMBER = '35699511425';
+
+/* 2b. WHO THE BUSINESS IS — legally required before this goes live at a real
+       domain, and the one block on this page nobody can fill in but you.
+
+       The EU eCommerce Directive requires a trader to identify themselves and
+       give a usable contact route; GDPR requires a named controller on the
+       privacy notice. Both read from here.
+
+       These are deliberately EMPTY rather than guessed. An invented trading
+       name, address or VAT number on a legal notice is worse than a missing
+       one. While any required field is blank the footer and the privacy notice
+       show a plain "to be completed" marker and the console logs what is
+       missing — so it fails loudly rather than shipping a false claim.
+
+       vat: one of
+         'none'       registered under VAT Article 11 (turnover below the
+                      €35,000 small-undertaking threshold), so no VAT is
+                      charged. Prices display as-is with a note saying so.
+         'included'   VAT-registered. EU law requires consumer prices to be
+                      shown INCLUSIVE of tax, so the figures on the cards must
+                      already contain it and the note says they do.
+         ''           not yet decided — the page says the position is being
+                      confirmed rather than asserting either.
+       Confirm which applies with a Maltese accountant before launch. */
+var BUSINESS = {
+  legalName: '',        /* your full name, or the registered trading name */
+  address:   '',        /* street, locality, Malta — a real contact address */
+  email:     'hello@stagecraftpro.com',
+  phone:     '+356 9951 1425',
+  vat:       '',        /* 'none' | 'included' | '' */
+  vatNumber: ''         /* e.g. MT12345678 — only when vat is 'included' */
+};
 
 /* 3. Headline prices on the six package cards.
       These also generate the enquiry dropdown labels, so the two cannot drift. */
@@ -2754,8 +2829,147 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
     });
   });
 
+  /* ---------- legal: trader identification + privacy notice ----------
+     Both are legally required before this is served from a real domain: the EU
+     eCommerce Directive wants the trader identified and reachable, GDPR wants a
+     named controller and a notice available where data is collected.
+
+     Everything factual comes from BUSINESS in the config. Nothing is invented:
+     a field left empty renders a visible "to be completed" marker and is
+     reported once in the console, because a legal notice carrying a guessed
+     trading name or VAT number is worse than one that is obviously unfinished.
+
+     Terms and Conditions and a cookie banner are deliberately absent. No
+     contract is formed on this page (it forms later, over WhatsApp) and the
+     site sets no cookies and runs no analytics, so neither is required. Add a
+     cookie banner the moment any analytics or third-party embed is added. */
+  function initLegal(){
+    var b = (typeof BUSINESS === 'object' && BUSINESS) || {};
+    var missing = [];
+    function field(v, label){
+      if(v && String(v).trim()) return esc(String(v).trim());
+      missing.push(label);
+      return '<span class="todo">[' + label + ' to be completed]</span>';
+    }
+    function esc(s){
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    var name = field(b.legalName, 'trading name');
+    var addr = field(b.address, 'business address');
+    var mail = field(b.email, 'email');
+    var tel  = field(b.phone, 'phone');
+
+    var legalFoot = document.getElementById('footer-legal');
+    if(legalFoot) legalFoot.innerHTML = name + ' &middot; ' + addr +
+      (b.vat === 'included' && b.vatNumber ? ' &middot; VAT ' + esc(b.vatNumber) : '');
+
+    /* Price display. EU law requires consumer prices to include tax when the
+       trader is VAT-registered, and to be unambiguous either way. Until the
+       position is set we say it is being confirmed rather than claim either. */
+    var vatLine = b.vat === 'none'
+      ? 'Prices are final. No VAT is charged: this business is registered under VAT Article 11 as a small undertaking.'
+      : b.vat === 'included'
+        ? 'Prices include VAT at 18%.'
+        : '<span class="todo">[VAT position to be confirmed with an accountant before launch]</span>';
+    if(!b.vat) missing.push('VAT position');
+
+    var body = document.getElementById('legal-body');
+    if(body) body.innerHTML =
+      '<p>This page explains what happens to the details you put in the enquiry ' +
+      'form. It is short because the form is the only place this site collects ' +
+      'anything: there are no accounts, no payments, no cookies, no analytics ' +
+      'and no third-party tracking of any kind.</p>' +
+
+      '<h4>Who is responsible</h4>' +
+      '<p>' + name + ', ' + addr + '. Email ' + mail + ', phone ' + tel + '.</p>' +
+
+      '<h4>What is collected, and why</h4>' +
+      '<p>Your name, email, phone number, location, the services you ticked and ' +
+      'your message. They are used for one purpose: to answer your enquiry, quote ' +
+      'for the work and arrange a date. Nothing is used for marketing and nothing ' +
+      'is sold or shared for advertising.</p>' +
+
+      '<h4>The legal basis</h4>' +
+      '<p>Legitimate interest (Article 6(1)(f) GDPR): you contacted a business ' +
+      'asking for a price, and replying to you is the ordinary consequence of ' +
+      'that. You can object at any time and we will stop.</p>' +
+
+      '<h4>Where it goes</h4>' +
+      '<p>Submitting the form opens WhatsApp with your answers written into a ' +
+      'message. Nothing is sent until you press send there, and at that point the ' +
+      'message travels through WhatsApp and is handled under ' +
+      '<a href="https://www.whatsapp.com/legal/privacy-policy-eea" target="_blank" rel="noopener">Meta’s privacy policy</a> ' +
+      'as well as this one. If you would rather not use WhatsApp, email or phone ' +
+      'instead using the details above.</p>' +
+
+      '<h4>How long it is kept</h4>' +
+      '<p>Enquiry messages are kept for up to one year after the last contact and ' +
+      'then deleted. Where work goes ahead, invoices and job records are kept for ' +
+      'as long as Maltese tax law requires.</p>' +
+
+      '<h4>Your rights</h4>' +
+      '<p>You can ask for a copy of what is held about you, ask for it to be ' +
+      'corrected or deleted, or object to it being held at all. Email ' + mail +
+      ' and it will be actioned. If you are not satisfied you can complain to the ' +
+      'Maltese Information and Data Protection Commissioner: ' +
+      '<a href="mailto:idpc.info@idpc.org.mt">idpc.info@idpc.org.mt</a>, ' +
+      '+356 2328 7100, Floor 2 Airways House, High Street, Sliema SLM 1549.</p>' +
+
+      '<h4>Prices and VAT</h4>' +
+      '<p>' + vatLine + '</p>';
+
+    if(missing.length){
+      console.warn('[StageCraft] Before this site goes live, fill in BUSINESS in the ' +
+        'config — still missing: ' + missing.join(', ') + '. Until then the footer ' +
+        'and privacy notice show placeholders instead of your details.');
+    }
+
+    /* open/close, matching the gallery overlay's behaviour */
+    var panel = document.getElementById('legal');
+    var openBtn = document.getElementById('privacy-open');
+    var closeBtn = document.getElementById('legal-close');
+    if(!panel || !openBtn) return;
+    var lastFocus = null;
+
+    function openLegal(){
+      lastFocus = document.activeElement;
+      panel.classList.add('open');
+      panel.scrollTop = 0;
+      document.body.style.overflow = 'hidden';
+      closeBtn.focus();
+    }
+    function closeLegal(){
+      panel.classList.remove('open');
+      document.body.style.overflow = '';
+      if(lastFocus) lastFocus.focus();
+    }
+    openBtn.addEventListener('click', openLegal);
+    closeBtn.addEventListener('click', closeLegal);
+    document.querySelectorAll('[data-open-privacy]').forEach(function(el){
+      el.addEventListener('click', function(e){ e.preventDefault(); openLegal(); });
+    });
+    document.addEventListener('keydown', function(e){
+      if(!panel.classList.contains('open')) return;
+      if(e.key === 'Escape'){ e.preventDefault(); closeLegal(); }
+      else if(e.key === 'Tab'){
+        /* keep Tab inside the overlay, same as the gallery */
+        var f = [].slice.call(panel.querySelectorAll('button, [href]'))
+                  .filter(function(el){ return el.getClientRects().length; });
+        if(!f.length) return;
+        var first = f[0], last = f[f.length - 1];
+        if(e.shiftKey && (document.activeElement === first || !panel.contains(document.activeElement))){
+          e.preventDefault(); last.focus();
+        } else if(!e.shiftKey && (document.activeElement === last || !panel.contains(document.activeElement))){
+          e.preventDefault(); first.focus();
+        }
+      }
+    });
+  }
+
   /* ---------- boot ---------- */
   document.body.classList.add('js-tabs');   /* without JS every panel stays visible */
+  initLegal();
   fillPricing();
   initPortfolio();
   initPortrait();

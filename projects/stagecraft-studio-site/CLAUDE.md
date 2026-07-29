@@ -341,9 +341,15 @@ Each of these was a real defect that shipped. They are cheap to reintroduce.
 
 ## Outstanding
 
-- **The €100 product session minimum is not published on the Products cards.** The
-  estimate now discloses it, but the three product tiers still read €25 / €50 / €100 with
-  no mention of a floor. Riccardo's call: publish it on the cards, or drop the minimum.
+- **Fill in `BUSINESS` in the config before this goes live at a real domain.** Trading name,
+  address and VAT position are the only legally required facts on the page that nobody but
+  Riccardo can supply. While any is blank the footer and the privacy notice show a visible
+  "to be completed" marker and the console logs what is missing, deliberately: an invented
+  trading name or VAT number on a legal notice is worse than an obviously unfinished one.
+  Confirm the VAT position (Article 11 small undertaking under €35,000, or registered and
+  therefore prices shown inclusive) with a Maltese accountant. Basis:
+  `plans/reports/researcher-260729-1733-malta-site-legal-minimum-report.md`.
+
 - **Eight paid extras are absent from the contact form's service picker** (on-location
   styling €120, listing copy €25, social captions €25, guidebook €100, day-to-dusk €15,
   object removal €12, second direction €69, extra styled image €25). Deliberate for now
@@ -358,9 +364,6 @@ Each of these was a real defect that shipped. They are cheap to reintroduce.
 - **Drone Aerials is advertised with prices but not yet legally deliverable** — commercial
   work needs A2 certification, operator registration and insurance he does not hold. See
   `plans/reports/research-260729-malta-drone-commercial-requirements-report.md`.
-- **No privacy notice, business identification or VAT wording yet** — required before this
-  goes live at a real domain. See
-  `plans/reports/researcher-260729-1733-malta-site-legal-minimum-report.md`.
 - `hello@stagecraftpro.com` has **no MX record** — mail sent there bounces. Riccardo is
   sorting the domain; until then WhatsApp is the only channel that actually reaches him.
   `og:image` on the same domain is likely a 404, so shared links render without a preview.
