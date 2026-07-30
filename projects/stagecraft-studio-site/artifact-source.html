@@ -73,7 +73,12 @@ nav.scrolled{background:rgba(9,9,10,.96);-webkit-backdrop-filter:blur(12px);back
    padding — shrink that and the strip closes right up under the CTA buttons.
    Bottom stays at 7.5rem, which leaves ~46px of air below the buttons; the room
    for the showreel is found by sizing the reel to the viewport instead. */
-.hero{min-height:72vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:clamp(3rem,8vh,7rem) 4rem 7.5rem;position:relative;overflow:hidden}
+/* 72vh, but CAPPED. Uncapped it kept inflating with the screen: the content
+   block is a fixed ~242px, so on a tall monitor the hero passed 700px and then
+   1000px with the same copy floating in the middle, which reads as empty rather
+   than airy. Below ~890px tall the cap never binds, so the per-breakpoint
+   tuning underneath is untouched. */
+.hero{min-height:min(72vh,640px);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:clamp(3rem,8vh,7rem) 4rem 7.5rem;position:relative;overflow:hidden}
 /* ===== HERO SHOWCASE =====
    The hero cycles through the six services. Each slide carries a photo when
    one is configured and its own tinted wash when it is not, so the rotation
