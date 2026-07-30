@@ -2394,10 +2394,22 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
 
     show(0);
     start();                       /* start() itself decides whether it may run */
-    /* do not burn cycles animating a tab nobody is looking at */
+    /* Do not burn cycles animating a tab nobody is looking at.
+       Coming BACK needs more than restarting the timer. The progress bar is a
+       CSS transition, so it runs on wall-clock time and is not frozen with the
+       interval: leave the tab for longer than one dwell and the bar finishes
+       while you are away. Restart the timer alone and you return to a full bar
+       sitting still for another five seconds, which reads as broken. Retrigger
+       the current chip's transition so bar and timer come back in step. */
     document.addEventListener('visibilitychange', function(){
-      if(document.hidden){ if(timer){ clearInterval(timer); timer = null; } }
-      else start();
+      if(document.hidden){ if(timer){ clearInterval(timer); timer = null; } return; }
+      var live = chips[index];
+      if(live && live.classList.contains('on')){
+        live.classList.remove('on');
+        void live.offsetWidth;          /* reflow, or the class swap coalesces */
+        live.classList.add('on');
+      }
+      start();
     });
   }
 
