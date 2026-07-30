@@ -398,12 +398,20 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
 /* banded so the page alternates lit/base rather than running two dark
    sections together between the pricing and the closing sections */
 .section-how{background-color:#0e0e11;background-image:radial-gradient(120% 70% at 50% 0%,rgba(212,178,90,.05),transparent 70%)}
-.how-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);border:1px solid var(--border)}
-.how-step{background:var(--bg-card);padding:2rem 1.5rem;transition:background .25s}
-.how-step:hover{background:var(--bg-card-2)}
-.how-n{font-family:var(--serif);font-size:3rem;font-weight:300;color:var(--border-mid);line-height:1;margin-bottom:1rem}
-.how-step h3{font-family:var(--serif);font-size:1.2rem;font-weight:400;margin-bottom:.4rem}
-.how-step p{font-size:.82rem;color:var(--text-muted);line-height:1.7}
+/* A spine rather than four boxes. The boxed grid gave all four steps identical
+   weight, so nothing pulled the eye along and the last one (the actual selling
+   point) read as just another cell. The line runs muted to gold left to right
+   so the sequence has a direction and ends somewhere. */
+.how-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2.5rem;position:relative;max-width:1000px;margin:0 auto}
+.how-grid::before{content:'';position:absolute;top:7px;left:16%;right:16%;height:1px;
+  background:linear-gradient(90deg,var(--border),var(--border-mid) 50%,var(--gold));z-index:0}
+.how-step{position:relative;text-align:center;padding:0 .4rem}
+.how-mark{width:15px;height:15px;border-radius:50%;border:1px solid var(--border-mid);
+  background:var(--bg);margin:0 auto 1.7rem;position:relative;z-index:1;transition:border-color .3s,background .3s}
+.how-step--end .how-mark{border-color:var(--gold);background:var(--gold);box-shadow:0 0 0 4px rgba(212,178,90,.12)}
+.how-step h3{font-family:var(--serif);font-size:1.3rem;font-weight:400;margin-bottom:.55rem}
+.how-step p{font-size:.84rem;color:var(--text-muted);line-height:1.75}
+.how-time{margin-top:1rem;font-size:.6rem;letter-spacing:.2em;text-transform:uppercase;color:var(--gold)}
 
 /* ===== ABOUT =====
    No stat cards. "1 / 48h / 100%" dressed three ordinary facts up as metrics,
@@ -620,7 +628,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
 /* ===== RESPONSIVE ===== */
 @media(max-width:1024px){
   nav{padding:1.25rem 2rem}.hero{padding:5.5rem 2rem 7.5rem}section{padding:4rem 2rem}.section-contact{padding:4rem 2rem}
-  .services-grid{grid-template-columns:repeat(2,1fr)}.how-grid{grid-template-columns:repeat(2,1fr)}.pf-galleries{grid-template-columns:repeat(2,1fr)}.gal-grid{grid-template-columns:repeat(2,1fr)}
+  .services-grid{grid-template-columns:repeat(2,1fr)}.pf-galleries{grid-template-columns:repeat(2,1fr)}.gal-grid{grid-template-columns:repeat(2,1fr)}
   .pkg-grid{grid-template-columns:1fr;max-width:440px;margin:0 auto}
   .addons-grid{grid-template-columns:repeat(2,1fr)}.ala-grid{grid-template-columns:1fr;max-width:520px;margin-left:auto;margin-right:auto}
   .notes-grid{grid-template-columns:1fr;max-width:520px;margin-left:auto;margin-right:auto}
@@ -640,6 +648,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
   .hero{padding:4.75rem 1.25rem 6.25rem}section{padding:3rem 1.25rem}.section-contact{padding:3rem 1.25rem}
   section{scroll-margin-top:2.5rem}
   .services-grid,.how-grid,.addons-grid{grid-template-columns:1fr}
+  .how-grid{gap:2.2rem}.how-grid::before{display:none}
   .pf-galleries{grid-template-columns:1fr;gap:1rem}
   .gal-grid{grid-template-columns:repeat(2,1fr);gap:.6rem}
   .gal-inner{padding:4.5rem 1rem 3rem}
@@ -1163,15 +1172,32 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
 
 <!-- ===== PROCESS ===== -->
 <section class="section-how" id="how">
+  <!-- Three steps, not four. "Produce" described work the client never sees:
+       they do not care that the files get graded, they care when the files
+       arrive, so the editing folds into the delivery step. What is left is put
+       on a time axis, because speed with no rush fee is the actual pitch and
+       the old version buried it in the fourth box. -->
   <div class="section-head reveal">
     <div class="section-eyebrow">Process</div>
-    <h2 class="section-title">Four steps from <em>booking to delivery.</em></h2>
+    <h2 class="section-title">Booked in one reply. Delivered in <em>48 hours.</em></h2>
   </div>
   <div class="how-grid reveal">
-    <div class="how-step"><div class="how-n">01</div><h3>Book</h3><p>Send the form or a WhatsApp message. We confirm the package, the price and the slot in one reply.</p></div>
-    <div class="how-step"><div class="how-n">02</div><h3>Shoot</h3><p>On location, or in a controlled setup for products. One session captures everything on the list.</p></div>
-    <div class="how-step"><div class="how-n">03</div><h3>Produce</h3><p>Editing, grading, retouching and video assembly, then a quality check before anything is sent.</p></div>
-    <div class="how-step"><div class="how-n">04</div><h3>Deliver</h3><p>Finished files within 48 hours, ready for your shop, your listing or your feed.</p></div>
+    <div class="how-step">
+      <div class="how-mark"></div>
+      <h3>You message</h3>
+      <p>The form or a WhatsApp message. One reply comes back with the package, the price and a date. No quote to chase.</p>
+    </div>
+    <div class="how-step">
+      <div class="how-mark"></div>
+      <h3>I shoot</h3>
+      <p>On location, or a controlled setup for products. One session covers everything on the list.</p>
+    </div>
+    <div class="how-step how-step--end">
+      <div class="how-mark"></div>
+      <h3>Files land</h3>
+      <p>Edited, graded and checked before anything is sent. Ready for your shop, your listing or your feed.</p>
+      <div class="how-time">48 hours as standard</div>
+    </div>
   </div>
 </section>
 
