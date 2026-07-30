@@ -15,6 +15,9 @@ node_modules/
 # Compiled Python artifacts
 __pycache__/
 
+# Deploy bundles — regenerate with the project's build-dist.mjs
+projects/stagecraft-studio-site/dist/
+
 # Scratch — WebDesign screenshot/compare output, regenerated on demand
 temporary-screenshots/
 
