@@ -302,6 +302,47 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
    row that is not completely filled — 4 add-ons in 3 columns leaves two empty
    cells, 5 leaves one — rendered those cells as lighter gold blocks. A shadow
    ring only draws where a tile actually is. */
+/* ===== MEDIUM CHOOSER (stills / motion) =====
+   Two cards flanking the panel intro. The unpicked one desaturates and steps
+   back rather than disappearing, so it stays obviously clickable: the whole
+   point is that video is visible, and hiding it would recreate the problem. */
+.medium{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.5rem;
+  max-width:760px;margin:0 auto 3.5rem}
+.med-card{position:relative;display:flex;flex-direction:column;align-items:stretch;
+  background:none;border:1px solid var(--border);border-radius:3px;padding:0 0 1.1rem;
+  cursor:pointer;text-align:center;overflow:hidden;font-family:inherit;
+  transition:border-color .35s,box-shadow .35s,transform .35s}
+.med-img{display:block;aspect-ratio:4/3;overflow:hidden;margin-bottom:.95rem;background:#131317}
+.med-img img{width:100%;height:100%;object-fit:cover;display:block;
+  transition:filter .45s,opacity .45s,transform .6s}
+.med-name{font-family:var(--serif);font-size:1.15rem;color:var(--text);transition:color .35s}
+.med-sub{font-size:.68rem;letter-spacing:.04em;color:var(--text-dim);margin-top:.25rem;padding:0 1rem;transition:color .35s}
+
+/* not chosen: drained of colour and pushed back */
+.med-card:not(.on) .med-img img{filter:grayscale(1) brightness(.55);opacity:.75}
+.med-card:not(.on) .med-name{color:var(--text-muted)}
+.med-card:not(.on):hover{border-color:var(--border-mid);transform:translateY(-2px)}
+.med-card:not(.on):hover .med-img img{filter:grayscale(.55) brightness(.75);opacity:.9}
+
+/* chosen: full colour, lifted, gold edge */
+.med-card.on{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),var(--lift)}
+.med-card.on .med-img img{filter:none;opacity:1;transform:scale(1.02)}
+.med-card.on .med-name{color:var(--gold-light)}
+.med-card:focus-visible{outline:2px solid var(--gold);outline-offset:3px}
+
+/* the filtering itself */
+.panel[data-showing="stills"] [data-med="motion"],
+.panel[data-showing="motion"] [data-med="stills"]{display:none}
+
+@media(prefers-reduced-motion:reduce){
+  .med-card,.med-img img{transition:none}
+  .med-card.on .med-img img{transform:none}
+}
+@media(max-width:620px){
+  .medium{gap:1rem;margin-bottom:2.5rem}
+  .med-name{font-size:1rem}.med-sub{display:none}
+}
+
 .block-intro{text-align:center;font-size:.84rem;color:var(--text-muted);max-width:620px;margin:-.4rem auto 1.6rem}
 .addons-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px}
 .addon{background:var(--bg-card);box-shadow:0 0 0 1px var(--border);padding:1.05rem 1.35rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;transition:background .2s}
@@ -762,6 +803,23 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <p>From a plain packshot for your shop listing to a fully built set. Shot in a controlled setup, so every image in your catalogue matches the next.</p>
     </div>
 
+    <!-- Medium chooser. Video used to sit at the bottom of a long panel where
+         nobody scrolled to it; as a peer of photography at the top it gets equal
+         billing. Picking one brings it into colour and focus and sends the other
+         back, then filters the blocks below. -->
+    <div class="medium" data-medium-for="prod">
+      <button type="button" class="med-card on" data-medium="stills" aria-pressed="true">
+        <span class="med-img"><img src="/img/web-card-prod-stills.webp" alt="" loading="lazy" decoding="async"></span>
+        <span class="med-name">Photography</span>
+        <span class="med-sub">Packshots, settings and built scenes</span>
+      </button>
+      <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
+        <span class="med-img"><img src="/img/web-card-prod-motion.webp" alt="" loading="lazy" decoding="async"></span>
+        <span class="med-name">Video</span>
+        <span class="med-sub">Hero films and vertical reels</span>
+      </button>
+    </div>
+
     <div class="services-grid">
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><h4>Packshots</h4><p>Pure white background, straight crops, consistent colour. Ready to upload.</p></div>
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg><h4>Generated Settings</h4><p>Shot for real, then placed into a setting built to suit it.</p></div>
@@ -769,8 +827,8 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Product Video</h4><p>Short vertical clips for Reels, TikTok and product pages.</p></div>
     </div>
 
-    <div class="block-label">Pricing</div>
-    <div class="pkg-grid">
+    <div class="block-label" data-med="stills">Pricing</div>
+    <div class="pkg-grid" data-med="stills">
       <div class="pkg">
         <div class="car" data-carousel="prod-listing" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Listing Shots examples">
           <div class="car-track"></div>
@@ -854,13 +912,13 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
         </div>
       </div>
     </div>
-    <p class="pkg-note">Minimum booking &euro;100 per session. Products can be dropped off or collected in the north of Malta.</p>
+    <p class="pkg-note" data-med="stills">Minimum booking &euro;100 per session. Products can be dropped off or collected in the north of Malta.</p>
 
     <!-- Motion lives WITH its subject, not in a separate tab. People shop by
          what they have (a product, a property), not by medium, so asking them
          to price one job across two tabs was friction for no gain. -->
-    <div class="block-label">Moving pictures for products</div>
-    <div class="addons-grid">
+    <div class="block-label" data-med="motion">Moving pictures for products</div>
+    <div class="addons-grid" data-med="motion">
       <div class="addon"><span class="addon-name">Product hero video, 30&ndash;60s</span><span class="addon-price">&euro;250</span></div>
       <div class="addon"><span class="addon-name">Vertical reel added to any shoot</span><span class="addon-price">+&euro;75</span></div>
       <div class="addon"><span class="addon-name">Vertical reel on its own</span><span class="addon-price">&euro;150</span></div>
@@ -874,6 +932,23 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <p>For agents, landlords, holiday-let hosts and venues. One visit captures the photos, the film and the aerials. Everything the listing needs.</p>
     </div>
 
+    <!-- Medium chooser. Video used to sit at the bottom of a long panel where
+         nobody scrolled to it; as a peer of photography at the top it gets equal
+         billing. Picking one brings it into colour and focus and sends the other
+         back, then filters the blocks below. -->
+    <div class="medium" data-medium-for="prop">
+      <button type="button" class="med-card on" data-medium="stills" aria-pressed="true">
+        <span class="med-img"><img src="/img/web-card-prop-stills.webp" alt="" loading="lazy" decoding="async"></span>
+        <span class="med-name">Photography</span>
+        <span class="med-sub">Interiors, exteriors and detail</span>
+      </button>
+      <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
+        <span class="med-img"><img src="/img/web-card-prop-motion.webp" alt="" loading="lazy" decoding="async"></span>
+        <span class="med-name">Video, drone &amp; 360</span>
+        <span class="med-sub">Film, aerials and virtual tours</span>
+      </button>
+    </div>
+
     <div class="services-grid">
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><h4>Photography</h4><p>HDR interiors and exteriors, corrected for colour and daylight.</p></div>
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Walkthrough Film</h4><p>A steady, edited walk through the property, cut for listings and Reels.</p></div>
@@ -881,8 +956,8 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg><h4>360 Walkthrough</h4><p>One link an overseas buyer can walk through before they fly over.</p></div>
     </div>
 
-    <div class="block-label">Pricing</div>
-    <div class="pkg-grid">
+    <div class="block-label" data-med="stills">Pricing</div>
+    <div class="pkg-grid" data-med="stills">
       <div class="pkg">
         <div class="car" data-carousel="prop-t1" tabindex="0" role="group" aria-roledescription="carousel" aria-label="Essential Shoot examples">
           <div class="car-track"></div>
@@ -965,10 +1040,10 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
         </div>
       </div>
     </div>
-    <p class="pkg-note">Prices cover Malta. Gozo adds a &euro;30 travel fee. Need it sooner? 24-hour delivery is &euro;40.</p>
+    <p class="pkg-note" data-med="stills">Prices cover Malta. Gozo adds a &euro;30 travel fee. Need it sooner? 24-hour delivery is &euro;40.</p>
 
-    <div class="block-label">Add-ons for a property shoot</div>
-    <div class="addons-grid">
+    <div class="block-label" data-med="stills">Add-ons for a property shoot</div>
+    <div class="addons-grid" data-med="stills">
       <div class="addon"><span class="addon-name">On-location styling: we dress the space on the day</span><span class="addon-price">+&euro;120</span></div>
       <div class="addon"><span class="addon-name">Listing description copy</span><span class="addon-price">&euro;25</span></div>
       <div class="addon"><span class="addon-name">Social media captions</span><span class="addon-price">&euro;25</span></div>
@@ -976,9 +1051,9 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     </div>
     <!-- Film, drone and 360 are property services, so they are priced here
          beside the photography rather than in a tab of their own. -->
-    <div class="block-label">Film, drone &amp; 360 for the same property</div>
-    <p class="block-intro">Add any of these to a shoot, or book them on their own if you already have photographs.</p>
-    <div class="ala-grid">
+    <div class="block-label" data-med="motion">Film, drone &amp; 360 for the same property</div>
+    <p class="block-intro" data-med="motion">Add any of these to a shoot, or book them on their own if you already have photographs.</p>
+    <div class="ala-grid" data-med="motion">
       <div class="ala">
         <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
         <h4>Video</h4>
@@ -3039,9 +3114,36 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
     });
   }
 
+  /* ---------- medium chooser ----------
+     Each panel decides for itself which medium it is showing, so switching
+     tabs does not carry a choice across. Without JS no panel carries
+     data-showing, and the CSS filter never applies, so every block stays
+     visible: the no-JS view loses the chooser but keeps all the prices. */
+  function initMedium(){
+    document.querySelectorAll('.medium').forEach(function(group){
+      var panel = group.closest('.panel');
+      if(!panel) return;
+      var cards = [].slice.call(group.querySelectorAll('.med-card'));
+
+      function pick(medium){
+        panel.setAttribute('data-showing', medium);
+        cards.forEach(function(c){
+          var on = c.getAttribute('data-medium') === medium;
+          c.classList.toggle('on', on);
+          c.setAttribute('aria-pressed', String(on));
+        });
+      }
+      cards.forEach(function(c){
+        c.addEventListener('click', function(){ pick(c.getAttribute('data-medium')); });
+      });
+      pick('stills');                 /* photography leads; video is one click away */
+    });
+  }
+
   /* ---------- boot ---------- */
   document.body.classList.add('js-tabs');   /* without JS every panel stays visible */
   initLegal();
+  initMedium();
   fillPricing();
   initPortfolio();
   initPortrait();
