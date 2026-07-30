@@ -18,6 +18,9 @@ __pycache__/
 # Deploy bundles — regenerate with the project's build-dist.mjs
 projects/stagecraft-studio-site/dist/
 
+# wrangler's local cache — recreated on every deploy, and holds the account id
+.wrangler/
+
 # Scratch — WebDesign screenshot/compare output, regenerated on demand
 temporary-screenshots/
 
