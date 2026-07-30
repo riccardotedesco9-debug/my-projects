@@ -269,6 +269,9 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
 
 /* ===== PRICING CARDS ===== */
 .pkg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
+/* the products video view has only two cards; without this they sit left with a
+   dead third column beside them */
+.pkg-grid:has(> .pkg:nth-child(2):last-child){grid-template-columns:repeat(2,minmax(0,1fr));max-width:70%;margin-inline:auto}
 .pkg{background:var(--bg-card);border:1px solid var(--border);border-radius:3px;position:relative;transition:border-color .25s,transform .25s,box-shadow .25s;display:flex;flex-direction:column;overflow:hidden;box-shadow:var(--lit),var(--lift)}
 .pkg:hover{border-color:var(--border-mid);transform:translateY(-4px);box-shadow:var(--lit),0 26px 50px -20px rgba(0,0,0,.95)}
 /* the recommended card is the one thing on the page allowed to glow */
@@ -325,17 +328,29 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
    Two cards flanking the panel intro. The unpicked one desaturates and steps
    back rather than disappearing, so it stays obviously clickable: the whole
    point is that video is visible, and hiding it would recreate the problem. */
-.medium{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.5rem;
-  max-width:760px;margin:0 auto 3.5rem}
-.med-card{position:relative;display:flex;flex-direction:column;align-items:stretch;
-  background:none;border:1px solid var(--border);border-radius:3px;padding:0 0 1.1rem;
-  cursor:pointer;text-align:center;overflow:hidden;font-family:inherit;
+/* Wide and low, and ADJACENT. The two cards are alternatives, so they have to
+   sit beside each other to be compared; flanking the heading was tried on paper
+   and rejected, because a block of text between them turns a choice into
+   decoration. Low profile keeps the prices near the top of the panel. */
+.medium{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1.1rem;
+  max-width:920px;margin:0 auto 3rem}
+.med-card{position:relative;display:block;aspect-ratio:16/7;
+  background:none;border:1px solid var(--border);border-radius:3px;padding:0;
+  cursor:pointer;text-align:left;overflow:hidden;font-family:inherit;
   transition:border-color .35s,box-shadow .35s,transform .35s}
-.med-img{display:block;aspect-ratio:4/3;overflow:hidden;margin-bottom:.95rem;background:#131317}
+.med-img{position:absolute;inset:0;display:block;overflow:hidden;background:#131317}
 .med-img img{width:100%;height:100%;object-fit:cover;display:block;
   transition:filter .45s,opacity .45s,transform .6s}
-.med-name{font-family:var(--serif);font-size:1.15rem;color:var(--text);transition:color .35s}
-.med-sub{font-size:.68rem;letter-spacing:.04em;color:var(--text-dim);margin-top:.25rem;padding:0 1rem;transition:color .35s}
+/* the label sits ON the image, so the card stays one shape rather than two */
+.med-card::after{content:'';position:absolute;left:0;right:0;bottom:0;height:62%;
+  background:linear-gradient(180deg,transparent,rgba(8,8,10,.9));pointer-events:none}
+/* pinned to the bottom edge. A margin-based offset was tried and failed: a
+   percentage margin resolves against the container's WIDTH, not its height, so
+   the label was pushed clean out of the card. */
+.med-text{position:absolute;left:0;right:0;bottom:0;z-index:1;padding:0 1.2rem 1rem;text-align:left}
+.med-name{display:block;font-family:var(--serif);font-size:1.2rem;color:var(--text);transition:color .35s}
+.med-sub{display:block;font-size:.66rem;letter-spacing:.04em;color:var(--text-dim);
+  margin-top:.15rem;transition:color .35s}
 
 /* not chosen: drained of colour and pushed back */
 .med-card:not(.on) .med-img img{filter:grayscale(1) brightness(.55);opacity:.75}
@@ -358,8 +373,11 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
   .med-card.on .med-img img{transform:none}
 }
 @media(max-width:620px){
-  .medium{gap:1rem;margin-bottom:2.5rem}
-  .med-name{font-size:1rem}.med-sub{display:none}
+  /* stacked, and shorter still, so two cards never eat the whole phone screen */
+  .medium{grid-template-columns:1fr;gap:.8rem;margin-bottom:2.2rem}
+  .med-card{aspect-ratio:16/6}
+  .med-name{font-size:1.05rem;margin-top:calc(16 / 6 * 100% / 2.6)}
+  .med-sub{display:none}
 }
 
 .block-intro{text-align:center;font-size:.84rem;color:var(--text-muted);max-width:620px;margin:-.4rem auto 1.6rem}
@@ -830,13 +848,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     <div class="medium" data-medium-for="prod">
       <button type="button" class="med-card on" data-medium="stills" aria-pressed="true">
         <span class="med-img"><img src="/img/web-card-prod-stills.webp" alt="" loading="lazy" decoding="async"></span>
-        <span class="med-name">Photography</span>
-        <span class="med-sub">Packshots, settings and built scenes</span>
+        <span class="med-text"><span class="med-name">Photography</span><span class="med-sub">Packshots, settings and built scenes</span></span>
       </button>
       <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
         <span class="med-img"><img src="/img/web-card-prod-motion.webp" alt="" loading="lazy" decoding="async"></span>
-        <span class="med-name">Video</span>
-        <span class="med-sub">Hero films and vertical reels</span>
+        <span class="med-text"><span class="med-name">Video</span><span class="med-sub">Hero films and vertical reels</span></span>
       </button>
     </div>
 
@@ -937,11 +953,62 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     <!-- Motion lives WITH its subject, not in a separate tab. People shop by
          what they have (a product, a property), not by medium, so asking them
          to price one job across two tabs was friction for no gain. -->
-    <div class="block-label" data-med="motion">Moving pictures for products</div>
-    <div class="addons-grid" data-med="motion">
-      <div class="addon"><span class="addon-name">Product hero video, 30&ndash;60s</span><span class="addon-price">&euro;250</span></div>
-      <div class="addon"><span class="addon-name">Vertical reel added to any shoot</span><span class="addon-price">+&euro;75</span></div>
-      <div class="addon"><span class="addon-name">Vertical reel on its own</span><span class="addon-price">&euro;150</span></div>
+    <div class="block-label" data-med="motion">Pricing</div>
+    <div class="pkg-grid" data-med="motion">
+      
+        <div class="pkg featured">
+          <div class="pkg-badge">Most booked</div>
+          <div class="car" data-carousel="vid-hero">
+            <div class="car-track" data-track-for="vid-hero"></div>
+            <button class="car-nav car-prev" type="button" data-car-prev="vid-hero" aria-label="Previous example">&#8249;</button>
+            <button class="car-nav car-next" type="button" data-car-next="vid-hero" aria-label="Next example">&#8250;</button>
+            <div class="car-dots" data-dots-for="vid-hero"></div>
+          </div>
+          <div class="car-caption" data-caption-for="vid-hero" aria-live="polite"></div>
+          <div class="pkg-inner">
+            <div class="pkg-name">Product Hero Video</div>
+            <div class="pkg-tag">The film the product page opens with.</div>
+            <div class="pkg-price"><sup>&euro;</sup><span>250</span></div>
+            <div class="pkg-per">per product</div>
+            <div class="pkg-unit-row"><span class="pkg-unit">30&ndash;60 seconds</span></div>
+            <div class="pkg-divider"></div>
+            <ul class="pkg-features">
+              <li><span>Shot in the same controlled setup as the stills</span></li>
+              <li><span>Lighting, movement and pacing built around the product</span></li>
+              <li><span>Graded, cut and scored</span></li>
+              <li><span>Delivered in horizontal and vertical crops</span></li>
+              <li><span>Finished file within 48 hours</span></li>
+            </ul>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-hero">Get Started</button>
+          </div>
+        </div>
+        <div class="pkg">
+          <div class="car" data-carousel="vid-reel">
+            <div class="car-track" data-track-for="vid-reel"></div>
+            <button class="car-nav car-prev" type="button" data-car-prev="vid-reel" aria-label="Previous example">&#8249;</button>
+            <button class="car-nav car-next" type="button" data-car-next="vid-reel" aria-label="Next example">&#8250;</button>
+            <div class="car-dots" data-dots-for="vid-reel"></div>
+          </div>
+          <div class="car-caption" data-caption-for="vid-reel" aria-live="polite"></div>
+          <div class="pkg-inner">
+            <div class="pkg-name">Vertical Reel</div>
+            <div class="pkg-tag">Short, social, made to stop a scroll.</div>
+            <div class="pkg-price"><sup>&euro;</sup><span>150</span></div>
+            <div class="pkg-per">on its own</div>
+            <div class="pkg-unit-row"><span class="pkg-unit">+&euro;75 added to any shoot</span></div>
+            <div class="pkg-divider"></div>
+            <ul class="pkg-features">
+              <li><span>Cut for Reels, TikTok and Shorts</span></li>
+              <li><span>Filmed alongside a photo session for the lower price</span></li>
+              <li><span>Captions and a music bed included</span></li>
+              <li><span>Vertical 9:16, ready to post</span></li>
+              <li><span>Finished file within 48 hours</span></li>
+            </ul>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-reel">Get Started</button>
+          </div>
+        </div>
+      </div>
+    </div>
     </div>
   </div>
 
@@ -959,13 +1026,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     <div class="medium" data-medium-for="prop">
       <button type="button" class="med-card on" data-medium="stills" aria-pressed="true">
         <span class="med-img"><img src="/img/web-card-prop-stills.webp" alt="" loading="lazy" decoding="async"></span>
-        <span class="med-name">Photography</span>
-        <span class="med-sub">Interiors, exteriors and detail</span>
+        <span class="med-text"><span class="med-name">Photography</span><span class="med-sub">Interiors, exteriors and detail</span></span>
       </button>
       <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
         <span class="med-img"><img src="/img/web-card-prop-motion.webp" alt="" loading="lazy" decoding="async"></span>
-        <span class="med-name">Video, drone &amp; 360</span>
-        <span class="med-sub">Film, aerials and virtual tours</span>
+        <span class="med-text"><span class="med-name">Video, drone &amp; 360</span><span class="med-sub">Film, aerials and virtual tours</span></span>
       </button>
     </div>
 
@@ -1071,38 +1136,88 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     </div>
     <!-- Film, drone and 360 are property services, so they are priced here
          beside the photography rather than in a tab of their own. -->
-    <div class="block-label" data-med="motion">Film, drone &amp; 360 for the same property</div>
-    <p class="block-intro" data-med="motion">Add any of these to a shoot, or book them on their own if you already have photographs.</p>
-    <div class="ala-grid" data-med="motion">
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-        <h4>Video</h4>
-        <ul class="ala-list">
-          <li><span>Walkthrough film, 60&ndash;120s</span><b>&euro;225</b></li>
-          <li><span>Vertical reel added to any shoot</span><b>+&euro;75</b></li>
-          <li><span>Vertical reel on its own</span><b>&euro;150</b></li>
-        </ul>
+    <div class="block-label" data-med="motion">Pricing</div>
+    <p class="block-intro" data-med="motion">Add any of these to a photo shoot for the lower price, or book them on their own if you already have photographs.</p>
+    <div class="pkg-grid" data-med="motion">
+      
+        <div class="pkg featured">
+          <div class="pkg-badge">Most booked</div>
+          <div class="car" data-carousel="vid-walk">
+            <div class="car-track" data-track-for="vid-walk"></div>
+            <button class="car-nav car-prev" type="button" data-car-prev="vid-walk" aria-label="Previous example">&#8249;</button>
+            <button class="car-nav car-next" type="button" data-car-next="vid-walk" aria-label="Next example">&#8250;</button>
+            <div class="car-dots" data-dots-for="vid-walk"></div>
+          </div>
+          <div class="car-caption" data-caption-for="vid-walk" aria-live="polite"></div>
+          <div class="pkg-inner">
+            <div class="pkg-name">Walkthrough Film</div>
+            <div class="pkg-tag">A steady walk through the whole property.</div>
+            <div class="pkg-price"><sup>&euro;</sup><span>225</span></div>
+            <div class="pkg-per">per property</div>
+            <div class="pkg-unit-row"><span class="pkg-unit">60&ndash;120 seconds</span></div>
+            <div class="pkg-divider"></div>
+            <ul class="pkg-features">
+              <li><span>Stabilised walk through every room</span></li>
+              <li><span>Graded and cut for listings and Reels</span></li>
+              <li><span>Vertical crop included for social</span></li>
+              <li><span>Add a vertical reel for &euro;75 instead of &euro;150</span></li>
+              <li><span>Finished film within 48 hours</span></li>
+            </ul>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-walk">Get Started</button>
+          </div>
+        </div>
+        <div class="pkg">
+          <div class="car" data-carousel="vid-drone">
+            <div class="car-track" data-track-for="vid-drone"></div>
+            <button class="car-nav car-prev" type="button" data-car-prev="vid-drone" aria-label="Previous example">&#8249;</button>
+            <button class="car-nav car-next" type="button" data-car-next="vid-drone" aria-label="Next example">&#8250;</button>
+            <div class="car-dots" data-dots-for="vid-drone"></div>
+          </div>
+          <div class="car-caption" data-caption-for="vid-drone" aria-live="polite"></div>
+          <div class="pkg-inner">
+            <div class="pkg-name">Drone Aerials</div>
+            <div class="pkg-tag">The roof, the grounds and the setting.</div>
+            <div class="pkg-price"><sup>&euro;</sup><span>150</span></div>
+            <div class="pkg-per">standalone session</div>
+            <div class="pkg-unit-row"><span class="pkg-unit">+&euro;75 added to a shoot</span></div>
+            <div class="pkg-divider"></div>
+            <ul class="pkg-features">
+              <li><span>8 to 10 edited aerial stills</span></li>
+              <li><span>Stills and video clips together, +&euro;130 with a shoot</span></li>
+              <li><span>Shows the plot, the approach and the sea view</span></li>
+              <li><span>Flights subject to airspace clearance</span></li>
+              <li><span>Files within 48 hours</span></li>
+            </ul>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-drone">Get Started</button>
+          </div>
+        </div>
+        <div class="pkg">
+          <div class="car" data-carousel="vid-360">
+            <div class="car-track" data-track-for="vid-360"></div>
+            <button class="car-nav car-prev" type="button" data-car-prev="vid-360" aria-label="Previous example">&#8249;</button>
+            <button class="car-nav car-next" type="button" data-car-next="vid-360" aria-label="Next example">&#8250;</button>
+            <div class="car-dots" data-dots-for="vid-360"></div>
+          </div>
+          <div class="car-caption" data-caption-for="vid-360" aria-live="polite"></div>
+          <div class="pkg-inner">
+            <div class="pkg-name">360 Walkthrough</div>
+            <div class="pkg-tag">One link that walks the whole property.</div>
+            <div class="pkg-price"><sup>&euro;</sup><span>180</span></div>
+            <div class="pkg-per">up to 150m&sup2;</div>
+            <div class="pkg-unit-row"><span class="pkg-unit">+&euro;100 added to a shoot</span></div>
+            <div class="pkg-divider"></div>
+            <ul class="pkg-features">
+              <li><span>Explore every room from one link</span></li>
+              <li><span>Larger homes and venues, &euro;250</span></li>
+              <li><span>Hosting free for six months, then &euro;10 a month</span></li>
+              <li><span>Works on phone, desktop and headset</span></li>
+              <li><span>Live within 48 hours</span></li>
+            </ul>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-360">Get Started</button>
+          </div>
+        </div>
       </div>
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5.5" r="2.4"/><circle cx="19" cy="5.5" r="2.4"/><circle cx="5" cy="18.5" r="2.4"/><circle cx="19" cy="18.5" r="2.4"/><rect x="9" y="9.5" width="6" height="5" rx="1.2"/><path d="M6.8 7.2L9.2 9.4M17.2 7.2L14.8 9.4M6.8 16.8L9.2 14.6M17.2 16.8L14.8 14.6"/></svg>
-        <h4>Drone Aerials</h4>
-        <ul class="ala-list">
-          <li><span>Added to a shoot: 8&ndash;10 aerial stills</span><b>+&euro;75</b></li>
-          <li><span>Added to a shoot: stills and video clips</span><b>+&euro;130</b></li>
-          <li><span>Standalone aerial session</span><b>from &euro;150</b></li>
-          <li class="ala-fine">Flights are subject to airspace clearance</li>
-        </ul>
-      </div>
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
-        <h4>360 Walkthrough</h4>
-        <ul class="ala-list">
-          <li><span>Added to a photo shoot</span><b>+&euro;100</b></li>
-          <li><span>Standalone, up to 150m&sup2;</span><b>from &euro;180</b></li>
-          <li><span>Larger homes and venues</span><b>&euro;250</b></li>
-          <li><span>Hosting after the first 6 months</span><b>&euro;10/mo</b></li>
-        </ul>
-      </div>
+    </div>
     </div>
 
     <p class="pkg-note">Virtual staging, interior redesign, day-to-dusk and editing-only work live under <strong>Staging &amp; Interiors</strong>. They need no shoot, so they are priced on their own.</p>
@@ -1611,7 +1726,12 @@ var BUNDLE_MEDIA = {
     {src:'/img/web-twilight.webp', caption:'Phone photo, as supplied'},
     {src:'/img/web-facade.webp', caption:'Corrected and straightened'},
     {src:'/img/web-twilight.webp', caption:'Exterior with new sky'}
-  ]
+  ],
+  'vid-hero':   [{src:'/img/web-hero-products.webp', caption:'Product film'},{src:'/img/web-scene-build.webp', caption:'Set for the shoot'}],
+  'vid-reel':   [{src:'/img/web-generated-setting.webp', caption:'Vertical crop'},{src:'/img/web-packshot.webp', caption:'Same product, stills'}],
+  'vid-walk':   [{src:'/img/web-hero-walkthrough.webp', caption:'Walk through'},{src:'/img/web-interior.webp', caption:'Room to room'}],
+  'vid-drone':  [{src:'/img/web-aerial.webp', caption:'From above'},{src:'/img/web-hero-drone.webp', caption:'Plot and setting'}],
+  'vid-360':    [{src:'/img/web-walkthrough.webp', caption:'Frame from a tour'},{src:'/img/web-terrace.webp', caption:'Outside space too'}]
 };
 
 /* 6. The slow showreel strip above the contact form.
