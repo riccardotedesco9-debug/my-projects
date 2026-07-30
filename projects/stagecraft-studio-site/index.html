@@ -321,6 +321,7 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
    row that is not completely filled — 4 add-ons in 3 columns leaves two empty
    cells, 5 leaves one — rendered those cells as lighter gold blocks. A shadow
    ring only draws where a tile actually is. */
+.block-intro{text-align:center;font-size:.84rem;color:var(--text-muted);max-width:620px;margin:-.4rem auto 1.6rem}
 .addons-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px}
 .addon{background:var(--bg-card);box-shadow:0 0 0 1px var(--border);padding:1.05rem 1.35rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;transition:background .2s}
 .addon:hover{background:var(--bg-card-2)}
@@ -476,7 +477,7 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
      height, so the space below the reel stays a thin dark band instead of
      growing until it exposes the next section's heading half-cut. Bigger frames
      also simply suit a photography site. */
-  --tile-h:clamp(104px,20vh,240px);
+  --tile-h:clamp(104px,22vh,270px);
   --fade:max(clamp(80px,18vw,250px), calc(var(--tile-h) * 0.9));
   -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 var(--fade),#000 calc(100% - var(--fade)),transparent 100%);
   mask-image:linear-gradient(90deg,transparent 0,#000 var(--fade),#000 calc(100% - var(--fade)),transparent 100%)}
@@ -769,7 +770,6 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
   <div class="tabs" role="tablist" aria-label="Service categories">
     <button class="tab" type="button" role="tab" id="tab-products" data-cat="products" aria-selected="false" aria-controls="panel-products">Products</button>
     <button class="tab" type="button" role="tab" id="tab-property" data-cat="property" aria-selected="false" aria-controls="panel-property">Property &amp; Spaces</button>
-    <button class="tab" type="button" role="tab" id="tab-motion" data-cat="motion" aria-selected="false" aria-controls="panel-motion">Video, Drone &amp; 360</button>
     <button class="tab" type="button" role="tab" id="tab-staging" data-cat="staging" aria-selected="false" aria-controls="panel-staging">Staging &amp; Interiors</button>
   </div>
 
@@ -875,6 +875,16 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       </div>
     </div>
     <p class="pkg-note">Minimum booking &euro;100 per session. Products can be dropped off or collected in the north of Malta.</p>
+
+    <!-- Motion lives WITH its subject, not in a separate tab. People shop by
+         what they have (a product, a property), not by medium, so asking them
+         to price one job across two tabs was friction for no gain. -->
+    <div class="block-label">Moving pictures for products</div>
+    <div class="addons-grid">
+      <div class="addon"><span class="addon-name">Product hero video, 30&ndash;60s</span><span class="addon-price">&euro;250</span></div>
+      <div class="addon"><span class="addon-name">Vertical reel added to any shoot</span><span class="addon-price">+&euro;75</span></div>
+      <div class="addon"><span class="addon-name">Vertical reel on its own</span><span class="addon-price">&euro;150</span></div>
+    </div>
   </div>
 
   <!-- ---------- PROPERTY PANEL ---------- -->
@@ -984,6 +994,42 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <div class="addon"><span class="addon-name">Social media captions</span><span class="addon-price">&euro;25</span></div>
       <div class="addon"><span class="addon-name">Printed guest guidebook</span><span class="addon-price">&euro;100</span></div>
     </div>
+    <!-- Film, drone and 360 are property services, so they are priced here
+         beside the photography rather than in a tab of their own. -->
+    <div class="block-label">Film, drone &amp; 360 for the same property</div>
+    <p class="block-intro">Add any of these to a shoot, or book them on their own if you already have photographs.</p>
+    <div class="ala-grid">
+      <div class="ala">
+        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        <h4>Video</h4>
+        <ul class="ala-list">
+          <li><span>Walkthrough film, 60&ndash;120s</span><b>&euro;225</b></li>
+          <li><span>Vertical reel added to any shoot</span><b>+&euro;75</b></li>
+          <li><span>Vertical reel on its own</span><b>&euro;150</b></li>
+        </ul>
+      </div>
+      <div class="ala">
+        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5.5" r="2.4"/><circle cx="19" cy="5.5" r="2.4"/><circle cx="5" cy="18.5" r="2.4"/><circle cx="19" cy="18.5" r="2.4"/><rect x="9" y="9.5" width="6" height="5" rx="1.2"/><path d="M6.8 7.2L9.2 9.4M17.2 7.2L14.8 9.4M6.8 16.8L9.2 14.6M17.2 16.8L14.8 14.6"/></svg>
+        <h4>Drone Aerials</h4>
+        <ul class="ala-list">
+          <li><span>Added to a shoot: 8&ndash;10 aerial stills</span><b>+&euro;75</b></li>
+          <li><span>Added to a shoot: stills and video clips</span><b>+&euro;130</b></li>
+          <li><span>Standalone aerial session</span><b>from &euro;150</b></li>
+          <li class="ala-fine">Flights are subject to airspace clearance</li>
+        </ul>
+      </div>
+      <div class="ala">
+        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+        <h4>360 Walkthrough</h4>
+        <ul class="ala-list">
+          <li><span>Added to a photo shoot</span><b>+&euro;100</b></li>
+          <li><span>Standalone, up to 150m&sup2;</span><b>from &euro;180</b></li>
+          <li><span>Larger homes and venues</span><b>&euro;250</b></li>
+          <li><span>Hosting after the first 6 months</span><b>&euro;10/mo</b></li>
+        </ul>
+      </div>
+    </div>
+
     <p class="pkg-note">Virtual staging, interior redesign, day-to-dusk and editing-only work live under <strong>Staging &amp; Interiors</strong>. They need no shoot, so they are priced on their own.</p>
   </div>
 
@@ -1113,45 +1159,6 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
   <!-- ---------- VIDEO / DRONE / 360 PANEL ----------
        Shared by both categories, so it is its own tab rather than repeated
        inside each one. -->
-  <div class="panel" id="panel-motion" role="tabpanel" aria-labelledby="tab-motion">
-    <div class="panel-head">
-      <h3>Video, drone &amp; <em>360.</em></h3>
-      <p>Book any of these on their own, or add them to a shoot for less. Already have photos and only need the motion? Start here.</p>
-    </div>
-    <div class="ala-grid">
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
-        <h4>Video</h4>
-        <ul class="ala-list">
-          <li><span>Property walkthrough film, 60&ndash;120s</span><b>&euro;225</b></li>
-          <li><span>Product hero video, 30&ndash;60s</span><b>&euro;250</b></li>
-          <li><span>Vertical reel added to any shoot</span><b>+&euro;75</b></li>
-          <li><span>Vertical reel on its own</span><b>&euro;150</b></li>
-        </ul>
-      </div>
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5.5" r="2.4"/><circle cx="19" cy="5.5" r="2.4"/><circle cx="5" cy="18.5" r="2.4"/><circle cx="19" cy="18.5" r="2.4"/><rect x="9" y="9.5" width="6" height="5" rx="1.2"/><path d="M6.8 7.2L9.2 9.4M17.2 7.2L14.8 9.4M6.8 16.8L9.2 14.6M17.2 16.8L14.8 14.6"/></svg>
-        <h4>Drone Aerials</h4>
-        <ul class="ala-list">
-          <li><span>Added to a shoot: 8&ndash;10 aerial stills</span><b>+&euro;75</b></li>
-          <li><span>Added to a shoot: stills and video clips</span><b>+&euro;130</b></li>
-          <li><span>Standalone aerial session</span><b>from &euro;150</b></li>
-          <li class="ala-fine">Flights are subject to airspace clearance</li>
-        </ul>
-      </div>
-      <div class="ala">
-        <svg class="ala-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
-        <h4>360 Walkthrough</h4>
-        <ul class="ala-list">
-          <li><span>Added to a photo shoot</span><b>+&euro;100</b></li>
-          <li><span>Standalone, up to 150m&sup2;</span><b>from &euro;180</b></li>
-          <li><span>Larger homes and venues</span><b>&euro;250</b></li>
-          <li><span>Hosting after the first 6 months</span><b>&euro;10/mo</b></li>
-        </ul>
-      </div>
-    </div>
-    <div class="ala-cta"><button class="pkg-cta" type="button" data-go="contact" data-bundle="ala-video">Start a Project</button></div>
-  </div>
 
 </section>
 
@@ -1557,14 +1564,14 @@ var REEL_MEDIA = [
       landscape frame per category, at least 1600px wide, hosted URL. Until
       then each category shows its own tinted backdrop and line mark, which is
       why the hero still looks deliberate with no photography in it.
-      `go` must match a pricing tab id: products | property | motion | staging */
+      `go` must match a pricing tab id: products | property | staging */
 var CATEGORY_SHOWCASE = [
   {name:'Product Photography',  line:'Plain packshots, generated settings and built sets.',      go:'products', icon:'cube',   tint:'210,170,90',  src:'/img/web-hero-products.webp'},
   {name:'Property Photography', line:'Listings, rentals, holiday lets and venues.',   go:'property', icon:'home',   tint:'150,175,205', src:'/img/web-hero-property.webp'},
-  {name:'Drone Aerials',        line:'The roof, the pool, the coastline, the walk.',  go:'motion',   icon:'drone', tint:'120,165,175', src:'/img/web-hero-drone.webp'},
+  {name:'Drone Aerials',        line:'The roof, the pool, the coastline, the walk.',  go:'property', icon:'drone', tint:'120,165,175', src:'/img/web-hero-drone.webp'},
   {name:'Virtual Staging',      line:'Empty rooms, furnished before anyone visits.',  go:'staging',  icon:'sofa',   tint:'200,150,140', src:'/img/web-hero-staging.webp'},
   {name:'Styling & Decor',     line:'Rooms dressed so they finally feel lived in.',   go:'staging',  icon:'plant', tint:'175,150,190', src:'/img/web-hero-styling.webp'},
-  {name:'Virtual Walkthroughs', line:'One link that walks the whole property.',       go:'motion',   icon:'globe',  tint:'160,180,150', src:'/img/web-hero-walkthrough.webp'}
+  {name:'Virtual Walkthroughs', line:'One link that walks the whole property.',       go:'property', icon:'globe',  tint:'160,180,150', src:'/img/web-hero-walkthrough.webp'}
 ];
 
 /* 8. Locations offered by the search box on the contact form.
@@ -2686,7 +2693,7 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
   }
 
   /* ---------- category router ---------- */
-  var CATEGORIES = ['products', 'property', 'motion', 'staging'];
+  var CATEGORIES = ['products', 'property', 'staging'];
   var studio = document.getElementById('studio');
   var prompt = document.getElementById('zone-prompt');
   var wantScroll = false;
