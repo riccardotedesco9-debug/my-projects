@@ -249,6 +249,28 @@ body.js-tabs .panel.active{display:block;animation:fadeUp .45s ease}
 .svc p{font-size:.8rem;color:var(--text-muted);line-height:1.7}
 
 /* ===== PRICING CARDS ===== */
+/* ===== NOT YET BOOKABLE =====
+   Film, drone and 360 are priced and planned but cannot be delivered yet. They
+   stay on the page, because removing them loses the interest they attract, but
+   nothing about them may read as bookable: the card steps back, its photography
+   drains of colour, and the button asks to be told rather than pretending you
+   can book today. */
+.pkg.soon{opacity:.66;transition:opacity .3s}
+.pkg.soon:hover{opacity:.86}
+.pkg.soon .car img{filter:grayscale(.85) brightness(.8)}
+.pkg.soon .pkg-price,.pkg.soon .pkg-name{color:var(--text-muted)}
+.soon-badge{position:absolute;top:0;right:0;z-index:3;background:rgba(8,8,10,.9);
+  border:1px solid var(--border-mid);color:var(--gold);font-size:.55rem;
+  letter-spacing:.18em;text-transform:uppercase;padding:.4rem .7rem}
+.pkg.soon .pkg-cta{background:transparent;border:1px solid var(--border-mid);color:var(--text-muted)}
+.pkg.soon .pkg-cta:hover{border-color:var(--gold);color:var(--gold-light)}
+.soon-note{text-align:center;font-size:.8rem;color:var(--text-muted);
+  max-width:640px;margin:0 auto 2rem;line-height:1.8}
+.soon-note b{color:var(--gold-light);font-weight:400}
+.med-soon{position:absolute;top:.7rem;right:.9rem;z-index:2;background:rgba(8,8,10,.82);
+  border:1px solid var(--border-mid);color:var(--gold);font-size:.52rem;
+  letter-spacing:.18em;text-transform:uppercase;padding:.3rem .55rem}
+
 .pkg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
 /* the products video view has only two cards; without this they sit left with a
    dead third column beside them */
@@ -831,6 +853,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
         <span class="med-text"><span class="med-name">Photography</span><span class="med-sub">Packshots, settings and built scenes</span></span>
       </button>
       <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
+        <span class="med-soon">Coming soon</span>
         <span class="med-img"><img src="/img/web-card-prod-motion.webp" alt="" loading="lazy" decoding="async"></span>
         <span class="med-text"><span class="med-name">Video</span><span class="med-sub">Hero films and vertical reels</span></span>
       </button>
@@ -840,7 +863,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><h4>Packshots</h4><p>Pure white background, straight crops, consistent colour. Ready to upload.</p></div>
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/></svg><h4>Generated Settings</h4><p>Shot for real, then placed into a setting built to suit it.</p></div>
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2 7l10-4 10 4-10 4z"/><path d="M2 12l10 4 10-4"/><path d="M2 17l10 4 10-4"/></svg><h4>Built Scenes</h4><p>A set designed for the product, and the hero image for a campaign or homepage.</p></div>
-      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Product Video</h4><p>Short vertical clips for Reels, TikTok and product pages.</p></div>
+      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Product Video</h4><p>Short vertical clips for Reels, TikTok and product pages. Coming soon.</p></div>
     </div>
 
     <div class="block-label" data-med="stills">Pricing</div>
@@ -934,10 +957,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
          what they have (a product, a property), not by medium, so asking them
          to price one job across two tabs was friction for no gain. -->
     <div class="block-label" data-med="motion">Pricing</div>
+    <p class="soon-note" data-med="motion">These are <b>not bookable yet</b>. The prices are set and the work is coming. Ask to be told the moment it opens and you will hear first.</p>
     <div class="pkg-grid" data-med="motion">
       
-        <div class="pkg featured">
-          <div class="pkg-badge">Most booked</div>
+        <div class="pkg soon">
+          <div class="soon-badge">Coming soon</div>
           <div class="car" data-carousel="vid-hero">
             <div class="car-track" data-track-for="vid-hero"></div>
             <button class="car-nav car-prev" type="button" data-car-prev="vid-hero" aria-label="Previous example">&#8249;</button>
@@ -959,10 +983,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
               <li><span>Delivered in horizontal and vertical crops</span></li>
               <li><span>Finished file within 48 hours</span></li>
             </ul>
-            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-hero">Get Started</button>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-hero">Tell me when it opens</button>
           </div>
         </div>
-        <div class="pkg">
+        <div class="pkg soon">
+          <div class="soon-badge">Coming soon</div>
           <div class="car" data-carousel="vid-reel">
             <div class="car-track" data-track-for="vid-reel"></div>
             <button class="car-nav car-prev" type="button" data-car-prev="vid-reel" aria-label="Previous example">&#8249;</button>
@@ -984,7 +1009,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
               <li><span>Vertical 9:16, ready to post</span></li>
               <li><span>Finished file within 48 hours</span></li>
             </ul>
-            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-reel">Get Started</button>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-reel">Tell me when it opens</button>
           </div>
         </div>
       </div>
@@ -1009,6 +1034,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
         <span class="med-text"><span class="med-name">Photography</span><span class="med-sub">Interiors, exteriors and detail</span></span>
       </button>
       <button type="button" class="med-card" data-medium="motion" aria-pressed="false">
+        <span class="med-soon">Coming soon</span>
         <span class="med-img"><img src="/img/web-card-prop-motion.webp" alt="" loading="lazy" decoding="async"></span>
         <span class="med-text"><span class="med-name">Video, drone &amp; 360</span><span class="med-sub">Film, aerials and virtual tours</span></span>
       </button>
@@ -1016,9 +1042,9 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
 
     <div class="services-grid">
       <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><h4>Photography</h4><p>HDR interiors and exteriors, corrected for colour and daylight.</p></div>
-      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Walkthrough Film</h4><p>A steady, edited walk through the property, cut for listings and Reels.</p></div>
-      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5.5" r="2.4"/><circle cx="19" cy="5.5" r="2.4"/><circle cx="5" cy="18.5" r="2.4"/><circle cx="19" cy="18.5" r="2.4"/><rect x="9" y="9.5" width="6" height="5" rx="1.2"/><path d="M6.8 7.2L9.2 9.4M17.2 7.2L14.8 9.4M6.8 16.8L9.2 14.6M17.2 16.8L14.8 14.6"/></svg><h4>Drone Aerials</h4><p>The roof, the pool, the sea view and how close it all really is.</p></div>
-      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg><h4>360 Walkthrough</h4><p>One link an overseas buyer can walk through before they fly over.</p></div>
+      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg><h4>Walkthrough Film</h4><p>A steady, edited walk through the property, cut for listings and Reels. Coming soon.</p></div>
+      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5.5" r="2.4"/><circle cx="19" cy="5.5" r="2.4"/><circle cx="5" cy="18.5" r="2.4"/><circle cx="19" cy="18.5" r="2.4"/><rect x="9" y="9.5" width="6" height="5" rx="1.2"/><path d="M6.8 7.2L9.2 9.4M17.2 7.2L14.8 9.4M6.8 16.8L9.2 14.6M17.2 16.8L14.8 14.6"/></svg><h4>Drone Aerials</h4><p>The roof, the pool, the sea view and how close it all really is. Coming soon.</p></div>
+      <div class="svc"><svg class="svc-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg><h4>360 Walkthrough</h4><p>One link an overseas buyer can walk through before they fly over. Coming soon.</p></div>
     </div>
 
     <div class="block-label" data-med="stills">Pricing</div>
@@ -1117,11 +1143,12 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
     <!-- Film, drone and 360 are property services, so they are priced here
          beside the photography rather than in a tab of their own. -->
     <div class="block-label" data-med="motion">Pricing</div>
+    <p class="soon-note" data-med="motion">These are <b>not bookable yet</b>. The prices are set and the work is coming. Ask to be told the moment it opens and you will hear first.</p>
     <p class="block-intro" data-med="motion">Add any of these to a photo shoot for the lower price, or book them on their own if you already have photographs.</p>
     <div class="pkg-grid" data-med="motion">
       
-        <div class="pkg featured">
-          <div class="pkg-badge">Most booked</div>
+        <div class="pkg soon">
+          <div class="soon-badge">Coming soon</div>
           <div class="car" data-carousel="vid-walk">
             <div class="car-track" data-track-for="vid-walk"></div>
             <button class="car-nav car-prev" type="button" data-car-prev="vid-walk" aria-label="Previous example">&#8249;</button>
@@ -1143,10 +1170,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
               <li><span>Add a vertical reel for &euro;75 instead of &euro;150</span></li>
               <li><span>Finished film within 48 hours</span></li>
             </ul>
-            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-walk">Get Started</button>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-walk">Tell me when it opens</button>
           </div>
         </div>
-        <div class="pkg">
+        <div class="pkg soon">
+          <div class="soon-badge">Coming soon</div>
           <div class="car" data-carousel="vid-drone">
             <div class="car-track" data-track-for="vid-drone"></div>
             <button class="car-nav car-prev" type="button" data-car-prev="vid-drone" aria-label="Previous example">&#8249;</button>
@@ -1168,10 +1196,11 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
               <li><span>Flights subject to airspace clearance</span></li>
               <li><span>Files within 48 hours</span></li>
             </ul>
-            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-drone">Get Started</button>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-drone">Tell me when it opens</button>
           </div>
         </div>
-        <div class="pkg">
+        <div class="pkg soon">
+          <div class="soon-badge">Coming soon</div>
           <div class="car" data-carousel="vid-360">
             <div class="car-track" data-track-for="vid-360"></div>
             <button class="car-nav car-prev" type="button" data-car-prev="vid-360" aria-label="Previous example">&#8249;</button>
@@ -1193,7 +1222,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
               <li><span>Works on phone, desktop and headset</span></li>
               <li><span>Live within 48 hours</span></li>
             </ul>
-            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-360">Get Started</button>
+            <button class="pkg-cta" type="button" data-go="contact" data-bundle="vid-360">Tell me when it opens</button>
           </div>
         </div>
       </div>
@@ -1474,9 +1503,9 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
             <label class="mopt"><input type="checkbox" name="services" value="stg-interior" data-label="Styling &amp; Decor" data-per="per room"><span class="mopt-box"></span><span class="mopt-name">Styling &amp; Decor</span><span class="mopt-cost"></span></label>
             <label class="mopt"><input type="checkbox" name="services" value="stg-enhance" data-label="Photo Editing" data-per="up to 20 photos"><span class="mopt-box"></span><span class="mopt-name">Photo Editing</span><span class="mopt-cost"></span></label>
             <div class="multi-grp">Video, Drone &amp; 360</div>
-            <label class="mopt"><input type="checkbox" name="services" value="ala-video" data-label="Video" data-from="150" data-fixed="from &euro;150"><span class="mopt-box"></span><span class="mopt-name">Video</span><span class="mopt-cost"></span></label>
-            <label class="mopt"><input type="checkbox" name="services" value="ala-drone" data-label="Drone aerials" data-from="150" data-fixed="from &euro;150"><span class="mopt-box"></span><span class="mopt-name">Drone aerials</span><span class="mopt-cost"></span></label>
-            <label class="mopt"><input type="checkbox" name="services" value="ala-360" data-label="360 walkthrough" data-from="180" data-fixed="from &euro;180"><span class="mopt-box"></span><span class="mopt-name">360 walkthrough</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="ala-video" data-label="Video (coming soon)" data-from="150" data-fixed="from &euro;150"><span class="mopt-box"></span><span class="mopt-name">Video</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="ala-drone" data-label="Drone aerials (coming soon)" data-from="150" data-fixed="from &euro;150"><span class="mopt-box"></span><span class="mopt-name">Drone aerials</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="ala-360" data-label="360 walkthrough (coming soon)" data-from="180" data-fixed="from &euro;180"><span class="mopt-box"></span><span class="mopt-name">360 walkthrough</span><span class="mopt-cost"></span></label>
             <div class="multi-grp">Not decided</div>
             <label class="mopt"><input type="checkbox" name="services" value="unsure" data-label="Not sure yet" data-from="0" data-fixed=""><span class="mopt-box"></span><span class="mopt-name">Not sure yet, talk it through</span><span class="mopt-cost"></span></label>
           </div>
