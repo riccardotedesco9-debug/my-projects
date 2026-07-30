@@ -21,6 +21,10 @@ projects/stagecraft-studio-site/dist/
 # wrangler's local cache — recreated on every deploy, and holds the account id
 .wrangler/
 
+# Full-size generated masters (~23MB). Only the web-* derivatives are tracked
+# and deployed; regenerate the masters if a different crop is ever needed.
+projects/stagecraft-studio-site/assets/site-images/*.jpg
+
 # Scratch — WebDesign screenshot/compare output, regenerated on demand
 temporary-screenshots/
 

@@ -30,6 +30,11 @@ const SHIP = [
   'favicon.ico'
 ];
 
+/* Site photography, copied to dist/img/. Only the web-* derivatives ship; the
+   full-size masters stay behind so the deployment carries ~2MB rather than 23. */
+const IMAGE_SRC = 'assets/site-images';
+const IMAGE_DIR = 'img';
+
 await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
@@ -42,13 +47,28 @@ for (const name of SHIP) {
   shipped.push(`${name} (${Math.round((await stat(src)).size / 1024)} KB)`);
 }
 
+/* photography: only the optimised web-* derivatives */
+let imageCount = 0, imageBytes = 0;
+if (existsSync(join(here, IMAGE_SRC))) {
+  const names = (await readdir(join(here, IMAGE_SRC))).filter(n => /^web-.*\.webp$/.test(n));
+  if (names.length) {
+    await mkdir(join(dist, IMAGE_DIR), { recursive: true });
+    for (const n of names) {
+      const buf = await readFile(join(here, IMAGE_SRC, n));
+      await writeFile(join(dist, IMAGE_DIR, n), buf);
+      imageCount++; imageBytes += buf.length;
+    }
+  }
+}
+
 /* Fail loudly if anything unexpected slipped into dist */
 const actual = await readdir(dist);
-const unexpected = actual.filter(f => !SHIP.includes(f));
+const unexpected = actual.filter(f => !SHIP.includes(f) && f !== IMAGE_DIR);
 if (unexpected.length) throw new Error('Unexpected files in dist: ' + unexpected.join(', '));
 
 console.log('dist/ contains ONLY:');
 shipped.forEach(f => console.log('  ✓ ' + f));
+if (imageCount) console.log(`  ✓ ${IMAGE_DIR}/ (${imageCount} images, ${Math.round(imageBytes / 1024)} KB)`);
 if (skipped.length) console.log('not present (fine):  ' + skipped.join(', '));
 
 const excluded = (await readdir(here, { withFileTypes: true }))
