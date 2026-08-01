@@ -889,7 +889,6 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
             <li><span>Colour, dust and blemish clean-up included</span></li>
             <li><span>Extra angles of the same product, &euro;10 each</span></li>
             <li><span>Tiered for catalogues: first 5 at &euro;25, 6&ndash;20 at &euro;20, 21+ at &euro;15</span></li>
-            <li><span>&euro;100 minimum per session</span></li>
             <li><span>High-resolution files within 48 hours</span></li>
           </ul>
           <button class="pkg-cta" type="button" data-go="contact" data-bundle="prod-listing">Get Started</button>
@@ -951,7 +950,7 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
         </div>
       </div>
     </div>
-    <p class="pkg-note" data-med="stills">Minimum booking &euro;100 per session. Products can be dropped off or collected in the north of Malta.</p>
+    <p class="pkg-note" data-med="stills">Products can be dropped off or collected in the north of Malta.</p>
 
     <!-- Motion lives WITH its subject, not in a separate tab. People shop by
          what they have (a product, a property), not by medium, so asking them
@@ -1491,9 +1490,9 @@ footer{border-top:1px solid var(--border);padding:1.5rem 4rem;display:flex;justi
           </button>
           <div class="multi-panel" id="svc-panel" role="group" aria-labelledby="svc-label">
             <div class="multi-grp">Products</div>
-            <label class="mopt"><input type="checkbox" name="services" value="prod-listing" data-label="Listing Shots" data-per="per product" data-group="product"><span class="mopt-box"></span><span class="mopt-name">Listing Shots</span><span class="mopt-cost"></span></label>
-            <label class="mopt"><input type="checkbox" name="services" value="prod-styled" data-label="Generated Setting" data-per="first product" data-group="product"><span class="mopt-box"></span><span class="mopt-name">Generated Setting</span><span class="mopt-cost"></span></label>
-            <label class="mopt"><input type="checkbox" name="services" value="prod-scene" data-label="Built Set" data-per="first scene" data-group="product"><span class="mopt-box"></span><span class="mopt-name">Built Set</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="prod-listing" data-label="Listing Shots" data-per="per product"><span class="mopt-box"></span><span class="mopt-name">Listing Shots</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="prod-styled" data-label="Generated Setting" data-per="first product"><span class="mopt-box"></span><span class="mopt-name">Generated Setting</span><span class="mopt-cost"></span></label>
+            <label class="mopt"><input type="checkbox" name="services" value="prod-scene" data-label="Built Set" data-per="first scene"><span class="mopt-box"></span><span class="mopt-name">Built Set</span><span class="mopt-cost"></span></label>
             <div class="multi-grp">Property &amp; Spaces</div>
             <label class="mopt"><input type="checkbox" name="services" value="prop-t1" data-label="Essential" data-per="per property"><span class="mopt-box"></span><span class="mopt-name">Essential</span><span class="mopt-cost"></span></label>
             <label class="mopt"><input type="checkbox" name="services" value="prop-t2" data-label="Signature" data-per="per property"><span class="mopt-box"></span><span class="mopt-name">Signature</span><span class="mopt-cost"></span></label>
@@ -1909,7 +1908,6 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
   /* ---------- services multi-select ----------
      Row prices come from the same PRICING config as the cards, so raising a
      price can never leave the form quoting the old one. */
-  var SESSION_MIN = 100;   /* product shoots have a minimum booking */
 
   /* Three attributes, three different jobs — do not conflate them:
        data-from  price for a row with NO PRICING key (the a-la-carte video /
@@ -1984,8 +1982,12 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
     trigger.textContent = picked.length === 1 ? names[0] : picked.length + ' services selected';
     triggerBtn.classList.add('picked');        /* an answer, so full brightness */
 
-    var productSubtotal = 0, hasProduct = false, rest = 0, approximate = false;
-    var rawProduct = 0, onRequest = false, minNotes = [];
+    /* A straight sum. Product rows used to be pooled separately so they could be
+       floored at a session minimum; the minimum was dropped, so the split had no
+       purpose left and the estimate is simply what was ticked. Per-row minimums
+       (data-min) still apply, which is a different thing: staging is genuinely
+       two images or nothing. */
+    var total = 0, approximate = false, onRequest = false, minNotes = [];
     picked.forEach(function(input){
       if(input.value === 'unsure'){ approximate = true; return; }
       if(!servicePriced(input)){ onRequest = true; approximate = true; return; }
@@ -1996,25 +1998,15 @@ var ABOUT_PORTRAIT = 'data:image/webp;base64,UklGRoiFAABXRUJQVlA4IHyFAACwvQKdASq
         var mn = input.getAttribute('data-min-note');
         if(mn && minNotes.indexOf(mn) === -1) minNotes.push(mn);
       }
-      if(input.getAttribute('data-group') === 'product'){
-        hasProduct = true; rawProduct += value; productSubtotal += value;
-      } else rest += value;
+      total += value;
       if(input.getAttribute('data-per') || input.getAttribute('data-fixed')) approximate = true;
     });
-    if(hasProduct) productSubtotal = Math.max(productSubtotal, SESSION_MIN);
 
-    /* Only true when the floor actually LIFTED the figure. Comparing the total
-       to SESSION_MIN instead flagged a lone €100 Built Set, which reaches the
-       minimum on its own and needs no explaining. */
-    var flooredToMinimum = hasProduct && rawProduct < SESSION_MIN;
-
-    var total = productSubtotal + rest;
     box.hidden = false;
     amount.textContent = total > 0 ? '€' + total : 'On request';
 
     var lines = [];
     if(total > 0){
-      if(flooredToMinimum) lines.push('Product sessions start at €' + SESSION_MIN + '.');
       minNotes.forEach(function(m){ lines.push(m); });
       if(onRequest) lines.push('Some of what you picked is priced on request and is not counted above.');
       lines.push(approximate
