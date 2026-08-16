@@ -64,6 +64,11 @@ VISION_MODEL = "claude-sonnet-4-6"  # vision judgement (single-product/crop/iden
 VISION_MIN_CONF = 0.8   # vision must be at least this sure the image matches before its quality verdict counts
 VISION_STRICT_CONF = 0.85  # any GREEN minted by vision alone (verified-visual / off-source swap) needs this
 MAX_QUALITY_ALTS = 2    # at most this many alternate images get a vision call when the primary fails
+# Stage 4b (vision-adjudicated fallback for a named row with nothing above THRESHOLD). Bounded so a
+# hopeless row costs at most two vision calls, and floored so we never ask about a candidate the
+# scorer considered unrelated — vision is a tiebreaker for near-misses, not a second search.
+SUBTHRESHOLD_TRIES = 2
+SUBTHRESHOLD_FLOOR = 0.30
 VISION_MAX_PX = 1024    # downscale the long edge before the vision call to bound image-token cost
 VISION_CALL_CAP = 30000  # hard ceiling on vision calls per run (insurance against runaway Anthropic spend)
 GROUND_MIN = 400        # below this many chars of page text, try one supplementary trusted-source fetch
@@ -703,8 +708,11 @@ PLACEHOLDER_DIST = 6      # Hamming tolerance: same graphic, different scaling/J
 # A wide, near-empty image is a banner or a wordmark, not a packshot. Measured across a real
 # 30-image batch this rejected the eBay placeholder and NOTHING else — legitimate wide product
 # shots (a spa on its side, a dosing unit) all carry far more ink than this.
-SPARSE_BANNER_RATIO = 1.8
-SPARSE_BANNER_INK = 0.25
+# Tightened deliberately: a legitimate wide packshot on white (a pool pole, a hose, a long twin-pack)
+# reaches ~1.8-2.0, and rejecting those outright loses real products. The observed placeholder sat at
+# 2.50 with 0.13 ink, so this still catches it with margin while leaving normal wide products alone.
+SPARSE_BANNER_RATIO = 2.3
+SPARSE_BANNER_INK = 0.18
 
 
 def _dhash(im, size=8):
@@ -815,12 +823,16 @@ def vision_assess(img_url, name, brand, ptype):
     if not block:
         return fail
     prompt = (
-        "You inspect product photos for a pet-shop catalogue. "
+        # Deliberately vertical-NEUTRAL. This said "a pet-shop catalogue" and that leaked into the
+        # judgements: on a pool catalogue the model rejected a correct photo with the reason "not a
+        # pet-shop product". The engine is portable, so the prompt must describe no vertical at all.
+        "You inspect product photos for a retail catalogue. "
         f'Claimed product: name="{name}" brand="{brand or "n/a"}" category="{ptype or "n/a"}".\n'
         "Judge the image on three axes, strictly:\n"
         "1. match — does it clearly show THIS product (same brand and item type, and "
         "variant/flavour/size if discernible)? A different brand/product, a generic stock photo, "
-        "or packaging you cannot match = false.\n"
+        "or packaging you cannot match = false. Judge ONLY against the claimed product above; the "
+        "product's category or industry is never itself a reason to reject.\n"
         "2. single — is exactly ONE unit shown, OR a coherent multipack/set that IS this SKU "
         "(e.g. a 24-can tray sold as one)? Mark false when the SAME item is repeated purely as a "
         "marketing arrangement (e.g. three identical bags fanned out side by side).\n"
@@ -1249,6 +1261,26 @@ def main():
                     break
                 if img_ok(im["imageUrl"])[1]:
                     chosen = (s, im, via, "likely", "", "")
+                    break
+
+        # Stage 4b: vision-adjudicated fallback. A row with a real name but nothing above THRESHOLD
+        # would otherwise be blank, even when the right photo sits just under the bar — the title
+        # scorer is deliberately strict, so "Chlorine stabilizer 4,5 Kg. ASTRALPOOL" can miss a name
+        # written in a different order. Rather than lower the bar for everyone (which lets genuinely
+        # wrong products in — a search for "Spa Industries Europe" returns bottled mineral water),
+        # let VISION look at the best few and say whether it IS the product.
+        # This can only ever mint YELLOW: the tier is `verified-visual`, and green stays reserved for
+        # a literal barcode/article-code confirmation. Requires --vision; without it, nothing changes.
+        if not chosen and core and VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
+            for s, im, via in order[:SUBTHRESHOLD_TRIES]:
+                if s < SUBTHRESHOLD_FLOOR or time.time() - t0 > PRODUCT_BUDGET:
+                    break
+                if not img_ok(im["imageUrl"])[1]:
+                    continue
+                a = vision_assess(im["imageUrl"], p["clean"], p["brand"], p["type"])
+                vbump()
+                if a["match"] and a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
+                    chosen = (s, im, via, "verified-visual", "", "")
                     break
 
         # Stage 5 (opt-in `--vision`): quality + identity judgement on the chosen image. May swap a

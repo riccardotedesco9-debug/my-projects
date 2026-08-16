@@ -35,6 +35,11 @@ def main():
     skipped = json.load(open(SKIPPED, encoding="utf-8"))
     by_row = {str(c["row"]): c for c in catalog}
 
+    # Denominator is the SCANNED GTIN count, not the number of rows the resolver happened to record:
+    # a row dropped as retry/capped would otherwise vanish from both numerator and denominator and the
+    # report would read 100% while products were missing.
+    for c in catalog:
+        resolved.setdefault(str(c["row"]), {"reason": "not-processed"})
     rows = []
     for row, rec in resolved.items():
         rows.append({

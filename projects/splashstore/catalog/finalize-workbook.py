@@ -172,9 +172,12 @@ def style_header(ws, row=1):
 def enrich_curation(ws, by_barcode, resolved_by_barcode):
     """Append Tags / SEO / provenance beside the engine's own columns, matched on Barcode."""
     headers = [c.value for c in ws[1]]
-    if EXTRA[0] in headers:                      # rebuild on re-run
-        for _ in EXTRA:
-            ws.delete_cols(headers.index(EXTRA[0]) + 1)
+    # Rebuild on re-run. Delete BY NAME, highest index first: after reorder_columns the EXTRA columns
+    # are no longer adjacent (Confirmed by sits at E, Tags at J), so deleting N consecutive columns
+    # from the first one's index removed innocent neighbours — it ate "Depth (cm)".
+    for name in sorted((h for h in EXTRA if h in headers),
+                       key=lambda n: headers.index(n), reverse=True):
+        ws.delete_cols(headers.index(name) + 1)
         headers = [c.value for c in ws[1]]
     start = len(headers) + 1
     bc_col = headers.index("Barcode") + 1
@@ -253,6 +256,32 @@ def build_unscannable_tab(wb, skipped):
     return len(skipped)
 
 
+def check_thumbnails(ws, resolved, catalog):
+    """Every row that HAS an image URL must carry an embedded thumbnail.
+
+    A row can end up with a URL but no picture — the image was re-resolved and its normalized JPG was
+    left stale or deleted, or the fallback fetch failed at assemble time. The cell then renders as a
+    broken-image icon in the Sheet, which looks like a bug in the data rather than a missing file.
+    Loud here, because it is invisible once published.
+    """
+    headers = [c.value for c in ws[1]]
+    bc_col = headers.index("Barcode") + 1
+    have = {im.anchor._from.row + 1 for im in getattr(ws, "_images", [])}
+    by_barcode = {c["barcode"]: str(c["row"]) for c in catalog if c.get("barcode")}
+
+    missing = []
+    for r in range(2, ws.max_row + 1):
+        code = str(ws.cell(r, bc_col).value or "").strip()
+        key = by_barcode.get(code)
+        if key and (resolved.get(key, {}) or {}).get("url") and r not in have:
+            missing.append((r, code))
+    if missing:
+        print("  !! rows with an image URL but NO embedded thumbnail (will render broken):")
+        for r, code in missing:
+            print(f"       sheet row {r}  barcode {code}  -> delete .tmp/normalized/<row>.jpg and re-run step 4")
+    return len(missing)
+
+
 def main():
     wb = openpyxl.load_workbook(WORKBOOK)
     with open(CSV_PATH, encoding="utf-8") as f:
@@ -269,6 +298,7 @@ def main():
     moved = reorder_columns(wb["Curation"], CURATION_ORDER)
     n_shop = build_shopify_tab(wb, rows)
     n_skip = build_unscannable_tab(wb, skipped)
+    broken = check_thumbnails(wb["Curation"], resolved, catalog)
 
     # Last: size everything so no photo and no sentence is clipped in the browser.
     fit_layout(wb["Curation"],
@@ -285,6 +315,7 @@ def main():
     print(f"  Shopify import  {n_shop} products x {len(headers)} columns "
           f"({', '.join(sorted(TODO_COLS & set(headers)))} tinted for you)")
     print(f"  Needs re-scan   {n_skip} codes that carry no product barcode")
+    print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")
 

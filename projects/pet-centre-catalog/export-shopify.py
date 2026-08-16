@@ -82,11 +82,9 @@ def handle_for(title, barcode, seen):
     base = re.sub(r"[^a-zA-Z0-9]+", "-", base).strip("-").lower()[:80] or "product"
     h = base
     if h in seen and barcode:
-        h = f"{base}-{barcode}"
-    n = 2
+        h = f"{base}-{barcode}"        # the barcode is unique, so this resolves deterministically
     while h in seen:
-        h = f"{base}-{n}"
-        n += 1
+        h += "-x"                      # last resort; still independent of iteration order
     seen.add(h)
     return h
 
@@ -286,10 +284,15 @@ def sku_for(vendor, ptype, barcode, seen):
     kind = SKU_TYPE.get(ptype, "GEN")
     tail = re.sub(r"\D", "", barcode or "")[-4:] or "0000"
     base = f"{brand}-{kind}-{tail}"
-    sku, n = base, 2
-    while sku in seen:            # same brand+type+tail on two codes: suffix rather than collide
-        sku = f"{base}-{n}"
-        n += 1
+    sku = base
+    if sku in seen:
+        # Collision suffix derived from the barcode, NOT from iteration order: an order-based counter
+        # means inserting one product earlier in a later scan swaps two existing SKUs, which is the
+        # opposite of the stability this function promises.
+        digits = re.sub(r"\D", "", barcode or "0")
+        sku = f"{base}-{digits[-6:-4] or '00'}"
+        while sku in seen:
+            sku += "X"
     seen.add(sku)
     return sku
 

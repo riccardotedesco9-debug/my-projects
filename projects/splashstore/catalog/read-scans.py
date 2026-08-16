@@ -50,8 +50,12 @@ def classify(code):
     if GS1_AI.search(c):
         return "gs1-serial", c
     if c.isdigit() and ean_valid(c):
-        # restricted / in-store prefixes are not globally unique -> unusable as a confirmation key
-        return ("in-store" if re.match(r"(?:0[24]|2\d)", c) else "gtin"), c
+        # Restricted / in-store prefixes are not globally unique -> unusable as a confirmation key.
+        # EAN-13 02x/04x/2xx, and a raw UPC-12 whose number-system digit is 2 or 4. The 12-digit case
+        # needs its own test: as an EAN-13 it would be written 0<upc>, so matching on the leading
+        # digit alone missed every 4xxxxxxxxxxx retailer code and let it mint a false confirmation.
+        instore = re.match(r"(?:0[24]|2\d)", c) or (len(c) == 12 and c[0] in "24")
+        return ("in-store" if instore else "gtin"), c
     return "other", c
 
 

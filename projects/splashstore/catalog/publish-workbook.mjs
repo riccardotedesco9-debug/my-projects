@@ -48,7 +48,9 @@ async function main() {
     console.log(`Created: ${file.name}`);
   }
 
-  fs.writeFileSync(ID_FILE, file.id, "utf8");
+  // Only the canonical sheet owns the cache. A --new copy is a one-off; writing its id here would
+  // silently redirect every later publish and strand the link the owner already has.
+  if (!process.argv.includes("--new")) fs.writeFileSync(ID_FILE, file.id, "utf8");
   console.log(file.webViewLink || `https://docs.google.com/spreadsheets/d/${file.id}/edit`);
   console.log(`(id cached in ${path.relative(process.cwd(), ID_FILE)})`);
 }
