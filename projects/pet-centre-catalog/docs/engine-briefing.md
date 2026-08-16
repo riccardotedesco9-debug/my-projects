@@ -45,6 +45,29 @@ Row **Status** = the weakest field present: all green → **READY**, any yellow 
    evidence-derived Vendor/Type/Product category/Collection/Tags, an Ingredients metafield for food, and
    Price/Inventory/SKU deliberately blank. Everything imports as `draft`, unpublished.
 
+## Guarding the IMAGE against non-products
+A URL and a size gate cannot tell you what a picture shows, and two failure modes get through them:
+
+- **Marketplace placeholders.** A dead or image-less eBay listing serves eBay's own wordmark at a
+  normal size and content-type. Nothing in the filename says "logo". `looks_like_placeholder()`
+  (`resolve-images.py`) catches these for free: a dHash blocklist (structure, so it survives rescaling
+  and re-encoding — add a hash when a new one appears) plus a "sparse banner" rule, wide frame with
+  almost no ink. Measured on a real 30-image batch it rejected the placeholder and nothing else. A hit
+  is rejected outright, not flagged — a logo is never a worse photo of the product, it is not the
+  product — so the row falls through to the next candidate or to blank.
+- **Wrong or cropped products.** No cheap rule sees these. `audit-images.py` vision-checks the images a
+  run ALREADY resolved (no Firecrawl, no barcode-DB calls, no re-resolution): ~$0.006/image, so ~$0.20
+  for 30 and ~$1.50 for a 229-product catalogue. It FLAGS (`img_quality`, `img_audit`) and never swaps
+  or deletes, because deciding a photo is wrong is a judgement and judgements go to a human.
+  **Expect false positives** — on the first real batch it flagged 3 of 30 and only 1 was genuinely
+  wrong (an Aiper robot illustrated with a different brand's manual vacuum); the other two were the
+  correct product, flagged over a pack-count difference and a brand nuance. Treat it as a shortlist to
+  eyeball, not a verdict.
+
+**Re-resolving a row invalidates its normalized thumbnail.** `normalize-images.py` is resumable and
+skips `<row>.jpg` if it exists, so after fixing an image you must delete that file or the workbook
+keeps embedding the old picture.
+
 ## The source cascade (most → least reliable, per field)
 Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
 

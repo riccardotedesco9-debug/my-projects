@@ -691,6 +691,54 @@ def fetch_grounding(url):
     return _grounding(md), res.get("creditsUsed", 1)
 
 
+# Marketplace placeholders: a dead or image-less listing serves the SITE'S OWN LOGO in place of the
+# product, at a perfectly normal size and content-type, so nothing in the URL or the size gate catches
+# it — a barcode-confirmed row ends up illustrated with the eBay wordmark. Fingerprinted by dHash
+# (structure, not bytes), so the same placeholder is caught at any resolution or re-encode.
+# Add a hash here whenever a new placeholder is spotted; it costs nothing at runtime.
+PLACEHOLDER_HASHES = {
+    0x0020e0e0c4e40c00: "ebay-logo",
+}
+PLACEHOLDER_DIST = 6      # Hamming tolerance: same graphic, different scaling/JPEG quality
+# A wide, near-empty image is a banner or a wordmark, not a packshot. Measured across a real
+# 30-image batch this rejected the eBay placeholder and NOTHING else — legitimate wide product
+# shots (a spa on its side, a dosing unit) all carry far more ink than this.
+SPARSE_BANNER_RATIO = 1.8
+SPARSE_BANNER_INK = 0.25
+
+
+def _dhash(im, size=8):
+    """Difference hash: 64 bits of "is this pixel brighter than the next", which survives rescaling
+    and re-compression but changes completely for a different picture."""
+    g = im.convert("L").resize((size + 1, size))
+    px = list(g.getdata())
+    bits = 0
+    for r in range(size):
+        for c in range(size):
+            bits = (bits << 1) | (1 if px[r * (size + 1) + c] > px[r * (size + 1) + c + 1] else 0)
+    return bits
+
+
+def _ink_fraction(im):
+    """Share of the frame that is not near-white — i.e. how much picture is actually there."""
+    p = im.convert("RGB").resize((160, 160))
+    data = list(p.getdata())
+    return sum(1 for r, g, b in data if not (r > 235 and g > 235 and b > 235)) / len(data)
+
+
+def looks_like_placeholder(im):
+    """A site logo / 'no image' graphic rather than the product. Reason string, or ''."""
+    h = _dhash(im)
+    for known, name in PLACEHOLDER_HASHES.items():
+        if bin(h ^ known).count("1") <= PLACEHOLDER_DIST:
+            return name
+    w, ht = im.size
+    ratio = max(w, ht) / max(min(w, ht), 1)
+    if ratio > SPARSE_BANNER_RATIO and _ink_fraction(im) < SPARSE_BANNER_INK:
+        return "sparse-banner"
+    return ""
+
+
 def image_check(url):
     """Fetch the image once and judge it. Returns (live, good):
       live = the URL actually serves an image (200 + image content-type) — a kept row must
@@ -712,9 +760,18 @@ def image_check(url):
     if not _PILImage:
         return True, True
     try:
-        w, h = _PILImage.open(io.BytesIO(data)).size
+        im = _PILImage.open(io.BytesIO(data))
+        w, h = im.size
     except Exception:
         return True, False  # bytes served but unreadable as an image -> live, not trusted
+    # A marketplace placeholder is not a worse photo of the product, it is not the product at all —
+    # so it is rejected outright (live=False) and the row falls through to the next candidate or
+    # blank, rather than being kept and merely flagged.
+    why = looks_like_placeholder(im)
+    if why:
+        if DEBUG:
+            print(f"  rejected {why}: {url[:70]}")
+        return False, False
     short, long_ = min(w, h), max(w, h)
     good = short >= MIN_IMG_PX and (long_ / max(short, 1)) <= MAX_IMG_RATIO
     return True, good

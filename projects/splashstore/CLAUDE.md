@@ -137,6 +137,14 @@ everything else merges only on an exact string match. Every collapse is logged t
 `.tmp/catalog-duplicates.json` with both line numbers, and a conservation check aborts the run rather
 than write a catalogue where kept + collapsed != scanned. Never loosen this into fuzzy matching.
 
+### Image quality
+Two non-product failures were found in the first batch and both are now guarded: an **eBay placeholder
+logo** (caught free by `looks_like_placeholder`) and an **Aiper robot illustrated with a different
+brand's manual vacuum** (caught by `audit-images.py`, ~$0.18 for the batch). Run the audit after a
+resolve and eyeball what it flags — it flagged 3 and only 1 was real, so it is a shortlist, not a
+verdict. **After correcting any image, delete `.tmp/normalized/<row>.jpg`** or the workbook re-embeds
+the old one; `normalize-images.py` skips rows it has already done.
+
 ### Known state / gotchas
 - **Barcode Lookup is live but on the FREE TRIAL: 50 successful calls per MONTH.** Key is in the root
   `.env` (rotated 2026-08-16). Only HTTP-200-with-data is metered — 404 misses are free (verified). It
