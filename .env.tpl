@@ -52,3 +52,25 @@ INTERNAL_ALERT_SECRET=op://AI-Stack/internal-alert/secret
 # --- Billing pulse (monthly cost tracker) ---
 BILLING_SHEET_ID=op://AI-Stack/billing-sheet/password
 FAL_KEY=op://AI-Stack/fal/password
+
+SHOPIFY_CLIENT_ID=op://AI-Stack/Shopify ID & Secret/username
+SHOPIFY_CLIENT_SECRET=op://AI-Stack/Shopify ID & Secret/password
+BUILDER_PRIVATE_KEY=op://AI-Stack/builder/password
+
+# Backup copies of secrets whose source of record is .env (mirrored 2026-07-28)
+BARCODELOOKUP_API_KEY=op://AI-Stack/barcodelookup/api-key
+HIKE_CLIENT_ID=op://AI-Stack/hike-oauth/client-id
+HIKE_CLIENT_SECRET=op://AI-Stack/hike-oauth/client-secret
+HIKE_REDIRECT_URI=op://AI-Stack/hike-oauth/redirect-uri
+HIKE_ACCESS_TOKEN=op://AI-Stack/hike-oauth/access-token
+HIKE_REFRESH_TOKEN=op://AI-Stack/hike-oauth/refresh-token
+HIKE_TOKEN_OBTAINED_AT=op://AI-Stack/hike-oauth/token-obtained-at
+
+# --- Catalogue engine: optional identity sources (fail-open no-ops until set) -------------------
+# Open Icecat, free tier. Barcode-keyed, manufacturer-approved data sheets -> joins the GREEN
+# cascade. Register: https://icecat.biz/en/registration
+ICECAT_USERNAME=op://AI-Stack/icecat/username
+# eBay Browse API, free. GTIN search, global, any category. Capped at YELLOW in the engine because
+# eBay's GTIN is seller-asserted. Register: https://developer.ebay.com/
+EBAY_CLIENT_ID=op://AI-Stack/ebay-browse/client-id
+EBAY_CLIENT_SECRET=op://AI-Stack/ebay-browse/client-secret

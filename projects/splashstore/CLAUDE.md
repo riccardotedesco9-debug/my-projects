@@ -145,6 +145,13 @@ resolve and eyeball what it flags — it flagged 3 and only 1 was real, so it is
 verdict. **After correcting any image, delete `.tmp/normalized/<row>.jpg`** or the workbook re-embeds
 the old one; `normalize-images.py` skips rows it has already done.
 
+### Ready to switch on (just add the key)
+`ICECAT_USERNAME` -> free Open Icecat, joins the GREEN cascade (electronics-skewed, thin for pool goods).
+`EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` -> free eBay Browse GTIN search, global and all-category, the
+closest free substitute for Barcode Lookup's non-food coverage — but capped at YELLOW, because eBay's
+GTIN is entered by the seller. Both are no-ops until their key exists, so nothing changes until then.
+**GS1 stays manual**: every endpoint 403s: see the engine briefing before spending time on it again.
+
 ### Known state / gotchas
 - **Barcode Lookup is live but on the FREE TRIAL: 50 successful calls per MONTH.** Key is in the root
   `.env` (rotated 2026-08-16). Only HTTP-200-with-data is metered — 404 misses are free (verified). It

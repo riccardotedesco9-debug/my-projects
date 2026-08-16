@@ -38,6 +38,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -371,6 +372,102 @@ def _barcodelookup(ean):
             "source_url": f"https://www.barcodelookup.com/{ean}", "db": "barcodelookup"}
 
 
+def _icecat(ean):
+    """Open Icecat (free tier, key-gated by ICECAT_USERNAME). Returns the normalized dict or None.
+
+    Sits in the GREEN cascade with the other barcode-keyed databases: Open Icecat data sheets are
+    approved by the sponsoring manufacturer and are looked up BY GTIN, so a hit is the exact SKU on
+    the same footing as Barcode Lookup — not a name match.
+
+    Coverage skews to IT, electronics and consumer tech; expect little for chemicals, food or generic
+    hardware. Harmless when it misses, since the cascade simply continues.
+    """
+    user = os.environ.get("ICECAT_USERNAME")
+    if not user:
+        return None
+    url = (f"https://live.icecat.biz/api?UserName={user}&Language=en&GTIN={ean}"
+           f"&Content=Image,GeneralInfo")
+    d = _db_get(url, timeout=25)
+    if not isinstance(d, dict):
+        return None
+    data = d.get("data") or {}
+    gen = data.get("GeneralInfo") or {}
+    img = (data.get("Image") or {}).get("HighPic") or ""
+    name = gen.get("Title") or gen.get("ProductName") or ""
+    if not (img or name):
+        return None
+    brand = (gen.get("Brand") or "") if isinstance(gen.get("Brand"), str) else ""
+    return {"name": name, "brand": brand, "ingredients": "", "image": img,
+            "source_url": f"https://icecat.biz/p/{ean}", "db": "icecat"}
+
+
+# eBay OAuth token, cached for the process: the client-credentials token lasts ~2h, so minting one per
+# product would be pure overhead.
+_ebay_token = {"value": "", "expires": 0.0}
+
+
+def _ebay_token_get():
+    cid, secret = os.environ.get("EBAY_CLIENT_ID"), os.environ.get("EBAY_CLIENT_SECRET")
+    if not (cid and secret):
+        return ""
+    if _ebay_token["value"] and time.time() < _ebay_token["expires"] - 60:
+        return _ebay_token["value"]
+    try:
+        body = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "scope": "https://api.ebay.com/oauth/api_scope",
+        }).encode()
+        auth = base64.b64encode(f"{cid}:{secret}".encode()).decode()
+        req = urllib.request.Request(
+            "https://api.ebay.com/identity/v1/oauth2/token", data=body,
+            headers={"Authorization": "Basic " + auth,
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            d = json.loads(r.read())
+        _ebay_token["value"] = d.get("access_token", "")
+        _ebay_token["expires"] = time.time() + float(d.get("expires_in", 7200))
+        return _ebay_token["value"]
+    except Exception:
+        return ""
+
+
+def ebay_by_gtin(ean, marketplace="EBAY_GB"):
+    """eBay Browse API search by GTIN (key-gated by EBAY_CLIENT_ID / EBAY_CLIENT_SECRET).
+
+    DELIBERATELY NOT part of the green cascade. eBay's GTIN field is filled in by the SELLER, not by
+    the brand owner, so a match here is a marketplace assertion rather than a manufacturer one — the
+    same class of evidence as a name match. It can therefore only ever produce YELLOW
+    (`likely`, or `verified-visual` when the vision gate confirms the photo).
+
+    Its value is breadth: it covers the non-food, any-category long tail that the free databases miss,
+    for free. Returns {name, brand, image, source_url} or None.
+    """
+    token = _ebay_token_get()
+    if not token:
+        return None
+    url = ("https://api.ebay.com/buy/browse/v1/item_summary/search"
+           f"?gtin={urllib.parse.quote(ean)}&limit=3")
+    try:
+        req = urllib.request.Request(url, headers={
+            "Authorization": "Bearer " + token,
+            "X-EBAY-C-MARKETPLACE-ID": marketplace,
+            "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            d = json.loads(r.read())
+    except Exception:
+        return None
+    for item in (d.get("itemSummaries") or []):
+        img = (item.get("image") or {}).get("imageUrl") or ""
+        if not (img and is_product_image(img)):
+            continue
+        return {"name": (item.get("title") or "")[:200],
+                "brand": item.get("brand") or "",
+                "image": img,
+                "source_url": item.get("itemWebUrl") or f"https://www.ebay.com/sch/i.html?_nkw={ean}",
+                "db": "ebay"}
+    return None
+
+
 def _off_family(host, ean):
     """One Product-Facts lookup (OpenPetFoodFacts / OpenFoodFacts) -> normalized dict on a real hit, else None.
     Prefers English ingredient text; also returns the ingredients-LABEL photo and the net weight (kg) when
@@ -442,6 +539,13 @@ def barcode_db_lookup(ean, edible=True):
     bl = _barcodelookup(ean)
     if bl:
         take_image(bl)
+    if not out["image"]:
+        try:
+            ic = _icecat(ean)
+        except Exception:
+            ic = None
+        if ic:
+            take_image(ic)
     if edible or not out["image"]:   # OpenPetFoodFacts only adds ingredient data; skip it for a non-edible w/ image
         try:
             off = _off_family("world.openpetfoodfacts.org", ean)
@@ -1262,6 +1366,29 @@ def main():
                 if img_ok(im["imageUrl"])[1]:
                     chosen = (s, im, via, "likely", "", "")
                     break
+
+        # Stage 4a: eBay Browse by GTIN. Runs only once the green cascade has failed, and its result
+        # is capped at YELLOW — eBay's GTIN is seller-asserted, so it is a marketplace claim, not a
+        # manufacturer one. With --vision the photo still has to pass the same identity check, which
+        # promotes it to `verified-visual`; without vision it stays `likely`. Key-gated: no key, no-op.
+        if not chosen and ean and os.environ.get("EBAY_CLIENT_ID"):
+            try:
+                eb = ebay_by_gtin(ean)
+            except Exception:
+                eb = None
+            if eb and eb.get("image") and img_ok(eb["image"])[1]:
+                im = {"imageUrl": eb["image"], "url": eb.get("source_url", ""), "title": eb.get("name", "")}
+                tier = "likely"
+                if VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
+                    a = vision_assess(eb["image"], p["clean"] or eb.get("name", ""), p["brand"], p["type"])
+                    vbump()
+                    if not (a["match"] and a["confidence"] >= VISION_MIN_CONF):
+                        im = None
+                    elif a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
+                        tier = "verified-visual"
+                if im:
+                    note_name("ebay.com", eb.get("name", ""))
+                    chosen = (0.6, im, "ebay-gtin", tier, "", "")
 
         # Stage 4b: vision-adjudicated fallback. A row with a real name but nothing above THRESHOLD
         # would otherwise be blank, even when the right photo sits just under the bar — the title

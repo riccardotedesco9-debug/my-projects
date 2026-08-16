@@ -102,6 +102,32 @@ Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
   counts calls, backs off on 429, and disables itself fail-open on quota/auth failure. **No ingredients; its
   dimensions are ignored.**
 - The whole barcode-DB layer is key-gated: with no Barcode Lookup key the free DBs + Firecrawl carry the cascade.
+- **Open Icecat** (`ICECAT_USERNAME`, free tier) — barcode-keyed, manufacturer-approved data sheets, so it
+  sits in the GREEN cascade beside Barcode Lookup. Coverage skews hard to IT/electronics/consumer tech;
+  expect little for chemicals, food or generic hardware. Register: https://icecat.biz/en/registration
+- **eBay Browse** (`EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`, free) — GTIN search across a global,
+  all-category marketplace, which is exactly the long tail the free databases miss.
+  **Capped at YELLOW on purpose**: eBay's GTIN field is filled in by the SELLER, not the brand owner, so
+  a hit is a marketplace claim, not a manufacturer one. It runs only after every green avenue has failed
+  and yields `likely`, or `verified-visual` when the vision gate confirms the photo.
+  Register: https://developer.ebay.com/ · docs: https://developer.ebay.com/develop/api/buy/browse_api
+  Both are fail-open no-ops until their keys exist — verified, so adding them cannot disturb a run.
+
+### GS1 — authoritative, but MANUAL ONLY (do not spend time automating it)
+The GS1 registry is the only source that can say who actually LICENSED a barcode, globally, for any
+category. It would turn `Vendor` from an allowlist inference into a fact. It cannot be automated:
+`gepir.gs1.org/api/gepir/v4/...`, the v3 REST path and the public Verified by GS1 result page all return
+**403 to any programmatic client** (re-tested 2026-08-16). There is no self-serve developer portal, no
+key form. Access is a human request to the national Member Organisation — for Malta,
+**GS1 Malta, https://gs1mt.org, info@gs1mt.org** — and is often restricted to companies that license
+their own prefix, which a reseller does not. The GS1 US Data Hub and GS1 UK GTIN Check APIs exist but are
+scoped to their own markets and members, so neither helps from Malta.
+Use it MANUALLY: the free web lookup (~30 searches, https://www.gs1us.org/tools/gs1-company-database-gepir,
+queries the global registry despite the US domain) is the right tool for settling one disputed barcode,
+e.g. a conflict over a model number between two sources. Do not scrape it.
+What IS free and offline: the first 3 digits of an EAN-13 are the GS1 prefix and decode to the ISSUING
+COUNTRY from a published static table. That is a cross-check (a German-branded product on a 69x Chinese
+prefix is worth a second look), not a brand verifier — it never names the company.
 
 ## Catalogues with NO product names (a barcode scan rather than a POS export)
 Added 2026-08-16, first used by `projects/splashstore/` (garage stock scanned straight off the shelf).

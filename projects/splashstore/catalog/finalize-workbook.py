@@ -24,6 +24,7 @@ import os
 import sys
 
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -340,6 +341,96 @@ def check_colour_rule(ws, resolved, desc, catalog):
     return violations
 
 
+# Hover notes on the header cells. The colour contract is obvious once you know it and baffling until
+# you do — a green image beside a yellow description looks like a bug rather than the design. Drive
+# converts xlsx comments into Sheets notes, so these travel with the published sheet.
+HEADER_NOTES = {
+    "Status": ("Worst field in the row, not a judgement on the whole product.\n"
+               "READY = every field present is green.\n"
+               "REVIEW = at least one field is yellow.\n"
+               "HOLD = at least one field is missing (red).\n"
+               "A row can be REVIEW while its photo is fully verified."),
+    "Image Source": ("Colour applies to THIS FIELD ONLY.\n"
+                     "GREEN = the barcode was found literally on the page the photo came from.\n"
+                     "YELLOW = the right product, but the photo needs a look (crop, multipack, unclear).\n"
+                     "RED = no usable photo was found."),
+    "Description Source": ("Colour applies to THIS FIELD ONLY, and is judged separately from the photo.\n"
+                           "GREEN = written from the barcode-confirmed page for this exact product.\n"
+                           "YELLOW = written from a name-matched page, so it may describe a variant.\n"
+                           "RED = no description.\n"
+                           "A yellow description beside a green image is normal: the photo was proven "
+                           "by the barcode, the wording was not."),
+    "Ingredients Source": ("Colour applies to THIS FIELD ONLY.\n"
+                           "GREY = not applicable (the product is not edible).\n"
+                           "GREEN = composition from a barcode-confirmed source.\n"
+                           "YELLOW = composition from a brand or retailer page that was not "
+                           "barcode-confirmed.\nRED = missing on an edible product."),
+    "Confirmed by": ("How many INDEPENDENT domains printed this barcode.\n"
+                     "Three sources agreeing is stronger evidence than one, though both are green."),
+}
+
+LEGEND = [
+    ("How to read this sheet", ""),
+    ("", ""),
+    ("Each FIELD is judged on its own evidence.", "A row is not one colour. The photo, the description "
+     "and the ingredients are verified separately, so a green photo can sit beside a yellow "
+     "description. That is the design, not a mistake."),
+    ("", ""),
+    ("GREEN — verified", "The barcode (or a brand article code) was found LITERALLY at the source: in "
+     "the page text, its structured data, or the image filename. Never a name match, never a guess."),
+    ("YELLOW — review this", "We have something, but it was not confirmed by one of those methods. "
+     "It is probably right. Check it before it goes live."),
+    ("RED — nothing", "We found nothing for this field. It needs sourcing by hand."),
+    ("GREY — not applicable", "The field does not apply, e.g. ingredients on a product that is not edible."),
+    ("", ""),
+    ("Status column", "The worst field in the row. READY = all green. REVIEW = something is yellow. "
+     "HOLD = something is missing. A REVIEW row can still have a perfectly verified photo."),
+    ("", ""),
+    ("Confirmed by", "How many independent websites printed this barcode. More sources is stronger "
+     "evidence, though one literal confirmation is already enough to be green."),
+    ("", ""),
+    ("Tabs", "Curation = review here. Shopify import = the same products in Shopify's import schema, "
+     "editable. Needs re-scan = scanned codes that carry no product barcode at all."),
+]
+
+
+def add_legend_tab(wb):
+    """A plain-language explanation of the colour contract, as its own tab."""
+    if "How to read this" in wb.sheetnames:
+        del wb["How to read this"]
+    ws = wb.create_sheet("How to read this")
+    swatch = {"GREEN — verified": "C6EFCE", "YELLOW — review this": "FFEB9C",
+              "RED — nothing": "FFC7CE", "GREY — not applicable": "EDEDED"}
+    for r, (label, text) in enumerate(LEGEND, start=1):
+        a, b = ws.cell(r, 1, label), ws.cell(r, 2, text)
+        a.alignment = Alignment(vertical="top", wrap_text=True)
+        b.alignment = Alignment(vertical="top", wrap_text=True)
+        if r == 1:
+            a.font, a.fill = HEAD_FONT, HEAD
+            b.fill = HEAD
+        elif label in swatch:
+            a.fill = PatternFill("solid", fgColor=swatch[label])
+            a.font = Font(bold=True)
+        elif label:
+            a.font = Font(bold=True)
+        ws.row_dimensions[r].height = max(18, 14 * (1 + len(text) // 70))
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 96
+    return ws
+
+
+def annotate_headers(ws):
+    """Attach the per-field notes to the header cells, where the confusion actually happens."""
+    headers = [c.value for c in ws[1]]
+    added = 0
+    for name, note in HEADER_NOTES.items():
+        if name in headers:
+            cell = ws.cell(1, headers.index(name) + 1)
+            cell.comment = Comment(note, "catalogue engine", height=170, width=340)
+            added += 1
+    return added
+
+
 def main():
     wb = openpyxl.load_workbook(WORKBOOK)
     with open(CSV_PATH, encoding="utf-8") as f:
@@ -369,6 +460,8 @@ def main():
     fit_layout(wb["Shopify import"],
                ["Title", "Description", "Tags", "Collection", "Image alt text", "URL handle"])
     fit_layout(wb["Needs re-scan"], ["What it is", "What to do"])
+    notes = annotate_headers(wb["Curation"])
+    add_legend_tab(wb)
     wb.save(WORKBOOK)
 
     print(f"Finalized {WORKBOOK}")
@@ -378,6 +471,7 @@ def main():
           f"({', '.join(sorted(TODO_COLS & set(headers)))} tinted for you)")
     print(f"  Needs re-scan   {n_skip} codes that carry no product barcode")
     print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
+    print(f"  legend          'How to read this' tab + {notes} header notes explaining per-field colour")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")

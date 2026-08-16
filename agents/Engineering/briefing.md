@@ -52,6 +52,13 @@ anonymous and retailer hosts refuse it). Helper: `tools/google-sheets-lib.mjs`
 (`getClaspAccessToken` + `uploadXlsxAsSheet`); clasp's login is the credential here carrying a Drive
 scope.
 
+Identity sources are **key-gated and fail-open**, so adding one is dropping a key into the root `.env`:
+`BARCODELOOKUP_API_KEY` (paid, best non-food coverage) and `ICECAT_USERNAME` (free, electronics-skewed)
+join the GREEN cascade; `EBAY_CLIENT_ID`/`EBAY_CLIENT_SECRET` (free, global, any category) is capped at
+YELLOW because eBay's GTIN is seller-asserted, not manufacturer-asserted. **GS1 is manual only** — every
+endpoint 403s to programmatic clients and access is a human request to the national office; use its free
+web lookup to settle a single disputed code, never try to automate it.
+
 **Don't mix these up** — they are different tools that all touch products or spreadsheets:
 | Need | Use | NOT |
 |---|---|---|
