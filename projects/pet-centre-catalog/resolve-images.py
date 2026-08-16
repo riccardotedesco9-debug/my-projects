@@ -373,32 +373,54 @@ def _barcodelookup(ean):
 
 
 def _icecat(ean):
-    """Open Icecat (free tier, key-gated by ICECAT_USERNAME). Returns the normalized dict or None.
+    """Open Icecat (free, gated on ICECAT_USERNAME). Returns the normalized dict or None.
 
-    Sits in the GREEN cascade with the other barcode-keyed databases: Open Icecat data sheets are
-    approved by the sponsoring manufacturer and are looked up BY GTIN, so a hit is the exact SKU on
-    the same footing as Barcode Lookup — not a name match.
+    Sits in the GREEN cascade with the other barcode-keyed databases: the record is fetched BY GTIN
+    and its data sheet is approved by the sponsoring manufacturer, so a hit is the exact SKU rather
+    than a name match. The GTIN list the record returns is checked against the code we asked for
+    before anything is accepted, which keeps "green means found literally" true here too.
 
-    Coverage skews to IT, electronics and consumer tech; expect little for chemicals, food or generic
-    hardware. Harmless when it misses, since the cascade simply continues.
+    Request form is the one in Icecat's JSON manual: `shopname`, `lang` and `content` as query
+    parameters. Open Icecat needs NO credential beyond the shopname (verified: identical 200 with and
+    without auth), so no token is stored for it. The manual's `api-token` / `content-token` are
+    HEADERS, not query parameters, and they exist for Full Icecat and for private assets; this code
+    keeps to public gallery entries, so it needs neither.
+
+    Two refusals mean different things, and both fail open into the rest of the cascade:
+      StatusCode 16 — the GTIN is not in Icecat at all.
+      StatusCode  9 — the product IS in Icecat but behind paid Full Icecat, whose `app_key` is issued
+                      to Full subscribers on request. A free account cannot reach it, and no token
+                      from the Access Tokens page substitutes for it.
+    Measured over the 44-code SplashStore batch: 3 open, 5 full-only, 36 absent. Coverage skews hard
+    to IT and consumer electronics, so this is a bonus source, never a primary one.
     """
     user = os.environ.get("ICECAT_USERNAME")
     if not user:
         return None
-    url = (f"https://live.icecat.biz/api?UserName={user}&Language=en&GTIN={ean}"
-           f"&Content=Image,GeneralInfo")
-    d = _db_get(url, timeout=25)
+    d = _db_get(f"https://live.icecat.biz/api?shopname={user}&lang=en&GTIN={ean}"
+                f"&content=essentialinfo,gallery", timeout=25)
     if not isinstance(d, dict):
         return None
     data = d.get("data") or {}
-    gen = data.get("GeneralInfo") or {}
-    img = (data.get("Image") or {}).get("HighPic") or ""
-    name = gen.get("Title") or gen.get("ProductName") or ""
+    info = data.get("EssentialInfo") or {}
+    if ean not in {str(g) for g in (info.get("GTIN") or [])}:
+        return None                      # not the code we asked for: not evidence of anything
+    # Private assets need the content token to render, so a workbook full of them would show broken
+    # images to anyone but this account. Public gallery entries only.
+    gallery = [g for g in (data.get("Gallery") or [])
+               if isinstance(g, dict) and str(g.get("IsPrivate", "0")) == "0"]
+    main = next((g for g in gallery if g.get("IsMain") == "Y"), gallery[0] if gallery else {})
+    img = main.get("Pic") or main.get("Pic500x500") or main.get("LowPic") or ""
+    brand = info.get("Brand") if isinstance(info.get("Brand"), str) else ""
+    # ProductCode arrives as e.g. "58094 / 24": the model, then the case pack size. A cartridge is
+    # bought BY that model number, so it belongs in the name; the pack half is warehouse trivia.
+    code = str(info.get("ProductCode") or "").split("/")[0].strip()
+    title = info.get("ProductName") or ""
+    name = " ".join([b for b in (brand, code) if b and b.lower() not in title.lower()] + [title]).strip()
     if not (img or name):
         return None
-    brand = (gen.get("Brand") or "") if isinstance(gen.get("Brand"), str) else ""
     return {"name": name, "brand": brand, "ingredients": "", "image": img,
-            "source_url": f"https://icecat.biz/p/{ean}", "db": "icecat"}
+            "source_url": f"https://icecat.biz/en/search?keyword={ean}", "db": "icecat"}
 
 
 # eBay OAuth token, cached for the process: the client-credentials token lasts ~2h, so minting one per

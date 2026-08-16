@@ -152,9 +152,23 @@ verdict. **After correcting any image, delete `.tmp/normalized/<row>.jpg`** or t
 the old one; `normalize-images.py` skips rows it has already done.
 
 ### Ready to switch on (just add the key)
-`ICECAT_USERNAME` -> free Open Icecat, joins the GREEN cascade (electronics-skewed, thin for pool goods).
-Register on the **Channel Partner** tab, the one for retailers and resellers consuming product data.
-Brand Partner is the other direction: manufacturers publishing their own content into Icecat.
+**Icecat is LIVE and measured: it adds nothing to this batch.** `ICECAT_USERNAME=rico656` (registered
+2026-08-16 on the **Channel Partner** tab, the reseller side; Brand Partner is for manufacturers
+publishing their own content). Free Open Icecat needs **no token at all** — verified byte-identical
+200s with and without auth headers — so no Icecat credential is stored. Request form per the
+[JSON manual](https://iceclog.com/manual-for-icecat-json-product-requests/): `shopname` / `lang` /
+`content` as query parameters, and `api-token` / `content-token` as HEADERS if ever needed (a token
+sent as a query parameter is silently ignored). `StatusCode 16` = GTIN absent from Icecat;
+`StatusCode 9` = the product exists but sits behind paid **Full Icecat**, whose `app_key` Icecat
+issues to Full subscribers on request. Both fail open.
+
+Swept all 44 codes: **3 free-tier hits, 5 full-only, 36 absent** — and all 8 covered rows *already*
+had a confirmed name and photo, while the 8 rows that still need something got **zero** hits, free or
+paid. So **do not buy Full Icecat for this catalogue**. Note also that Barcode Lookup runs BEFORE
+Icecat in the cascade and short-circuits on an image, so with BL enabled Icecat is only ever reached
+on rows BL missed. Keep it wired anyway: free, fails open, and future stock may differ. Its one
+untapped edge is naming — it returns brand + model code (`Bestway 58094 Pool Filter Cartridge (II)`)
+where the current name for that row carries dimensions but no brand.
 `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` -> free eBay Browse GTIN search, global and all-category, the
 closest free substitute for Barcode Lookup's non-food coverage — but capped at YELLOW, because eBay's
 GTIN is entered by the seller. Both are no-ops until their key exists, so nothing changes until then.
