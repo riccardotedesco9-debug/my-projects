@@ -106,6 +106,10 @@ function paintRunningSurfaces_(ctx) {
   var running = getRunningSessions_(ctx);
   refreshStatusBanner_(ctx, running);
   renderRunningNow_(ctx, running);
+  // Piggy-back the phone export's period list on the repaint every start/stop
+  // already triggers — it's how the dropdown gains a new month without anyone
+  // opening the tracker on a desktop.
+  refreshExportPeriods_(ctx);
 }
 
 /**

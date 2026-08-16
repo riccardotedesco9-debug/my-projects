@@ -63,23 +63,29 @@ Migrate one platform at a time so a mistake never tanks both halves of the stack
    - Watch logs for missing-env errors
 3. **Cleanup**
    - Delete the `.tmp/trigger-prod.env` after dashboard import
-   - Move local `.env` files to `.env.bak` (don't delete yet — keep until next confident successful run)
-   - Switch local dev to `op run --env-file=.env.tpl -- <command>`
+   - Keep per-project `.env` files only if a project genuinely needs its own; the workspace root `.env` is the source of record
 
-### Local dev with `op run`
+### Local dev — load the root `.env`
 
-A single `.env.tpl` lives at workspace root with every `op://` reference. Run any command with secrets injected at runtime, never written to disk. Use the absolute path so the same template works from any subdirectory:
+The gitignored **`.env` at workspace root is the source of record**; 1Password is a backup. Load it and run — no authorization prompt:
 
 ```powershell
-# Worker dev (from projects/meetsync/worker)
-op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx wrangler dev
-
-# Trigger.dev dev (from projects/trigger-automations)
-op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx trigger.dev@4.4.3 dev
-
-# Or simpler: stay at workspace root and chain
-op run --env-file=.env.tpl -- bash -c "cd meetsync/worker && npx wrangler dev"
+# PowerShell, from anywhere
+Get-Content "$env:USERPROFILE\Documents\My Projects\.env" | ForEach-Object {
+  if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) }
+}
+npx wrangler dev        # or: npx trigger.dev@4.4.4 dev
 ```
+
+```bash
+# Bash
+set -a; . "$HOME/Documents/My Projects/.env"; set +a
+npx wrangler dev
+```
+
+Node scripts can skip the shell entirely — `import { hydrateProcessEnv } from './tools/secret-lib.mjs'` then `hydrateProcessEnv()`, which is what the workspace tooling does.
+
+**Fallback only:** `op run --env-file=".env.tpl" -- <command>` injects from 1Password without writing to disk, but prompts for authorization every time. Use it when a secret is missing locally or on a fresh machine — not by default.
 
 ### When you add a new secret
 

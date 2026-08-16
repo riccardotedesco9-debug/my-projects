@@ -24,6 +24,63 @@ function sectionBuildSpec_(S, env) {
   S.t('task cell has a recent-task dropdown (free-text allowed)', !!taskVal && taskVal.getAllowInvalid() === true, true);
   S.t('status banner idle text', String(ss.getRangeByName(CFG.named.dbStatus).getValue()), 'IDLE — ready to start');
 
+  // --- Phone export block: the mobile stand-in for the export dialog. A fresh
+  // build must be tappable as-is — every control defaulted, nothing stale. ---
+  var dash = ss.getSheetByName(CFG.sheets.dashboard);
+  var expChk = ss.getRangeByName(CFG.named.chkExport).getDataValidation();
+  S.t('phone Export cell is a real checkbox', expChk && expChk.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
+  var expClientVal = ss.getRangeByName(CFG.named.dbExpClient).getDataValidation();
+  S.t('export client dropdown present + strict', !!expClientVal && expClientVal.getAllowInvalid() === false, true);
+  S.t('export client defaults to All Clients', String(ss.getRangeByName(CFG.named.dbExpClient).getValue()), CFG.allClients);
+  var expPeriodVal = ss.getRangeByName(CFG.named.dbExpPeriod).getDataValidation();
+  S.t('export period dropdown present + strict', !!expPeriodVal && expPeriodVal.getAllowInvalid() === false, true);
+  var periods = exportPeriods_(env.ctx);
+  S.t('export offers 12 months + 2 full years', periods.length, 14);
+  S.t('export period list written to its hidden column', String(dash.getRange('O2').getValue()), periods[0].label);
+  S.t('export period pre-selected to the newest month', String(ss.getRangeByName(CFG.named.dbExpPeriod).getValue()), periods[0].label);
+  // Both must stay TEXT: Sheets parses "July 2026" into a date given half a
+  // chance, and the handler resolves the pick by matching the label back
+  // against the generated list — a Date there refuses every export.
+  S.t('export period list holds text, not parsed dates', typeof dash.getRange('O2').getValue(), 'string');
+  S.t('export period pick holds text, not a parsed date', typeof ss.getRangeByName(CFG.named.dbExpPeriod).getValue(), 'string');
+  var moneyRange = ss.getRangeByName(CFG.named.dbExpMoney);
+  var moneyVal = moneyRange.getDataValidation();
+  S.t('export include-€ is a checkbox (same control as the desktop dialog)', moneyVal && moneyVal.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
+  S.t('export include-€ defaults to ticked', moneyRange.getValue(), true);
+  S.t('export helper columns hidden (N:O)', dash.isColumnHiddenByUser(14) && dash.isColumnHiddenByUser(15), true);
+  S.t('export result cell starts empty', String(ss.getRangeByName(CFG.named.dbExpOut).getValue()), '');
+
+  // --- View mode: a fresh build is DESKTOP, and the flip is fully reversible.
+  // Asserted as a round trip because a one-way mode that half-restores is the
+  // failure that would actually bite — you'd untick and still be phone-shaped.
+  var modeBox = ss.getRangeByName(CFG.named.chkMobile);
+  var modeVal = modeBox.getDataValidation();
+  S.t('view toggle is a checkbox', modeVal && modeVal.getCriteriaType() === SpreadsheetApp.DataValidationCriteria.CHECKBOX, true);
+  S.t('view toggle starts on desktop (unticked)', modeBox.getValue(), false);
+  S.t('desktop column widths per spec', dash.getColumnWidth(3), DASH_LAYOUT.desktop.cols[3]);
+  S.t('desktop shows the analytics tail', dash.isRowHiddenByUser(DASH_LAYOUT.tail.from), false);
+
+  applyDashboardMode_(env.ctx, true);
+  S.t('mobile narrows the columns', dash.getColumnWidth(3), DASH_LAYOUT.mobile.cols[3]);
+  S.t('mobile enlarges the checkbox glyph (font size IS tap-target size)', ss.getRangeByName(CFG.named.chkStart).getFontSize(), DASH_LAYOUT.mobile.boxFont);
+  S.t('mobile taller control rows', dash.getRowHeight(ss.getRangeByName(CFG.named.chkExport).getRow()), DASH_LAYOUT.mobile.controlRow);
+  S.t('mobile hides the analytics tail', dash.isRowHiddenByUser(DASH_LAYOUT.tail.from), true);
+  S.t('mobile KEEPS at-a-glance (row 25)', dash.isRowHiddenByUser(25), false);
+  // Dropdowns scale too — a giant checkbox above a 10pt dropdown is half a job.
+  S.t('mobile enlarges the client dropdown', ss.getRangeByName(CFG.named.dbClient).getFontSize(), DASH_LAYOUT.mobile.fieldFont);
+  S.t('mobile enlarges the export period dropdown', ss.getRangeByName(CFG.named.dbExpPeriod).getFontSize(), DASH_LAYOUT.mobile.fieldFont);
+  S.t('mobile enlarges the Billing dropdown on the control row', ss.getRangeByName(CFG.named.dbBilling).getFontSize(), DASH_LAYOUT.mobile.fieldFont);
+  S.t('mobile gives the input rows room', dash.getRowHeight(7), DASH_LAYOUT.mobile.fieldRow);
+  S.t('mobile keeps the START bar taller than a field row', dash.getRowHeight(ss.getRangeByName(CFG.named.chkStart).getRow()), DASH_LAYOUT.mobile.controlRow);
+  S.t('mobile enlarges the PDF link line', ss.getRangeByName(CFG.named.dbExpOut).getFontSize(), DASH_LAYOUT.mobile.fieldFont);
+
+  applyDashboardMode_(env.ctx, false);
+  S.t('untick restores desktop widths', dash.getColumnWidth(3), DASH_LAYOUT.desktop.cols[3]);
+  S.t('untick restores the checkbox size', ss.getRangeByName(CFG.named.chkStart).getFontSize(), DASH_LAYOUT.desktop.boxFont);
+  S.t('untick restores the dropdown size', ss.getRangeByName(CFG.named.dbClient).getFontSize(), DASH_LAYOUT.desktop.fieldFont);
+  S.t('untick restores the input row height', dash.getRowHeight(7), DASH_LAYOUT.desktop.fieldRow);
+  S.t('untick unhides the analytics tail', dash.isRowHiddenByUser(DASH_LAYOUT.tail.from), false);
+
   // --- Time Log spec ---
   var log = env.logSh;
   S.t('log headers', log.getRange(1, 1, 1, CFG.log.lastCol).getValues()[0].join('|'), CFG.log.headers.join('|'));

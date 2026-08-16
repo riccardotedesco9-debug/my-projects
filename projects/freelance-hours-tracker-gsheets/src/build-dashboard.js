@@ -8,13 +8,15 @@ function buildDashboardSheet_(ss) {
   var log = "'" + CFG.sheets.log + "'";
   sh.setHiddenGridlines(true);
 
-  var widths = { 1: 24, 2: 120, 3: 140, 4: 140, 5: 170, 6: 110, 7: 110, 8: 24 };
+  // Desktop widths come from the view-mode spec, which is also what unticking
+  // "Mobile view" restores — one source, so a rebuild and a mode flip agree.
+  var widths = DASH_LAYOUT.desktop.cols;
   Object.keys(widths).forEach(function (col) {
     sh.setColumnWidth(Number(col), widths[col]);
   });
 
   // Canvas + house font (font silently falls back if unavailable).
-  sh.getRange('A1:H40').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
+  sh.getRange('A1:H44').setBackground(CFG.colors.paper).setFontFamily(CFG.fontFamily);
 
   sh.getRange('B2:G2').merge();
   sh.getRange('B2')
@@ -24,6 +26,10 @@ function buildDashboardSheet_(ss) {
     .setFontColor(CFG.colors.navy);
   sh.getRange('B3:G3').merge();
   sh.getRange('B3').setValue(CFG.ownerName).setFontColor(CFG.colors.gray);
+
+  // Desktop ⇄ mobile view toggle, directly under the title so it's reachable
+  // from either shape of the sheet.
+  buildModeToggle_(sh, ss);
 
   // Status banner — green "● N running" / gray idle; painted by the state layer.
   sh.getRange('B5:G5').merge();
@@ -164,8 +170,13 @@ function buildDashboardSheet_(ss) {
   sh.getRange('G27:G36').setNumberFormat(CFG.formats.euroBlankZero);
   card_(sh.getRange('E25:G36'));
 
+  // Export timesheet (phone) — the mobile stand-in for the desktop export
+  // dialog, which the Sheets app can't render. Same pipeline, checkbox-driven.
+  buildPhoneExportBlock_(sh, ss);
+
   sh.hideColumns(10); // dbRunIds — the per-row startedAtMs, off the page
   sh.hideColumns(12, 2); // L:M — the recent-tasks QUERY helper feeding the Task dropdown
+  sh.hideColumns(14, 2); // N:O — the client + period lists feeding the export dropdowns
 }
 
 /**

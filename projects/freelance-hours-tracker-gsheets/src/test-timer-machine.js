@@ -237,6 +237,20 @@ function sectionCheckboxes_(S, env) {
   fire(taskCell, 'TRUE');
   S.t('a TRUE typed elsewhere on the Dashboard is ignored', getRunningSessions_(ctx).length, 0);
   S.t('…and the cell is NOT reset (never touch unhandled cells)', taskCell.getDisplayValue(), 'TRUE');
+
+  // --- The view toggle is a MODE: it must act on the UNTICK too (every other
+  // control ignores FALSE), and must never be reset the way an action box is.
+  var dashSh = ss.getSheetByName(CFG.sheets.dashboard);
+  var modeBox = ss.getRangeByName(CFG.named.chkMobile);
+  modeBox.setValue(true);
+  fire(modeBox, 'TRUE');
+  S.t('mobile toggle: tick reshapes the sheet', dashSh.getColumnWidth(3), DASH_LAYOUT.mobile.cols[3]);
+  S.t('mobile toggle: a mode box is NOT reset like an action box', modeBox.getValue(), true);
+  modeBox.setValue(false);
+  fire(modeBox, 'FALSE'); // the one control that must act on FALSE
+  S.t('mobile toggle: untick restores desktop', dashSh.getColumnWidth(3), DASH_LAYOUT.desktop.cols[3]);
+  S.t('mobile toggle: stays unticked', modeBox.getValue(), false);
+  S.t('mobile toggle: no timer was started by any of that', getRunningSessions_(ctx).length, 0);
   fire(log.getRange('D2'), 'TRUE');
   S.t('edits on other sheets are ignored', getRunningSessions_(ctx).length, 0);
   setNamedValue_(ctx, CFG.named.dbClient, '');

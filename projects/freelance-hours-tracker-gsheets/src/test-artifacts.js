@@ -25,6 +25,60 @@ function sectionPdf_(S, env) {
   S.t('fallback restores hidden sheets it hid', env.ss.getSheetByName(CFG.sheets.dashboard).isSheetHidden(), false);
   S.t('fallback leaves pre-hidden sheets hidden', settings.isSheetHidden(), true);
   S.t('fallback leaves the log visible', env.logSh.isSheetHidden(), false);
+
+  sectionPhoneExport_(S, env, mirror);
+}
+
+/**
+ * The phone export: the SAME pipeline reached through the only control a
+ * mobile Sheets app can fire. Drives the real checkbox handler, and asserts the
+ * result cell — the phone's entire UI — actually says something useful in each
+ * outcome (refused, empty period, exported).
+ */
+function sectionPhoneExport_(S, env, mirror) {
+  var ss = env.ss;
+  var chk = ss.getRangeByName(CFG.named.chkExport);
+  var out = ss.getRangeByName(CFG.named.dbExpOut);
+  var fire = function () {
+    chk.setValue(true);
+    onEditInstallable({ range: chk, value: 'TRUE', source: ss });
+  };
+
+  // Refusals must be READABLE — a silent no-op on a phone looks like a crash.
+  ss.getRangeByName(CFG.named.dbExpClient).setValue('');
+  fire();
+  S.t('phone export: no client → reason in the result cell', String(out.getValue()).indexOf('Pick a client') >= 0, true);
+  S.t('phone export: a refusal still resets the box', chk.getValue(), false);
+
+  ss.getRangeByName(CFG.named.dbExpClient).setValue('Pet Centre');
+  ss.getRangeByName(CFG.named.dbExpPeriod).setValue('not a period at all');
+  fire();
+  S.t('phone export: unpickable period → reason in the result cell', String(out.getValue()).indexOf('Pick a period') >= 0, true);
+  S.t('phone export: repaint repairs the stale period pick', String(ss.getRangeByName(CFG.named.dbExpPeriod).getValue()), exportPeriods_(env.ctx)[0].label);
+
+  // The real run, against the seeded month.
+  var period = exportPeriods_(env.ctx).filter(function (p) {
+    return p.year === env.y && p.month === env.m;
+  })[0];
+  S.t('phone export: the seeded month is on the dropdown', !!period, true);
+  if (!period || mirror.count === 0) return;
+
+  ss.getRangeByName(CFG.named.dbExpPeriod).setValue(period.label);
+  ss.getRangeByName(CFG.named.dbExpMoney).setValue(true);
+  fire();
+  var formula = out.getFormula();
+  S.t('phone export: result is a tappable HYPERLINK (the only way to open a Drive file on mobile)', formula.indexOf('=HYPERLINK(') === 0, true);
+  S.t('phone export: the link labels the session count', formula.indexOf(mirror.count + ' session') > 0, true);
+  S.t('phone export: With € shows an amount', formula.indexOf('€') > 0, true);
+  S.t('phone export: box reset after a successful run', chk.getValue(), false);
+  // The include-€ box is a TOGGLE sharing a row with an ACTION box — the handler
+  // must reset the one it fired and leave this one exactly as the user set it.
+  S.t('phone export: the include-€ tick survives the run', ss.getRangeByName(CFG.named.dbExpMoney).getValue(), true);
+  var id = (formula.match(/[-\w]{25,}/) || [])[0];
+  S.t('phone export: the link carries a Drive file id', !!id, true);
+  if (!id) return;
+  env.scratchIds.push(id); // the PDF lands in the REAL Timesheets tree — sweep it
+  S.t('phone export: that id is a real PDF', String(DriveApp.getFileById(id).getMimeType()).indexOf('pdf') >= 0, true);
 }
 
 function sectionViewer_(S, env) {

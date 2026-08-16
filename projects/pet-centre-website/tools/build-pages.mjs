@@ -8,11 +8,15 @@
  * Run: node build-pages.mjs
  */
 import {execSync} from 'node:child_process';
+import { hydrateProcessEnv } from '../../../tools/secret-lib.mjs';
+hydrateProcessEnv(); // load the workspace .env — the source of record — before any lookup
 
 const PUBLIC = '6dc7b5fe062641aba00bcbdab6b2917f';
-const PRIVATE = execSync('op read "op://AI-Stack/qcmb3oltovklvjnkj4m2ltuuzi/password"', {
-  encoding: 'utf8',
-}).trim();
+// .env first (source of record); 1Password only if the key isn't there.
+const PRIVATE = process.env.BUILDER_PRIVATE_KEY
+  || execSync('op read "op://AI-Stack/qcmb3oltovklvjnkj4m2ltuuzi/password"', {
+    encoding: 'utf8',
+  }).trim();
 
 // ---- shared styles (scoped under .pc) ------------------------------------
 const S = `<style>

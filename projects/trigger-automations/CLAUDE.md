@@ -76,7 +76,10 @@ src/trigger/{automation-name}/
   5. Import the generated `.tmp/trigger-prod.env` via Trigger.dev dashboard → Environment Variables → Prod → Import .env
   6. Delete `.tmp/trigger-prod.env` after import
 - **Before deploying**: confirm the secret resolves via `node tools/sync-secrets.mjs --dry-run`. The #1 cause of production failures used to be "key in `.env` locally but not on Trigger.dev"; now it's "key in 1P but no manifest row + sync wasn't run."
-- **Local dev**: `op run --env-file="$env:USERPROFILE\Documents\My Projects\.env.tpl" -- npx trigger.dev@4.4.4 dev` injects secrets at runtime, no disk writes.
+- **Local dev**: the workspace root `.env` is the source of record, so just load it and run — no 1Password prompt:
+  - PowerShell: `Get-Content "$env:USERPROFILE\Documents\My Projects\.env" | ForEach-Object { if ($_ -match '^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$') { [Environment]::SetEnvironmentVariable($matches[1], $matches[2]) } }; npx trigger.dev@4.4.4 dev`
+  - Bash: `set -a; . "$HOME/Documents/My Projects/.env"; set +a; npx trigger.dev@4.4.4 dev`
+  - `op run --env-file=".env.tpl" -- npx trigger.dev@4.4.4 dev` still works as a fallback when a secret is missing locally, but it prompts for 1Password authorization every time — don't reach for it by default.
 
 ## Trigger.dev Critical Rules
 
@@ -131,12 +134,12 @@ Wait for the user to say "push it", "deploy", "ship it", or similar before touch
 
 **Checklist — complete this before every deploy:**
 
-- [ ] All required env vars exist in 1Password `AI-Stack` vault
+- [ ] All required env vars exist in the workspace root `.env` (source of record; mirror to the 1Password `AI-Stack` vault as backup)
 - [ ] `tools/secrets-manifest.json` has a row for each new secret with `trigger-prod` in `platforms`
 - [ ] `.env.tpl` mirrors the manifest (`name=op://AI-Stack/...`)
 - [ ] `node tools/sync-secrets.mjs --target=trigger-prod --dry-run` passes (no SKIP rows)
 - [ ] Generated `.tmp/trigger-prod.env` imported via Trigger.dev dashboard → Prod
-- [ ] Tested locally (`op run --env-file=.env.tpl -- npx trigger.dev@4.4.4 dev`) and at least one run succeeded
+- [ ] Tested locally (load the root `.env`, then `npx trigger.dev@4.4.4 dev` — see Local dev above) and at least one run succeeded
 - [ ] **User has explicitly confirmed** the automation works and approved the deploy
 - [ ] No `.env*` files committed (verify with `git status`)
 

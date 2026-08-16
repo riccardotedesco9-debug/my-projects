@@ -7,6 +7,7 @@
 //   node tools/clean-billing-sheet.mjs
 
 import { execSync } from "node:child_process";
+import { readSecretByRef } from "./secret-lib.mjs";
 
 const SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 // Each entry: [tab name, last column letter to clear up to (excluding header row)].
@@ -16,12 +17,10 @@ const TARGETS = [
 ];
 
 function opRead(ref) {
-  // Env-var fallback for shells without op CLI signed in. Map the opRef's
-  // path segments to OP_<UPPER_SNAKE>; e.g. op://AI-Stack/billing-sheet/password
-  // → OP_AI_STACK_BILLING_SHEET_PASSWORD. Falls through to `op read` otherwise.
-  const envName = "OP_" + ref.replace(/^op:\/\//, "").replace(/[\/-]/g, "_").toUpperCase();
-  if (process.env[envName]) return process.env[envName];
-  return execSync(`op read "${ref}"`, { encoding: "utf8" }).trim();
+  // .env (the source of record) first, 1Password only as backup — no auth prompt in the normal path.
+  const value = readSecretByRef(ref);
+  if (value === null) throw new Error(`Secret ${ref} not found in .env and 1Password read failed.`);
+  return value;
 }
 
 async function refreshAccessToken(clientId, clientSecret, refreshToken) {

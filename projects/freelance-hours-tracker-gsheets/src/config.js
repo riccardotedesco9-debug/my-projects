@@ -75,7 +75,9 @@ var CFG = {
   // Named ranges (all defined by rebuild_). db* = Dashboard inputs/displays,
   // chk* = mobile checkbox cells. dbBilling is the Normal/Free/TBD dropdown that
   // a phone Start reads. dbRunIds is the hidden per-row startedAtMs column beside
-  // the RUNNING NOW stop checkboxes (chkStopBlock).
+  // the RUNNING NOW stop checkboxes (chkStopBlock). dbExp*/chkExport are the
+  // phone's rebuild of the desktop export dialog: two dropdowns, a tap target,
+  // and the result cell the handler turns into a link to the finished PDF.
   named: {
     dbClient: 'dbClient',
     dbTask: 'dbTask',
@@ -86,6 +88,12 @@ var CFG = {
     chkStart: 'chkStart',
     chkStopBlock: 'chkStopBlock',
     dbRunIds: 'dbRunIds',
+    dbExpClient: 'dbExpClient',
+    dbExpPeriod: 'dbExpPeriod',
+    dbExpMoney: 'dbExpMoney',
+    chkExport: 'chkExport',
+    dbExpOut: 'dbExpOut',
+    chkMobile: 'chkMobile',
   },
 
   // Script Properties keys. `state` is retained only so the one-time legacy

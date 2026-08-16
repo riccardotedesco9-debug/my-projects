@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zebra DS2278: The Short Version</title>
+<style>
+  /* ------------------------------------------------------------------
+     Print first. This document only exists as paper, so the screen view
+     is simply the paper view. Everything is sized in pt and mm.
+
+     Ligatures are switched off deliberately. Chromium emits fi and fl as
+     single glyphs with no ToUnicode entry, which renders correctly but
+     produces NUL bytes when the text is copied back out of the PDF.
+     ------------------------------------------------------------------ */
+  :root {
+    --ground:      #FFFFFF;
+    --surface:     #FFFFFF;
+    --surface-sub: #F2F4F3;
+    --ink:         #101417;
+    --ink-muted:   #394146;
+    --ink-faint:   #6C7378;
+    --rule:        #D3D7D4;
+    --rule-strong: #979D98;
+    --accent:      #14507A;
+    --accent-wash: #E8F0F6;
+    --alarm:       #9E2A21;
+    --alarm-wash:  #F8E9E7;
+    --good:        #235B42;
+    --good-wash:   #E4EDE7;
+    --warn:        #77540F;
+    --warn-wash:   #F6EDD9;
+    --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+
+  @page { size: A4; margin: 14mm 13mm; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 10pt;
+    line-height: 1.5;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0, "hlig" 0;
+    text-rendering: geometricPrecision;
+  }
+
+  /* ---------- page scaffolding ----------
+     A4 is 297mm tall and the margins take 28mm, so the printable box is 269mm.
+     Holding each section just under that and pushing the footer down with an
+     auto margin keeps every footer on the page bottom rather than floating
+     wherever the content happened to end. */
+  .page {
+    break-after: page;
+    display: flex; flex-direction: column;
+    min-height: 264mm;
+  }
+  .page:last-child { break-after: auto; }
+  .page > footer.foot { margin-top: auto; }
+
+  .runner {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1.4pt solid var(--ink);
+    padding-bottom: 4pt; margin-bottom: 12pt;
+  }
+  .runner .who { font-size: 7.5pt; letter-spacing: 1.4pt; text-transform: uppercase; color: var(--ink-faint); font-family: var(--mono); }
+  .runner .num { font-size: 7.5pt; letter-spacing: 1pt; color: var(--ink-faint); font-family: var(--mono); }
+
+  h1 { font-size: 25pt; line-height: 1.1; letter-spacing: -0.4pt; font-weight: 700; margin-bottom: 6pt; }
+  h2 { font-size: 15pt; line-height: 1.2; letter-spacing: -0.2pt; font-weight: 700; margin-bottom: 7pt; break-after: avoid; }
+  h3 { font-size: 10.5pt; font-weight: 700; margin-bottom: 3pt; break-after: avoid; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 7.5pt; letter-spacing: 1.6pt;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 5pt;
+  }
+  .deck { font-size: 10.5pt; color: var(--ink-muted); margin-bottom: 12pt; max-width: 150mm; }
+  p { margin-bottom: 7pt; }
+  p:last-child { margin-bottom: 0; }
+  strong { font-weight: 700; }
+  em { font-style: normal; font-family: var(--mono); font-size: 9pt; background: var(--surface-sub); padding: 0.5pt 2.5pt; border-radius: 2pt; }
+
+  /* ---------- layout helpers ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 9pt 14pt; }
+  .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9pt 12pt; }
+  .stack { margin-bottom: 12pt; }
+  .stack:last-child { margin-bottom: 0; }
+
+  .card {
+    border: 0.8pt solid var(--rule); border-radius: 4pt;
+    padding: 9pt 10pt; background: var(--surface); break-inside: avoid;
+  }
+  .card.sub { background: var(--surface-sub); border-color: transparent; }
+  .card h3 { margin-bottom: 4pt; }
+  .card p, .card li { font-size: 9.5pt; }
+
+  .note {
+    border-left: 2.5pt solid var(--accent); background: var(--accent-wash);
+    padding: 7pt 10pt; border-radius: 0 3pt 3pt 0; break-inside: avoid; font-size: 9.5pt;
+  }
+  .note.bad   { border-left-color: var(--alarm); background: var(--alarm-wash); }
+  .note.good  { border-left-color: var(--good);  background: var(--good-wash); }
+  .note.warn  { border-left-color: var(--warn);  background: var(--warn-wash); }
+  .note .lab {
+    display: block; font-family: var(--mono); font-size: 7pt; letter-spacing: 1.3pt;
+    text-transform: uppercase; margin-bottom: 3pt; color: var(--ink-muted);
+  }
+
+  /* ---------- lists ---------- */
+  ol.steps { list-style: none; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding-left: 19pt;
+    margin-bottom: 6pt; break-inside: avoid; font-size: 9.5pt;
+  }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 0.4pt;
+    width: 13pt; height: 13pt; border-radius: 50%;
+    background: var(--ink); color: #fff;
+    font-family: var(--mono); font-size: 7.5pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ul.dot { list-style: none; }
+  ul.dot li {
+    position: relative; padding-left: 11pt; margin-bottom: 4pt;
+    break-inside: avoid; font-size: 9.5pt;
+  }
+  ul.dot li::before {
+    content: ""; position: absolute; left: 1pt; top: 5pt;
+    width: 3.4pt; height: 3.4pt; border-radius: 50%; background: var(--rule-strong);
+  }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 7pt; letter-spacing: 1.1pt;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 600;
+    border-bottom: 1pt solid var(--rule-strong); padding: 0 6pt 3.5pt 0; vertical-align: bottom;
+  }
+  td { padding: 4pt 6pt 4pt 0; border-bottom: 0.5pt solid var(--rule); vertical-align: top; }
+  tr { break-inside: avoid; }
+  tr:last-child td { border-bottom: none; }
+  td.k { font-weight: 600; white-space: nowrap; }
+  td.mono, .mono { font-family: var(--mono); font-size: 8.5pt; }
+  .led { font-weight: 700; white-space: nowrap; }
+  .led.g { color: var(--good); }
+  .led.r { color: var(--alarm); }
+
+  /* ---------- barcode plates ----------
+     58mm is the printed width Zebra's own sheets use. Anything much
+     narrower and a worn scanner starts refusing the denser codes. */
+  .plate {
+    border: 0.8pt solid var(--rule); border-radius: 4pt;
+    padding: 8pt 10pt 9pt; background: #FFFFFF;
+    break-inside: avoid; text-align: center; margin-bottom: 9pt;
+  }
+  .plate:last-child { margin-bottom: 0; }
+  .plate .kick {
+    font-family: var(--mono); font-size: 7pt; letter-spacing: 1.3pt;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 5pt; display: block;
+  }
+  .plate.stop .kick { color: var(--alarm); }
+  .plate.hold .kick { color: var(--warn); }
+  .plate img {
+    display: block; width: 100%; max-width: 62mm; margin: 0 auto;
+    image-rendering: crisp-edges; image-rendering: pixelated;
+  }
+  .plate .zname {
+    margin-top: 5pt; font-size: 8.5pt; font-weight: 700; color: var(--ink);
+  }
+  .plate .src { margin-top: 1.5pt; font-family: var(--mono); font-size: 7pt; color: var(--ink-faint); }
+
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: 7pt;
+    letter-spacing: 0.8pt; text-transform: uppercase; padding: 1.5pt 5pt;
+    border-radius: 2.5pt; background: var(--surface-sub); color: var(--ink-muted);
+  }
+  .tag.on  { background: var(--good-wash);  color: var(--good); }
+  .tag.off { background: var(--surface-sub); color: var(--ink-faint); }
+
+  footer.foot {
+    margin-top: 10pt; padding-top: 5pt; border-top: 0.5pt solid var(--rule);
+    font-size: 7.5pt; color: var(--ink-faint); display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= PAGE 1 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Zebra DS2278</span><span class="num">1 of 10</span></div>
+
+  <p class="eyebrow">Start here</p>
+  <h1>You just unboxed a<br>barcode scanner.</h1>
+  <p class="deck">
+    Zebra ships two manuals with this thing. Together they run past 490 pages, and roughly 400 of those
+    are walls of programming barcodes you will never scan. This is the part that matters, with the
+    barcodes you actually need printed alongside. Scan them straight off the paper.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>What is in the box</h3>
+      <ul class="dot">
+        <li>The scanner, with the battery already fitted</li>
+        <li>A Quick Start Guide</li>
+        <li><strong>Nothing else.</strong> The cradle, the USB cable and the power supply are all sold separately</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Which manual, when</h3>
+      <ul class="dot">
+        <li><strong>Quick Start Guide</strong>, 22 pages. Cabling and the handful of setup barcodes.</li>
+        <li><strong>Product Reference Guide</strong>, 476 pages. Every setting that exists. Use it as a lookup, never as a read.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h2>Sixty seconds to your first scan</h2>
+    <ol class="steps">
+      <li><strong>Charge it before anything else.</strong> It arrives part charged. Empty to full is about 5 hours over standard USB, or 1 hour from an external 5V supply.</li>
+      <li><strong>Decide how it talks to your computer.</strong> Cable into a USB port, or Bluetooth. Cable is the one that always works, so start there if you have the option.</li>
+      <li><strong>Open a text editor first.</strong> Notepad, TextEdit, anything. A scanner is just a very fast keyboard, so you want somewhere for the typing to land.</li>
+      <li><strong>Pull the trigger at a barcode.</strong> Aim the red line across the bars, not along them. About 15cm away is the sweet spot for a retail barcode.</li>
+      <li><strong>You should hear one beep and see a green flash</strong>, and the digits should appear as text. That is the whole job. Everything after this page is refinement.</li>
+    </ol>
+  </div>
+
+  <div class="note">
+    <span class="lab">The one thing worth learning early</span>
+    You configure this scanner <strong>by scanning barcodes out of a manual</strong>. There is no settings
+    screen. Each barcode you scan writes a setting into the scanner and it survives being switched off.
+    That is why the reference guide is mostly barcodes, and it is why a printed page like this one can
+    set the whole thing up.
+  </div>
+
+  <footer class="foot"><span>Zebra DS2278 handheld imager</span><span>Distilled from MN-002915-19EN Rev. A</span></footer>
+</section>
+
+<!-- ================= PAGE 2 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Getting it connected</span><span class="num">2 of 10</span></div>
+
+  <h2>Three ways to connect, in order of how much grief they cause</h2>
+  <p class="deck">Pick one. You do not need the other two.</p>
+
+  <div class="stack cols3">
+    <div class="card sub">
+      <h3>1. USB cable</h3>
+      <p>Straight into the computer. No pairing, no battery anxiety, no dropouts. Boring and correct.</p>
+    </div>
+    <div class="card sub">
+      <h3>2. Bluetooth</h3>
+      <p>The scanner pairs directly to a computer, tablet or phone as a wireless keyboard. This is what you want for stock taking.</p>
+    </div>
+    <div class="card sub">
+      <h3>3. Cradle</h3>
+      <p>Sold separately. Charges the scanner and props it up so it scans automatically when you wave something at it.</p>
+    </div>
+  </div>
+
+  <div class="stack cols">
+    <div>
+      <h3>Going in by cable</h3>
+      <p style="font-size:9.5pt">Plug it in and it will almost certainly just work, because USB keyboard is the
+      factory setting. If it types nothing, scan this to put it back into keyboard mode.</p>
+      <div class="plate">
+        <span class="kick">Act like a USB keyboard</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABs4AAAFfCAAAAADLjGYJAAAACXBIWXMAAFxGAABcRgEUlENBAAATw0lEQVR4nO3VW7FuB7WF0SjAAQ5wgAMc4CAOkIADHOAgDuIgDjBwCJdwSQKcGg+rMzoza9UuzsMZ+at9j/O6V6/57/bZvyRJ+tH32f/3P0CSpP97OJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA4kyS9QDiTJL1AOJMkvUA/Fs7++D//2bdvp/70duTvj7u+eTv1t094xV/fLv7m7cjfHi999qf3H/jd2zV/eDvy/eP2r99O/fODd+SJv3878s/33/qH95/z3ft3PUf88+P2jPiXx6m/PEZ89ue3a/7+/jV//ITtMtmzHxjx/Yv/vWb6x/sX5wPMiJns2/fv+ubxir8+rvlgsm8eF2e7fHffPo6k7374qTXiPx6nfv/8M3Lu+d19/f47vn9sl56Tfcqv+FnWfI74wXbpg8nyJT5/s+n5JX70AT5Pfcqa3z+u+ZQ1/7vt3v8V/8A3cbIfC2c//+w/++Lt1C/ejvz2cdfnb6d+8wmv+PXbxZ+/HfnN46XPfvH+A798u+Znb0e+etz+07dTX3/wjjzxJ29HPvgv/WfvP+fL9+96jvjLx+0Z8VePU796jPjsl2/X/Pb9a37+Cdtlsmc/MOL7F/97zfS79y/OB5gRM9kX79/1+eMVv35c88Fknz8uznb57r54HElf/vBTa8TfPU795Pln5Nzzu/vp++/46rFdek72Kb/iZ1nzOeIH26UPJsuX+PzNpueX+NEH+Dz1KWt+9bjmU9b877Z7/1f8A9/EyXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2LZwlnNWIOKtwNuFsh7Nr4SzhrEbEWYWzCWc7nF0LZwlnNSLOKpxNONvh7Fo4SzirEXFW4WzC2Q5n18JZwlmNiLMKZxPOdji7Fs4SzmpEnFU4m3C2w9m1cJZwViPirMLZhLMdzq6Fs4SzGhFnFc4mnO1wdi2cJZzViDircDbhbIeza+Es4axGxFmFswlnO5xdC2cJZzUiziqcTTjb4exaOEs4qxFxVuFswtkOZ9fCWcJZjYizCmcTznY4uxbOEs5qRJxVOJtwtsPZtXCWcFYj4qzC2YSzHc6uhbOEsxoRZxXOJpztcHYtnCWc1Yg4q3A24WyHs2vhLOGsRsRZhbMJZzucXQtnCWc1Is4qnE042+HsWjhLOKsRcVbhbMLZDmfXwlnCWY2IswpnE852OLsWzhLOakScVTibcLbD2bVwlnBWI+KswtmEsx3OroWzhLMaEWcVziac7XB2rR8LZ5IkfRDOJEkvEM4kSS8QziRJLxDOJEkvEM4kSS8QziRJLxDOJEkvEM4kSS8QziRJLxDOJEkvEM4kSS8QziRJLxDOJEkvEM4kSS8QziRJLxDOJEkvEM4kSS/Q/wKa2oO6QODECgAAAABJRU5ErkJggg==" alt="USB Keyboard HID configuration barcode">
+        <div class="zname">USB Keyboard HID</div>
+        <div class="src">Reference guide, page 8-5</div>
+      </div>
+    </div>
+    <div>
+      <h3>Going in by Bluetooth</h3>
+      <p style="font-size:9.5pt">Scan the barcode below, then open Bluetooth settings on your computer or
+      tablet and pair with the DS2278 the same way you would pair a keyboard.</p>
+      <div class="plate">
+        <span class="kick">Pair as a wireless keyboard</span>
+        <img src="data:image/png;base64,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" alt="HID Bluetooth Classic configuration barcode">
+        <div class="zname">HID Bluetooth Classic</div>
+        <div class="src">Reference guide, page 6-6</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack note good">
+    <span class="lab">How you know Bluetooth worked</span>
+    A <strong>low beep then a high beep, with a green LED</strong>, means the link is up. Going the other
+    way, <strong>high then low with a red LED</strong>, means it just dropped. A <strong>long low then a
+    long high</strong> means it tried to reach the host and could not, so the other device is out of
+    range, switched off, or not actually listening.
+  </div>
+
+  <div class="stack note warn">
+    <span class="lab">Range, honestly</span>
+    Bluetooth 4.0, Class 2. Zebra quotes a minimum of 10m in clear line of sight, and up to 100m only when
+    it is paired with their cradle. Walls, shelving and metal racking all cut into that hard. Treat 10m
+    through one wall as the realistic working figure.
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h3>If pairing will not take</h3>
+      <ul class="dot">
+        <li>Delete any old DS2278 entry from the Bluetooth list first. A stale pairing blocks a new one.</li>
+        <li>Scan <strong>HID Bluetooth Classic</strong> again, then pair within a minute or so before it stops advertising.</li>
+        <li>A fast blinking green LED means it is trying to reconnect to something it already knows. Let it finish or clear the old pairing.</li>
+        <li>Still nothing? Cable it in, confirm the scanner itself works, then come back to Bluetooth.</li>
+      </ul>
+    </div>
+    <div class="card sub">
+      <h3>Switching between them later</h3>
+      <p>Nothing is permanent. Scanning the barcode for one mode simply overrides the other, and factory
+      defaults on page 9 returns it to USB keyboard.</p>
+      <p>Plugging the USB cable in while paired over Bluetooth does <strong>not</strong> automatically switch
+      it across. If you cable it up and get nothing, scan <strong>USB Keyboard HID</strong>.</p>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Getting it connected</span><span>Page 2</span></footer>
+</section>
+
+<!-- ================= PAGE 3 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Everyday scanning</span><span class="num">3 of 10</span></div>
+
+  <h2>Aiming, and the two settings worth changing on day one</h2>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>How to actually aim it</h3>
+      <ul class="dot">
+        <li>The red line must cross the bars, <strong>not run along them</strong>. On a tall barcode, sweep across the middle.</li>
+        <li>Do not hold it square on. A slight tilt kills the glare that stops a decode. It tolerates up to 65 degrees of skew and pitch, so angle is free.</li>
+        <li>Roll does not matter at all. The scanner reads at any rotation.</li>
+        <li>Closer is not better. Back off until the whole barcode sits inside the aiming line.</li>
+        <li>Moving target? It keeps up to about 13cm per second in the hand, and 76cm per second when something is swept past it in the cradle.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>When it will struggle</h3>
+      <ul class="dot">
+        <li><strong>A dirty window.</strong> The single most common cause of a scanner that has "got worse". Wipe it with a lens cloth.</li>
+        <li><strong>Low contrast printing.</strong> It needs 25 percent reflective difference. A faded thermal label is a genuine fail, not your technique.</li>
+        <li><strong>Curved or crumpled labels</strong>, particularly on bottles. Flatten what you can.</li>
+        <li><strong>Screens.</strong> It will read a barcode off a phone, but raise the phone brightness first.</li>
+        <li><strong>Direct sun.</strong> It copes to 107,600 lux, which is bright daylight, but glare on glossy labels still defeats it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h3>Trigger, or hands free</h3>
+    <p style="font-size:9.5pt">Out of the box you pull the trigger to scan. Presentation mode instead
+    leaves it watching, so it fires the moment a barcode enters its view, which is what you want when it
+    is sitting in a cradle and you are scanning with both hands full. The cost is battery.</p>
+    <div class="cols">
+      <div class="plate">
+        <span class="kick">Default, pull the trigger</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABaIAAAFfCAAAAACZteT2AAAACXBIWXMAAFxGAABcRgEUlENBAAAPPklEQVR4nO3VsY1uS7WFUSIgAzIgAzIgAzIgA0IgAzIgA7xnYGBgYCCBgYGBEAYGBkgYGNd4T1Pq2Weq/3OOLjhrozeGWVW7qltL/fV3/heAh/rO9Q8AwJdINMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBjSTTAY0k0wGNJNMBj/bck+n8++OZ957dvK/96/ej3b1v//DYv/PHt8N/eV/708dFXf/nKhX99O/On95W/ffz8j69f/f2Lb/3+9fC/3rZ++77yzdvKbz7zA33x5l9/OvPLD1u//Mw9v/74/aet33zxjW9e7/nPJvfHLz7xlcn99fWev3w886fXMy8De/eZyf3zbev3X1l5980Xb57Jfdz69es9HdivPrP1qy++8enMy8C+Mqd3nxnYqz+8Hf7761bH8+8N7N1fPx5+92kqf3tZefnD+sO3+S0e4L8l0d/54B/vOz98W/nz60c/etv63bd54Sdvh3/xvvLTj4+++tlXLvz525mfvq/84uPnP3n96ldffOtHr4f//Lb1w/eVf7yt/OAzP9AXb/7+pzPf/bD13c/c8/2P33/a+sEX3/jH6z3/2eR+8qUXvja5n7/e87OPZ376euZlYO8+M7nfvW396Csr7/7xpYt3ch+3vv96Twf2vc9sfe+Lb3w68zKwr8zp3WcG9urHb4c/88+j4/n3Bvbu5x8Pv/s0lV+8rLz8Yf342/wWDyDRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoUxJdEh0SvSQ6JPqURJdEh0QviQ6JPiXRJdEh0UuiQ6JPSXRJdEj0kuiQ6FMSXRIdEr0kOiT6lESXRIdEL4kOiT4l0SXRIdFLokOiT0l0SXRI9JLokOhTEl0SHRK9JDok+pREl0SHRC+JDok+JdEl0SHRS6JDok9JdEl0SPSS6JDoU/8tiQb4f0iiAR5LogEeS6IBHkuiAR5LogEeS6IBHkuiAR5LogEeS6IBHkuiAR5LogEeS6IBHkuiAR5LogEeS6IBHkuiAR5LogEe6/8Ar9T5w+SvUuYAAAAASUVORK5CYII=" alt="Standard Level trigger mode configuration barcode">
+        <div class="zname">Standard (Level)</div>
+        <div class="src">Reference guide, page 5-16</div>
+      </div>
+      <div class="plate">
+        <span class="kick">Hands free, always watching</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABacAAAFfCAAAAAB/nC+yAAAACXBIWXMAAFxGAABcRgEUlENBAAAPdklEQVR4nO3U0almx5WGYUUwGTgDZ+AMnIEzmAwUwmSgDJyBM9DtwIDAYDAYBIIBgUEgMBgMM6xF99ezzt/dtK6+LeZ5LnfVv3edqjrvV/8DwJN91V4AAJ+l0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM/2K+n0t1+98fsM/fTuyW8/8rPfvBv7om98/W7yn/Lkm7dfffWHz73x3ZzfvC4ofnr91b9/8mN/fJ38p3dDX+fJd59Z2af/jg9zfvd26LvX9/zH2znfvCzoy7bqdYfit5/eoT98wQ798e3Q16/v+f7tnN99ZB0vRxbfv05+f3Yf7tD7rfrmdfLLpY4Pt/vlyP7tI0t8ObL4NnO+fjv0y47sp0/O+djZfeYOve5QvPy7feTIftmC3t+hD09+/3b2t6+vfiKdDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDpLp0OnV46fen00OkunQ6dXjp96fTQ6S6dDp1eOn3p9NDprl9Jp3/+zzf+mqF/vXvy54/87Lt3Y1/0jR/eTf4Qhh/ffvXV3z73xndz/k/ovnv7+3+9/ur7T37s76+Tf3o39EOe/OMzK/v03/Fhzl/eDv3j9T3//XbOjy8L+rKtet2h+POnd+hvX7BDf3879MPre/75ds5fPrKOlyOLf75Ofn92H+7Q+6368XXyy6WOD7f75cj+6yNLfDmy+Dlzfng79MuO7F+fnPOxs/vMHXrdoXj5d/vIkf2yBb2/Qx+e/PXt7J9fX/1Ev5JOA/y/pdMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDPptMAz6bTAM+m0wDP9r/ZH7NBI8AdAgAAAABJRU5ErkJggg==" alt="Presentation Blink trigger mode configuration barcode">
+        <div class="zname">Presentation (Blink)</div>
+        <div class="src">Reference guide, page 5-16</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3>Volume</h3>
+    <p style="font-size:9.5pt">It ships loud, which is right in a shop and wrong in an office. The beep is
+    your only confirmation a scan worked, so turn it down rather than off.</p>
+    <div class="cols">
+      <div class="plate">
+        <span class="kick">Default, loud</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB8EAAAIyCAAAAAB+i+RdAAAJMklEQVR4nO3XUQqDMBQAQS29/5XTCwghscUuzHyK5EUNLJ7jAAByXk9vAADYoOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUPR+egNsOC+vjssbxmyFsTf4etrU+OaI6bOt7GE6eOWJ77+dlS+08rmvp60s9qt1V071yrSv3nvcPjv3B2+evs03yV/zDw4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBFCg4ARQoOAEUKDgBF53h6BwDAOv/gAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABwBH0AbhAiYxzfRVsAAAAASUVORK5CYII=" alt="High Volume configuration barcode">
+        <div class="zname">High Volume</div>
+        <div class="src">Reference guide, page 5-7</div>
+      </div>
+      <div class="plate">
+        <span class="kick">Quieter</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAB8EAAAIyCAAAAAB+i+RdAAAJMElEQVR4nO3XQQqDMBRAQS29/5XTCwghscU+mFlKyI9m8fAcBwCQ83r6AADABgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgCIFB4AiBQeAIgUHgKL30wdgw3n5dFwuGLMdxt7g62lT45sjpu+2cobp4JU3vv91Vm5o5bqvp61s9qt979/x5trNBceP9t386tMR9wfzf/yDA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQJGCA0CRggNAkYIDQNE5nj4BALDOPzgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABQpOAAUKTgAFCk4ABxBH008ImNo8uLhAAAAAElFTkSuQmCC" alt="Low Volume configuration barcode">
+        <div class="zname">Low Volume</div>
+        <div class="src">Reference guide, page 5-7</div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Everyday scanning</span><span>Page 3</span></footer>
+</section>
+
+<!-- ================= PAGE 4 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Making the data land right</span><span class="num">4 of 10</span></div>
+
+  <p class="eyebrow">The problem everybody hits</p>
+  <h2>It scans fine, but everything piles into one cell</h2>
+  <p class="deck">
+    You scan ten items into a spreadsheet and get one cell holding ten barcodes glued together. Nothing is
+    broken. The scanner types the digits and then stops, because nobody told it to press Enter afterwards.
+    Scan the barcode below once and it will move to the next row on its own, forever.
+  </p>
+
+  <div class="stack plate">
+    <span class="kick">Fixes it. Scan this one.</span>
+    <img src="data:image/png;base64,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" alt="Add Enter Key configuration barcode" style="max-width:112mm">
+    <div class="zname">Add Enter Key (Carriage Return / Line Feed)</div>
+    <div class="src">Reference guide, page 5-31</div>
+  </div>
+
+  <p style="font-size:9.5pt">Prefer to move <strong>sideways</strong> along a row instead of down a
+  column? Use Tab instead. Scan one or the other, not both.</p>
+
+  <div class="stack plate">
+    <span class="kick">Sideways instead of down</span>
+    <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACdwAAAGmCAAAAABJsovLAAAACXBIWXMAAFxGAABcRgEUlENBAAAu50lEQVR4nO3Wsaro21bfcSFPkDewSC95gfsAYm9ha2VnaWMt+ABKqjT3VlYXBCstrCSFIAiClUVIJYiprBLunUvOGnP+xthjHwLxLj7fbu09mPM/x17n8Pm1/yNJkqQv06/9//4ASZIk/b8L7iRJkr5QcCdJkvSFgjtJkqQvFNxJkiR9oeBOkiTpCwV3kiRJXyi4kyRJ+kLBnSRJ0hcK7iRJkr5QcCdJkvSFgjtJkqQvFNxJkiR9oeBOkiTpCwV3kiRJXyi4kyRJ+kLBnSRJ0hcK7iRJkr5QcCdJkvSFgjtJkqQvFNxJkiR9oeBOkiTpCwV3kiRJXyi4kyRJ+kLBnSRJ0hcK7iRJkr5QcCdJkvSFgjtJkqQvFNxJkiR9oeBOkiTpCwV3kiRJXyi4kyRJ+kL9quDuv/3Qf//4o3/65U//u4z97eeB1N++J4TiCf/2y7/6p4+ffvaLH/7m44e/+J4T0itOf1HHf/ac+u8D6Zl/+WnuH3/UCZ8/8h/Ln4VFpSvCv8VHf1P+5t/uw34Y+Mtv7KG/oh/45i9MPCH9Y33+yJ/3H3kaBsoVddX/6/2g5aqH34f6is9XrF+R/jW/74pvrbru4Uetevcr952L+ucy/fff9Yph1X82f+RHfx0+Ml1RPzKsun9FuSJ9ZOnnwwm7PVyv+HzFj3nF4rf6z96PLK/49gmfB775+/DPn/dwWvwPpP+Gvw8nfBRW/dFf7/6xykA4oTZ85Edp1e85w0C54p/bE+qqz8Dft3v4KA68//l/8xsmYPxH6lcFd//ph/7zxx/9+S9/+qcy9kefB1J/9J4Qiif8yy//6s8/fvr1X/zwBx8//Nb3nJBecfqtOv7rz6n/PpCe+Tuf5n72o074/JE/K38WFpWuCP8WH/1B+Zt/uQ/7YeB3vrGH/op+4Ju/MPGE9I/1+SN/0n/kaRgoV9RV//X7QctVD78P9RWfr1i/Iv1rft8V31p13cOPWvXuV+47F/V3ZfpPvusVaQ8f/cb8kR/9XvjIdEX9yLDq/hXlivSRpZ8MJ+z2cL3i8xU/5hWL3+rfeD+yvOLbJ3we+Obvw9993sNp8T+Q/hv+JJzwUVj1R7/3nPDRt/fw+YTa8JEfpVW/5wwD5Yq/a0+oqz4Df9Lu4aM48P7n/81vmIDxHym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTcJeCO7iDuzIAdye460/Y7eF6Bdy9V4RVw10K7qbgLgV3cAd3ZQDuTnDXn7Dbw/UKuHuvCKuGuxTcTcFdCu7gDu7KANyd4K4/YbeH6xVw914RVg13KbibgrsU3MEd3JUBuDvBXX/Cbg/XK+DuvSKsGu5ScDcFdym4gzu4KwNwd4K7/oTdHq5XwN17RVg13KXgbgruUnAHd3BXBuDuBHf9Cbs9XK+Au/eKsGq4S8HdFNyl4A7u4K4MwN0J7voTdnu4XgF37xVh1XCXgrspuEvBHdzBXRmAuxPc9Sfs9nC9Au7eK8Kq4S4Fd1Nwl4I7uIO7MgB3J7jrT9jt4XoF3L1XhFXDXQrupuAuBXdwB3dlAO5OcNefsNvD9Qq4e68Iq4a7FNxNwV0K7uAO7soA3J3grj9ht4frFXD3XhFWDXcpuJuCuxTcwR3clQG4O8Fdf8JuD9cr4O69Iqwa7lJwNwV3KbiDO7grA3B3grv+hN0erlfA3XtFWDXcpeBuCu5ScAd3cFcG4O4Ed/0Juz1cr4C794qwarhLwd0U3KXgDu7grgzA3Qnu+hN2e7heAXfvFWHVcJeCuym4S8Ed3MFdGYC7E9z1J+z2cL0C7t4rwqrhLgV3U3CXgju4g7syAHcnuOtP2O3hegXcvVeEVcNdCu6m4C4Fd3AHd2UA7k5w15+w28P1Crh7rwirhrsU3E3BXQru4A7uygDcneCuP2G3h+sVcPdeEVYNdym4m4K7FNzBHdyVAbg7wV1/wm4P1yvg7r0irBruUnA3BXcpuIM7uCsDcHeCu/6E3R6uV8Dde0VYNdyl4G4K7lJwB3dwVwbg7gR3/Qm7PVyvgLv3irBquEvB3RTcpeAO7uCuDMDdCe76E3Z7uF4Bd+8VYdVwl4K7KbhLwR3cwV0ZgLsT3PUn7PZwvQLu3ivCquEuBXdTvyq4+y8/9F8//uivfvnT/yxjf/p5IPWn7wmheMK//vKv/urjp5/84oc//vjhd7/nhPSK0+/W8Z88p/77QHrm73+a+/mPOuHzR/68/FlYVLoi/Ft89Mflb/71PuyHgd//xh76K/qBb/7CxBPSP9bnj/zt/iNPw0C5oq76f7wftFz18PtQX/H5ivUr0r/m913xrVXXPfyoVe9+5b5zUf9Qpn/6Xa8YVv2b80d+9IfhI9MV9SPDqvtXlCvSR5Z+ezhht4frFZ+v+DGvWPxW/+b7keUV3z7h88A3fx/+4fMeTov/gfTf8NNwwkdh1R/94e4fqwyEE2rDR36UVv2eMwyUK/6hPaGu+gz8tN3DR3Hg/c//m98wAeM/Ur8quJMkSdIiuJMkSfpCwZ0kSdIXCu4kSZK+UHAnSZL0hYI7SZKkLxTcSZIkfaHgTpIk6QsFd5IkSV8ouJMkSfpCwZ0kSdIXCu4kSZK+UHAnSZL0hYI7SZKkLxTcSZIkfaHgTpIk6QsFd5IkSV+o/wvWPQFwjUp/lAAAAABJRU5ErkJggg==" alt="Add Tab Key configuration barcode" style="max-width:112mm">
+    <div class="zname">Tab Key</div>
+    <div class="src">Reference guide, page 5-31</div>
+  </div>
+
+  <div class="stack cols">
+    <div class="plate hold">
+      <span class="kick">Only if those two misbehave</span>
+      <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACFwAAAIyCAAAAADZJhPCAAAJvElEQVR4nO3YQQqDMBRAQS29/5XTCwih8aGWziyL5EebxSP72AAAOq9wLQAAcQEAtNxcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCkxAUAkBIXAEBKXAAAKXEBAKTEBQCQEhcAQEpcAAApcQEApMQFAJASFwBASlwAAClxAQCk3u1y3GM//HUcPjBmK4y1wcfTpkY5Yvpu3+xhOvj8tMW3WPxm02eP97D4H58/D7d9nfOH69qTuridxU1Op10wmB/g5gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AAHEBADyXmwsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AAHEBADyXmwsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASO2jXQ8A+HNuLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIAEBcAwHO5uQAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAUuICAEiJCwAgJS4AgJS4AABS4gIASIkLACAlLgCAlLgAAMQFAPBcbi4AgJS4AABS4gIASIkLACAlLgCAlLgAAFLiAgBIiQsAICUuAICUuAAAttIH6qclY8zYoWMAAAAASUVORK5CYII=" alt="DATA SUFFIX 1 transmission format configuration barcode">
+      <div class="zname">&lt;DATA&gt; &lt;SUFFIX 1&gt;</div>
+      <div class="src">Reference guide, page 5-34</div>
+    </div>
+    <div class="note" style="margin:0">
+      <span class="lab">Try it in a text editor first</span>
+      Before wiring the scanner into real software, scan four things into Notepad. Four lines means the
+      suffix is right and any remaining problem lives in the software, not the scanner. If your software
+      wants a plain carriage return and is tripping over the line feed, the barcode on the left switches
+      the scanner to sending its own configurable suffix instead.
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lab">If the letters come out wrong</span>
+    Digits fine but letters scrambled, or everything in capitals, means the scanner is set to the wrong
+    country keyboard layout, or Caps Lock is on. The scanner emulates a keyboard, so it inherits the
+    layout of the machine it is typing into. Keyboard layouts live in Appendix B of the reference guide,
+    and it supports over 90 of them.
+  </div>
+
+  <footer class="foot"><span>Making the data land right</span><span>Page 4</span></footer>
+</section>
+
+<!-- ================= PAGE 5 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Beeps and lights</span><span class="num">5 of 10</span></div>
+
+  <h2>The scanner only talks to you in beeps. Here is the dictionary.</h2>
+  <p class="deck">Listen rather than watch. The LED is on top and you will usually be looking at the barcode.</p>
+
+  <div class="stack">
+    <h3>Normal scanning</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">One medium beep</td><td class="led g">Green flash</td><td>Decoded, and the data was sent. This is success.</td></tr>
+      <tr><td class="k">Low, medium, high</td><td class="led g">Green</td><td>Powering up.</td></tr>
+      <tr><td class="k">Nothing at all</td><td class="led g">Green solid</td><td>Presentation mode is on and it is watching for a barcode.</td></tr>
+      <tr><td class="k">Four long low beeps</td><td class="led r">Red</td><td>Transmission error. The data was thrown away. Usually the wrong host type is selected.</td></tr>
+      <tr><td class="k">Five long low beeps</td><td class="led r">Red</td><td>Conversion or format error.</td></tr>
+      <tr><td class="k">Low, low, low, extra low</td><td class="led r">Red</td><td>Parity error.</td></tr>
+      <tr><td class="k">Four short high beeps</td><td class="led r">Red, 4 seconds</td><td>Battery is low. Shown when you release the trigger.</td></tr>
+    </table>
+  </div>
+
+  <div class="stack">
+    <h3>While you are scanning configuration barcodes</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">Long low, then long high</td><td class="led r">Red</td><td>Refused. Wrong barcode, wrong order, or you scanned Cancel.</td></tr>
+      <tr><td class="k">High, low</td><td class="led g">Green</td><td>It wants a number. Go and scan digits from Appendix G.</td></tr>
+      <tr><td class="k">High, low, high, low</td><td class="led g">Green</td><td>Setting saved. You are done.</td></tr>
+    </table>
+  </div>
+
+  <div class="stack">
+    <h3>Bluetooth</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">Low, high</td><td class="led g">Green</td><td>Connected.</td></tr>
+      <tr><td class="k">High, low</td><td class="led r">Red</td><td>Disconnected.</td></tr>
+      <tr><td class="k">Long low, long high</td><td class="led r">Red</td><td>Could not reach the other device. Out of range or switched off.</td></tr>
+      <tr><td class="k">Four long beeps, low high low high</td><td class="led">None</td><td>The other device actively refused the connection.</td></tr>
+      <tr><td class="k">High, low, high, low</td><td class="led g">Green</td><td>A pairing barcode was scanned.</td></tr>
+      <tr><td class="k">Low, high, low, high</td><td class="led r">Red</td><td>Batch memory is full. It cannot store any more scans.</td></tr>
+    </table>
+  </div>
+
+  <div class="note bad">
+    <span class="lab">Two that will mislead you</span>
+    <strong>A red LED never means the barcode was bad.</strong> It means the scanner read it perfectly and
+    then could not deliver it, so look at the cable, the pairing or the software, never the label.
+    And <strong>Cancel beeps exactly like an error</strong>, long low then long high with a red LED,
+    because Zebra gave it the error sound. When you scan Cancel deliberately, that noise is success.
+  </div>
+
+  <footer class="foot"><span>Beeps and lights</span><span>Page 5</span></footer>
+</section>
+
+<!-- ================= PAGE 6 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Barcode types</span><span class="num">6 of 10</span></div>
+
+  <h2>What it reads out of the box, and what it ignores</h2>
+  <p class="deck">
+    Barcode formats are called symbologies. The DS2278 is a 2D imager, so it reads flat barcodes and
+    square ones equally well. Most types are already switched on and you will never touch this page.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>On by default</h3>
+      <table>
+        <tr><td class="k">EAN-13, EAN-8</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">UPC-A, UPC-E</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 128</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 39</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 93</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Codabar</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Interleaved 2 of 5</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">QR Code, MicroQR</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Data Matrix</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">PDF417</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Aztec</td><td><span class="tag on">On</span></td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Off by default</h3>
+      <table>
+        <tr><td class="k">Discrete 2 of 5</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">MSI</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Code 11</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Trioptic Code 39</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Bookland EAN</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Han Xin</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">MicroPDF417</td><td><span class="tag off">Off</span></td></tr>
+      </table>
+      <p style="margin-top:6pt; font-size:9pt; color:var(--ink-muted)">
+        These are off because they are rare and easy to misread. Turn one on only if you are certain your
+        labels use it. Their enable barcodes are in Chapter 13.
+      </p>
+    </div>
+  </div>
+
+  <div class="stack note">
+    <span class="lab">Retail translation</span>
+    Anything you buy in a shop is <strong>EAN-13</strong> in Europe or <strong>UPC-A</strong> in the
+    United States. Both are on. If you are printing your own labels, use <strong>Code 128</strong>,
+    which holds letters as well as digits and is also on. That covers almost every real use.
+  </div>
+
+  <div class="stack note warn">
+    <span class="lab">Worth knowing before you switch things on</span>
+    Every symbology you enable is one more pattern the scanner tries to match against, which slightly
+    raises the chance of a wrong read on a damaged label. Enabling everything is not a safe default, it
+    is the opposite. Leave the list alone unless something genuinely fails to scan.
+  </div>
+
+  <div>
+    <h3>What the digits on a retail barcode actually are</h3>
+    <table>
+      <tr><th style="width:26%">Part of a 13 digit EAN</th><th style="width:14%">Example</th><th>What it is</th></tr>
+      <tr><td class="k">Country prefix</td><td class="mono">539</td><td>Where the number was issued, not where the product was made</td></tr>
+      <tr><td class="k">Manufacturer</td><td class="mono">1234</td><td>The company that registered the product</td></tr>
+      <tr><td class="k">Product</td><td class="mono">56789</td><td>Which of their products this is</td></tr>
+      <tr><td class="k">Check digit</td><td class="mono">7</td><td>Calculated from the other twelve. If a bar is misread the arithmetic fails and the scanner stays silent rather than handing you a wrong number, which is why a scan that beeps can be trusted</td></tr>
+    </table>
+  </div>
+
+  <footer class="foot"><span>Barcode types</span><span>Page 6</span></footer>
+</section>
+
+<!-- ================= PAGE 7 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Scanning with nothing attached</span><span class="num">7 of 10</span></div>
+
+  <p class="eyebrow">Batch mode</p>
+  <h2>Walking away from the computer with it</h2>
+  <p class="deck">
+    Batch mode makes the scanner store scans in its own memory instead of sending them live, then dump
+    them all at once when it gets back. This is how you count stock in a stockroom with no signal.
+  </p>
+
+  <div class="stack note bad">
+    <span class="lab">Read this before you scan anything below</span>
+    If you paired over Bluetooth as a keyboard, which is what page 2 set up, then
+    <strong>only Out of Range Batch Mode will work.</strong> The other batch modes need the host to send a
+    command back to the scanner telling it to dump, and a plain keyboard connection has no channel for
+    that. They will be refused with the long low, long high error beep. This is verified behaviour, not a
+    guess. Out of Range mode needs no commands at all, which is exactly why it works.
+  </div>
+
+  <div class="stack cols3">
+    <div class="plate">
+      <span class="kick">Turn batch on</span>
+      <img src="data:image/png;base64,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" alt="Out of Range Batch Mode configuration barcode">
+      <div class="zname">Out of Range Batch Mode</div>
+      <div class="src">Reference guide, page 6-33</div>
+    </div>
+    <div class="plate">
+      <span class="kick">Keep it on across restarts</span>
+      <img src="data:image/png;base64,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" alt="Persistent Batch Enable configuration barcode">
+      <div class="zname">Persistent Batch Enable</div>
+      <div class="src">Reference guide, page 6-34</div>
+    </div>
+    <div class="plate hold">
+      <span class="kick">Back to live scanning</span>
+      <img src="data:image/png;base64,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" alt="Normal mode configuration barcode">
+      <div class="zname">Normal</div>
+      <div class="src">Reference guide, page 6-33</div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h3>How a run actually goes</h3>
+    <ol class="steps">
+      <li>Scan the first two barcodes above, once, ever. This is setup, not a per run ritual. The third one is how you undo it afterwards.</li>
+      <li>Leave the computer or tablet on, with the cursor already sitting in the cell or field you want the data to land in.</li>
+      <li>Walk off. When you go out of Bluetooth range the link drops and the scanner quietly starts storing instead of sending.</li>
+      <li>Scan your stock. It sounds exactly the same as normal scanning.</li>
+      <li>Walk back into range. It reconnects and types everything it stored, in order, on its own.</li>
+    </ol>
+  </div>
+
+  <div class="stack cols">
+    <div class="card sub">
+      <h3>How much it holds</h3>
+      <p>30,720 bytes of storage, and each scan costs its own length plus 3 bytes. For 13 digit retail
+      barcodes that works out at roughly <strong>1,900 scans</strong> before it is full.</p>
+    </div>
+    <div class="card sub">
+      <h3>How you know it is full</h3>
+      <p>A distinct <strong>low, high, low, high with a red LED</strong>. This is the one sound you must
+      recognise, because a stored scan otherwise sounds identical to a sent one.</p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lab">Do not combine this with auto reconnect on barcode data</span>
+    There is a setting that tells the scanner to reconnect when you scan something. Turned on together
+    with batch mode, the scan goes into the buffer instead of triggering the reconnect, so the scanner can
+    never get back to the host. It hangs, permanently, and the only way out is a reset.
+  </div>
+
+  <footer class="foot"><span>Scanning with nothing attached</span><span>Page 7</span></footer>
+</section>
+
+<!-- ================= PAGE 8 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">When it stops working</span><span class="num">8 of 10</span></div>
+
+  <h2>Start from the symptom, not the settings</h2>
+
+  <div class="stack card">
+    <h3>No red aiming line when you pull the trigger</h3>
+    <ul class="dot">
+      <li>Flat battery. Charge it for ten minutes and try again before assuming anything worse.</li>
+      <li>On a cabled setup, the cable is loose or it is the wrong cable. Reseat both ends.</li>
+      <li>If it is in a cradle, the cradle may need its power supply connected.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>It beeps and flashes green, but nothing appears on screen</h3>
+    <p style="font-size:9.5pt">The scan worked and the delivery failed. In order of likelihood:</p>
+    <ul class="dot">
+      <li>Nothing is focused. Click into the field first. The scanner types, it cannot choose where.</li>
+      <li>Bluetooth has silently dropped. Look for the green LED, or listen for the reconnect beeps.</li>
+      <li>It is set to the wrong host type. Scan <strong>USB Keyboard HID</strong> from page 2.</li>
+      <li>It is in batch mode and storing rather than sending. Scan <strong>Normal</strong> from page 7.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>Every configuration barcode gets refused, long low then long high</h3>
+    <ul class="dot">
+      <li>You may be halfway through a sequence that expects a number. Scan <strong>Cancel</strong> on page 9 to back out, then start again.</li>
+      <li>The setting may genuinely not apply to how it is connected. Batch mode over Bluetooth keyboard is the classic example, covered on page 7.</li>
+      <li>Check you are scanning from the DS2278 manual. Barcodes from another Zebra model will be rejected.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>The data arrives but it is wrong</h3>
+    <ul class="dot">
+      <li>Letters scrambled or everything uppercase means a keyboard layout mismatch or Caps Lock. See page 4.</li>
+      <li>Everything on one line means no Enter suffix. See page 4.</li>
+      <li>An extra digit on the end is the check digit, which it transmits by default. That is normal and usually wanted.</li>
+      <li>Four long low beeps with a red LED means it was configured for a different host type entirely.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>It used to scan well and now it hesitates</h3>
+    <ul class="dot">
+      <li>Clean the window. This is the cause far more often than anything else.</li>
+      <li>Use a lens cloth or a cloth dampened with mild dish soap or hydrogen peroxide. Never spray liquid into the window.</li>
+      <li><strong>No isopropyl alcohol, no ammonia, no acetone, no bleach.</strong> Zebra lists all of these as damaging to the plastics.</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <span class="lab">Before you call anybody</span>
+    There is a <strong>Report Software Version</strong> barcode on page 4-7 of the reference guide. Scan it
+    into a text editor and it types out the firmware version, which is the first thing support will ask
+    for.
+  </div>
+
+  <footer class="foot"><span>When it stops working</span><span>Page 8</span></footer>
+</section>
+
+<!-- ================= PAGE 9 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Starting over</span><span class="num">9 of 10</span></div>
+
+  <h2>The two barcodes that undo everything else</h2>
+  <p class="deck">
+    If you have scanned your way into a corner, and everybody does at least once, these are the way back.
+    Keep this page findable.
+  </p>
+
+  <div class="stack cols">
+    <div>
+      <div class="plate stop">
+        <span class="kick">Wipes every setting</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAA7YAAAFfCAAAAABfRQ8nAAAACXBIWXMAAFxGAABcRgEUlENBAAALIklEQVR4nO3ULZKmdxnF4ayAHWQH7IAdRGNi0KPR+OgYTBaBiUGjYzDo0WMw6GBOnam730nXoDhP1XXJ5+vfp7p//c2vwMN88//+AYD/lWzhcWQLjyNbeBzZwuPIFh5HtvA4soXHkS08jmzhcWQLjyNbeBzZwuPIFh5HtvA4soXHkS08jmzhcWQLjyNbeBzZwuPIFh5HtvA4soXHkS08jmzhcWQLjyNbeBzZwuPIFh5HtvA4soXHkS08zlOy/f03b3zsrQ+58vPrWz/n1oevOuPbPP35yndvT33113c++DHP/OHzpd/95oc+vr7/w8sZP7996/svHPvy6S888+HloXcG/TO3vnvnjPcGvfMbqn+8DPr32w9++87rv37/FYNe/xw+vn34vSOGPOXnlO0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S6S7RlUsg3ZLpLtGVSyDdkuku0ZVLIN2S768x/f+NRbP+XKL69v/ZJbP33VGR/y9OcrP7w99dXf3/ngpzzzl8+X/vSbH/r0+v7fXs745e1bP37h2JdPf+GZn14eemfQx9z64Z0z3hv0zm+o/vUy6D9vP/juP98fv2LQ65/Dp7cPv3fEkKdkC5Rs4XFkC48jW3gc2cLjyBYeR7bwOLKFx5EtPI5s4XFkC48jW3gc2cLjyBYeR7bwOLKFx5EtPM5/AcZ0BZBoUfxzAAAAAElFTkSuQmCC" alt="Set Factory Defaults configuration barcode">
+        <div class="zname">Set Factory Defaults</div>
+        <div class="src">Reference guide, page 5-5</div>
+      </div>
+      <p style="font-size:9.5pt; margin-top:7pt">
+        Puts every setting back to how it left the factory. Your suffix, volume, batch mode and host type
+        all go. It does <strong>not</strong> wipe firmware, and it does not physically unpair the scanner
+        from a computer, so you may need to remove it from the Bluetooth list on that machine too.
+      </p>
+    </div>
+    <div>
+      <div class="plate hold">
+        <span class="kick">Backs out of a half finished sequence</span>
+        <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAACBgAAAMACAAAAAChshkKAAALpklEQVR4nO3Yy6rCMBRA0Vb8/1/uHai7YCBwiZ3oWhMLLSZ9DDZnPzYAgIfb8xcAQBgAACcTAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAIAIAwAgwgAAiDAAACIMAABhAACMTAwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAIgwAgAgDACDCAACIMAAAcj8PYZ8+gmN68dvZbeHibeGv5rcwd1y2jZVHN1/3ultYWfdfb2Hly1lZ6IOfynUvZWUb122SL2diAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAAAIAwBgZGIAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAADCAAAYmRgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAARBgAABEGAECEAQAQYQAACAMAYGRiAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAwgAAGJkYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBA9uM8BgB+nIkBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAEQYAQIQBABBhAABEGAAAwgAAGJkYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAEGEAAEQYAAARBgBAhAEAsL38AZ7yGv8ykhY2AAAAAElFTkSuQmCC" alt="Cancel configuration barcode">
+        <div class="zname">Cancel</div>
+        <div class="src">Reference guide, Appendix G-3</div>
+      </div>
+      <p style="font-size:9.5pt; margin-top:7pt">
+        Some settings need a number scanned after them. If you start one and change your mind, the scanner
+        sits there waiting and refuses everything else. Cancel gets you out.
+        <strong>It answers with the error beep on purpose.</strong> That is it working.
+      </p>
+    </div>
+  </div>
+
+  <div class="stack note">
+    <span class="lab">Where the numbers live</span>
+    When a setting asks for a value, you enter it by scanning digits from the numeric barcode pages,
+    <strong>Appendix G</strong> of the reference guide, pages G-1 and G-2. There is no keypad on the
+    scanner. This is also why a stray scan can leave it waiting mid sequence.
+  </div>
+
+  <div class="stack">
+    <h3>Battery and charging, briefly</h3>
+    <table>
+      <tr><th style="width:34%">Thing</th><th>Figure</th></tr>
+      <tr><td class="k">Battery</td><td>2,400 mAh lithium ion, and it is replaceable by hand</td></tr>
+      <tr><td class="k">Scans per charge</td><td>110,000 at a steady 60 scans a minute</td></tr>
+      <tr><td class="k">Working time</td><td>Around 84 hours of realistic checkout use</td></tr>
+      <tr><td class="k">Empty to full</td><td>5 hours on standard USB, 1 hour from an external 5V supply</td></tr>
+      <tr><td class="k">Charging</td><td>Solid green while charging in a cradle. Fast blinking green on micro USB, solid green when full</td></tr>
+      <tr><td class="k">Solid red</td><td>Charging fault. Reseat it, and try a different supply before assuming the battery is dead</td></tr>
+    </table>
+  </div>
+
+  <footer class="foot"><span>Starting over</span><span>Page 9</span></footer>
+</section>
+
+<!-- ================= PAGE 10 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Everything else</span><span class="num">10 of 10</span></div>
+
+  <h2>Where to look when this sheet runs out</h2>
+  <p class="deck">
+    Page numbers below are Zebra's own printed numbers, the ones like <em>5-34</em> shown at the top of
+    each page, not the PDF page count. Chapters restart their numbering, so searching for the printed
+    number is faster than scrolling.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>Product Reference Guide</h3>
+      <table>
+        <tr><td class="k">Beeps and LEDs</td><td class="mono">3-1</td></tr>
+        <tr><td class="k">Troubleshooting</td><td class="mono">4-3</td></tr>
+        <tr><td class="k">Specifications</td><td class="mono">4-8</td></tr>
+        <tr><td class="k">Factory defaults</td><td class="mono">5-5</td></tr>
+        <tr><td class="k">Beeper volume and tone</td><td class="mono">5-7</td></tr>
+        <tr><td class="k">Trigger modes</td><td class="mono">5-16</td></tr>
+        <tr><td class="k">Prefix and suffix values</td><td class="mono">5-33</td></tr>
+        <tr><td class="k">Transmission format</td><td class="mono">5-34</td></tr>
+        <tr><td class="k">Bluetooth and pairing</td><td class="mono">6-6</td></tr>
+        <tr><td class="k">Batch modes</td><td class="mono">6-33</td></tr>
+        <tr><td class="k">USB host types</td><td class="mono">8-5</td></tr>
+        <tr><td class="k">Symbologies</td><td class="mono">Ch 13</td></tr>
+        <tr><td class="k">Keyboard countries</td><td class="mono">App B</td></tr>
+        <tr><td class="k">Numeric barcodes</td><td class="mono">App G</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:9pt">
+        <h3>The numbers that matter</h3>
+        <table>
+          <tr><td class="k">Drop rating</td><td>1.5m onto concrete, repeatedly</td></tr>
+          <tr><td class="k">Sealing</td><td>IP52. Dust protected, drips only</td></tr>
+          <tr><td class="k">Operating range</td><td>0 to 50 degrees C</td></tr>
+          <tr><td class="k">Weight</td><td>214g</td></tr>
+          <tr><td class="k">Bluetooth</td><td>4.0 with BLE, Class 2</td></tr>
+        </table>
+      </div>
+      <div class="card sub">
+        <h3>Three habits worth keeping</h3>
+        <ul class="dot">
+          <li><strong>Test into a text editor first</strong>, every time you change a setting. It separates a scanner problem from a software problem in seconds.</li>
+          <li><strong>Change one setting at a time.</strong> Scanning four configuration barcodes in a row and then testing tells you nothing about which one did what.</li>
+          <li><strong>Keep this page.</strong> Factory defaults on page 9 undoes anything you can do to it, so nothing here is unrecoverable.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack note good">
+    <span class="lab">If you outgrow scanning barcodes off paper</span>
+    Zebra publish a free Windows tool called <strong>123Scan</strong>. Plug the scanner in by USB and you
+    get a normal settings window, plus the ability to save a configuration and apply it to more scanners
+    later. For one scanner and a handful of settings, the barcodes in this document are quicker. For ten
+    scanners set up identically, it is the better route.
+  </div>
+
+  <div class="card">
+    <h3>Your first week, in order</h3>
+    <ol class="steps">
+      <li><strong>Charge it fully</strong> before judging anything about battery life.</li>
+      <li><strong>Scan into a text editor</strong> and confirm you get clean digits. Page 1.</li>
+      <li><strong>Add the Enter key.</strong> This is the one setting almost everybody needs. Page 4.</li>
+      <li><strong>Set the volume</strong> to suit the room, rather than turning the beep off. Page 3.</li>
+      <li><strong>Scan the ugliest labels you own</strong>, the creased and faded ones, while you can still return the scanner.</li>
+      <li><strong>Learn the full memory sound</strong> before you rely on batch mode for a real stock count. Page 7.</li>
+    </ol>
+  </div>
+
+  <footer class="foot">
+    <span>Distilled from the DS2278 Product Reference Guide, MN-002915-19EN Rev. A, July 2026</span>
+    <span>Barcodes reproduced from that guide</span>
+  </footer>
+</section>
+
+</body>
+</html>

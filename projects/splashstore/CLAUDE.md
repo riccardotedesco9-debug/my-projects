@@ -102,9 +102,15 @@ shop is the false confidence this whole engine exists to avoid.
 
 **The deliverable is the converted curation Sheet** (step 9 above):
 **https://docs.google.com/spreadsheets/d/1DeHSQgWjZTZ5KH44EZSUfTX--myupphK8ysnYNfnPg8/edit**
-— three tabs: **Curation** (44 rows, 30 embedded photos, colour tiers, 29 READY / 1 REVIEW / 14 HOLD),
+— three tabs: **Curation** (44 rows, 36 embedded photos, colour tiers, 27 READY / 9 REVIEW / 8 HOLD),
 **Shopify import** (41 products x 35 columns, editable, business-decision columns tinted), and
 **Needs re-scan** (the 7 scanned codes that carry no product barcode). 44 + 7 = all 51 scanned.
+
+**The colour contract is explained ON the Curation table, not in a tab.** One line in the frozen
+header row just past the last column (`T1`), plus hover notes on Status / Image Source / Description
+Source / Ingredients Source / Confirmed by. A fourth "How to read this" tab was built and removed at
+the owner's request: the question ("why is the photo green and the description yellow?") is asked
+while reading a row, and an explainer tab is somewhere you have to remember to go. Do not re-add one.
 
 The Sheet's id is cached in `.tmp/workbook-sheet-id.txt` and step 9 UPDATES it in place, so the link
 the owner already has keeps working. **If that file is lost, take the id from this doc rather than
@@ -147,6 +153,8 @@ the old one; `normalize-images.py` skips rows it has already done.
 
 ### Ready to switch on (just add the key)
 `ICECAT_USERNAME` -> free Open Icecat, joins the GREEN cascade (electronics-skewed, thin for pool goods).
+Register on the **Channel Partner** tab, the one for retailers and resellers consuming product data.
+Brand Partner is the other direction: manufacturers publishing their own content into Icecat.
 `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` -> free eBay Browse GTIN search, global and all-category, the
 closest free substitute for Barcode Lookup's non-food coverage — but capped at YELLOW, because eBay's
 GTIN is entered by the seller. Both are no-ops until their key exists, so nothing changes until then.
@@ -175,6 +183,14 @@ GTIN is entered by the seller. Both are no-ops until their key exists, so nothin
   `X0020RYMP3`). These need the EAN re-scanned off the packaging or manual entry — not more lookup effort.
 - 3 valid GTINs stayed unidentified (`5061066600127`, `5292638000759`, `9008748095532`): absent from every
   free source. Manual sourcing, or retry once Barcode Lookup is live.
+- **`ws.cell(r, c, value)` does not write a None.** openpyxl treats the third argument as optional and
+  skips the assignment entirely when it is None, leaving whatever was already in that cell. In
+  `finalize-workbook.py`'s in-place column reorder this scrambled the workbook silently: every column
+  that should have gone blank kept the previous occupant's content, so Depth held an image URL and
+  "Best guess" held the source list. Fixed 2026-08-16 by assigning `cell.value` explicitly, plus a
+  post-move assertion that every cell equals its pre-move snapshot. It survived a colour audit, a
+  thumbnail check and a code review because all three inspected fields that happened to be non-empty.
+  **If you write cells positionally anywhere else, assign `.value`, never the third argument.**
 - **A cp1252 console lies about the data.** Names legitimately carry `™`, `ö`, `é`, Greek and Cyrillic;
   the terminal prints them as `?`. Verified by codepoint — there is no mojibake in the stored UTF-8.
   Never "fix" this by stripping non-ASCII.
@@ -195,9 +211,9 @@ GTIN is entered by the seller. Both are no-ops until their key exists, so nothin
   hosts); if a new extraction path is added, unescape there too.
 
 ### Current state (2026-08-16)
-51 codes scanned → 44 lookupable → **41 identified, 30 with photos, 41 descriptions, 14 with dimensions**.
-Sheet status: **30 READY / 14 HOLD** (11 identified-but-no-photo + 3 unidentified) + 7 non-barcodes listed
-separately.
+51 codes scanned → 44 lookupable → **41 identified, 36 with photos, 41 descriptions, 13 with dimensions**.
+Sheet status: **27 READY / 9 REVIEW / 8 HOLD** (5 identified-but-no-photo + 3 unidentified) + 7 non-barcodes
+listed separately. Photos went 30 → 36 on a name-led second pass; all 6 are barcode-confirmed.
 
 Measured free cascade vs + Barcode Lookup, same 44 codes:
 

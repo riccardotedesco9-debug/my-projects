@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Zebra DS2278: The Short Version</title>
+<style>
+  /* ------------------------------------------------------------------
+     Print first. This document only exists as paper, so the screen view
+     is simply the paper view. Everything is sized in pt and mm.
+
+     Ligatures are switched off deliberately. Chromium emits fi and fl as
+     single glyphs with no ToUnicode entry, which renders correctly but
+     produces NUL bytes when the text is copied back out of the PDF.
+     ------------------------------------------------------------------ */
+  :root {
+    --ground:      #FFFFFF;
+    --surface:     #FFFFFF;
+    --surface-sub: #F2F4F3;
+    --ink:         #101417;
+    --ink-muted:   #394146;
+    --ink-faint:   #6C7378;
+    --rule:        #D3D7D4;
+    --rule-strong: #979D98;
+    --accent:      #14507A;
+    --accent-wash: #E8F0F6;
+    --alarm:       #9E2A21;
+    --alarm-wash:  #F8E9E7;
+    --good:        #235B42;
+    --good-wash:   #E4EDE7;
+    --warn:        #77540F;
+    --warn-wash:   #F6EDD9;
+    --sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    --mono: "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+  }
+
+  @page { size: A4; margin: 14mm 13mm; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 10pt;
+    line-height: 1.5;
+    font-variant-ligatures: none;
+    font-feature-settings: "liga" 0, "clig" 0, "dlig" 0, "hlig" 0;
+    text-rendering: geometricPrecision;
+  }
+
+  /* ---------- page scaffolding ----------
+     A4 is 297mm tall and the margins take 28mm, so the printable box is 269mm.
+     Holding each section just under that and pushing the footer down with an
+     auto margin keeps every footer on the page bottom rather than floating
+     wherever the content happened to end. */
+  .page {
+    break-after: page;
+    display: flex; flex-direction: column;
+    min-height: 264mm;
+  }
+  .page:last-child { break-after: auto; }
+  .page > footer.foot { margin-top: auto; }
+
+  .runner {
+    display: flex; justify-content: space-between; align-items: baseline;
+    border-bottom: 1.4pt solid var(--ink);
+    padding-bottom: 4pt; margin-bottom: 12pt;
+  }
+  .runner .who { font-size: 7.5pt; letter-spacing: 1.4pt; text-transform: uppercase; color: var(--ink-faint); font-family: var(--mono); }
+  .runner .num { font-size: 7.5pt; letter-spacing: 1pt; color: var(--ink-faint); font-family: var(--mono); }
+
+  h1 { font-size: 25pt; line-height: 1.1; letter-spacing: -0.4pt; font-weight: 700; margin-bottom: 6pt; }
+  h2 { font-size: 15pt; line-height: 1.2; letter-spacing: -0.2pt; font-weight: 700; margin-bottom: 7pt; break-after: avoid; }
+  h3 { font-size: 10.5pt; font-weight: 700; margin-bottom: 3pt; break-after: avoid; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 7.5pt; letter-spacing: 1.6pt;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 5pt;
+  }
+  .deck { font-size: 10.5pt; color: var(--ink-muted); margin-bottom: 12pt; max-width: 150mm; }
+  p { margin-bottom: 7pt; }
+  p:last-child { margin-bottom: 0; }
+  strong { font-weight: 700; }
+  em { font-style: normal; font-family: var(--mono); font-size: 9pt; background: var(--surface-sub); padding: 0.5pt 2.5pt; border-radius: 2pt; }
+
+  /* ---------- layout helpers ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 9pt 14pt; }
+  .cols3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 9pt 12pt; }
+  .stack { margin-bottom: 12pt; }
+  .stack:last-child { margin-bottom: 0; }
+
+  .card {
+    border: 0.8pt solid var(--rule); border-radius: 4pt;
+    padding: 9pt 10pt; background: var(--surface); break-inside: avoid;
+  }
+  .card.sub { background: var(--surface-sub); border-color: transparent; }
+  .card h3 { margin-bottom: 4pt; }
+  .card p, .card li { font-size: 9.5pt; }
+
+  .note {
+    border-left: 2.5pt solid var(--accent); background: var(--accent-wash);
+    padding: 7pt 10pt; border-radius: 0 3pt 3pt 0; break-inside: avoid; font-size: 9.5pt;
+  }
+  .note.bad   { border-left-color: var(--alarm); background: var(--alarm-wash); }
+  .note.good  { border-left-color: var(--good);  background: var(--good-wash); }
+  .note.warn  { border-left-color: var(--warn);  background: var(--warn-wash); }
+  .note .lab {
+    display: block; font-family: var(--mono); font-size: 7pt; letter-spacing: 1.3pt;
+    text-transform: uppercase; margin-bottom: 3pt; color: var(--ink-muted);
+  }
+
+  /* ---------- lists ---------- */
+  ol.steps { list-style: none; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding-left: 19pt;
+    margin-bottom: 6pt; break-inside: avoid; font-size: 9.5pt;
+  }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: 0.4pt;
+    width: 13pt; height: 13pt; border-radius: 50%;
+    background: var(--ink); color: #fff;
+    font-family: var(--mono); font-size: 7.5pt; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  ul.dot { list-style: none; }
+  ul.dot li {
+    position: relative; padding-left: 11pt; margin-bottom: 4pt;
+    break-inside: avoid; font-size: 9.5pt;
+  }
+  ul.dot li::before {
+    content: ""; position: absolute; left: 1pt; top: 5pt;
+    width: 3.4pt; height: 3.4pt; border-radius: 50%; background: var(--rule-strong);
+  }
+
+  /* ---------- tables ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 7pt; letter-spacing: 1.1pt;
+    text-transform: uppercase; color: var(--ink-faint); font-weight: 600;
+    border-bottom: 1pt solid var(--rule-strong); padding: 0 6pt 3.5pt 0; vertical-align: bottom;
+  }
+  td { padding: 4pt 6pt 4pt 0; border-bottom: 0.5pt solid var(--rule); vertical-align: top; }
+  tr { break-inside: avoid; }
+  tr:last-child td { border-bottom: none; }
+  td.k { font-weight: 600; white-space: nowrap; }
+  td.mono, .mono { font-family: var(--mono); font-size: 8.5pt; }
+  .led { font-weight: 700; white-space: nowrap; }
+  .led.g { color: var(--good); }
+  .led.r { color: var(--alarm); }
+
+  /* ---------- barcode plates ----------
+     58mm is the printed width Zebra's own sheets use. Anything much
+     narrower and a worn scanner starts refusing the denser codes. */
+  .plate {
+    border: 0.8pt solid var(--rule); border-radius: 4pt;
+    padding: 8pt 10pt 9pt; background: #FFFFFF;
+    break-inside: avoid; text-align: center; margin-bottom: 9pt;
+  }
+  .plate:last-child { margin-bottom: 0; }
+  .plate .kick {
+    font-family: var(--mono); font-size: 7pt; letter-spacing: 1.3pt;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 5pt; display: block;
+  }
+  .plate.stop .kick { color: var(--alarm); }
+  .plate.hold .kick { color: var(--warn); }
+  .plate img {
+    display: block; width: 100%; max-width: 62mm; margin: 0 auto;
+    image-rendering: crisp-edges; image-rendering: pixelated;
+  }
+  .plate .zname {
+    margin-top: 5pt; font-size: 8.5pt; font-weight: 700; color: var(--ink);
+  }
+  .plate .src { margin-top: 1.5pt; font-family: var(--mono); font-size: 7pt; color: var(--ink-faint); }
+
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: 7pt;
+    letter-spacing: 0.8pt; text-transform: uppercase; padding: 1.5pt 5pt;
+    border-radius: 2.5pt; background: var(--surface-sub); color: var(--ink-muted);
+  }
+  .tag.on  { background: var(--good-wash);  color: var(--good); }
+  .tag.off { background: var(--surface-sub); color: var(--ink-faint); }
+
+  footer.foot {
+    margin-top: 10pt; padding-top: 5pt; border-top: 0.5pt solid var(--rule);
+    font-size: 7.5pt; color: var(--ink-faint); display: flex; justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- ================= PAGE 1 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Zebra DS2278</span><span class="num">1 of 10</span></div>
+
+  <p class="eyebrow">Start here</p>
+  <h1>You just unboxed a<br>barcode scanner.</h1>
+  <p class="deck">
+    Zebra ships two manuals with this thing. Together they run past 490 pages, and roughly 400 of those
+    are walls of programming barcodes you will never scan. This is the part that matters, with the
+    barcodes you actually need printed alongside. Scan them straight off the paper.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>What is in the box</h3>
+      <ul class="dot">
+        <li>The scanner, with the battery already fitted</li>
+        <li>A Quick Start Guide</li>
+        <li><strong>Nothing else.</strong> The cradle, the USB cable and the power supply are all sold separately</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>Which manual, when</h3>
+      <ul class="dot">
+        <li><strong>Quick Start Guide</strong>, 22 pages. Cabling and the handful of setup barcodes.</li>
+        <li><strong>Product Reference Guide</strong>, 476 pages. Every setting that exists. Use it as a lookup, never as a read.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h2>Sixty seconds to your first scan</h2>
+    <ol class="steps">
+      <li><strong>Charge it before anything else.</strong> It arrives part charged. Empty to full is about 5 hours over standard USB, or 1 hour from an external 5V supply.</li>
+      <li><strong>Decide how it talks to your computer.</strong> Cable into a USB port, or Bluetooth. Cable is the one that always works, so start there if you have the option.</li>
+      <li><strong>Open a text editor first.</strong> Notepad, TextEdit, anything. A scanner is just a very fast keyboard, so you want somewhere for the typing to land.</li>
+      <li><strong>Pull the trigger at a barcode.</strong> Aim the red line across the bars, not along them. About 15cm away is the sweet spot for a retail barcode.</li>
+      <li><strong>You should hear one beep and see a green flash</strong>, and the digits should appear as text. That is the whole job. Everything after this page is refinement.</li>
+    </ol>
+  </div>
+
+  <div class="note">
+    <span class="lab">The one thing worth learning early</span>
+    You configure this scanner <strong>by scanning barcodes out of a manual</strong>. There is no settings
+    screen. Each barcode you scan writes a setting into the scanner and it survives being switched off.
+    That is why the reference guide is mostly barcodes, and it is why a printed page like this one can
+    set the whole thing up.
+  </div>
+
+  <footer class="foot"><span>Zebra DS2278 handheld imager</span><span>Distilled from MN-002915-19EN Rev. A</span></footer>
+</section>
+
+<!-- ================= PAGE 2 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Getting it connected</span><span class="num">2 of 10</span></div>
+
+  <h2>Three ways to connect, in order of how much grief they cause</h2>
+  <p class="deck">Pick one. You do not need the other two.</p>
+
+  <div class="stack cols3">
+    <div class="card sub">
+      <h3>1. USB cable</h3>
+      <p>Straight into the computer. No pairing, no battery anxiety, no dropouts. Boring and correct.</p>
+    </div>
+    <div class="card sub">
+      <h3>2. Bluetooth</h3>
+      <p>The scanner pairs directly to a computer, tablet or phone as a wireless keyboard. This is what you want for stock taking.</p>
+    </div>
+    <div class="card sub">
+      <h3>3. Cradle</h3>
+      <p>Sold separately. Charges the scanner and props it up so it scans automatically when you wave something at it.</p>
+    </div>
+  </div>
+
+  <div class="stack cols">
+    <div>
+      <h3>Going in by cable</h3>
+      <p style="font-size:9.5pt">Plug it in and it will almost certainly just work, because USB keyboard is the
+      factory setting. If it types nothing, scan this to put it back into keyboard mode.</p>
+      <div class="plate">
+        <span class="kick">Act like a USB keyboard</span>
+        <img src="{{USB_KEYBOARD_HID}}" alt="USB Keyboard HID configuration barcode">
+        <div class="zname">USB Keyboard HID</div>
+        <div class="src">Reference guide, page 8-5</div>
+      </div>
+    </div>
+    <div>
+      <h3>Going in by Bluetooth</h3>
+      <p style="font-size:9.5pt">Scan the barcode below, then open Bluetooth settings on your computer or
+      tablet and pair with the DS2278 the same way you would pair a keyboard.</p>
+      <div class="plate">
+        <span class="kick">Pair as a wireless keyboard</span>
+        <img src="{{HID_BLUETOOTH}}" alt="HID Bluetooth Classic configuration barcode">
+        <div class="zname">HID Bluetooth Classic</div>
+        <div class="src">Reference guide, page 6-6</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack note good">
+    <span class="lab">How you know Bluetooth worked</span>
+    A <strong>low beep then a high beep, with a green LED</strong>, means the link is up. Going the other
+    way, <strong>high then low with a red LED</strong>, means it just dropped. A <strong>long low then a
+    long high</strong> means it tried to reach the host and could not, so the other device is out of
+    range, switched off, or not actually listening.
+  </div>
+
+  <div class="stack note warn">
+    <span class="lab">Range, honestly</span>
+    Bluetooth 4.0, Class 2. Zebra quotes a minimum of 10m in clear line of sight, and up to 100m only when
+    it is paired with their cradle. Walls, shelving and metal racking all cut into that hard. Treat 10m
+    through one wall as the realistic working figure.
+  </div>
+
+  <div class="cols">
+    <div class="card">
+      <h3>If pairing will not take</h3>
+      <ul class="dot">
+        <li>Delete any old DS2278 entry from the Bluetooth list first. A stale pairing blocks a new one.</li>
+        <li>Scan <strong>HID Bluetooth Classic</strong> again, then pair within a minute or so before it stops advertising.</li>
+        <li>A fast blinking green LED means it is trying to reconnect to something it already knows. Let it finish or clear the old pairing.</li>
+        <li>Still nothing? Cable it in, confirm the scanner itself works, then come back to Bluetooth.</li>
+      </ul>
+    </div>
+    <div class="card sub">
+      <h3>Switching between them later</h3>
+      <p>Nothing is permanent. Scanning the barcode for one mode simply overrides the other, and factory
+      defaults on page 9 returns it to USB keyboard.</p>
+      <p>Plugging the USB cable in while paired over Bluetooth does <strong>not</strong> automatically switch
+      it across. If you cable it up and get nothing, scan <strong>USB Keyboard HID</strong>.</p>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Getting it connected</span><span>Page 2</span></footer>
+</section>
+
+<!-- ================= PAGE 3 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Everyday scanning</span><span class="num">3 of 10</span></div>
+
+  <h2>Aiming, and the two settings worth changing on day one</h2>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>How to actually aim it</h3>
+      <ul class="dot">
+        <li>The red line must cross the bars, <strong>not run along them</strong>. On a tall barcode, sweep across the middle.</li>
+        <li>Do not hold it square on. A slight tilt kills the glare that stops a decode. It tolerates up to 65 degrees of skew and pitch, so angle is free.</li>
+        <li>Roll does not matter at all. The scanner reads at any rotation.</li>
+        <li>Closer is not better. Back off until the whole barcode sits inside the aiming line.</li>
+        <li>Moving target? It keeps up to about 13cm per second in the hand, and 76cm per second when something is swept past it in the cradle.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>When it will struggle</h3>
+      <ul class="dot">
+        <li><strong>A dirty window.</strong> The single most common cause of a scanner that has "got worse". Wipe it with a lens cloth.</li>
+        <li><strong>Low contrast printing.</strong> It needs 25 percent reflective difference. A faded thermal label is a genuine fail, not your technique.</li>
+        <li><strong>Curved or crumpled labels</strong>, particularly on bottles. Flatten what you can.</li>
+        <li><strong>Screens.</strong> It will read a barcode off a phone, but raise the phone brightness first.</li>
+        <li><strong>Direct sun.</strong> It copes to 107,600 lux, which is bright daylight, but glare on glossy labels still defeats it.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h3>Trigger, or hands free</h3>
+    <p style="font-size:9.5pt">Out of the box you pull the trigger to scan. Presentation mode instead
+    leaves it watching, so it fires the moment a barcode enters its view, which is what you want when it
+    is sitting in a cradle and you are scanning with both hands full. The cost is battery.</p>
+    <div class="cols">
+      <div class="plate">
+        <span class="kick">Default, pull the trigger</span>
+        <img src="{{TRIGGER_STANDARD}}" alt="Standard Level trigger mode configuration barcode">
+        <div class="zname">Standard (Level)</div>
+        <div class="src">Reference guide, page 5-16</div>
+      </div>
+      <div class="plate">
+        <span class="kick">Hands free, always watching</span>
+        <img src="{{PRESENTATION_MODE}}" alt="Presentation Blink trigger mode configuration barcode">
+        <div class="zname">Presentation (Blink)</div>
+        <div class="src">Reference guide, page 5-16</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <h3>Volume</h3>
+    <p style="font-size:9.5pt">It ships loud, which is right in a shop and wrong in an office. The beep is
+    your only confirmation a scan worked, so turn it down rather than off.</p>
+    <div class="cols">
+      <div class="plate">
+        <span class="kick">Default, loud</span>
+        <img src="{{VOLUME_HIGH}}" alt="High Volume configuration barcode">
+        <div class="zname">High Volume</div>
+        <div class="src">Reference guide, page 5-7</div>
+      </div>
+      <div class="plate">
+        <span class="kick">Quieter</span>
+        <img src="{{VOLUME_LOW}}" alt="Low Volume configuration barcode">
+        <div class="zname">Low Volume</div>
+        <div class="src">Reference guide, page 5-7</div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="foot"><span>Everyday scanning</span><span>Page 3</span></footer>
+</section>
+
+<!-- ================= PAGE 4 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Making the data land right</span><span class="num">4 of 10</span></div>
+
+  <p class="eyebrow">The problem everybody hits</p>
+  <h2>It scans fine, but everything piles into one cell</h2>
+  <p class="deck">
+    You scan ten items into a spreadsheet and get one cell holding ten barcodes glued together. Nothing is
+    broken. The scanner types the digits and then stops, because nobody told it to press Enter afterwards.
+    Scan the barcode below once and it will move to the next row on its own, forever.
+  </p>
+
+  <div class="stack plate">
+    <span class="kick">Fixes it. Scan this one.</span>
+    <img src="{{ENTER_KEY}}" alt="Add Enter Key configuration barcode" style="max-width:112mm">
+    <div class="zname">Add Enter Key (Carriage Return / Line Feed)</div>
+    <div class="src">Reference guide, page 5-31</div>
+  </div>
+
+  <p style="font-size:9.5pt">Prefer to move <strong>sideways</strong> along a row instead of down a
+  column? Use Tab instead. Scan one or the other, not both.</p>
+
+  <div class="stack plate">
+    <span class="kick">Sideways instead of down</span>
+    <img src="{{TAB_KEY}}" alt="Add Tab Key configuration barcode" style="max-width:112mm">
+    <div class="zname">Tab Key</div>
+    <div class="src">Reference guide, page 5-31</div>
+  </div>
+
+  <div class="stack cols">
+    <div class="plate hold">
+      <span class="kick">Only if those two misbehave</span>
+      <img src="{{SUFFIX_DATA_SUFFIX1}}" alt="DATA SUFFIX 1 transmission format configuration barcode">
+      <div class="zname">&lt;DATA&gt; &lt;SUFFIX 1&gt;</div>
+      <div class="src">Reference guide, page 5-34</div>
+    </div>
+    <div class="note" style="margin:0">
+      <span class="lab">Try it in a text editor first</span>
+      Before wiring the scanner into real software, scan four things into Notepad. Four lines means the
+      suffix is right and any remaining problem lives in the software, not the scanner. If your software
+      wants a plain carriage return and is tripping over the line feed, the barcode on the left switches
+      the scanner to sending its own configurable suffix instead.
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lab">If the letters come out wrong</span>
+    Digits fine but letters scrambled, or everything in capitals, means the scanner is set to the wrong
+    country keyboard layout, or Caps Lock is on. The scanner emulates a keyboard, so it inherits the
+    layout of the machine it is typing into. Keyboard layouts live in Appendix B of the reference guide,
+    and it supports over 90 of them.
+  </div>
+
+  <footer class="foot"><span>Making the data land right</span><span>Page 4</span></footer>
+</section>
+
+<!-- ================= PAGE 5 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Beeps and lights</span><span class="num">5 of 10</span></div>
+
+  <h2>The scanner only talks to you in beeps. Here is the dictionary.</h2>
+  <p class="deck">Listen rather than watch. The LED is on top and you will usually be looking at the barcode.</p>
+
+  <div class="stack">
+    <h3>Normal scanning</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">One medium beep</td><td class="led g">Green flash</td><td>Decoded, and the data was sent. This is success.</td></tr>
+      <tr><td class="k">Low, medium, high</td><td class="led g">Green</td><td>Powering up.</td></tr>
+      <tr><td class="k">Nothing at all</td><td class="led g">Green solid</td><td>Presentation mode is on and it is watching for a barcode.</td></tr>
+      <tr><td class="k">Four long low beeps</td><td class="led r">Red</td><td>Transmission error. The data was thrown away. Usually the wrong host type is selected.</td></tr>
+      <tr><td class="k">Five long low beeps</td><td class="led r">Red</td><td>Conversion or format error.</td></tr>
+      <tr><td class="k">Low, low, low, extra low</td><td class="led r">Red</td><td>Parity error.</td></tr>
+      <tr><td class="k">Four short high beeps</td><td class="led r">Red, 4 seconds</td><td>Battery is low. Shown when you release the trigger.</td></tr>
+    </table>
+  </div>
+
+  <div class="stack">
+    <h3>While you are scanning configuration barcodes</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">Long low, then long high</td><td class="led r">Red</td><td>Refused. Wrong barcode, wrong order, or you scanned Cancel.</td></tr>
+      <tr><td class="k">High, low</td><td class="led g">Green</td><td>It wants a number. Go and scan digits from Appendix G.</td></tr>
+      <tr><td class="k">High, low, high, low</td><td class="led g">Green</td><td>Setting saved. You are done.</td></tr>
+    </table>
+  </div>
+
+  <div class="stack">
+    <h3>Bluetooth</h3>
+    <table>
+      <tr><th style="width:38%">You hear</th><th style="width:17%">LED</th><th>It means</th></tr>
+      <tr><td class="k">Low, high</td><td class="led g">Green</td><td>Connected.</td></tr>
+      <tr><td class="k">High, low</td><td class="led r">Red</td><td>Disconnected.</td></tr>
+      <tr><td class="k">Long low, long high</td><td class="led r">Red</td><td>Could not reach the other device. Out of range or switched off.</td></tr>
+      <tr><td class="k">Four long beeps, low high low high</td><td class="led">None</td><td>The other device actively refused the connection.</td></tr>
+      <tr><td class="k">High, low, high, low</td><td class="led g">Green</td><td>A pairing barcode was scanned.</td></tr>
+      <tr><td class="k">Low, high, low, high</td><td class="led r">Red</td><td>Batch memory is full. It cannot store any more scans.</td></tr>
+    </table>
+  </div>
+
+  <div class="note bad">
+    <span class="lab">Two that will mislead you</span>
+    <strong>A red LED never means the barcode was bad.</strong> It means the scanner read it perfectly and
+    then could not deliver it, so look at the cable, the pairing or the software, never the label.
+    And <strong>Cancel beeps exactly like an error</strong>, long low then long high with a red LED,
+    because Zebra gave it the error sound. When you scan Cancel deliberately, that noise is success.
+  </div>
+
+  <footer class="foot"><span>Beeps and lights</span><span>Page 5</span></footer>
+</section>
+
+<!-- ================= PAGE 6 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Barcode types</span><span class="num">6 of 10</span></div>
+
+  <h2>What it reads out of the box, and what it ignores</h2>
+  <p class="deck">
+    Barcode formats are called symbologies. The DS2278 is a 2D imager, so it reads flat barcodes and
+    square ones equally well. Most types are already switched on and you will never touch this page.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>On by default</h3>
+      <table>
+        <tr><td class="k">EAN-13, EAN-8</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">UPC-A, UPC-E</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 128</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 39</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Code 93</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Codabar</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Interleaved 2 of 5</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">QR Code, MicroQR</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Data Matrix</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">PDF417</td><td><span class="tag on">On</span></td></tr>
+        <tr><td class="k">Aztec</td><td><span class="tag on">On</span></td></tr>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Off by default</h3>
+      <table>
+        <tr><td class="k">Discrete 2 of 5</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">MSI</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Code 11</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Trioptic Code 39</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Bookland EAN</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">Han Xin</td><td><span class="tag off">Off</span></td></tr>
+        <tr><td class="k">MicroPDF417</td><td><span class="tag off">Off</span></td></tr>
+      </table>
+      <p style="margin-top:6pt; font-size:9pt; color:var(--ink-muted)">
+        These are off because they are rare and easy to misread. Turn one on only if you are certain your
+        labels use it. Their enable barcodes are in Chapter 13.
+      </p>
+    </div>
+  </div>
+
+  <div class="stack note">
+    <span class="lab">Retail translation</span>
+    Anything you buy in a shop is <strong>EAN-13</strong> in Europe or <strong>UPC-A</strong> in the
+    United States. Both are on. If you are printing your own labels, use <strong>Code 128</strong>,
+    which holds letters as well as digits and is also on. That covers almost every real use.
+  </div>
+
+  <div class="stack note warn">
+    <span class="lab">Worth knowing before you switch things on</span>
+    Every symbology you enable is one more pattern the scanner tries to match against, which slightly
+    raises the chance of a wrong read on a damaged label. Enabling everything is not a safe default, it
+    is the opposite. Leave the list alone unless something genuinely fails to scan.
+  </div>
+
+  <div>
+    <h3>What the digits on a retail barcode actually are</h3>
+    <table>
+      <tr><th style="width:26%">Part of a 13 digit EAN</th><th style="width:14%">Example</th><th>What it is</th></tr>
+      <tr><td class="k">Country prefix</td><td class="mono">539</td><td>Where the number was issued, not where the product was made</td></tr>
+      <tr><td class="k">Manufacturer</td><td class="mono">1234</td><td>The company that registered the product</td></tr>
+      <tr><td class="k">Product</td><td class="mono">56789</td><td>Which of their products this is</td></tr>
+      <tr><td class="k">Check digit</td><td class="mono">7</td><td>Calculated from the other twelve. If a bar is misread the arithmetic fails and the scanner stays silent rather than handing you a wrong number, which is why a scan that beeps can be trusted</td></tr>
+    </table>
+  </div>
+
+  <footer class="foot"><span>Barcode types</span><span>Page 6</span></footer>
+</section>
+
+<!-- ================= PAGE 7 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Scanning with nothing attached</span><span class="num">7 of 10</span></div>
+
+  <p class="eyebrow">Batch mode</p>
+  <h2>Walking away from the computer with it</h2>
+  <p class="deck">
+    Batch mode makes the scanner store scans in its own memory instead of sending them live, then dump
+    them all at once when it gets back. This is how you count stock in a stockroom with no signal.
+  </p>
+
+  <div class="stack note bad">
+    <span class="lab">Read this before you scan anything below</span>
+    If you paired over Bluetooth as a keyboard, which is what page 2 set up, then
+    <strong>only Out of Range Batch Mode will work.</strong> The other batch modes need the host to send a
+    command back to the scanner telling it to dump, and a plain keyboard connection has no channel for
+    that. They will be refused with the long low, long high error beep. This is verified behaviour, not a
+    guess. Out of Range mode needs no commands at all, which is exactly why it works.
+  </div>
+
+  <div class="stack cols3">
+    <div class="plate">
+      <span class="kick">Turn batch on</span>
+      <img src="{{BATCH_OUT_OF_RANGE}}" alt="Out of Range Batch Mode configuration barcode">
+      <div class="zname">Out of Range Batch Mode</div>
+      <div class="src">Reference guide, page 6-33</div>
+    </div>
+    <div class="plate">
+      <span class="kick">Keep it on across restarts</span>
+      <img src="{{BATCH_PERSIST_ON}}" alt="Persistent Batch Enable configuration barcode">
+      <div class="zname">Persistent Batch Enable</div>
+      <div class="src">Reference guide, page 6-34</div>
+    </div>
+    <div class="plate hold">
+      <span class="kick">Back to live scanning</span>
+      <img src="{{BATCH_NORMAL}}" alt="Normal mode configuration barcode">
+      <div class="zname">Normal</div>
+      <div class="src">Reference guide, page 6-33</div>
+    </div>
+  </div>
+
+  <div class="stack">
+    <h3>How a run actually goes</h3>
+    <ol class="steps">
+      <li>Scan the first two barcodes above, once, ever. This is setup, not a per run ritual. The third one is how you undo it afterwards.</li>
+      <li>Leave the computer or tablet on, with the cursor already sitting in the cell or field you want the data to land in.</li>
+      <li>Walk off. When you go out of Bluetooth range the link drops and the scanner quietly starts storing instead of sending.</li>
+      <li>Scan your stock. It sounds exactly the same as normal scanning.</li>
+      <li>Walk back into range. It reconnects and types everything it stored, in order, on its own.</li>
+    </ol>
+  </div>
+
+  <div class="stack cols">
+    <div class="card sub">
+      <h3>How much it holds</h3>
+      <p>30,720 bytes of storage, and each scan costs its own length plus 3 bytes. For 13 digit retail
+      barcodes that works out at roughly <strong>1,900 scans</strong> before it is full.</p>
+    </div>
+    <div class="card sub">
+      <h3>How you know it is full</h3>
+      <p>A distinct <strong>low, high, low, high with a red LED</strong>. This is the one sound you must
+      recognise, because a stored scan otherwise sounds identical to a sent one.</p>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <span class="lab">Do not combine this with auto reconnect on barcode data</span>
+    There is a setting that tells the scanner to reconnect when you scan something. Turned on together
+    with batch mode, the scan goes into the buffer instead of triggering the reconnect, so the scanner can
+    never get back to the host. It hangs, permanently, and the only way out is a reset.
+  </div>
+
+  <footer class="foot"><span>Scanning with nothing attached</span><span>Page 7</span></footer>
+</section>
+
+<!-- ================= PAGE 8 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">When it stops working</span><span class="num">8 of 10</span></div>
+
+  <h2>Start from the symptom, not the settings</h2>
+
+  <div class="stack card">
+    <h3>No red aiming line when you pull the trigger</h3>
+    <ul class="dot">
+      <li>Flat battery. Charge it for ten minutes and try again before assuming anything worse.</li>
+      <li>On a cabled setup, the cable is loose or it is the wrong cable. Reseat both ends.</li>
+      <li>If it is in a cradle, the cradle may need its power supply connected.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>It beeps and flashes green, but nothing appears on screen</h3>
+    <p style="font-size:9.5pt">The scan worked and the delivery failed. In order of likelihood:</p>
+    <ul class="dot">
+      <li>Nothing is focused. Click into the field first. The scanner types, it cannot choose where.</li>
+      <li>Bluetooth has silently dropped. Look for the green LED, or listen for the reconnect beeps.</li>
+      <li>It is set to the wrong host type. Scan <strong>USB Keyboard HID</strong> from page 2.</li>
+      <li>It is in batch mode and storing rather than sending. Scan <strong>Normal</strong> from page 7.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>Every configuration barcode gets refused, long low then long high</h3>
+    <ul class="dot">
+      <li>You may be halfway through a sequence that expects a number. Scan <strong>Cancel</strong> on page 9 to back out, then start again.</li>
+      <li>The setting may genuinely not apply to how it is connected. Batch mode over Bluetooth keyboard is the classic example, covered on page 7.</li>
+      <li>Check you are scanning from the DS2278 manual. Barcodes from another Zebra model will be rejected.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>The data arrives but it is wrong</h3>
+    <ul class="dot">
+      <li>Letters scrambled or everything uppercase means a keyboard layout mismatch or Caps Lock. See page 4.</li>
+      <li>Everything on one line means no Enter suffix. See page 4.</li>
+      <li>An extra digit on the end is the check digit, which it transmits by default. That is normal and usually wanted.</li>
+      <li>Four long low beeps with a red LED means it was configured for a different host type entirely.</li>
+    </ul>
+  </div>
+
+  <div class="stack card">
+    <h3>It used to scan well and now it hesitates</h3>
+    <ul class="dot">
+      <li>Clean the window. This is the cause far more often than anything else.</li>
+      <li>Use a lens cloth or a cloth dampened with mild dish soap or hydrogen peroxide. Never spray liquid into the window.</li>
+      <li><strong>No isopropyl alcohol, no ammonia, no acetone, no bleach.</strong> Zebra lists all of these as damaging to the plastics.</li>
+    </ul>
+  </div>
+
+  <div class="note">
+    <span class="lab">Before you call anybody</span>
+    There is a <strong>Report Software Version</strong> barcode on page 4-7 of the reference guide. Scan it
+    into a text editor and it types out the firmware version, which is the first thing support will ask
+    for.
+  </div>
+
+  <footer class="foot"><span>When it stops working</span><span>Page 8</span></footer>
+</section>
+
+<!-- ================= PAGE 9 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Starting over</span><span class="num">9 of 10</span></div>
+
+  <h2>The two barcodes that undo everything else</h2>
+  <p class="deck">
+    If you have scanned your way into a corner, and everybody does at least once, these are the way back.
+    Keep this page findable.
+  </p>
+
+  <div class="stack cols">
+    <div>
+      <div class="plate stop">
+        <span class="kick">Wipes every setting</span>
+        <img src="{{DEFAULTS}}" alt="Set Factory Defaults configuration barcode">
+        <div class="zname">Set Factory Defaults</div>
+        <div class="src">Reference guide, page 5-5</div>
+      </div>
+      <p style="font-size:9.5pt; margin-top:7pt">
+        Puts every setting back to how it left the factory. Your suffix, volume, batch mode and host type
+        all go. It does <strong>not</strong> wipe firmware, and it does not physically unpair the scanner
+        from a computer, so you may need to remove it from the Bluetooth list on that machine too.
+      </p>
+    </div>
+    <div>
+      <div class="plate hold">
+        <span class="kick">Backs out of a half finished sequence</span>
+        <img src="{{CANCEL}}" alt="Cancel configuration barcode">
+        <div class="zname">Cancel</div>
+        <div class="src">Reference guide, Appendix G-3</div>
+      </div>
+      <p style="font-size:9.5pt; margin-top:7pt">
+        Some settings need a number scanned after them. If you start one and change your mind, the scanner
+        sits there waiting and refuses everything else. Cancel gets you out.
+        <strong>It answers with the error beep on purpose.</strong> That is it working.
+      </p>
+    </div>
+  </div>
+
+  <div class="stack note">
+    <span class="lab">Where the numbers live</span>
+    When a setting asks for a value, you enter it by scanning digits from the numeric barcode pages,
+    <strong>Appendix G</strong> of the reference guide, pages G-1 and G-2. There is no keypad on the
+    scanner. This is also why a stray scan can leave it waiting mid sequence.
+  </div>
+
+  <div class="stack">
+    <h3>Battery and charging, briefly</h3>
+    <table>
+      <tr><th style="width:34%">Thing</th><th>Figure</th></tr>
+      <tr><td class="k">Battery</td><td>2,400 mAh lithium ion, and it is replaceable by hand</td></tr>
+      <tr><td class="k">Scans per charge</td><td>110,000 at a steady 60 scans a minute</td></tr>
+      <tr><td class="k">Working time</td><td>Around 84 hours of realistic checkout use</td></tr>
+      <tr><td class="k">Empty to full</td><td>5 hours on standard USB, 1 hour from an external 5V supply</td></tr>
+      <tr><td class="k">Charging</td><td>Solid green while charging in a cradle. Fast blinking green on micro USB, solid green when full</td></tr>
+      <tr><td class="k">Solid red</td><td>Charging fault. Reseat it, and try a different supply before assuming the battery is dead</td></tr>
+    </table>
+  </div>
+
+  <footer class="foot"><span>Starting over</span><span>Page 9</span></footer>
+</section>
+
+<!-- ================= PAGE 10 ================= -->
+<section class="page">
+  <div class="runner"><span class="who">Everything else</span><span class="num">10 of 10</span></div>
+
+  <h2>Where to look when this sheet runs out</h2>
+  <p class="deck">
+    Page numbers below are Zebra's own printed numbers, the ones like <em>5-34</em> shown at the top of
+    each page, not the PDF page count. Chapters restart their numbering, so searching for the printed
+    number is faster than scrolling.
+  </p>
+
+  <div class="stack cols">
+    <div class="card">
+      <h3>Product Reference Guide</h3>
+      <table>
+        <tr><td class="k">Beeps and LEDs</td><td class="mono">3-1</td></tr>
+        <tr><td class="k">Troubleshooting</td><td class="mono">4-3</td></tr>
+        <tr><td class="k">Specifications</td><td class="mono">4-8</td></tr>
+        <tr><td class="k">Factory defaults</td><td class="mono">5-5</td></tr>
+        <tr><td class="k">Beeper volume and tone</td><td class="mono">5-7</td></tr>
+        <tr><td class="k">Trigger modes</td><td class="mono">5-16</td></tr>
+        <tr><td class="k">Prefix and suffix values</td><td class="mono">5-33</td></tr>
+        <tr><td class="k">Transmission format</td><td class="mono">5-34</td></tr>
+        <tr><td class="k">Bluetooth and pairing</td><td class="mono">6-6</td></tr>
+        <tr><td class="k">Batch modes</td><td class="mono">6-33</td></tr>
+        <tr><td class="k">USB host types</td><td class="mono">8-5</td></tr>
+        <tr><td class="k">Symbologies</td><td class="mono">Ch 13</td></tr>
+        <tr><td class="k">Keyboard countries</td><td class="mono">App B</td></tr>
+        <tr><td class="k">Numeric barcodes</td><td class="mono">App G</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card" style="margin-bottom:9pt">
+        <h3>The numbers that matter</h3>
+        <table>
+          <tr><td class="k">Drop rating</td><td>1.5m onto concrete, repeatedly</td></tr>
+          <tr><td class="k">Sealing</td><td>IP52. Dust protected, drips only</td></tr>
+          <tr><td class="k">Operating range</td><td>0 to 50 degrees C</td></tr>
+          <tr><td class="k">Weight</td><td>214g</td></tr>
+          <tr><td class="k">Bluetooth</td><td>4.0 with BLE, Class 2</td></tr>
+        </table>
+      </div>
+      <div class="card sub">
+        <h3>Three habits worth keeping</h3>
+        <ul class="dot">
+          <li><strong>Test into a text editor first</strong>, every time you change a setting. It separates a scanner problem from a software problem in seconds.</li>
+          <li><strong>Change one setting at a time.</strong> Scanning four configuration barcodes in a row and then testing tells you nothing about which one did what.</li>
+          <li><strong>Keep this page.</strong> Factory defaults on page 9 undoes anything you can do to it, so nothing here is unrecoverable.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="stack note good">
+    <span class="lab">If you outgrow scanning barcodes off paper</span>
+    Zebra publish a free Windows tool called <strong>123Scan</strong>. Plug the scanner in by USB and you
+    get a normal settings window, plus the ability to save a configuration and apply it to more scanners
+    later. For one scanner and a handful of settings, the barcodes in this document are quicker. For ten
+    scanners set up identically, it is the better route.
+  </div>
+
+  <div class="card">
+    <h3>Your first week, in order</h3>
+    <ol class="steps">
+      <li><strong>Charge it fully</strong> before judging anything about battery life.</li>
+      <li><strong>Scan into a text editor</strong> and confirm you get clean digits. Page 1.</li>
+      <li><strong>Add the Enter key.</strong> This is the one setting almost everybody needs. Page 4.</li>
+      <li><strong>Set the volume</strong> to suit the room, rather than turning the beep off. Page 3.</li>
+      <li><strong>Scan the ugliest labels you own</strong>, the creased and faded ones, while you can still return the scanner.</li>
+      <li><strong>Learn the full memory sound</strong> before you rely on batch mode for a real stock count. Page 7.</li>
+    </ol>
+  </div>
+
+  <footer class="foot">
+    <span>Distilled from the DS2278 Product Reference Guide, MN-002915-19EN Rev. A, July 2026</span>
+    <span>Barcodes reproduced from that guide</span>
+  </footer>
+</section>
+
+</body>
+</html>

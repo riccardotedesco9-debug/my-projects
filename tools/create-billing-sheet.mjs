@@ -11,6 +11,7 @@
 //   node tools/create-billing-sheet.mjs
 
 import { execSync, spawnSync } from "node:child_process";
+import { readSecretByRef } from "./secret-lib.mjs";
 
 const VAULT = "AI-Stack";
 const SHEET_TITLE = "AI Spend Tracker";
@@ -34,7 +35,10 @@ const HEADERS = [
 ];
 
 function opRead(ref) {
-  return execSync(`op read "${ref}"`, { encoding: "utf8" }).trim();
+  // .env (the source of record) first, 1Password only as backup — no auth prompt in the normal path.
+  const value = readSecretByRef(ref);
+  if (value === null) throw new Error(`Secret ${ref} not found in .env and 1Password read failed.`);
+  return value;
 }
 
 function opItemExists(title) {

@@ -105,11 +105,25 @@ def reorder_columns(ws, order):
 
     for new_i, h in enumerate(target, start=1):
         for r, cell_data in enumerate(cols[h], start=1):
-            cell = ws.cell(r, new_i, cell_data["value"])
+            # `ws.cell(r, c, value)` SKIPS the assignment when value is None (openpyxl treats the
+            # third argument as "optional"), which during an in-place reorder leaves the previous
+            # occupant of that position sitting there. Every column that should have gone blank
+            # instead kept the old column's content — Depth showed an image URL. Assign explicitly.
+            cell = ws.cell(r, new_i)
+            cell.value = cell_data["value"]
             cell.fill, cell.font = cell_data["fill"], cell_data["font"]
             cell.alignment, cell.number_format = cell_data["align"], cell_data["fmt"]
             cell.hyperlink = cell_data["link"] or None
         ws.column_dimensions[get_column_letter(new_i)].width = widths[h]
+
+    # Prove the move rather than trust it: every cell must now hold exactly what its column held
+    # before. Cheap (rows x columns) and it is the only thing standing between a silent column
+    # scramble and a published catalogue that looks fine until someone reads a row.
+    for new_i, h in enumerate(target, start=1):
+        for r, cell_data in enumerate(cols[h], start=1):
+            if ws.cell(r, new_i).value != cell_data["value"]:
+                raise SystemExit(f"reorder lost data: {h} row {r} became "
+                                 f"{ws.cell(r, new_i).value!r}, expected {cell_data['value']!r}")
     return True
 
 
@@ -369,54 +383,43 @@ HEADER_NOTES = {
                      "Three sources agreeing is stronger evidence than one, though both are green."),
 }
 
-LEGEND = [
-    ("How to read this sheet", ""),
-    ("", ""),
-    ("Each FIELD is judged on its own evidence.", "A row is not one colour. The photo, the description "
-     "and the ingredients are verified separately, so a green photo can sit beside a yellow "
-     "description. That is the design, not a mistake."),
-    ("", ""),
-    ("GREEN — verified", "The barcode (or a brand article code) was found LITERALLY at the source: in "
-     "the page text, its structured data, or the image filename. Never a name match, never a guess."),
-    ("YELLOW — review this", "We have something, but it was not confirmed by one of those methods. "
-     "It is probably right. Check it before it goes live."),
-    ("RED — nothing", "We found nothing for this field. It needs sourcing by hand."),
-    ("GREY — not applicable", "The field does not apply, e.g. ingredients on a product that is not edible."),
-    ("", ""),
-    ("Status column", "The worst field in the row. READY = all green. REVIEW = something is yellow. "
-     "HOLD = something is missing. A REVIEW row can still have a perfectly verified photo."),
-    ("", ""),
-    ("Confirmed by", "How many independent websites printed this barcode. More sources is stronger "
-     "evidence, though one literal confirmation is already enough to be green."),
-    ("", ""),
-    ("Tabs", "Curation = review here. Shopify import = the same products in Shopify's import schema, "
-     "editable. Needs re-scan = scanned codes that carry no product barcode at all."),
-]
+# The same reminder as one line, parked in the header row just past the last column. It lives ON the
+# table on purpose: the question it answers ("why is the photo green and the description yellow?") is
+# asked while reading a row, and a separate explainer tab is somewhere you have to remember to go. An
+# earlier version was a whole "How to read this" tab; that was more sheet than the point deserved.
+NOTE_TEXT = ("Colours are per field, not per row. Green: the barcode was found literally at that "
+             "source. Yellow: plausible, but not confirmed that way. Red: nothing. Grey: not "
+             "applicable. A green photo beside a yellow description is normal. "
+             "Hover any header for detail.")
+NOTE_MARKER = "Colours are per field"
+LEGACY_TAB = "How to read this"
 
 
-def add_legend_tab(wb):
-    """A plain-language explanation of the colour contract, as its own tab."""
-    if "How to read this" in wb.sheetnames:
-        del wb["How to read this"]
-    ws = wb.create_sheet("How to read this")
-    swatch = {"GREEN — verified": "C6EFCE", "YELLOW — review this": "FFEB9C",
-              "RED — nothing": "FFC7CE", "GREY — not applicable": "EDEDED"}
-    for r, (label, text) in enumerate(LEGEND, start=1):
-        a, b = ws.cell(r, 1, label), ws.cell(r, 2, text)
-        a.alignment = Alignment(vertical="top", wrap_text=True)
-        b.alignment = Alignment(vertical="top", wrap_text=True)
-        if r == 1:
-            a.font, a.fill = HEAD_FONT, HEAD
-            b.fill = HEAD
-        elif label in swatch:
-            a.fill = PatternFill("solid", fgColor=swatch[label])
-            a.font = Font(bold=True)
-        elif label:
-            a.font = Font(bold=True)
-        ws.row_dimensions[r].height = max(18, 14 * (1 + len(text) // 70))
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 96
-    return ws
+def strip_note(ws):
+    """Drop a note left by a previous run, so the header row parses as pure column names again.
+
+    Everything downstream reads `ws[1]` as the header list, so a leftover sentence there would be
+    handled as if it were a column. Deleting the whole column is safe precisely because the note is
+    always the last one: nothing sits to its right, so no cell, hyperlink or image anchor moves.
+    """
+    for c in ws[1]:
+        if isinstance(c.value, str) and c.value.startswith(NOTE_MARKER):
+            ws.delete_cols(c.column)
+            return True
+    return False
+
+
+def add_note(ws):
+    """Write the colour reminder one column past the table, in the frozen header row.
+
+    Narrow column and no wrap, so the text spills across the empty cells beside it and reads as a
+    margin note rather than a 19th column of data.
+    """
+    cell = ws.cell(1, ws.max_column + 1, NOTE_TEXT)
+    cell.font = Font(italic=True, color="7F7F7F", size=9)
+    cell.alignment = Alignment(vertical="center")
+    ws.column_dimensions[get_column_letter(cell.column)].width = 3
+    return cell.coordinate
 
 
 def annotate_headers(ws):
@@ -443,6 +446,11 @@ def main():
     resolved_by_barcode = {c["barcode"]: resolved.get(str(c["row"]), {}) for c in catalog}
     skipped = json.load(open(SKIPPED, encoding="utf-8"))
 
+    # Before anything reads row 1 as headers.
+    strip_note(wb["Curation"])
+    if LEGACY_TAB in wb.sheetnames:
+        del wb[LEGACY_TAB]
+
     enrich_curation(wb["Curation"], by_barcode, resolved_by_barcode)
     moved = reorder_columns(wb["Curation"], CURATION_ORDER)
     n_shop = build_shopify_tab(wb, rows)
@@ -461,7 +469,7 @@ def main():
                ["Title", "Description", "Tags", "Collection", "Image alt text", "URL handle"])
     fit_layout(wb["Needs re-scan"], ["What it is", "What to do"])
     notes = annotate_headers(wb["Curation"])
-    add_legend_tab(wb)
+    where = add_note(wb["Curation"])
     wb.save(WORKBOOK)
 
     print(f"Finalized {WORKBOOK}")
@@ -471,7 +479,7 @@ def main():
           f"({', '.join(sorted(TODO_COLS & set(headers)))} tinted for you)")
     print(f"  Needs re-scan   {n_skip} codes that carry no product barcode")
     print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
-    print(f"  legend          'How to read this' tab + {notes} header notes explaining per-field colour")
+    print(f"  colour guide    inline note at {where} + {notes} header hover notes (no explainer tab)")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")

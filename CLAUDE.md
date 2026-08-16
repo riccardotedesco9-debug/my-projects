@@ -49,7 +49,9 @@ A gitignored **`.env` at the workspace root** is the **primary source of record*
 2. **`.env.tpl`** (committed at workspace root) maps each var name → its `op://` reference — the manifest of every secret.
 3. **`.env`** (gitignored, workspace root) holds the real values. Regenerate it from 1Password whenever a key rotates or on a fresh machine: **`node tools/op-to-env.mjs`** (reads each `op://` ref in `.env.tpl`, writes `.env`; one `op` approval).
 4. **Runtime:** shell → `set -a; . .env; set +a` then run; Node → `process.env.NAME`. `op run --env-file=".env.tpl" -- <cmd>` still works as a **backup/alternative** when you'd rather not have `.env` on disk.
-5. **Pushing to platforms:** `tools/sync-secrets.mjs --target=cloudflare-meetsync` / `--target=trigger-prod` reads from 1P and pushes to the MeetSync Worker (`wrangler secret put`) / Trigger.dev (`.tmp/trigger-prod.env` import). No flag = both.
+5. **Pushing to platforms:** `tools/sync-secrets.mjs --target=cloudflare-meetsync` / `--target=trigger-prod` pushes to the MeetSync Worker (`wrangler secret put`) / Trigger.dev (`.tmp/trigger-prod.env` import). No flag = both. It resolves each value **from `.env` first** and only falls back to 1Password for anything missing locally; `--op-only` forces vault reads.
+
+**Resolution order (enforced in code, not just documented — `tools/secret-lib.mjs`):** `process.env` → root `.env` → `OP_<UPPER_SNAKE>` alias → `op read`. Every workspace script goes through it (`sync-secrets`, the three billing scripts, `health-check`), so routine work never triggers a 1Password prompt. All 23 manifest secrets currently resolve locally. `node tools/health-check.mjs` verifies the local path and does **not** touch `op`; add `--with-1p` to also check the backup vault.
 
 **When adding a new secret:** add `NAME=value` directly to **`.env`** (primary) → code reads `process.env.NAME`. Optionally mirror it into 1Password as backup (and add the `op://` ref to `.env.tpl`). An **MCP-server** secret also needs `setx NAME <value>` (Windows user env) since MCPs launch from the OS env, not `.env`. (Add to `tools/secrets-manifest.json` if it must reach Cloudflare/Trigger.)
 
@@ -88,8 +90,8 @@ You operate in a **Workflows → Agent → Tools** architecture. Workflows are m
 
 Applies to both models hardwired in what we build and the working model for the task at hand (session model via `/model`). **When a newer / more-capable model ships, refresh these choices and flag it.**
 
-Ladder (as of 2026-07-05 — re-verify live; IDs shift):
-- **Architect — large-scale architecture · hard planning · test-suite design · deep reasoning → `claude-fable-5`** ($10/$50; best plans & test suites) or **`claude-opus-4-8`** ($5/$25; the "if unsure" default for complex agentic / enterprise coding).
+Ladder (as of 2026-07-28 — re-verify live; IDs shift):
+- **Architect — large-scale architecture · hard planning · test-suite design · deep reasoning → `claude-fable-5`** ($10/$50; best plans & test suites) or **`claude-opus-5`** ($5/$25; the "if unsure" default for complex agentic / enterprise coding — drop-in successor to `claude-opus-4-8` at the same price; thinking is on by default and safety classifiers can return `stop_reason:"refusal"`, so handle it or use `fallbacks`).
 - **Foreman — routine syntax / production coding, common frameworks, content-at-scale (any volume) → `claude-sonnet-5`** (intro $2/$10 through Aug 2026, then $3/$15).
 - **Tradesman — simple / high-volume / low-latency (one-line chatbot replies, classification, judges) → `claude-haiku-4-5`** ($1/$5).
 
@@ -97,13 +99,10 @@ Fable is **not a drop-in for Opus**: rejects `temperature`/`top_p`/`top_k` and `
 
 ## Skill Visibility
 
-Full skill architecture is defined in `~/.claude/CLAUDE.md`. In this workspace:
-Global is the **complete** at-reach library — engineer + marketing skills live in `~/.claude/skills` **and** every domain's subagents live in `~/.claude/agents` (campaign-manager, seo-specialist, funnel-architect, code-reviewer, planner…). So **every directory (root, projects/, any agents/ workspace) can use any tool *and* spawn any agent** (engineering *and* marketing). Progressive disclosure keeps it cheap: only one-line metadata is ever in context; skill/agent bodies load on demand.
-- **Root / `projects/` / anywhere** → full global library (engineering + marketing skills, ~141).
-- **agents/Engineering/** → global only (engineer kit lives globally; local kit removed 2026-06-04).
-- **agents/Marketing/** → global skills (its local copies are overridden by global). Its marketing **subagents are global too** (`~/.claude/agents/`, reachable from anywhere); only its **`mkt:` commands** stay local to this folder.
-- **agents/WebDesign/** → global + web design local skills (frontend-design, ui-ux-pro-max, web-design-guidelines — also present in global).
-- **agents/WebScraper/** → global skills + Firecrawl MCP.
+Skill architecture is defined in `~/.claude/CLAUDE.md` (also always loaded) — every directory here (root,
+`projects/`, any `agents/` workspace) can use any global skill and spawn any global agent; only
+`agents/Marketing/`'s `mkt:` commands and `agents/WebDesign/`'s 3 local skills are folder-scoped.
+Recount live: `ls ~/.claude/skills | wc -l`, `ls ~/.claude/agents | wc -l`.
 
 **Domain routing — DYNAMIC (which tools a project reaches for):** the only thing a project needs is a `Domain:` line in its `CLAUDE.md` (or nothing — the domain is inferred from contents if absent). Two hooks auto-inject the matching domain toolkit + gates, **pulled live** from `agents/<Domain>/briefing.md` if present (a non-managed source, so a ClaudeKit reset of a managed workspace `CLAUDE.md` can't blank the brief) else `agents/<Domain>/CLAUDE.md`: `tools/brief-on-file.mjs` (PostToolUse, on Read/Edit/Write/MultiEdit/Grep/Glob) briefs the moment Claude touches or searches a `projects/<name>/` path — the trigger that matches working from the workspace root — and `tools/brief-domain.mjs` (SessionStart) covers sessions opened directly inside a project folder. A project with no `Domain:` line is inferred (and can resolve to more than one domain — e.g. a React site → Engineering + WebDesign). Either way, no per-project hardwiring. So creating a new project = add `Domain: Engineering` (or Marketing / WebDesign / WebScraper) and it's briefed automatically; editing a domain workspace's toolkit re-briefs every project in that domain. The workspace doc is the canonical "here are *your* agents, skills, MCP tools, and mandatory gates" list. (The one-line pointer some projects also carry is a human-readable convenience, not the mechanism.) Counts are approximate by design — recount skills via `ls ~/.claude/skills | wc -l`, agents via `ls ~/.claude/agents | wc -l`.
 

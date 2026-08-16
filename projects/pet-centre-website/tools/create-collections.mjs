@@ -6,6 +6,8 @@
  * Token via client_credentials (1Password), same pattern as seed-catalog.mjs.
  */
 import {execSync} from 'node:child_process';
+import { hydrateProcessEnv } from '../../../tools/secret-lib.mjs';
+hydrateProcessEnv(); // load the workspace .env — the source of record — before any lookup
 
 const STORE = 'dsgncm-nw.myshopify.com';
 const API = '2026-04';
@@ -28,8 +30,12 @@ const COLLECTIONS = [
 ];
 
 async function getToken() {
-  const raw = execSync(`op item get ${OP_ITEM} --format json`, {encoding: 'utf8'});
-  const vals = [...new Set(JSON.parse(raw).fields.filter((f) => f.value && f.value.length >= 10).map((f) => f.value))];
+  // .env is the source of record; only fall back to 1Password (which prompts) when it lacks them.
+  const envPair = [process.env.SHOPIFY_CLIENT_ID, process.env.SHOPIFY_CLIENT_SECRET].filter(Boolean);
+  const vals = envPair.length === 2 ? envPair : (() => {
+    const raw = execSync(`op item get ${OP_ITEM} --format json`, { encoding: 'utf8' });
+    return [...new Set(JSON.parse(raw).fields.filter((f) => f.value && f.value.length >= 10).map((f) => f.value))];
+  })();
   for (const client_id of vals) {
     for (const client_secret of vals) {
       if (client_id === client_secret) continue;

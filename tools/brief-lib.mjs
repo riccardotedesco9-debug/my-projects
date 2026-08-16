@@ -145,6 +145,14 @@ export function resolveDomains(projectDir) {
       const head = lineM[1].split(/[—(]/)[0];
       const found = DOMAINS.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(head));
       if (found.length) return { domains: found, inferred: false };
+
+      // `Domain: cross-cutting — Engineering + Marketing` names its domains in the tail, which the
+      // head-only scan above deliberately ignores. Only for an explicit cross-cutting declaration,
+      // widen to the whole line — otherwise the project silently resolves to nothing and is never briefed.
+      if (/\bcross[-\s]?cutting\b/i.test(head)) {
+        const wide = DOMAINS.filter((d) => new RegExp(`\\b${d}\\b`, 'i').test(lineM[1]));
+        if (wide.length) return { domains: wide, inferred: false };
+      }
     }
   }
   const guess = inferDomains(projectDir);

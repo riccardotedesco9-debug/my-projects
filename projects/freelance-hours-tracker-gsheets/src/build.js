@@ -275,6 +275,11 @@ function updateLayout_(ss) {
   // final v2 shape first — exactly as rebuild_ does — keeps every derived
   // reference correct. Delete the derived sheets before the migration too, so
   // the insert only touches the Log's own per-row formulas.
+  // Remember the view mode BEFORE the Dashboard is deleted: it rebuilds to the
+  // desktop spec, and silently dropping a mobile layout on every update would
+  // read as the toggle breaking.
+  var wasMobile = isMobileMode_(ss);
+
   ['dashboard', 'summary', 'report', 'settings'].forEach(function (key) {
     var old = ss.getSheetByName(CFG.sheets[key]);
     if (old) ss.deleteSheet(old);
@@ -304,6 +309,11 @@ function updateLayout_(ss) {
   // global Script Properties and would otherwise consume the prod blob).
   if (ss.getId() === SpreadsheetApp.getActive().getId()) migrateLegacyTimerState_(ctx);
   paintRunningSurfaces_(ctx); // repaint the banner + RUNNING NOW from the live rows
+  if (wasMobile) {
+    var box = ss.getRangeByName(CFG.named.chkMobile);
+    if (box) box.setValue(true);
+    applyDashboardMode_(ctx, true); // restore the phone shape the update just wiped
+  }
   SpreadsheetApp.flush();
 }
 

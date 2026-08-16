@@ -6,9 +6,7 @@
 //  2. Monthly Gmail drafts: 1st of month, one draft per client with activity.
 
 function onEditInstallable(e) {
-  // Only fresh ticks act; our own resets write FALSE. Sheets delivers checkbox
-  // values as the string 'TRUE' today — accept boolean true too, defensively.
-  if (!e || !e.range || (e.value !== 'TRUE' && e.value !== true)) return;
+  if (!e || !e.range) return;
   var sheet = e.range.getSheet();
   if (sheet.getName() !== CFG.sheets.dashboard) return;
 
@@ -19,17 +17,38 @@ function onEditInstallable(e) {
   var foreign = ss.getId() !== SpreadsheetApp.getActive().getId();
   var ctx = makeCtx_({ ss: ss, prefix: foreign ? 'test:' : '', silent: foreign });
   var a1 = e.range.getA1Notation();
+
+  // The view toggle is a MODE, not an action: it fires in BOTH directions
+  // (unticking is how the desktop layout comes back) and is never reset, so it
+  // is handled before the ticks-only guard below.
+  var modeCell = ss.getRangeByName(CFG.named.chkMobile);
+  if (modeCell && a1 === modeCell.getA1Notation()) {
+    applyDashboardMode_(ctx, e.value === 'TRUE' || e.value === true);
+    return;
+  }
+
+  // Everything past here is an ACTION. Only fresh ticks act; our own resets
+  // write FALSE. Sheets delivers checkbox values as the string 'TRUE' today —
+  // accept boolean true too, defensively.
+  if (e.value !== 'TRUE' && e.value !== true) return;
   var startCell = ss.getRangeByName(CFG.named.chkStart);
   var stopBlock = ss.getRangeByName(CFG.named.chkStopBlock);
+  var exportCell = ss.getRangeByName(CFG.named.chkExport);
   var isStart = startCell && a1 === startCell.getA1Notation();
+  var isExport = exportCell && a1 === exportCell.getA1Notation();
   var stopIdx = stopBlock ? blockIndexOf_(stopBlock, e.range) : -1;
-  // Only START and the RUNNING NOW stop boxes act. Anything else that happens to
-  // equal "TRUE" (e.g. typed into the free-text Task cell) is left untouched —
-  // never reset a cell we didn't handle.
-  if (!isStart && stopIdx < 0) return;
+  // Only START, EXPORT and the RUNNING NOW stop boxes act. Anything else that
+  // happens to equal "TRUE" (e.g. typed into the free-text Task cell) is left
+  // untouched — never reset a cell we didn't handle.
+  if (!isStart && !isExport && stopIdx < 0) return;
 
   try {
-    if (isStart) {
+    if (isExport) {
+      // The phone's export dialog. Runs the full build→PDF→Drive pipeline
+      // inline — an installable trigger gets the 6-minute ceiling, not the
+      // 30 seconds a simple onEdit would — and reports into its result cell.
+      runPhoneExport_(ctx);
+    } else if (isStart) {
       var client = String(getNamedValue_(ctx, CFG.named.dbClient) || '').trim();
       var task = String(getNamedValue_(ctx, CFG.named.dbTask) || '').trim();
       // No dialogs on mobile → a deliberate tick ADDS a clock (never replaces a

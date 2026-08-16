@@ -90,20 +90,9 @@ function showExportDialog() {
  *  (month 0 = whole year). Labels built server-side. */
 function getExportModel() {
   var ctx = makeCtx_();
-  var tz = ctx.ss.getSpreadsheetTimeZone();
-  var periods = [];
-  var now = new Date();
-  for (var i = 0; i < 12; i++) {
-    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    periods.push({
-      year: d.getFullYear(),
-      month: d.getMonth() + 1,
-      label: Utilities.formatDate(d, tz, 'MMMM yyyy'),
-    });
-  }
-  periods.push({ year: now.getFullYear(), month: 0, label: now.getFullYear() + ' — full year' });
-  periods.push({ year: now.getFullYear() - 1, month: 0, label: now.getFullYear() - 1 + ' — full year' });
-  return { clients: getClientNames_(ctx), allClients: CFG.allClients, periods: periods };
+  // Periods come from export-phone.js so the dialog and the phone block can
+  // never drift into offering different months.
+  return { clients: getClientNames_(ctx), allClients: CFG.allClients, periods: exportPeriods_(ctx) };
 }
 
 /**

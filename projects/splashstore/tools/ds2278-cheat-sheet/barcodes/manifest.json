@@ -1,0 +1,86 @@
+{
+  "defaults": {
+    "page": 63,
+    "status": "vector OK Code128",
+    "payload": "92",
+    "caption": "Set Factory Defaults"
+  },
+  "enter-key": {
+    "page": 89,
+    "status": "vector OK Code128",
+    "payload": "N6S06201007S0680100DB0EB01",
+    "caption": "Add Enter Key (Carriage Return/Line Feed)"
+  },
+  "tab-key": {
+    "page": 89,
+    "status": "vector OK Code128",
+    "payload": "N6S06201007S06801009B0EB01",
+    "caption": "Tab Key"
+  },
+  "hid-bluetooth": {
+    "page": 103,
+    "status": "vector OK Code128",
+    "payload": "N017F11",
+    "caption": "HID Bluetooth Classic"
+  },
+  "usb-keyboard-hid": {
+    "page": 154,
+    "status": "vector OK Code128",
+    "payload": "SXUAH20003",
+    "caption": "*USB Keyboard HID"
+  },
+  "volume-low": {
+    "page": 65,
+    "status": "raster OK Code128",
+    "payload": "2050802",
+    "caption": "Low Volume (2)"
+  },
+  "volume-high": {
+    "page": 65,
+    "status": "raster OK Code128",
+    "payload": "2050800",
+    "caption": "*High Volume (0)"
+  },
+  "trigger-standard": {
+    "page": 74,
+    "status": "vector OK Code128",
+    "payload": "2050200",
+    "caption": "*Standard (Level) (0)"
+  },
+  "presentation-mode": {
+    "page": 74,
+    "status": "vector OK Code128",
+    "payload": "2050207",
+    "caption": "Presentation (Blink) (7)"
+  },
+  "suffix-data-suffix1": {
+    "page": 92,
+    "status": "raster OK Code128",
+    "payload": "20C1001",
+    "caption": "<DATA> <SUFFIX 1> (1)"
+  },
+  "batch-normal": {
+    "page": 130,
+    "status": "vector OK Code128",
+    "payload": "N022000",
+    "caption": "*Normal (00h)"
+  },
+  "batch-out-of-range": {
+    "page": 130,
+    "status": "vector OK Code128",
+    "payload": "N022001",
+    "caption": "Out of Range Batch Mode (01h)"
+  },
+  "batch-persist-on": {
+    "page": 131,
+    "status": "vector OK Code128",
+    "payload": "N05771",
+    "caption": "Persistent Batch Enable (1)"
+  },
+  "cancel": {
+    "page": 414,
+    "status": "raster OK Code128",
+    "payload": "A-",
+    "caption": "Cancel"
+  }
+}

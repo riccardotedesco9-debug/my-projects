@@ -36,7 +36,14 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
    *Mark selected session(s) free* / *…TBD (price later)* / *Bill …at hourly rate*.
 6. **Monthly report:** ⏱ Tracker → *Export timesheet PDF…* → pick client (or All Clients) +
    month + include-€ → print-ready A4 PDF lands in `Timesheets/<Client>/` in Drive, e.g.
-   `Timesheet_2026-07_PetCentre_<YourName>.pdf`. In-progress (still-running) sessions are
+   `Timesheet_2026-07_PetCentre_<YourName>.pdf`. **On the phone**, the same export is the
+   **EXPORT TIMESHEET** block at the bottom of the Dashboard: Client + Period dropdowns, an
+   **Include €** checkbox (untick for an hours-only sheet — same control as the desktop
+   dialog, and a toggle the handler never resets), and an **EXPORT PDF** checkbox — tick it and the
+   line below turns into a tappable link to the finished PDF (with session count, hours and
+   €). Give it up to a minute; it runs the identical pipeline, so the document is the same
+   either way. The Period list gains each new month on its own — no layout update needed.
+   In-progress (still-running) sessions are
    excluded; free sessions show **Free** (green, €0) and not-yet-priced ones **TBD** (gold,
    €0), each with their hours still counted. The PDF
    ends with a **WORK BREAKDOWN**: same-type tasks consolidated into named groups (Claude
@@ -63,8 +70,30 @@ Excel/VBA version (`projects/freelance-hours-tracker/` — reference spec, do no
 The **sidebar is the control surface** (the RUNNING NOW list with a live clock + Stop per
 timer, an add-a-timer form with a recent-task picker + a Billing selector, Stop-all, today +
 month footer, export/add-session shortcuts). The Dashboard mirrors it for the phone: START box
-+ Billing dropdown to add a clock, a RUNNING NOW block with a stop box per timer, and the count
-banner (gray IDLE / green N running).
++ Billing dropdown to add a clock, a RUNNING NOW block with a stop box per timer, the count
+banner (gray IDLE / green N running), and the EXPORT TIMESHEET block — client + period +
+amounts, one checkbox, and a link to the PDF it just wrote.
+
+## Mobile view toggle
+
+A **Mobile view** checkbox sits under the Dashboard title. Ticked, it reshapes the sheet for a
+phone: checkbox glyphs roughly double (a checkbox scales with its cell's **font size** — the only
+lever Sheets gives over a tap target), the dropdowns and their labels go 10pt → 14pt on rows given
+room to breathe (21px → 38px), the PDF-link line grows with them, columns narrow from ~840px to
+~460px, control rows grow taller, and the by-client analytics tail (rows 31-37) hides so START /
+RUNNING NOW / EXPORT all sit above the fold. Where a dropdown shares a row with a control (Billing
+on the START bar) it takes the font but not the height — fields are applied first so the taller
+control row wins. Untick and the desktop spec is restored exactly — every property is written
+in both directions, so a flip can never leave half a layout behind.
+
+Two things to know. **It is a mode, not responsive design:** Sheets stores column widths, row
+heights and hidden rows on the SHEET, shared by every viewer, and Apps Script gets no device
+signal from an edit — so ticking it makes the sheet phone-shaped on your desktop too. Flip it on
+the way out, untick at the desk. And it is the one control that acts on the **untick** as well as
+the tick, so `onEditInstallable` handles it *before* the ticks-only guard and never resets it.
+
+The mode survives **Update layout**: `updateLayout_` reads the toggle before deleting the
+Dashboard and re-applies it after the rebuild.
 
 ## Safety properties (why it's trustworthy)
 
@@ -91,6 +120,13 @@ banner (gray IDLE / green N running).
 - Exact-minute billing, no rounding by design — a very short session can show 0.00 h.
 - The Report sheet is a regenerate-on-demand artifact — never stored data.
 
+## Upgrading
+
+**Phone export block:** after pushing, run **⏱ Tracker → Maintenance → Update layout (keeps
+your data)** once — it rebuilds the Dashboard, which is where the block lives. Until then the
+code just doesn't find the control and the tracker behaves exactly as before (the export stays
+desktop-only); nothing breaks in the meantime.
+
 ## Upgrading an existing tracker to v2 (concurrent timers)
 
 After pushing the v2 code, run **⏱ Tracker → Maintenance → Update layout (keeps your data)
@@ -112,7 +148,8 @@ with the old 8-column log, so don't clock time in that window.
   in-progress rows + dashboard/summary reconciliation); everything else drives the REAL
   functions on a throwaway spreadsheet — the concurrent-timer state machine (in-progress row
   shape, unique ids, stop-by-id, stopAll, discard, free sessions, legacy migration, lock
-  hygiene, the crash-safe order invariant), mobile per-row stop checkboxes, log math (DST,
+  hygiene, the crash-safe order invariant), mobile per-row stop checkboxes, the phone export
+  (refusals, stale-period repair, a checkbox-driven PDF whose link resolves in Drive), log math (DST,
   unicode, formula-injection, grid edge), manual/fee refusal matrices, report period windows
   vs an independent JS mirror (incl. in-progress exclusion + free rendering), breakdown/seal/
   PDF/viewer/drafts artifacts (viewer imports A2:G, money-blind), a 150-row bulk stress +
@@ -141,8 +178,15 @@ with the old 8-column log, so don't clock time in that window.
 
 ## Known trade-offs (accepted by design)
 
-- Sheets mobile app runs no menus/buttons/sidebars → checkboxes are the phone surface;
-  an offline tap logs at sync time with server-time stamping.
+- Sheets mobile app runs no menus/buttons/sidebars/dialogs → checkboxes are the phone surface;
+  an offline tap logs at sync time with server-time stamping. Anything the phone needs is
+  rebuilt from dropdowns + a checkbox + a result cell (start/stop, and the timesheet export);
+  the rest of the ⏱ Tracker menu stays desktop-only — reach it from mobile Chrome with
+  *Desktop site* ticked if you ever need it out of the house.
+- The phone export runs inside the `onEditInstallable` trigger (6-minute ceiling, not the 30 s
+  a simple `onEdit` gets), so a slow `/export` retry has room. It writes its result into a
+  cell as a `HYPERLINK` because tapping a cell link is the only way the Sheets mobile app can
+  open a Drive file.
 - The PDF export URL (`/export?format=pdf`) is official but has shown instability for
   server-side callers (July 2026) → retry ×3 then a degraded `DriveApp.getAs(PDF)` fallback
   (hides other sheets during export).

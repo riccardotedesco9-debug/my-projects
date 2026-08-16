@@ -8,9 +8,11 @@
 //   2. hooks are actually registered in settings.local.json — code that isn't wired does nothing
 //   3. the deploy gate actually denies a deploy and allows a benign command (the one ENFORCED gate)
 //   4. brief-lib loads and resolves a known project's domain (the briefing mechanism)
-//   5. 1Password reachable + AI-Stack vault present (secrets source of truth) — WARN, not FAIL
+//   5. every manifest secret resolves from the root .env (the source of record) — WARN, not FAIL
+//      (1Password is backup-only; add --with-1p to also check the vault, which needs an op sign-in)
 //   6. secrets-manifest.json ↔ .env.tpl have no opRef drift (CLAUDE.md warns this drifts)
 //   7. the deploy-coupled trio paths exist (the only hardcoded project paths in shared tooling)
+//   8. local edits to the package-managed ~/.claude/rules files still carry their markers — WARN
 //
 // Exit 1 if any hard FAIL; WARNs don't fail the run. Usage: node tools/health-check.mjs [--verbose]
 
@@ -18,6 +20,7 @@ import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { loadEnvFile } from './secret-lib.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VERBOSE = process.argv.includes('--verbose');
@@ -33,6 +36,16 @@ const HOOK_SCRIPTS = [
 // Libraries the hooks import — a syntax error here breaks the hooks that depend on them.
 const LIB_SCRIPTS = ['gate-lib.mjs', 'brief-lib.mjs', 'mark-reviewed.mjs', 'sync-secrets.mjs'];
 
+// ClaudeKit-managed rules files carrying local fixes, each marked with an HTML comment (check #8).
+const EDITED_RULES = [
+  'development-rules.md',
+  'documentation-management.md',
+  'orchestration-protocol.md',
+  'primary-workflow.md',
+  'skill-domain-routing.md',
+  'skill-workflow-routing.md',
+];
+
 const results = [];
 const record = (status, name, detail) => results.push({ status, name, detail });
 const pass = (n, d) => record('PASS', n, d);
@@ -40,9 +53,11 @@ const warn = (n, d) => record('WARN', n, d);
 const fail = (n, d) => record('FAIL', n, d);
 
 // Run one check; an uncaught throw becomes a FAIL rather than crashing the whole run.
-function check(name, fn) {
+// Async: callers with an async fn MUST `await check(...)` — otherwise the check resolves after the
+// report has printed and silently reports nothing, pass or fail.
+async function check(name, fn) {
   try {
-    fn();
+    await fn();
   } catch (err) {
     fail(name, err.message);
   }
@@ -96,29 +111,53 @@ await check('brief-lib: resolves a domain', async () => {
   if (!Array.isArray(lib.DOMAINS) || lib.DOMAINS.length !== 4) throw new Error('DOMAINS not the 4 expected workspaces');
   const meetsync = join(ROOT, 'projects', 'meetsync');
   if (existsSync(meetsync)) {
-    const domains = lib.resolveDomains(meetsync);
-    if (!Array.isArray(domains) || domains.length === 0) throw new Error('resolveDomains(meetsync) returned nothing');
-    pass('brief-lib: resolves a domain', `meetsync → ${domains.join(', ')}`);
+    // resolveDomains returns { domains: string[], inferred: boolean } — not a bare array.
+    const res = lib.resolveDomains(meetsync);
+    if (!res || !Array.isArray(res.domains) || res.domains.length === 0) {
+      throw new Error(`resolveDomains(meetsync) returned no domains: ${JSON.stringify(res)}`);
+    }
+    const how = res.inferred ? 'inferred' : 'declared';
+    pass('brief-lib: resolves a domain', `meetsync → ${res.domains.join(', ')} (${how})`);
   } else {
     pass('brief-lib: resolves a domain', 'loaded (meetsync absent, skipped resolve)');
   }
 });
 
-// --- 5. 1Password reachable + vault present (WARN-level: env state, not a broken setup) ----------
-check('1password: op + AI-Stack vault', () => {
-  try {
-    execSync('op --version', { stdio: ['ignore', 'ignore', 'ignore'] });
-  } catch {
-    warn('1password: op + AI-Stack vault', 'op CLI not on PATH — secrets sync unavailable');
+// --- 5. Secrets resolve from the root .env, the source of record --------------------------------
+// .env is checked first everywhere; 1Password is only a backup. So the health check verifies the
+// LOCAL path and does not touch `op` — reaching into the vault here popped an authorization prompt
+// on every run. Pass --with-1p to additionally verify the backup vault is reachable.
+check('secrets: resolve from .env', () => {
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'tools', 'secrets-manifest.json'), 'utf8'));
+  const env = loadEnvFile();
+  const unresolved = manifest.secrets.filter((s) => !process.env[s.name] && !env[s.name]);
+  if (unresolved.length) {
+    warn(
+      'secrets: resolve from .env',
+      `${unresolved.length}/${manifest.secrets.length} not in .env (would fall back to 1Password): ` +
+        unresolved.map((s) => s.name).join(', '),
+    );
     return;
   }
-  try {
-    execSync('op vault get AI-Stack --format=json', { stdio: ['ignore', 'ignore', 'ignore'], timeout: 10000 });
-    pass('1password: op + AI-Stack vault', 'signed in, AI-Stack vault reachable');
-  } catch {
-    warn('1password: op + AI-Stack vault', 'op present but not signed in / vault unreachable — run `op signin`');
-  }
+  pass('secrets: resolve from .env', `all ${manifest.secrets.length} manifest secrets present locally`);
 });
+
+if (process.argv.includes('--with-1p')) {
+  check('1password: backup vault reachable', () => {
+    try {
+      execSync('op --version', { stdio: ['ignore', 'ignore', 'ignore'] });
+    } catch {
+      warn('1password: backup vault reachable', 'op CLI not on PATH — backup/restore unavailable');
+      return;
+    }
+    try {
+      execSync('op vault get AI-Stack --format=json', { stdio: ['ignore', 'ignore', 'ignore'], timeout: 10000 });
+      pass('1password: backup vault reachable', 'signed in, AI-Stack vault reachable');
+    } catch {
+      warn('1password: backup vault reachable', 'op present but not signed in — run `op signin`');
+    }
+  });
+}
 
 // --- 6. secrets-manifest ↔ .env.tpl have no opRef drift ------------------------------------------
 check('secrets: manifest ↔ .env.tpl', () => {
@@ -150,6 +189,30 @@ check('paths: deploy-coupled projects', () => {
   const missing = required.filter((p) => !existsSync(p));
   if (missing.length) throw new Error(`missing: ${missing.map((p) => p.replace(ROOT, '.')).join(', ')}`);
   pass('paths: deploy-coupled projects', `all ${required.length} referenced paths present`);
+});
+
+// --- 8. Local edits to the ClaudeKit rules files survive ----------------------------------------
+// The rules files are package-managed: a kit update can silently overwrite them, reverting fixes
+// (dead skill names, corrected paths) and reintroducing stale instructions into every session.
+// Each locally-edited file carries an HTML-comment marker; a missing marker means it was reverted.
+check('rules: local edits intact', () => {
+  const home = process.env.USERPROFILE || process.env.HOME;
+  if (!home) return warn('rules: local edits intact', 'no home dir in env — skipped');
+  const rulesDir = join(home, '.claude', 'rules');
+  if (!existsSync(rulesDir)) return warn('rules: local edits intact', `${rulesDir} not found — skipped`);
+
+  const reverted = EDITED_RULES.filter((f) => {
+    const p = join(rulesDir, f);
+    return !existsSync(p) || !readFileSync(p, 'utf8').includes('local edit');
+  });
+  if (reverted.length) {
+    return warn(
+      'rules: local edits intact',
+      `marker missing in ${reverted.join(', ')} — likely reverted by a ClaudeKit update; ` +
+        'restore from ~/.claude/backups/instructions-*',
+    );
+  }
+  pass('rules: local edits intact', `${EDITED_RULES.length} files still carry their local-edit marker`);
 });
 
 // --- Report -------------------------------------------------------------------------------------
