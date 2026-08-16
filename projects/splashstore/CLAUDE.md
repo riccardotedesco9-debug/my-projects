@@ -112,6 +112,12 @@ Source / Ingredients Source / Confirmed by. A fourth "How to read this" tab was 
 the owner's request: the question ("why is the photo green and the description yellow?") is asked
 while reading a row, and an explainer tab is somewhere you have to remember to go. Do not re-add one.
 
+**Each source cell also names its own host** (`Verified — barcode: north-spa.de` beside
+`Likely — generic (from name)`), added in `assemble.py`'s `where_from()`. The tier says how strong the
+evidence is and the method says what kind, but neither said WHERE, so two independently-judged fields
+looked like one verdict until you clicked both links. 7 of 44 rows here have a barcode-proven photo
+next to a description that was never barcode-proven, and that is now readable at a glance.
+
 The Sheet's id is cached in `.tmp/workbook-sheet-id.txt` and step 9 UPDATES it in place, so the link
 the owner already has keeps working. **If that file is lost, take the id from this doc rather than
 letting a fresh run create a duplicate sheet** (`--new` forces a new one deliberately).

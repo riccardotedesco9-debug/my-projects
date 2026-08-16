@@ -367,13 +367,17 @@ HEADER_NOTES = {
     "Image Source": ("Colour applies to THIS FIELD ONLY.\n"
                      "GREEN = the barcode was found literally on the page the photo came from.\n"
                      "YELLOW = the right product, but the photo needs a look (crop, multipack, unclear).\n"
-                     "RED = no usable photo was found."),
+                     "RED = no usable photo was found.\n"
+                     "The cell names the site the photo came from. Compare it with Description Source: "
+                     "a different site there means the two fields were proven separately."),
     "Description Source": ("Colour applies to THIS FIELD ONLY, and is judged separately from the photo.\n"
                            "GREEN = written from the barcode-confirmed page for this exact product.\n"
                            "YELLOW = written from a name-matched page, so it may describe a variant.\n"
                            "RED = no description.\n"
                            "A yellow description beside a green image is normal: the photo was proven "
-                           "by the barcode, the wording was not."),
+                           "by the barcode, the wording was not.\n"
+                           "The cell names the page the wording came from, or says 'generic (from name)' "
+                           "when there was no page at all."),
     "Ingredients Source": ("Colour applies to THIS FIELD ONLY.\n"
                            "GREY = not applicable (the product is not edible).\n"
                            "GREEN = composition from a barcode-confirmed source.\n"

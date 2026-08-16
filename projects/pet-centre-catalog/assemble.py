@@ -419,6 +419,25 @@ def ing_src_url(rec):
     return (r.get("src") or "") if (r.get("ingredients_src") or "") == "source" else (r.get("ingredients_url") or "")
 
 
+def where_from(method, url):
+    """Append the source host to a method label: 'barcode' -> 'barcode: spa-components.com'.
+
+    The tier says how strong the evidence is and the method says what kind it was, but neither says
+    WHERE, and the row's fields are judged independently. A photo proven by the barcode on one site
+    sitting beside a description written from a name match reads as one verdict unless each cell
+    names its own origin. The URL is already on the cell as a hyperlink; this puts it in the text so
+    two fields can be compared at a glance instead of by clicking both.
+    """
+    host = urlsplit(url or "").netloc.replace("www.", "")
+    if not host:
+        return method
+    # Skip when the method already names that source under a friendlier label, or the cell reads
+    # "Barcode Lookup (barcode): barcodelookup.com". Compare on letters only, since the label spaces
+    # and capitalises what the hostname runs together.
+    flat = re.sub(r"[^a-z0-9]", "", method.lower())
+    return method if re.sub(r"[^a-z0-9]", "", host.split(".")[0]) in flat else f"{method}: {host}"
+
+
 def field_label(tier, method):
     """e.g. 'Verified — barcode', 'Likely — name match', 'Blank — missing', 'N/A (not edible)'."""
     return "N/A (not edible)" if tier == "na" else (TIER_WORD[tier] + " — " + method)
@@ -453,20 +472,23 @@ CURATION_COLS = [
     ("Description",   lambda p, rec, d: d.get("description", ""),  None,
                            lambda p, rec, d: desc_tier(rec, d.get("description", "")), 56, True),
     ("Description Source", lambda p, rec, d: field_label(desc_tier(rec, d.get("description", "")),
-                                                         desc_method(rec, d.get("description", ""))),
+                                                         where_from(desc_method(rec, d.get("description", "")),
+                                                                    txt_src_url(rec))),
                            lambda p, rec, d: txt_src_url(rec),
-                           lambda p, rec, d: desc_tier(rec, d.get("description", "")), 22, True),
+                           lambda p, rec, d: desc_tier(rec, d.get("description", "")), 28, True),
     ("Ingredients",   lambda p, rec, d: d.get("ingredients", ""),
                            lambda p, rec, d: (rec or {}).get("ingredients_img", ""),  # link to the real label photo (OPFF) to verify
                            lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 56, True),
     ("Ingredients Source", lambda p, rec, d: field_label(ing_tier(rec, d.get("ingredients"), is_edible(p)),
-                                                          ing_method(rec, d.get("ingredients"), is_edible(p))),
+                                                          where_from(ing_method(rec, d.get("ingredients"),
+                                                                                is_edible(p)), ing_src_url(rec))),
                            lambda p, rec, d: ing_src_url(rec),
                            lambda p, rec, d: ing_tier(rec, d.get("ingredients"), is_edible(p)), 24, True),
     ("Image URL",     lambda p, rec, d: img_url(rec), lambda p, rec, d: img_url(rec),
                            lambda p, rec, d: img_tier(rec), 40, True),
-    ("Image Source",  lambda p, rec, d: field_label(img_tier(rec), img_method(rec)),
-                           lambda p, rec, d: (rec or {}).get("src") or "", lambda p, rec, d: img_tier(rec), 24, True),
+    ("Image Source",  lambda p, rec, d: field_label(img_tier(rec),
+                                                    where_from(img_method(rec), (rec or {}).get("src") or "")),
+                           lambda p, rec, d: (rec or {}).get("src") or "", lambda p, rec, d: img_tier(rec), 28, True),
     ("Depth (cm)",    lambda p, rec, d: d.get("depth") or "",      None, None, 11, False),
     ("Width (cm)",    lambda p, rec, d: d.get("width") or "",       None, None, 11, False),
     ("Height (cm)",   lambda p, rec, d: d.get("height") or "",      None, None, 11, False),
