@@ -46,7 +46,11 @@ Row **Status** = the weakest field present: all green → **READY**, any yellow 
 4. **`normalize-images.py`** — download each chosen image, flatten transparency to white, trim the border and
    scale the product to fill the frame, square it, save JPG ≤1 MB (uniform, never cropped, Hike-acceptable).
 5. **`assemble.py`** — `--preview` builds the **curation workbook** (embedded thumbnail + identity, then each
-   enriched field beside its own `Tier — how` clickable source cell, per-field colour, worst-field Status).
+   enriched field beside its own `Tier — how: host` clickable source cell, per-field colour, worst-field
+   Status). `where_from()` appends the source HOST to each label, because the tier says how strong the
+   evidence is and the method says what kind, but neither said WHERE — so a photo proven by the barcode on
+   one site beside a description written from a name match read as a single verdict until you clicked both
+   links. It skips the suffix when the label already names that source ("Barcode Lookup (barcode)").
    Default mode edits the source xlsx in place with Hike-named columns + native dims for a clean 1:1 import.
 6. **`make-preview-pdf.py`** — optional review PDF.
 7. **`export-shopify.py`** *(Shopify clients)* — the catalogue in Shopify's current import schema:
@@ -102,9 +106,27 @@ Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
   counts calls, backs off on 429, and disables itself fail-open on quota/auth failure. **No ingredients; its
   dimensions are ignored.**
 - The whole barcode-DB layer is key-gated: with no Barcode Lookup key the free DBs + Firecrawl carry the cascade.
-- **Open Icecat** (`ICECAT_USERNAME`, free tier) — barcode-keyed, manufacturer-approved data sheets, so it
-  sits in the GREEN cascade beside Barcode Lookup. Coverage skews hard to IT/electronics/consumer tech;
-  expect little for chemicals, food or generic hardware. Register: https://icecat.biz/en/registration
+- **Open Icecat** (`ICECAT_USERNAME`, free) — barcode-keyed, manufacturer-approved data sheets, so it sits
+  in the GREEN cascade beside Barcode Lookup. **Live since 2026-08-16 and measured, not assumed.**
+  - Register on the **Channel Partner** tab (retailers/resellers *consuming* data). Brand Partner is the
+    opposite: manufacturers publishing their own content in. https://icecat.biz/en/registration
+  - **No credential beyond the shopname** — verified byte-identical 200s with and without auth headers,
+    so nothing is stored, nothing expires. The Access Tokens page issues `api-token` / `content-token`,
+    which are **HEADERS** (a token passed as a query parameter is silently ignored) and exist for Full
+    Icecat and private assets; this code stays on public gallery entries and needs neither.
+  - Request form, per the [JSON manual](https://iceclog.com/manual-for-icecat-json-product-requests/):
+    `?shopname=<user>&lang=en&GTIN=<ean>&content=essentialinfo,gallery`. An earlier build used
+    `UserName` / `Language` / `Content`, which the API does not accept — every call 403'd.
+  - `StatusCode 16` = GTIN absent. `StatusCode 9` = the product IS there but behind paid **Full Icecat**,
+    whose `app_key` is issued to Full subscribers on request. Both fail open.
+  - A record is accepted only when the GTIN list it returns contains the code requested, keeping
+    "green = found literally" true. Names come back as brand + model code + title.
+  - **Measured coverage, 44 pool-goods GTINs: 3 open, 5 full-only, 36 absent — and all 8 covered rows
+    already had a name and a photo, while the rows still missing something got zero hits.** Skewed hard
+    to IT and consumer electronics. Keep it wired (free, fails open), but never plan around it, and do
+    not buy Full Icecat for a non-electronics catalogue on the strength of it.
+  - Ordering caveat: Barcode Lookup runs FIRST and short-circuits on an image, so with a BL key set,
+    Icecat is only ever consulted on rows BL missed.
 - **eBay Browse** (`EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`, free) — GTIN search across a global,
   all-category marketplace, which is exactly the long tail the free databases miss.
   **Capped at YELLOW on purpose**: eBay's GTIN field is filled in by the SELLER, not the brand owner, so
