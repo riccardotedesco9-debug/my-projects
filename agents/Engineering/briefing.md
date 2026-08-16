@@ -25,6 +25,41 @@ dedupes by its first `backticked` / **bold** token.
 - Work & quality: open unfamiliar code with `/scout`, weigh options with `/brainstorm`, root-cause with `/ck:debug`, verify with `/test`, fix concretely with `/fix`; pull current library docs via `docs-seeker` instead of guessing.
 - Full "which skill for which job" map: `~/.claude/rules/skill-domain-routing.md`.
 
+## Designated in-house engines (do NOT rebuild these, and do NOT confuse them)
+
+Reach for the existing engine before writing anything. Each one is finished, reviewed and in use.
+
+**Barcode / GTIN → product identity, images, descriptions, dimensions →
+`projects/pet-centre-catalog/`** (`resolve-images.py` is the engine; architecture in
+`docs/engine-briefing.md`). Any task that starts from a barcode, EAN/UPC/GTIN, a POS export or a
+shelf scan routes here — there is no other barcode tool, and "look it up on the web" is not a
+substitute. Accuracy rule: a result is only reported when the GTIN is confirmed LITERALLY at the
+source, so GREEN means barcode-proven, never name-matched. It is vertical-agnostic and portable
+(pet shop → pool shop already done); re-point it per `docs/engine-briefing.md` → *Adapting to a NEW
+catalogue*, don't fork it.
+
+The deliverable is the LAST step, not the lookup: `read-catalog.py` (or a scan front end) →
+`resolve-images.py` → `translate-names.py` (scan-sourced, non-English sources) → `gen-descriptions.py`
+→ `normalize-images.py` → `assemble.py --preview --embed --imgdir <normalized>` →
+`make-preview-pdf.py` → `export-shopify.py` (Shopify clients). The `--embed --imgdir` flags are
+what produce the actual artifact: a curation workbook with an embedded thumbnail per row, per-field
+GREEN/YELLOW/RED grading and a worst-field READY/REVIEW/HOLD status. Omit them and you get a
+colourless, image-free table and will wrongly conclude the engine cannot do images.
+
+To land it in Google Sheets, upload that .xlsx and let Drive convert it — anchored images survive, so
+no image hosting, no public links, no `=IMAGE()` (which fails outright: Google's image fetcher is
+anonymous and retailer hosts refuse it). Helper: `tools/google-sheets-lib.mjs`
+(`getClaspAccessToken` + `uploadXlsxAsSheet`); clasp's login is the credential here carrying a Drive
+scope.
+
+**Don't mix these up** — they are different tools that all touch products or spreadsheets:
+| Need | Use | NOT |
+|---|---|---|
+| barcode → what is this product | `projects/pet-centre-catalog/` | anything else |
+| scanned code list as the input | `projects/splashstore/catalog/read-scans.py` (front end only) | the engine's `read-catalog.py`, which expects a POS xlsx with names |
+| Hike POS catalogue → a live Google Sheet | `projects/pet-centre-hike-sync/` (Apps Script) | the catalogue engine |
+| write/format an existing Google Sheet from Node | `tools/google-sheets-lib.mjs` | hand-rolling OAuth again |
+
 ## MCP Tools
 
 - **Context7** — up-to-date library/framework documentation lookup.

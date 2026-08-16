@@ -29,6 +29,7 @@ Reads FIRECRAWL_API_KEY (and ANTHROPIC_API_KEY if --vision) from env (inject via
 Usage: python resolve-images.py <in_json> <out_json> [credit_cap] [threshold] [--vision] [--workers N]
 """
 import base64
+import html as html_mod
 import io
 import json
 import os
@@ -119,6 +120,48 @@ OFFICIAL_DOMAINS = {
 # confirmed on the page. ONLY these may mint a GREEN field — a vision-only (verified-visual) or
 # name-only (likely) match is never enough, even if its page happens to carry a composition.
 BARCODE_TIERS = ("verified", "verified-cross", "verified-official")
+
+# Marketplace/aggregator hosts. They reliably print the GTIN (so they confirm identity fine), but
+# their listing TITLES are seller-written keyword soup, so a manufacturer/shop page's name wins.
+RESELLER = re.compile(r"amazon|ebay|walmart|aliexpress|alibaba|temu|wish\.|etsy|"
+                      r"barcodelookup|ean-search|upcitemdb|barcode", re.IGNORECASE)
+
+# Barcode DIRECTORIES addressable by a deterministic per-GTIN URL — no search needed, and they print
+# the code literally, so the normal GTIN confirmation applies unchanged. Queried only when a row has
+# no name of its own (a scan): a raw-number web search returns near-random products, so for a scanned
+# row these are the difference between an identification and a blank.
+BARCODE_DIRECTORIES = ["https://www.ean-search.org/?q={ean}", "https://www.barcodelookup.com/{ean}"]
+
+# A directory's "we have no record" page still PRINTS the searched code, so it passes the literal-GTIN
+# check like any other page. Its title must never be mistaken for a product name — that would report a
+# miss as an identification, the one thing this engine must not do.
+NO_RECORD_TITLE = re.compile(r"barcode\s+(?:not\s+found|does\s?n[o']?t\s+exist)|not\s+found|"
+                             r"no\s+(?:results?|records?|match)|page\s+not\s+found|\b404\b", re.IGNORECASE)
+# Chrome a barcode directory wraps around the real product name.
+_NAME_CHROME = (
+    r"^\s*(?:ean|upc|gtin)\s*0*\d{8,14}\s*[-–—:]\s*",          # "EAN 0700175991669 - <name>"
+    r"\s*[|–-]\s*(?:ean[- ]search(?:\.org)?|barcode\s*lookup|upcitemdb)\s*$",  # trailing site brand
+)
+
+
+def tidy_name(nm, ean=""):
+    """Strip barcode-directory chrome so the real product name survives, and reject a page that
+    named no product at all. Returns "" when nothing trustworthy remains."""
+    s = " ".join((nm or "").split())
+    if not s or NO_RECORD_TITLE.search(s):
+        return ""
+    for pat in _NAME_CHROME:
+        s = re.sub(pat, "", s, flags=re.IGNORECASE)
+    if ean:  # a bare code the page tacked on, e.g. "hth Spa nettoyant - 3521686010178"
+        e = r"0*" + re.escape(ean)
+        s = re.sub(r"\s*[-–—(\[]\s*" + e + r"\s*[)\]]?\s*$", "", s)   # trailing
+        s = re.sub(r"^\s*" + e + r"\s*[-–—:|]\s*", "", s)             # leading
+    s = s.strip(" -–—|:,")
+    # What's left must actually name something: not just the digits, and not a directory's empty
+    # state, which renders as a bare "EAN <code>" with no product text after it.
+    if re.fullmatch(r"(?:ean|upc|gtin)?\s*0*\d{8,14}", s, re.IGNORECASE):
+        return ""
+    return "" if (len(s) < 4 or re.fullmatch(r"[\d\s\-]+", s)) else s
 
 # Large pet retailers that reliably publish the full composition + analytical constituents (and often the EAN,
 # so the page can barcode-confirm -> GREEN). Targeted directly when an edible still lacks a real ingredient list,
@@ -435,14 +478,61 @@ def ref_ok(ref):
 
 def _og_image(html):
     """The page's og:image (usually the clean hero shot) — used when the search-result
-    image is dead/poor but the confirmed page carries a good product photo."""
+    image is dead/poor but the confirmed page carries a good product photo.
+
+    The URL is HTML-unescaped: inside markup a query string is written `?a=1&amp;b=2`, and carrying
+    those entities through leaves a URL that some hosts reject and that breaks anything embedding it
+    downstream (a spreadsheet =IMAGE(), an <img> tag). Decode once, here, at the source."""
     h = html or ""
     for pat in (r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)',
                 r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']'):
         m = re.search(pat, h, re.IGNORECASE)
         if m:
-            return m.group(1).strip()
+            return html_mod.unescape(m.group(1).strip())
     return ""
+
+
+def _clean_text(s):
+    """Page titles arrive as markup: inline tags (<wbr/>, <span>) and HTML entities (&amp;, &#039;)
+    both leak into a name otherwise. Strip tags, decode entities, collapse whitespace."""
+    s = re.sub(r"<[^>]+>", "", s or "")
+    return " ".join(html_mod.unescape(s).split())
+
+
+def _page_name(html, md):
+    """The product NAME a page states for itself, best source first: JSON-LD Product > og:title >
+    <title>. The POS export normally supplies the name, so this is unused there; it matters for a
+    catalogue captured by SCANNING (barcode only, no name), where a barcode-confirmed page is the
+    only thing that can say what the item actually is."""
+    for blob in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>',
+                           html or "", re.DOTALL | re.IGNORECASE):
+        try:
+            data = json.loads(blob.strip())
+        except Exception:
+            continue
+        stack = [data]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+                continue
+            if not isinstance(node, dict):
+                continue
+            t = node.get("@type")
+            if "Product" in [str(x) for x in (t if isinstance(t, list) else [t]) if x]:
+                nm = _clean_text(str(node.get("name") or ""))
+                if nm:
+                    return nm[:200]
+            stack.extend(v for v in node.values() if isinstance(v, (dict, list)))
+    for pat in (r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
+                r"<title[^>]*>(.*?)</title>"):
+        m = re.search(pat, html or "", re.IGNORECASE | re.DOTALL)
+        if m:
+            return _clean_text(m.group(1))[:200]
+    # Scanned pages sometimes render name-only (no meta/JSON-LD) — fall back to the first heading.
+    m = re.search(r"^#{1,3}\s+(.+)$", md or "", re.MULTILINE)
+    return _clean_text(m.group(1))[:200] if m else ""
 
 
 def _grounding(md):
@@ -571,7 +661,7 @@ def page_confirms(page_url, variants, ref, bt, allow_ref):
     GTIN — found in the page's structured data / raw HTML (JSON-LD gtin/mpn, meta, data-attrs)
     OR in visible text — or by (article code + brand). Matched on digit/code boundaries so a
     chance overlap can't mint a false 'verified'.
-    Returns (key|None, credits, grounding excerpt, og:image url)."""
+    Returns (key|None, credits, grounding excerpt, og:image url, page product name)."""
     res = api("scrape", {"url": page_url, "formats": ["markdown", "rawHtml"], "onlyMainContent": True})
     data = res.get("data") or {}
     md = data.get("markdown", "") or ""
@@ -579,15 +669,16 @@ def page_confirms(page_url, variants, ref, bt, allow_ref):
     used = res.get("creditsUsed", 1)
     excerpt = _grounding(md)
     og = _og_image(html)
+    name = _page_name(html, md)
     # GTIN in structured data / raw HTML (contiguous) or visible text (spaces tolerated).
     if variants and (gtin_in(html, variants, contiguous=True) or gtin_in(md, variants, contiguous=False)):
-        return "ean", used, excerpt, og
+        return "ean", used, excerpt, og, name
     # Article code: letter-bearing, brand present on page, matched on a code boundary.
     if allow_ref and ref_ok(ref) and bt and (bt & toks(md)):
         pat = r"(?<![A-Z0-9])" + r"[^A-Z0-9]*".join(re.escape(c) for c in ref) + r"(?![A-Z0-9])"
         if re.search(pat, md.upper()):
-            return "ref", used, excerpt, og
-    return None, used, excerpt, og
+            return "ref", used, excerpt, og, name
+    return None, used, excerpt, og, name
 
 
 def fetch_grounding(url):
@@ -830,6 +921,18 @@ def main():
             with lock:
                 state["vision_calls"] += 1
 
+        found_names = []  # [(rank, dom, name)] barcode-confirmed names this page/DB stated for the code
+
+        def note_name(dom, nm, is_off=False):
+            """Collect a name stated by a source that CONFIRMED the barcode. Ranked so a
+            manufacturer/shop page beats marketplace keyword-soup titles and barcode-directory
+            boilerplate. Only used when the catalogue row arrived without a name (a scan)."""
+            nm = tidy_name(nm, ean or "")
+            if not nm:
+                return
+            rank = 3 if is_off else (1 if RESELLER.search(dom or "") else 2)
+            found_names.append((rank, dom, nm))
+
         def img_ok(u):
             """(live, good) for an image URL, fetched at most once per product."""
             if u not in img_memo:
@@ -867,13 +970,14 @@ def main():
                 scraped.add(pg)
                 checked += 1
                 try:
-                    key, vc, excerpt, og = page_confirms(pg, variants, ref, bt, bool(core))
+                    key, vc, excerpt, og, pname = page_confirms(pg, variants, ref, bt, bool(core))
                     spend(vc)
                 except Exception:
                     continue
                 if key:
                     dom = domain_of(pg)
                     is_off = bool(offdoms) and any(d in dom for d in offdoms)
+                    note_name(dom, pname, is_off)
                     confirmed.append((s, im, via, dom, is_off, key, excerpt, og))
                     if is_off:
                         break  # official-site confirmation is the best obtainable
@@ -891,14 +995,20 @@ def main():
                 scraped.add(pg)
                 checked += 1
                 try:
-                    key, vc, excerpt, og = page_confirms(pg, variants, ref, bt, bool(core))
+                    key, vc, excerpt, og, pname = page_confirms(pg, variants, ref, bt, bool(core))
                     spend(vc)
                 except Exception:
                     continue
-                if key and og and is_product_image(og):
-                    dom = domain_of(pg)
-                    is_off = bool(offdoms) and any(d in dom for d in offdoms)
-                    im = {"imageUrl": og, "url": pg, "title": ""}
+                if not key:
+                    continue
+                dom = domain_of(pg)
+                is_off = bool(offdoms) and any(d in dom for d in offdoms)
+                # Record the barcode-confirmed name even when the page carries no usable photo: for a
+                # SCANNED row the name is the primary unknown, and a page that proves the GTIN but
+                # shows no product image still answers "what is this item".
+                note_name(dom, pname, is_off)
+                if og and is_product_image(og):
+                    im = {"imageUrl": og, "url": pg, "title": pname}
                     confirmed.append((0.78, im, via, dom, is_off, key, excerpt, og))
                     if is_off:
                         break
@@ -1007,6 +1117,28 @@ def main():
                                 (("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else "")
                         chosen = (0.97, im, "db:" + db_hit["db"], "verified", "ean-db", dbexc)
                         db_imgq = "" if good else "unclear"  # flag a low-quality DB image so it yellows even w/o vision
+            # Stage 0b (scanned rows only): a Tier-0 DB hit short-circuits every search stage, which is
+            # right for the IMAGE but wrong for the NAME — a scanned row has no name of its own, and the
+            # barcode databases' titles are transliterated/ASCII-stripped ("Flssig", "Kartuov Filter")
+            # and often thinner than the manufacturer or shop page's. Spend the two deterministic
+            # directory scrapes anyway to harvest a better name. The chosen image and its tier are left
+            # untouched; only note_name is fed, and the usual literal-GTIN check still gates every name.
+            if chosen and ean and not (core or bt) and chosen[4] == "ean-db":
+                for _d in BARCODE_DIRECTORIES:
+                    if time.time() - t0 > PRODUCT_BUDGET:
+                        break
+                    _u = _d.format(ean=ean)
+                    if _u in scraped:
+                        continue
+                    scraped.add(_u)
+                    try:
+                        _k, _vc, _e, _o, _pn = page_confirms(_u, variants, ref, bt, False)
+                        spend(_vc)
+                    except Exception:
+                        continue
+                    if _k:
+                        note_name(base_domain(domain_of(_u)), _pn)
+
             if not chosen and (ean or ref):  # Stage 1: barcode/code image search + confirm
                 imgs, c = img_search(ean or (p["brand"] + " " + ref))
                 spend(c)
@@ -1022,6 +1154,11 @@ def main():
                 w, c = web_search(ean)
                 spend(c)
                 urls += w
+                if not (core or bt):
+                    # Scanned row (no name): a bare-number search ranks near-random products, so put
+                    # the deterministic barcode directories first. They cost no search credit and
+                    # must still pass the same literal-GTIN check to confirm anything.
+                    urls = [d.format(ean=ean) for d in BARCODE_DIRECTORIES] + urls
                 # dedupe preserving order
                 seen, ordered = set(), []
                 for u in urls:
@@ -1031,7 +1168,10 @@ def main():
                 if DEBUG and not ordered:
                     print(f"  row {p['row']} ean-web: 0 page urls (stage no-op)")
                 chosen = verify_urls(ordered[:6], "ean-web")
-            if not chosen and time.time() - t0 < PRODUCT_BUDGET:  # Stage 3: name image search to broaden, confirm again
+            # Stage 3: name image search to broaden, confirm again. Skipped for a row with no name at
+            # all (a scanned catalogue): the query would be empty, which the API rejects — the row
+            # then errored out and burned every retry sweep instead of resolving on its barcode.
+            if not chosen and (core or bt) and time.time() - t0 < PRODUCT_BUDGET:
                 parts = [p["brand"], p["clean"], p["type"]]
                 if not bt:
                     parts.append("pet")
@@ -1154,7 +1294,7 @@ def main():
                         dom = domain_of(u)
                         # barcode-confirm the supplement page with the SAME GTIN check as the main
                         # verification, so a composition we adopt is tied to THIS exact item -> green.
-                        key, vc, exc, _og = page_confirms(u, variants, ref, bt, bool(core))
+                        key, vc, exc, _og, _pn = page_confirms(u, variants, ref, bt, bool(core))
                         spend(vc)
                         if not exc:
                             continue
@@ -1198,6 +1338,15 @@ def main():
 
         rec = {"credits": acc["credits"], "vision": acc["vision"],
                "score": round(order[0][0], 2) if order else 0.0}
+        # A DB hit is keyed by the GTIN = the exact SKU, so its title is a barcode-confirmed name.
+        if db_hit and db_hit.get("name"):
+            note_name(db_hit.get("db", "db"), db_hit["name"])
+        if found_names and not p["clean"]:
+            # Scanned row: report the barcode-confirmed name (best-ranked, then most specific) plus
+            # every distinct source that stated one, so a human can see the agreement before trusting it.
+            found_names.sort(key=lambda x: (x[0], len(x[2])), reverse=True)
+            rec["name_found"] = found_names[0][2]
+            rec["name_sources"] = sorted({d for _, d, _ in found_names})
         if chosen:
             s, im, via, conf, key, excerpt = chosen
             rec.update(url=im["imageUrl"], src=im.get("url", ""), title=im.get("title", ""),
@@ -1209,11 +1358,17 @@ def main():
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
             return rec, ("ver" if conf.startswith("verified") else "lik")
-        if not order and had_error:
-            return None, "retry"  # network error, no data — leave for a retry sweep
+        # Network error with nothing to show -> leave unrecorded for a retry sweep. A SCANNED row that
+        # captured a barcode-confirmed name did learn something, so it is recorded rather than retried;
+        # a named (POS-export) row keeps the original retry behaviour untouched.
+        if not order and had_error and not (found_names and not p["clean"]):
+            return None, "retry"
         top = order[0][1] if order else {}
         rec.update(url="", confidence=None,
-                   reason="low-confidence" if order else "no-results",
+                   # A scanned row can be identified by name yet still have no usable photo; that is
+                   # a partial success, not a miss, so don't file it under "no-results".
+                   reason=("identified-no-image" if rec.get("name_found")
+                           else ("low-confidence" if order else "no-results")),
                    best_title=top.get("title", ""), best_url=top.get("imageUrl", ""))
         return rec, "blank"
 

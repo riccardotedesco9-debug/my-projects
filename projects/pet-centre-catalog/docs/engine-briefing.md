@@ -21,12 +21,16 @@ field carries its OWN trust tier:
 Row **Status** = the weakest field present: all green → **READY**, any yellow → **REVIEW**, any red → **HOLD**
 (an N/A field never drags a row down).
 
-## Pipeline (6 steps; Python; reads secrets from a gitignored `.env`)
+## Pipeline (Python; reads secrets from a gitignored `.env`)
 1. **`read-catalog.py`** — parse the source xlsx → `.tmp/catalog.json` (one record/row: cleaned name, barcode,
    type, brand). *(Domain-specific: the column mapping.)*
 2. **`resolve-images.py`** — the engine. Per product, runs the source cascade below to fix identity + image
    (+ grounding text for the description, + edible composition). Resumable, per-row checkpoint, hard credit cap,
    parallel (`--workers`), optional `--vision` quality/identity gate.
+2b. **`translate-names.py`** *(scan-sourced catalogues)* — renders confirmed names in English, keeping
+   brands/model codes/measurements verbatim and rejecting any translation that drops one. Needed because
+   a GTIN is just as validly confirmed on a foreign-language retailer page, but a storefront sells in one
+   language. Also lifts downstream type/category matching, which keys on English words.
 3. **`gen-descriptions.py`** — Claude writes a warm, accurate 1–2 sentence description + extracts
    Depth/Width/Height/Weight (only when explicitly stated) + the full Ingredients (composition + analytical
    constituents) for edibles. Hard no-fabrication; grounded ONLY in the real scraped text from step 2; description
@@ -37,6 +41,9 @@ Row **Status** = the weakest field present: all green → **READY**, any yellow 
    enriched field beside its own `Tier — how` clickable source cell, per-field colour, worst-field Status).
    Default mode edits the source xlsx in place with Hike-named columns + native dims for a clean 1:1 import.
 6. **`make-preview-pdf.py`** — optional review PDF.
+7. **`export-shopify.py`** *(Shopify clients)* — the catalogue in Shopify's current import schema:
+   evidence-derived Vendor/Type/Product category/Collection/Tags, an Ingredients metafield for food, and
+   Price/Inventory/SKU deliberately blank. Everything imports as `draft`, unpublished.
 
 ## The source cascade (most → least reliable, per field)
 Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
@@ -65,6 +72,32 @@ Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
   dimensions are ignored.**
 - The whole barcode-DB layer is key-gated: with no Barcode Lookup key the free DBs + Firecrawl carry the cascade.
 
+## Catalogues with NO product names (a barcode scan rather than a POS export)
+Added 2026-08-16, first used by `projects/splashstore/` (garage stock scanned straight off the shelf).
+A POS export supplies the name; a scan supplies only the code, so the engine detects a nameless row
+(`not (core or bt)`) and adapts — no separate script, no fork:
+
+- **Barcode directories are queried first** (`BARCODE_DIRECTORIES`: ean-search.org, barcodelookup.com).
+  They are deterministic per-GTIN URLs, so they cost no search credit, and they print the code literally
+  so the normal confirmation applies. This matters because a bare-number web search ranks near-random
+  products when there is no name to score candidates against.
+- **The confirmed page's own product name is captured** (`_page_name` → `note_name` → `rec["name_found"]`
+  + `rec["name_sources"]`), ranked so a manufacturer/shop page beats marketplace keyword soup
+  (`RESELLER`). A page that proves the GTIN but shows no usable photo still records the name — for a
+  scanned row the name IS the primary unknown, so that is a partial success (`reason:
+  "identified-no-image"`), not a miss.
+- **The name-image-search stage is skipped** when there is no name: its query would be empty, which the
+  API rejects, and the row then errored through every retry sweep instead of resolving on its barcode.
+- **`tidy_name()` guards the new failure mode.** A directory's "no record" page still prints the searched
+  code, so it passes the GTIN check; its title ("Barcode Not Found", a bare "EAN <code>") must never be
+  mistaken for a product name — that would report a miss as an identification. It also strips directory
+  chrome ("EAN <code> - …", "… | EAN-Search.org") and `_clean_text` decodes entities/tags. **Any new
+  source needs its empty-state title added here.**
+
+Measured on 44 scanned pool/spa GTINs with Barcode Lookup unavailable: **41 identified (93%)**, 20 with an
+image, ~7 Firecrawl credits per code. `--vision` is pointless here — it judges an image against a claimed
+name, and there isn't one.
+
 ## Adapting to a NEW catalogue (different company / products)
 The engine, tiers, cascade, vision gate and workbook are **generic — reuse as-is**. Only these knobs are
 domain-specific; change them and re-point `read-catalog.py` at the new export:
@@ -77,6 +110,23 @@ domain-specific; change them and re-point `read-catalog.py` at the new export:
 | Brands' official sites | `OFFICIAL_DOMAINS` (`resolve-images.py`) | the new brands → their domains (used to rank + tag `verified-official`) |
 | Big retailers for composition/specs | `PET_RETAILERS` (`resolve-images.py`) | the new vertical's major retailers (the supplement targets these) |
 | Barcode databases | `barcode_db_lookup` (`resolve-images.py`) | OpenPetFoodFacts is pet-food-specific — swap in the vertical's equivalent open DB if one exists; Barcode Lookup / UPCitemdb are generic and stay |
+| Shopify Type / Vendor / tags | `PRODUCT_TYPES`, `BRANDS`, `CATEGORY_TAGS` (`export-shopify.py`) | the new vertical's category words + brand allowlist. All are matched LITERALLY against the confirmed name, so a new vertical means new words, not new logic |
+| Shopify product category | `SHOPIFY_CATEGORY` (`export-shopify.py`) | map each Type to a Shopify taxonomy id from `Shopify/product-taxonomy` `dist/en/categories.txt`. Pool/spa lives under `hg-18-*`; **food is `fb-*`**. Never invent a breadcrumb — this column drives tax |
+
+### Switching to a FOOD catalogue specifically
+The engine was built on pet food, so the food path is the well-trodden one, but three things must move
+together or composition silently goes missing:
+1. **`EDIBLE_TYPE`** (`resolve-images.py`, `assemble.py`) must match the new vertical's consumable
+   categories — it is the switch that makes the engine chase ingredients at all.
+2. **The barcode DB**: `world.openpetfoodfacts.org` is pet-food-only. Human food is
+   `world.openfoodfacts.org` — identical API shape, so only the host changes in `_off_family`.
+3. **Ingredients become the important column**, not an afterthought: they carry a legal obligation on a
+   live listing. They already flow to the curation workbook and to the Shopify
+   `Ingredients (product.metafields.custom.ingredients)` metafield. Expect a real ceiling — public
+   composition data runs ~20% green / ~45% red even on pet food, so budget manual sourcing.
+
+Everything else — identity confirmation, GTIN matching, tiering, normalization, the workbook, the
+Shopify CSV writer — is vertical-agnostic and needs no change.
 
 Everything else (identity confirmation, GTIN matching, the per-field tier logic, the description writer's
 no-fabrication rules, normalization, the workbook) is vertical-agnostic.
