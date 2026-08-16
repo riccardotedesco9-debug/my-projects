@@ -18,6 +18,14 @@ field carries its OWN trust tier:
 - **RED = missing** — needs manual sourcing. (A best-guess candidate may be surfaced but stays flagged red.)
 - **N/A (grey)** — field doesn't apply (e.g. ingredients on a non-edible).
 
+Colours are per FIELD, never per row — an image can be green beside a yellow description, and that is
+correct, not a bug. `finalize-workbook.py` now enforces the contract in code (`check_colour_rule`) and
+refuses to report a clean run when it does not hold: green requires an actual value AND a factual
+confirmation, red requires the field to be genuinely empty, yellow requires something to review.
+When comparing fills, normalise the RGB: a locally written workbook uses `00RRGGBB` and one
+round-tripped through Drive uses `FFRRGGBB`, so a full-string comparison silently matches nothing and
+reports a clean bill of health on a workbook it never inspected.
+
 Row **Status** = the weakest field present: all green → **READY**, any yellow → **REVIEW**, any red → **HOLD**
 (an N/A field never drags a row down).
 

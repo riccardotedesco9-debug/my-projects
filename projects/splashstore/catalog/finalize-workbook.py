@@ -20,6 +20,7 @@ Usage: python finalize-workbook.py [workbook.xlsx] [products.csv] [skipped.json]
 """
 import csv
 import json
+import os
 import sys
 
 import openpyxl
@@ -31,6 +32,7 @@ CSV_PATH = sys.argv[2] if len(sys.argv) > 2 else "../docs/splashstore-shopify-im
 SKIPPED = sys.argv[3] if len(sys.argv) > 3 else "../.tmp/catalog-skipped.json"
 RESOLVED = sys.argv[4] if len(sys.argv) > 4 else "../.tmp/resolved.json"
 CATALOG = sys.argv[5] if len(sys.argv) > 5 else "../.tmp/catalog.json"
+DESC = sys.argv[6] if len(sys.argv) > 6 else "../.tmp/desc.json"
 
 HEAD = PatternFill("solid", fgColor="00975A")        # matches the engine's own header green
 TODO = PatternFill("solid", fgColor="FFF4CC")        # yours to fill, not an engine miss
@@ -282,6 +284,62 @@ def check_thumbnails(ws, resolved, catalog):
     return len(missing)
 
 
+# The colour contract, stated once so a run can be checked against it rather than eyeballed:
+#   GREEN  = verified by one of the implemented factual methods (the GTIN or a brand article code
+#            found LITERALLY at the source). Never a name match, never a vision guess.
+#   YELLOW = we have something, but it was not confirmed by one of those methods. Review it.
+#   RED    = we have nothing for this field.
+#   GREY   = the field does not apply (ingredients on a non-edible).
+# Colours are per FIELD, not per row: an image can be green while the description beside it is yellow.
+# The row's Status is just the weakest field present.
+COLOUR_BY_RGB = {"C6EFCE": "green", "FFEB9C": "yellow", "FFC7CE": "red", "808080": "grey"}
+BARCODE_TIERS = {"verified", "verified-cross", "verified-official"}
+
+
+def cell_colour(cell):
+    """Normalised colour name. The alpha prefix differs between a locally written workbook (00…) and
+    one round-tripped through Drive (FF…), so compare on the last six hex digits only — an earlier
+    version of this check compared full strings, silently matched nothing, and reported a clean bill
+    of health for a workbook it had never actually inspected."""
+    rgb = cell.fill.fgColor.rgb if cell.fill and cell.fill.fgColor else ""
+    return COLOUR_BY_RGB.get(str(rgb)[-6:].upper(), "")
+
+
+def check_colour_rule(ws, resolved, desc, catalog):
+    """Assert the colour contract on every enriched field. Returns a list of violations.
+
+    Worth enforcing in code because the colour is the ONLY thing a reviewer reads before trusting a
+    row: a green cell that is actually a guess is worse than no colour at all.
+    """
+    headers = [c.value for c in ws[1]]
+    by_barcode = {c["barcode"]: str(c["row"]) for c in catalog if c.get("barcode")}
+    bc_col = headers.index("Barcode") + 1
+    violations = []
+
+    for r in range(2, ws.max_row + 1):
+        key = by_barcode.get(str(ws.cell(r, bc_col).value or "").strip())
+        rec = (resolved.get(key) or {}) if key else {}
+        d = (desc.get(key) or {}) if key else {}
+        conf = str(rec.get("confidence") or "")
+        for field, src_col, has_value, verified in (
+            ("image", "Image Source", bool(rec.get("url")), conf in BARCODE_TIERS),
+            ("description", "Description Source", bool(d.get("description")),
+             rec.get("desc_provenance") == "source"),
+            ("ingredients", "Ingredients Source", bool(d.get("ingredients")),
+             str(rec.get("ingredients_src", "")).startswith(("source", "verified", "cross", "official"))),
+        ):
+            if src_col not in headers:
+                continue
+            colour = cell_colour(ws.cell(r, headers.index(src_col) + 1))
+            if colour == "green" and not (has_value and verified):
+                violations.append((r, field, "GREEN without a factual confirmation"))
+            elif colour == "red" and has_value:
+                violations.append((r, field, "RED but a value exists"))
+            elif colour == "yellow" and not has_value:
+                violations.append((r, field, "YELLOW but empty"))
+    return violations
+
+
 def main():
     wb = openpyxl.load_workbook(WORKBOOK)
     with open(CSV_PATH, encoding="utf-8") as f:
@@ -299,6 +357,10 @@ def main():
     n_shop = build_shopify_tab(wb, rows)
     n_skip = build_unscannable_tab(wb, skipped)
     broken = check_thumbnails(wb["Curation"], resolved, catalog)
+    desc = json.load(open(DESC, encoding="utf-8")) if os.path.exists(DESC) else {}
+    violations = check_colour_rule(wb["Curation"], resolved, desc, catalog)
+    for r, field, why in violations:
+        print(f"  !! colour rule: sheet row {r} {field} — {why}")
 
     # Last: size everything so no photo and no sentence is clipped in the browser.
     fit_layout(wb["Curation"],
@@ -316,6 +378,7 @@ def main():
           f"({', '.join(sorted(TODO_COLS & set(headers)))} tinted for you)")
     print(f"  Needs re-scan   {n_skip} codes that carry no product barcode")
     print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
+    print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")
 
