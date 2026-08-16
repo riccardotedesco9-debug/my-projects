@@ -220,6 +220,26 @@ def row_fill(rec):
     return {"verified": GREEN, "likely": YELLOW, "blank": RED}[tier_of(rec)]
 
 
+def defuse_formulas(ws):
+    """Make sure no cell ships as a live FORMULA. Returns how many were defused.
+
+    Product names and descriptions here are harvested from the open web, and a string that begins with
+    "=" is stored by openpyxl with data_type "f" — so a scraped name like `=cmd|' /C calc'!A0` becomes a
+    formula that Excel or Sheets evaluates when the workbook is opened. Forcing the type back to text
+    keeps the exact characters and makes the cell inert.
+
+    Done at the writer rather than by editing the value, because the name itself is legitimate data that
+    must still reach Shopify unaltered; only its interpretation by a spreadsheet is the problem.
+    """
+    n = 0
+    for row in ws.iter_rows():
+        for cell in row:
+            if cell.data_type == "f" and isinstance(cell.value, str):
+                cell.data_type = "s"
+                n += 1
+    return n
+
+
 def link_cell(cell, url):
     """Render a cell as a clickable blue hyperlink when url is non-empty (else leave as-is)."""
     if url:
@@ -558,8 +578,10 @@ def main():
                 ws.cell(row=rr, column=j).alignment = align
         ws.freeze_panes = "B2"   # keep the image column + header visible while scrolling
         ws.auto_filter.ref = f"A1:{openpyxl.utils.get_column_letter(len(headers))}{ws.max_row}"
+        defused = defuse_formulas(ws)
         wb.save(a.out)
-        print(f"Curation workbook -> {a.out} ({len(rows)} rows)")
+        print(f"Curation workbook -> {a.out} ({len(rows)} rows)"
+              + (f"  [{defused} scraped cell(s) defused from formula to text]" if defused else ""))
         return
 
     # Full mode: edit a copy of the source workbook in place (source cols A-F: Name, Description,
@@ -598,6 +620,7 @@ def main():
     fit_and_wrap(ws, len(ALL_HEADERS), ws.max_row)
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:{openpyxl.utils.get_column_letter(len(ALL_HEADERS))}{ws.max_row}"
+    defuse_formulas(ws)
     wb.save(a.out)
     print(f"Enriched workbook -> {a.out}: {filled_d} descriptions, {filled_i} image URLs")
 

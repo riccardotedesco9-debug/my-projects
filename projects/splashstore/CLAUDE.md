@@ -43,6 +43,9 @@ python read-scans.py                                    # 1. scans.txt -> ../.tm
 python ../pet-centre-catalog/resolve-images.py \
        ../.tmp/catalog.json ../.tmp/resolved.json 900 --workers 6   # 2. identity + image + grounding text
 python merge-names.py                                   # 2b. resolved names -> catalog rows (scan-only bridge)
+#      ^ safe to re-run: it now carries step 2c's English names forward. Before that fix, re-running
+#        2b alone silently reverted them to the German/Greek/Polish originals, and the only symptom
+#        was type/category/collection quietly dropping from 41/41 to 40/41.
 python ../pet-centre-catalog/translate-names.py        ../.tmp/catalog-named.json ../.tmp/catalog-desc.json # 2c. names -> English (storefront language)
 python ../pet-centre-catalog/gen-descriptions.py \
        ../.tmp/catalog-desc.json ../.tmp/desc.json 20 ../.tmp/resolved.json   # 3. descriptions + D/W/H/weight

@@ -19,6 +19,7 @@ Emits two files:
 Usage: python merge-names.py [catalog.json] [resolved.json] [out_prefix]
 """
 import json
+import os
 import sys
 
 CATALOG = sys.argv[1] if len(sys.argv) > 1 else "../.tmp/catalog.json"
@@ -30,7 +31,18 @@ def main():
     rows = json.load(open(CATALOG, encoding="utf-8"))
     res = json.load(open(RESOLVED, encoding="utf-8"))
 
-    named = 0
+    # Step 2c (`translate-names.py`) rewrites `clean` IN PLACE on the file this step produces, and
+    # records the pre-translation string in `name_original`. Re-running this step alone would
+    # therefore hand the English names back to their German/Greek/Polish originals, and the only
+    # visible symptom is a quiet drop in type/category/collection matches (they key off English
+    # words). So carry a previous run's translations forward instead of clobbering them.
+    prior = {}
+    if os.path.exists(f"{PREFIX}-named.json"):
+        for old in json.load(open(f"{PREFIX}-named.json", encoding="utf-8")):
+            if old.get("name_original") and old.get("clean"):
+                prior[str(old["row"])] = old
+
+    named = kept = 0
     for r in rows:
         rec = res.get(str(r["row"])) or {}
         # Defensive only: a U+FFFD replacement char would mean a source's encoding was lost upstream,
@@ -38,7 +50,15 @@ def main():
         # ö, Greek and Cyrillic, which a cp1252 console renders as "?" while the stored data is fine.
         # Do not "fix" those by stripping non-ASCII; the data is correct and the terminal is not.
         nm = " ".join((rec.get("name_found") or "").replace("�", "").split()).strip(" -|")
-        if nm:
+        was = prior.get(str(r["row"]))
+        # Keep the translation only while it still belongs to the SAME confirmed name; if the resolver
+        # has since found a different one, the old English text is stale and the new name wins.
+        if was and was.get("name_original") == nm:
+            r.update({k: was[k] for k in ("name", "clean", "name_original") if k in was})
+            r["name_sources"] = rec.get("name_sources") or []
+            named += 1
+            kept += 1
+        elif nm:
             r["name"] = nm
             r["clean"] = nm
             r["name_sources"] = rec.get("name_sources") or []
@@ -49,7 +69,8 @@ def main():
     with open(f"{PREFIX}-desc.json", "w", encoding="utf-8") as f:
         json.dump([r for r in rows if r["clean"]], f, ensure_ascii=False, indent=0)
 
-    print(f"{named}/{len(rows)} rows carry a barcode-confirmed name")
+    print(f"{named}/{len(rows)} rows carry a barcode-confirmed name"
+          + (f" ({kept} English name(s) carried over from step 2c)" if kept else ""))
     print(f"-> {PREFIX}-named.json (all rows, for the workbook)")
     print(f"-> {PREFIX}-desc.json ({named} rows, for the description writer)")
 

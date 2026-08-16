@@ -72,6 +72,9 @@ HEADERS = [
 SEO_TITLE_MAX = 70    # Shopify truncates beyond this
 SEO_DESC_MAX = 320
 ALT_MAX = 125         # optimal alt-text length (hard cap is 512)
+# Not a Shopify limit (their published docs state none for title); a length where a name has almost
+# certainly absorbed page text and wants a human eye. Flag only, never truncate.
+TITLE_REVIEW_LEN = 200
 DEFAULT_INVENTORY = "999"   # owner's instruction: stock everything at 999 until a real stocktake
 
 
@@ -378,9 +381,13 @@ def main():
     desc = json.load(open(a.desc, encoding="utf-8"))
     img = json.load(open(a.img, encoding="utf-8"))
 
-    seen, seen_sku, out, skipped = set(), set(), [], 0
+    seen, seen_sku, out, skipped, overlong = set(), set(), [], 0, []
     for r in rows:
-        title = (r.get("clean") or r.get("name") or "").strip()
+        # Collapse ALL whitespace, not just the ends. Both current ingest paths already normalise
+        # (`read-catalog.clean_name` for a POS export, `tidy_name` for a scraped one), so this is a
+        # boundary guard, not a duplicate of their work: a future ingest that skips normalising would
+        # otherwise put a newline inside a product title, where CSV quoting hides it until import.
+        title = " ".join((r.get("clean") or r.get("name") or "").split())
         if not title:
             skipped += 1      # Title is the one required column; an unidentified row cannot be a product
             continue
@@ -394,6 +401,12 @@ def main():
         # The page-grounded extraction wins; the name is the fallback when the page stated nothing.
         weight = grams(d.get("weight")) or mass_from_name(title)
         nw, nh = dims_from_name(title)
+
+        # Flagged, never truncated. An over-long title is a symptom (a scrape that swallowed a whole
+        # paragraph), and cutting it silently would hide that while also mangling a name the row is
+        # identified by. The reviewer decides.
+        if len(title) > TITLE_REVIEW_LEN:
+            overlong.append((r.get("barcode", ""), len(title)))
 
         out.append({
             "URL handle": handle_for(title, r.get("barcode", ""), seen),
@@ -453,6 +466,9 @@ def main():
 
     filled = lambda col: sum(1 for r in out if r[col])
     print(f"Shopify CSV -> {a.out}  ({len(out)} products, {skipped} unidentified rows skipped)")
+    if overlong:
+        print(f"  !! {len(overlong)} title(s) over {TITLE_REVIEW_LEN} chars - check the scrape, not truncated: "
+              + ", ".join(f"{b} ({n})" for b, n in overlong[:5]))
     print(f"  barcode {filled('Barcode')} | image {filled('Product image URL')} | "
           f"type {filled('Type')} | category {filled('Product category')} | vendor {filled('Vendor')} | "
           f"collection {filled('Collection')} | "

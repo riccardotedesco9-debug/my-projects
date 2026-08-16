@@ -35,7 +35,14 @@ Row **Status** = the weakest field present: all green → **READY**, any yellow 
 2. **`resolve-images.py`** — the engine. Per product, runs the source cascade below to fix identity + image
    (+ grounding text for the description, + edible composition). Resumable, per-row checkpoint, hard credit cap,
    parallel (`--workers`), optional `--vision` quality/identity gate.
-2b. **`translate-names.py`** *(scan-sourced catalogues)* — renders confirmed names in English, keeping
+2b. **`merge-names.py`** *(scan-sourced catalogues only; lives in the CLIENT project)* — writes the
+   resolver's `name_found` back onto the catalogue rows as `name`/`clean`. A POS export arrives with a
+   name; a scan has none until step 2 confirms one, and steps 3-7 all read `clean`. Deliberately does
+   not guess brand or type. **Ordering hazard:** step 2c rewrites `clean` in place on this step's own
+   output file, so re-running 2b alone used to hand the English names back to their foreign originals,
+   visible only as a quiet drop in type/category/collection matches. It now carries a prior run's
+   translations forward, keyed on `name_original` still matching the confirmed name.
+2c. **`translate-names.py`** *(scan-sourced catalogues)* — renders confirmed names in English, keeping
    brands/model codes/measurements verbatim and rejecting any translation that drops one. Needed because
    a GTIN is just as validly confirmed on a foreign-language retailer page, but a storefront sells in one
    language. Also lifts downstream type/category matching, which keys on English words.
@@ -56,6 +63,46 @@ Row **Status** = the weakest field present: all green → **READY**, any yellow 
 7. **`export-shopify.py`** *(Shopify clients)* — the catalogue in Shopify's current import schema:
    evidence-derived Vendor/Type/Product category/Collection/Tags, an Ingredients metafield for food, and
    Price/Inventory/SKU deliberately blank. Everything imports as `draft`, unpublished.
+8. **`finalize-workbook.py`** *(lives in the CLIENT project; generic, every path is an argument)* — folds
+   the Shopify CSV in as a second tab, adds a tab for scanned codes that carry no product barcode, sizes
+   every row and column so nothing is clipped, attaches the colour-contract notes, and ASSERTS the
+   contract (no green without a factual confirmation) rather than trusting it.
+9. **`publish-workbook.mjs`** *(client project)* — uploads the .xlsx and lets Drive convert it, so the
+   Sheet shows real embedded photos with no image hosting and no `=IMAGE()`. Updates the same Sheet id
+   in place, so a link already shared keeps working.
+
+### Which stage owns what (read before adding anything)
+The stages are a hierarchy of increasing commitment, and new work belongs at the EARLIEST stage that has
+the evidence for it. Getting this wrong is how a fix ends up invisible or duplicated.
+
+| If the change is about… | It belongs in | Because |
+|---|---|---|
+| where a fact comes from, or a new source | step 2 (`resolve-images.py`) | tiers and provenance are decided once, at resolution |
+| normalising an incoming name | step 1 / 2 (`clean_name`, `tidy_name`) | so every later artifact sees the clean value |
+| what English the customer reads | step 2c | after identity, before anything classifies on words |
+| prose or extracted numbers | step 3 | the only stage allowed to write sentences |
+| how a field is DISPLAYED or explained | step 5 (`assemble.py`) | presentation, derived from resolved data, never re-deciding it |
+| a Shopify-shaped concern (category, collection, handle, SKU) | step 7 | the schema boundary, and the only place that knows the store |
+| layout, extra tabs, or a contract assertion | step 8 | the last writer before the deliverable is published |
+
+Two rules that fall out of this: **never re-decide identity in a later stage** (a display stage that
+"corrects" a name is a silent data change), and **never write a cell in a way a spreadsheet can execute**
+— both step 5 and step 8 call `defuse_formulas`, because both write cells and the input is scraped text.
+
+### Proving it still works on a catalogue it was not built for
+`python test-multi-vertical-stress.py` — offline, free, no keys, a few seconds. It runs steps 7 and 5
+over a fixture of food, electronics, apparel, non-Latin names, colliding names, a 300-character title
+and spreadsheet-injection payloads, then asserts the properties that must hold for ANY vertical: no
+invented category or collection outside the configured one, unique non-empty handles and SKUs, no
+newline in a CSV cell, hostile titles preserved verbatim rather than rewritten, zero live formulas in
+the workbook, and unidentified rows skipped from the export but still present in the review workbook.
+**Run it after touching steps 5 or 7.** It is the cheapest way to catch the failure this engine cares
+about most: not a crash, but a confident wrong answer on a product nobody tested.
+
+Two practical notes. The fixture writes under `.tmp/` in the project tree rather than the system temp,
+and the injection payload is assembled at runtime instead of stored as a literal, both because
+antivirus quarantines the classic spreadsheet-DDE string on sight — that surfaced as an unexplained
+"permission denied" on fixture files before the cause was understood.
 
 ## Guarding the IMAGE against non-products
 A URL and a size gate cannot tell you what a picture shows, and two failure modes get through them:

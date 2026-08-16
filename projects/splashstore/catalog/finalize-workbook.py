@@ -413,6 +413,24 @@ def strip_note(ws):
     return False
 
 
+def defuse_formulas(wb):
+    """Re-assert the engine's no-live-formula rule across every sheet, and report the count.
+
+    `assemble.py` already defuses the workbook it writes, but this script REWRITES cells: the column
+    reorder re-assigns each value, and the Shopify tab is built fresh from the CSV. Both paths hand
+    openpyxl a raw string, so a scraped name beginning with "=" becomes a formula again on the way out.
+    This runs last, immediately before the save that gets published.
+    """
+    n = 0
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f" and isinstance(cell.value, str):
+                    cell.data_type = "s"
+                    n += 1
+    return n
+
+
 def add_note(ws):
     """Write the colour reminder one column past the table, in the frozen header row.
 
@@ -474,6 +492,7 @@ def main():
     fit_layout(wb["Needs re-scan"], ["What it is", "What to do"])
     notes = annotate_headers(wb["Curation"])
     where = add_note(wb["Curation"])
+    defused = defuse_formulas(wb)
     wb.save(WORKBOOK)
 
     print(f"Finalized {WORKBOOK}")
@@ -485,6 +504,7 @@ def main():
     print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
     print(f"  colour guide    inline note at {where} + {notes} header hover notes (no explainer tab)")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
+    print(f"  formula safety  {'no live formulas' if not defused else str(defused) + ' scraped cell(s) forced to text'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")
 
