@@ -180,6 +180,28 @@ closest free substitute for Barcode Lookup's non-food coverage — but capped at
 GTIN is entered by the seller. Both are no-ops until their key exists, so nothing changes until then.
 **GS1 stays manual**: every endpoint 403s: see the engine briefing before spending time on it again.
 
+### Shopify import — verified against Shopify's own sources 2026-08-16 (don't re-derive)
+- **Column names match the documented product-CSV schema** (`help.shopify.com/en/manual/products/
+  import-export/using-csv`): the new-style names (`URL handle`, `Description`, `Price`, `Barcode`,
+  `Product image URL`), not the legacy `Handle` / `Body (HTML)` / `Variant *` set. Only `Title` and
+  `URL handle` are required, both present. The 4 non-schema columns are metafields in Shopify's own
+  export form, e.g. `Depth (product.metafields.custom.depth)`.
+- **All 6 `Product category` IDs are valid** in the live Standard Product Taxonomy (`hg-18-1-7`,
+  `hg-18-1-3-1`, `hg-18-4`, `hg-18-1`, `hg-18-1-16`, `hg-18-1-11`), checked against
+  `raw.githubusercontent.com/Shopify/product-taxonomy/main/dist/en/categories.txt` (release 2026-08).
+  An ID that is not in that file fails the import with "not a valid product category". Parse that file
+  as `gid://shopify/TaxonomyCategory/<id> : <breadcrumb>` — splitting on the first `:` yields "gid".
+- **`Collection` IS a supported import column** and matches on collection TITLE, creating a new
+  collection on any mismatch. All 7 titles used were checked against the live store
+  (`splashstoremalta.com/collections.json`, 32 collections): **7/7 exact matches, 0 would be created**,
+  41/41 products assigned.
+- **All 36 image URLs return 200 to a plain server fetcher**, so Shopify's importer can pull them
+  (its fetch is anonymous, which is exactly what broke `=IMAGE()` — different mechanism, same trap).
+- 41 draft / 41 `Published on online store: false` / inventory 999 / prices blank / handles and SKUs unique.
+- **Two things only the owner can confirm in admin:** whether those collections are MANUAL (a CSV
+  `Collection` value cannot add a product to an *automated* collection, which is the usual cause of
+  "the collection shows but it's empty"), and whether the 4 custom metafield definitions exist.
+
 ### Known state / gotchas
 - **Barcode Lookup is live but on the FREE TRIAL: 50 successful calls per MONTH.** Key is in the root
   `.env` (rotated 2026-08-16). Only HTTP-200-with-data is metered — 404 misses are free (verified). It
