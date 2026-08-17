@@ -65,6 +65,7 @@ import {
   type ComputedFreeSlot,
 } from "./match-compute.js";
 import { downloadMedia, sendTextMessage } from "./telegram-client.js";
+import { defaultEndTime, inferEventMinutes } from "./event-duration.js";
 import {
   createCalendarEvent,
   listCalendarEventsInWindow,
@@ -1392,27 +1393,32 @@ const addPersonalEventTool: ToolDefinition = {
     "Persist a single one-off future personal occasion the caller mentions verbally ('doctor appt Wed 3pm', 'dad's 60th Sat 7pm', 'flying to Rome Fri 6am'). The event becomes a busy block on the caller's stored schedule — auto-renders under the date in [STATE], blocks overlap calculations, and SURVIVES the nightly conversation-log prune. Always APPEND-only: never wipes other entries on that date. **Also auto-mirrors to the caller's Google Calendar when /connect'd** (best-effort — result reports calendar_mirrored: 'created' | 'token_expired' | 'failed' | 'skipped_not_connected'). The Calendar mirror means even far-future events (beyond the [STATE] +60d window) are durably stored on the user's real calendar, and the user can verify the bot remembered. Use this whenever the caller mentions a specific dated future commitment that is NOT (a) a recurring shift rota or schedule upload (use parse_schedule for those — it's a per-date replace), (b) a meetup with named attendees you're booking (use book_meetup — it handles attendees + invites), or (c) a recurring lifestyle pattern like 'gym every Tuesday' (use parse_schedule with multiple dates, or upsert_knowledge for purely descriptive 'lives in Gozo' style facts). Single date, single occurrence.",
   input_schema: {
     type: "object",
-    required: ["date", "start_time", "end_time", "label"],
+    required: ["date", "start_time", "label"],
     properties: {
       date: { type: "string", description: "YYYY-MM-DD." },
       start_time: { type: "string", description: "HH:MM (24h). Pick the realistic start of the busy window — when the user actually becomes unavailable." },
-      end_time: { type: "string", description: "HH:MM (24h). Pick a sensible-length window for the event: a 1-hour appointment is start..start+1h; a party is ~3h; a wedding-all-day is wide-partial like 09:00–22:00 (NOT 00:00–23:59 — that's reserved for shift-rota all-day-busy entries and would override OFF markers in [STATE]); a flight day is the morning block 06:00–12:00. The user is BUSY during this window." },
+      end_time: { type: "string", description: "OPTIONAL HH:MM (24h). Pass it when the caller stated or implied a length, or when you can judge the window better than the default: a 1-hour appointment is start..start+1h; a party is ~3h; a wedding-all-day is wide-partial like 09:00–22:00 (NOT 00:00–23:59 — that's reserved for shift-rota all-day-busy entries and would override OFF markers in [STATE]); a flight day is the morning block 06:00–12:00. OMIT it when the caller didn't say how long — the tool then assumes a sensible length from the label (dinner/drinks 2h, lunch 1.5h, party 3h, movie 2.5h, flight 6h, wedding 8h, anything else 1h) and returns end_time_assumed=true with the window it used. NEVER ask the caller how long the event will be — assume, save, and state the assumption in your confirmation so they can correct it. The user is BUSY during this window." },
       label: { type: "string", description: "Short human-readable description, STARTING with one fitting emoji where it makes sense, e.g. '🤝 interview at Solana', '🎉 dad's 60th', '✈️ flight to Rome', '💒 wedding'. Skip the emoji for anything private/sensitive (keep it plain so redaction works). Keep it under ~40 chars." },
     },
   },
   async execute(input, ctx): Promise<ToolResult> {
     const date = typeof input.date === "string" ? input.date.trim() : "";
     const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
-    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const rawEndTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
     const label = typeof input.label === "string" ? input.label.trim() : "";
 
     const dateRe = /^\d{4}-\d{2}-\d{2}$/;
     const timeRe = /^\d{2}:\d{2}$/;
     if (!dateRe.test(date)) return { error: `Invalid date '${date}'. Use YYYY-MM-DD.` };
     if (!timeRe.test(startTime)) return { error: `Invalid start_time '${startTime}'. Use HH:MM (24h).` };
-    if (!timeRe.test(endTime)) return { error: `Invalid end_time '${endTime}'. Use HH:MM (24h).` };
     if (!label) return { error: "label is required — describe the occasion in a few words." };
     if (label.length > 80) return { error: "label too long — keep under 80 chars." };
+
+    // No end_time means the caller never said how long it runs. Assume it from
+    // the label rather than bouncing the question back at them.
+    const endTimeAssumed = rawEndTime === "";
+    const endTime = endTimeAssumed ? defaultEndTime(startTime, label) : rawEndTime;
+    if (!timeRe.test(endTime)) return { error: `Invalid end_time '${endTime}'. Use HH:MM (24h), or omit it to have the length assumed.` };
 
     try {
       await appendBusyBlockToUser(ctx.callerChatId, date, startTime, endTime, label);
@@ -1474,6 +1480,8 @@ const addPersonalEventTool: ToolDefinition = {
       date,
       start_time: startTime,
       end_time: endTime,
+      end_time_assumed: endTimeAssumed,
+      ...(endTimeAssumed ? { assumed_duration_minutes: inferEventMinutes(label) } : {}),
       label,
       calendar_mirrored: calendarMirrored,
       sleep_warnings: sleepWarnings,
@@ -2427,14 +2435,14 @@ const watchScheduleUploadTool: ToolDefinition = {
 const bookMeetupTool: ToolDefinition = {
   name: "book_meetup",
   description:
-    "Commit a meetup to Google Calendar for the caller and each named attendee. CANONICAL 'lock in' action — a real calendar event on every /connect'd participant's primary calendar, plus a busy block appended to each person's in-bot schedule so future 'who's free' queries treat the slot as taken. Single-day event only: one date, one start time, one end time. For recurring, tell the caller to duplicate from Google Calendar's UI — no recurrence here. Anyone without Google Calendar connected is listed in skipped_not_connected; the caller's OWN event is still created unconditionally (booking on the caller's calendar never requires the contact's consent or connection). After booking, reply with ONE line ('booked — it's on your calendar') and stop. When the caller defers ('just pick', 'just book it', 'you choose'), you are authorised to choose concrete values (date, start_time, end_time, title) yourself and book immediately — do not re-ask for specifics after a defer.",
+    "Commit a meetup to Google Calendar for the caller and each named attendee. CANONICAL 'lock in' action — a real calendar event on every /connect'd participant's primary calendar, plus a busy block appended to each person's in-bot schedule so future 'who's free' queries treat the slot as taken. Single-day event only: one date, one start time, one end time — and end_time is OPTIONAL, so never hold up a booking to ask the caller how long it'll run (omit it and the tool assumes a sensible length from the title). For recurring, tell the caller to duplicate from Google Calendar's UI — no recurrence here. Anyone without Google Calendar connected is listed in skipped_not_connected; the caller's OWN event is still created unconditionally (booking on the caller's calendar never requires the contact's consent or connection). After booking, reply with ONE line ('booked — it's on your calendar') and stop. When the caller defers ('just pick', 'just book it', 'you choose'), you are authorised to choose concrete values (date, start_time, end_time, title) yourself and book immediately — do not re-ask for specifics after a defer.",
   input_schema: {
     type: "object",
-    required: ["date", "start_time", "end_time", "title"],
+    required: ["date", "start_time", "title"],
     properties: {
       date: { type: "string", description: "YYYY-MM-DD, in the caller's timezone." },
       start_time: { type: "string", description: "HH:MM (24h), local to the caller's timezone." },
-      end_time: { type: "string", description: "HH:MM (24h), local to the caller's timezone." },
+      end_time: { type: "string", description: "OPTIONAL HH:MM (24h), local to the caller's timezone. Pass it when the caller stated or implied a length, or when you can judge it better. OMIT it when they didn't say how long — the tool assumes a sensible length from the title (dinner/drinks 2h, lunch 1.5h, party 3h, movie 2.5h, anything else 1h) and returns end_time_assumed=true with the window it used. NEVER ask the caller how long the meetup will be — assume it, book it, and mention the window in your one-line confirmation." },
       title: { type: "string", description: "Short event title, e.g. 'Cat walk with Kurt', 'Dinner with Sofia'." },
       attendee_names: {
         type: "array",
@@ -2454,12 +2462,18 @@ const bookMeetupTool: ToolDefinition = {
   async execute(input, ctx): Promise<ToolResult> {
     const date = typeof input.date === "string" ? input.date.trim() : "";
     const startTime = typeof input.start_time === "string" ? input.start_time.trim() : "";
-    const endTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
+    const rawEndTime = typeof input.end_time === "string" ? input.end_time.trim() : "";
     const title = typeof input.title === "string" ? input.title.trim().slice(0, 120) : "";
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "date must be YYYY-MM-DD." };
     if (!/^\d{2}:\d{2}$/.test(startTime)) return { error: "start_time must be HH:MM." };
-    if (!/^\d{2}:\d{2}$/.test(endTime)) return { error: "end_time must be HH:MM." };
     if (!title) return { error: "title required." };
+
+    // Same rule as add_personal_event: an omitted end_time is assumed from the
+    // title, never asked back. Length assumptions are cheap to correct; an
+    // extra round-trip on every booking is not.
+    const endTimeAssumed = rawEndTime === "";
+    const endTime = endTimeAssumed ? defaultEndTime(startTime, title) : rawEndTime;
+    if (!/^\d{2}:\d{2}$/.test(endTime)) return { error: "end_time must be HH:MM, or omit it to have the length assumed." };
 
     const tz = resolveCallerTimezone(ctx);
     const attendeeNames = Array.isArray(input.attendee_names)
@@ -2657,6 +2671,8 @@ const bookMeetupTool: ToolDefinition = {
       unknown_attendees: unknownAttendees,
       partial_failures: partialFailures,
       event: { date, start_time: startTime, end_time: endTime, title },
+      end_time_assumed: endTimeAssumed,
+      ...(endTimeAssumed ? { assumed_duration_minutes: inferEventMinutes(title) } : {}),
     };
   },
 };

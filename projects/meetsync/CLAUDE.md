@@ -42,14 +42,14 @@ projects/trigger-automations/src/trigger/meetsync/
 | Tool | Purpose |
 |---|---|
 | `parse_schedule` | Save the caller's own schedule, or an on-behalf one. Overlap-aware merge: replaces overlapping prior entries on a date, preserves non-overlapping ones |
-| `add_personal_event` | Append a one-off future occasion ("doctor Wed 3pm") to caller's schedule. Pure append, survives nightly chat-log prune. Auto-mirrors to Google Calendar when /connect'd |
+| `add_personal_event` | Append a one-off future occasion ("doctor Wed 3pm") to caller's schedule. Pure append, survives nightly chat-log prune. Auto-mirrors to Google Calendar when /connect'd. `end_time` optional — assumed from the label (see Assumed durations) |
 | `remove_schedule_entry` | Delete a stored entry (and its GCal mirror) by date+time. Auto-dedupes identical duplicates; falls back to Calendar-only delete when D1 has no match; bulk delete via `delete_all_matching` |
 | `mirror_to_calendar` | Push an existing D1 entry to Google Calendar without writing to D1 — closes sync gaps for entries that pre-date the auto-mirror |
 | `add_contact` | Link a contact by name+phone (shadow-tracks unmatched phones) |
 | `forget_contact` | Hard-delete a person_note |
 | `set_person_hidden` | Soft-hide a contact from overlap |
 | `compute_overlap` | Find free time across caller + non-hidden contacts (reads live calendars) |
-| `book_meetup` | Create one Google Calendar event with attendees + busy-block memory. Hard-blocks on 9h sleep+commute window unless `override_sleep_warning=true` |
+| `book_meetup` | Create one Google Calendar event with attendees + busy-block memory. Hard-blocks on 9h sleep+commute window unless `override_sleep_warning=true`. `end_time` optional — assumed from the title (see Assumed durations) |
 | `cancel_meetup` | Two-stage delete from caller's calendar (preview → confirm) |
 | `upsert_knowledge` | Update caller profile (target='user') or freeform fact about contact (target='person') |
 | `query_schedule_history` | Look up dates outside the active 14d-back / 60d-forward [STATE] window (prose Q&A about a specific date) |
@@ -61,6 +61,10 @@ projects/trigger-automations/src/trigger/meetsync/
 | `watch_schedule_upload` | Auto-ping caller when a contact next uploads a schedule |
 | `reset_conversation` | Clear chat history; contacts and schedules survive |
 | `reply` | Terminal — send the user's reply (text + optional buttons) |
+
+## Assumed durations (added 2026-08-09)
+
+The bot never asks "how long will it be?". `end_time` is **optional** on `add_personal_event` and `book_meetup`; when it's omitted the length comes from `event-duration.ts` — a keyword + emoji table over the label/title (dinner/drinks 2h, lunch/brunch 1.5h, movie 2.5h, party/concert 3h, hike/beach 4h, flight 6h, wedding 8h, **everything else 1h**), clamped to 23:59 so a late event never wraps into an overnight-shift reading. The tool result carries `end_time_assumed` + `assumed_duration_minutes` so Claude states the window in its confirmation ("dinner Fri 20:00–22:00 — say if it runs later") and the caller corrects in one message. Claude still passes an explicit `end_time` whenever the caller stated or implied a length. Prompt rule: **DURATION IS ASSUMED, NEVER ASKED** in `turn-handler.ts`. Tests: `__tests__/event-duration.test.ts` (`npx tsx …`).
 
 ## Privacy & sleep guardrails (added 2026-05-23)
 

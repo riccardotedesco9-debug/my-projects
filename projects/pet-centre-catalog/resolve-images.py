@@ -70,6 +70,10 @@ MAX_QUALITY_ALTS = 2    # at most this many alternate images get a vision call w
 # scorer considered unrelated — vision is a tiebreaker for near-misses, not a second search.
 SUBTHRESHOLD_TRIES = 2
 SUBTHRESHOLD_FLOOR = 0.30
+# VERTICAL KNOB. An extra word added to a name-led IMAGE search when the brand is unknown, to
+# steer generic results towards the catalogue's domain ("pet", "pool", "hardware"). Empty by
+# default: a wrong hint is worse than none, because it pulls the search away from the product.
+QUERY_HINT = os.environ.get("CATALOG_QUERY_HINT", "")
 VISION_MAX_PX = 1024    # downscale the long edge before the vision call to bound image-token cost
 VISION_CALL_CAP = 30000  # hard ceiling on vision calls per run (insurance against runaway Anthropic spend)
 GROUND_MIN = 400        # below this many chars of page text, try one supplementary trusted-source fetch
@@ -268,6 +272,8 @@ def api(path, body, timeout=60, retries=3):
                 last = e  # transient server / rate-limit — back off + retry (matters under --workers)
                 time.sleep(min(2 ** attempt, 12))
                 continue
+            if e.code == 402:
+                _fc_exhausted[0] = True    # out of credits: no later call can succeed either
             raise  # 402/403/404/400 etc. — a real client error; let the caller handle it
         except Exception as e:  # URLError (DNS/conn reset), timeout, etc. — transient
             last = e
@@ -316,6 +322,10 @@ DB_UA = "PetCentreCatalog/1.0 (pet-shop catalogue enrichment; contact ricotedesc
 _bl_lock = threading.Lock()
 _bl_count = [0]          # successful (metered) Barcode Lookup lookups this run
 _bl_disabled = [False]   # flipped once BL auth/quota fails -> stop calling it, fail open to the free sources
+# Firecrawl answers 402 when the account is out of credits. That is a wallet state, not a blip: every
+# later call returns it too, so the self-healing sweeps would re-attempt every row three more times and
+# achieve nothing but noise. Flipped on the first 402 so the run can stop and say why.
+_fc_exhausted = [False]
 
 
 def _db_get(url, headers=None, timeout=20):
@@ -1128,6 +1138,25 @@ def main():
             rank = 3 if is_off else (1 if RESELLER.search(dom or "") else 2)
             found_names.append((rank, dom, nm))
 
+        def working_name():
+            """The best name available RIGHT NOW: the catalogue's own, else the one the barcode
+            stages just confirmed.
+
+            A POS export carries a name from the start, so every later stage could read `p["clean"]`.
+            A scan does not: its name only exists once a source has literally confirmed the GTIN,
+            partway through this same function. Stages that keyed off `p["clean"]` therefore behaved
+            as if the product were permanently anonymous: the name-led image search and the vision
+            fallback were
+            skipped even for rows the engine had just identified, which is how a row ends up
+            "identified, no image" with not even a candidate to review. Called lazily so each stage
+            sees whatever has been confirmed by then.
+            """
+            if p["clean"]:
+                return p["clean"]
+            if not found_names:
+                return ""
+            return max(found_names, key=lambda x: (x[0], len(x[2])))[2]
+
         def img_ok(u):
             """(live, good) for an image URL, fetched at most once per product."""
             if u not in img_memo:
@@ -1251,7 +1280,7 @@ def main():
             src_dom = domain_of(im.get("url", ""))
             base_prov = "official" if (offdoms and any(d in src_dom for d in offdoms)) else "source"
 
-            a = vision_assess(im["imageUrl"], p["clean"], p["brand"], p["type"])
+            a = vision_assess(im["imageUrl"], working_name(), p["brand"], p["type"])
             vbump()
             ident_ok = barcode_verified or (a["match"] and a["confidence"] >= VISION_MIN_CONF)
             if ident_ok and a["single"] and a["whole"]:  # primary image is clean and is the product
@@ -1271,7 +1300,7 @@ def main():
                     continue
                 seen.add(cu)
                 tried += 1
-                ca = vision_assess(cu, p["clean"], p["brand"], p["type"])
+                ca = vision_assess(cu, working_name(), p["brand"], p["type"])
                 vbump()
                 if not (ca["match"] and ca["single"] and ca["whole"]):
                     continue
@@ -1363,14 +1392,18 @@ def main():
                 if DEBUG and not ordered:
                     print(f"  row {p['row']} ean-web: 0 page urls (stage no-op)")
                 chosen = verify_urls(ordered[:6], "ean-web")
-            # Stage 3: name image search to broaden, confirm again. Skipped for a row with no name at
-            # all (a scanned catalogue): the query would be empty, which the API rejects — the row
-            # then errored out and burned every retry sweep instead of resolving on its barcode.
-            if not chosen and (core or bt) and time.time() - t0 < PRODUCT_BUDGET:
-                parts = [p["brand"], p["clean"], p["type"]]
-                if not bt:
-                    parts.append("pet")
-                imgs, c = img_search(" ".join(filter(None, parts)) or p["clean"])
+            # Stage 3: name image search to broaden, confirm again. Runs on the best name available
+            # now — the catalogue's own, or the one the barcode stages just confirmed. It is still
+            # skipped when there is NO name at all, because the query would be empty and the API
+            # rejects that, erroring the row out and burning every retry sweep.
+            wname = working_name()
+            if not chosen and (core or bt or wname) and time.time() - t0 < PRODUCT_BUDGET:
+                # QUERY_HINT is a vertical knob, empty by default. This used to append the literal
+                # word "pet" whenever the brand was unknown — harmless in the pet shop it was written
+                # for, actively wrong anywhere else, since it steers an image search for pool chemicals
+                # towards pet products.
+                parts = [p["brand"], wname, p["type"], QUERY_HINT if not bt else ""]
+                imgs, c = img_search(" ".join(filter(None, parts)) or wname)
                 spend(c)
                 add(imgs, "name")
                 chosen = verify_top()
@@ -1402,7 +1435,7 @@ def main():
                 im = {"imageUrl": eb["image"], "url": eb.get("source_url", ""), "title": eb.get("name", "")}
                 tier = "likely"
                 if VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
-                    a = vision_assess(eb["image"], p["clean"] or eb.get("name", ""), p["brand"], p["type"])
+                    a = vision_assess(eb["image"], working_name() or eb.get("name", ""), p["brand"], p["type"])
                     vbump()
                     if not (a["match"] and a["confidence"] >= VISION_MIN_CONF):
                         im = None
@@ -1420,13 +1453,14 @@ def main():
         # let VISION look at the best few and say whether it IS the product.
         # This can only ever mint YELLOW: the tier is `verified-visual`, and green stays reserved for
         # a literal barcode/article-code confirmation. Requires --vision; without it, nothing changes.
-        if not chosen and core and VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
+        vname = working_name()   # a scanned row is only judgeable once its name is confirmed
+        if not chosen and vname and VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
             for s, im, via in order[:SUBTHRESHOLD_TRIES]:
                 if s < SUBTHRESHOLD_FLOOR or time.time() - t0 > PRODUCT_BUDGET:
                     break
                 if not img_ok(im["imageUrl"])[1]:
                     continue
-                a = vision_assess(im["imageUrl"], p["clean"], p["brand"], p["type"])
+                a = vision_assess(im["imageUrl"], vname, p["brand"], p["type"])
                 vbump()
                 if a["match"] and a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
                     chosen = (s, im, via, "verified-visual", "", "")
@@ -1489,9 +1523,13 @@ def main():
                 ingredients_url = db_hit.get("ingredients_url", "")
             thin = len(excerpt or "") < GROUND_MIN
             need_comp = is_edible and not _has_comp(excerpt)
-            if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt) \
+            # Same reason as stage 3: a scanned row has no ingest name, so this supplement used to be
+            # skipped even after the barcode confirmed one — leaving a verified product described from
+            # its name alone (a YELLOW description beside a GREEN photo) when a real page was reachable.
+            sname = working_name()
+            if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt or sname) \
                     and time.time() - t0 < PRODUCT_BUDGET:
-                q = " ".join(filter(None, [p["brand"], p["clean"], p["type"]]))
+                q = " ".join(filter(None, [p["brand"], sname, p["type"]]))
                 if need_comp:
                     q += " ingredients composition"
                 try:
@@ -1626,6 +1664,12 @@ def main():
     for sweep in range(4):
         todo = [p for p in products if p["row"] not in done]
         if not todo:
+            break
+        if _fc_exhausted[0]:
+            print(f"\nSTOPPING: Firecrawl returned 402 (out of credits). {len(todo)} row(s) not "
+                  f"completed. Nothing was charged — a 402 means the request never ran. Top up at "
+                  f"firecrawl.dev/pricing, then re-run this exact command: the checkpoint resumes "
+                  f"from here, and any row already written keeps what it learned.")
             break
         print(f"sweep {sweep + 1}: {len(todo)} to process "
               f"(cap {CREDIT_CAP}, workers {WORKERS}, vision={'on' if VISION else 'off'})")

