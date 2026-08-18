@@ -342,7 +342,8 @@ def check_thumbnails(ws, resolved, catalog):
 #   GREY   = the field does not apply (ingredients on a non-edible).
 # Colours are per FIELD, not per row: an image can be green while the description beside it is yellow.
 # The row's Status is just the weakest field present.
-COLOUR_BY_RGB = {"C6EFCE": "green", "FFEB9C": "yellow", "FFC7CE": "red", "808080": "grey"}
+COLOUR_BY_RGB = {"C6EFCE": "green", "A9D08E": "green",   # dark green = verified + linked evidence
+                 "FFEB9C": "yellow", "FFC7CE": "red", "808080": "grey"}
 BARCODE_TIERS = {"verified", "verified-cross", "verified-official"}
 
 
@@ -431,8 +432,9 @@ HEADER_NOTES = {
 # earlier version was a whole "How to read this" tab; that was more sheet than the point deserved.
 NOTE_TEXT = ("Colours are per field, not per row. Green: the barcode was found literally at that "
              "source. Yellow: plausible, but not confirmed that way. Red: nothing. Grey: not "
-             "applicable. Blue tints mark IDENTITY fields (barcode, who confirmed it) - a "
-             "category, not a verdict. A green photo beside a yellow description is normal. "
+             "applicable. Darker green: verified AND the cell links to the proving page. Blue "
+             "tints mark IDENTITY fields (barcode, who confirmed it) - a category, not a "
+             "verdict. A green photo beside a yellow description is normal. "
              "Hover any header for detail.")
 NOTE_MARKER = "Colours are per field"
 LEGACY_TAB = "How to read this"
@@ -509,6 +511,28 @@ IDENTITY_FILLS = {
     "Barcode":      PatternFill("solid", fgColor="DDEBF7"),   # light blue - the unique identifier
     "Name confirmed by": PatternFill("solid", fgColor="E4DFEC"),   # soft lavender - the evidence trail
 }
+
+
+# A darker green for a verified cell that IS a link to its proving page: the click is the whole
+# point of the source columns, and at a glance 'verified AND the evidence is one click away' is
+# stronger information than plain verified.
+DARK_GREEN = PatternFill("solid", fgColor="A9D08E")
+
+
+def darken_linked_sources(ws):
+    """Deepen the green on source cells that carry a hyperlink to the page that proved them."""
+    headers = [c.value for c in ws[1]]
+    n = 0
+    for name in ("Image Source", "Description Source", "Ingredients Source", "Image URL"):
+        if name not in headers:
+            continue
+        c = headers.index(name) + 1
+        for r in range(2, ws.max_row + 1):
+            cell = ws.cell(r, c)
+            if cell.hyperlink and str((cell.fill.fgColor.rgb or ""))[-6:].upper() == "C6EFCE":
+                cell.fill = DARK_GREEN
+                n += 1
+    return n
 
 
 def colour_identity(ws):
@@ -705,6 +729,7 @@ def main():
     explained = explain_red_images(wb["Curation"], resolved, catalog)
     painted = colour_derived(wb["Curation"], resolved, desc, catalog)
     identity = colour_identity(wb["Curation"])
+    linked = darken_linked_sources(wb["Curation"])
     variants = annotate_variant_images(wb["Curation"], resolved, catalog)
     defused = defuse_formulas(wb)
     wb.save(WORKBOOK)
@@ -720,6 +745,7 @@ def main():
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  red images      {explained} carry the verdict that rejected their candidate")
     print(f"  identity tint   {identity} cell(s) in the blue family (Barcode, Name confirmed by)")
+    print(f"  linked greens   {linked} verified source cell(s) deepened (evidence one click away)")
     print(f"  derived colour  {painted} cell(s) now show their evidence tier (no white unknowns)"
           + (f" | {variants} variant image(s) flagged" if variants else ""))
     print(f"  formula safety  {'no live formulas' if not defused else str(defused) + ' scraped cell(s) forced to text'}")

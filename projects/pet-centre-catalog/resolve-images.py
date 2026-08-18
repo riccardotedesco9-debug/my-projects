@@ -838,14 +838,50 @@ def _page_name(html, md):
     return _clean_text(m.group(1))[:200] if m else ""
 
 
+# Labelled spec-table lines, in the big EU languages: "Gewicht: 18 kg", "| Maße | 40 x 60 cm |",
+# "Contenu : 1 L". These live at the FOOT of product pages — the scroll-down micro-details — and a
+# first-match prose selector reliably missed them when the page ran past the excerpt cap.
+_SPEC_LABEL = re.compile(
+    r"^\s*[|>*\-\s]*(?:net\s*)?"
+    r"(?:weight|gewicht|poids|peso|gross|dimensions?|abmessung(?:en)?|ma(?:ss|ß)e?|gr(?:ö|o)(?:ss|ß)e|"
+    r"size|taille|misure|medidas|rozmiar|capacity|volume|inhalt|contents?|contenu|contenido|"
+    r"material|matériau|materiale|colou?r|farbe|model(?:l)?|artikel(?:nummer)?|art\.?\s*n(?:o|r)|"
+    r"item\s*(?:no|number)|reference|referenz|sku|ean|gtin|upc|mpn|pack(?:ung)?(?:sinhalt)?)"
+    r"\s*[:|\-–]\s*\S", re.IGNORECASE)
+
+
+def _spec_lines(md):
+    """Every labelled spec line from the ENTIRE markdown, deduped, order kept. Line-based on the raw
+    markdown BEFORE flattening, because tables and definition lists are line-structured and the
+    label:value shape is what makes a below-the-fold number trustworthy."""
+    out, seen = [], set()
+    for ln in (md or "").splitlines():
+        ln = " ".join(ln.split())
+        if not (6 <= len(ln) <= 160) or not _SPEC_LABEL.match(ln):
+            continue
+        key = re.sub(r"[^a-z0-9]", "", ln.lower())[:60]
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ln.strip("|>*- "))
+        if len(out) >= 24:
+            break
+    return " ; ".join(out)[:1400]
+
+
 def _grounding(md):
     """Flatten scraped markdown for description grounding, but pull the most description-relevant
     sections — full INGREDIENTS/composition AND analytical constituents/nutrition (a must for food),
     plus DIMENSIONS/size and material — to the FRONT so they survive truncation and reach the writer
     even when they sit far down the page. Composition and nutrition are captured as SEPARATE heads so a
-    long ingredient list can't crowd out the macros."""
+    long ingredient list can't crowd out the macros. SPECS come first of all: the labelled foot-of-page
+    table lines (weight, dimensions, contents, material...) harvested from the WHOLE page, because
+    "first 6000 chars" quietly discarded exactly the micro-details a shopper scrolls down for."""
+    specs = _spec_lines(md)
     flat = re.sub(r"\s+", " ", md or "").strip()
     heads = []
+    if specs:
+        heads.append("SPECS: " + specs)
     for pat in (
         r"(?:composition|ingredients)\b.{0,1500}",   # full ingredient list — can run long
         r"(?:analytical constituents|crude protein|protein\s*[:\d]|nutritional additives|"
@@ -857,11 +893,14 @@ def _grounding(md):
         r"stainless steel|alumini?um|wood(?:en)?|reinforced|inner rope|rope core|chew[- ]?proof|"
         r"heavy[- ]?duty|durable|rugged|tear[- ]?resistant|non[- ]?toxic)\b.{0,220}",
     ):
-        m = re.search(pat, flat, re.IGNORECASE)
-        if m:
+        hits = 0
+        for m in re.finditer(pat, flat, re.IGNORECASE):
             heads.append(m.group(0).strip())
+            hits += 1
+            if hits >= (4 if "cm|mm" in pat else 1):
+                break                     # sizes repeat per variant; prose sections do not
     prefix = (" | ".join(heads) + " || ") if heads else ""
-    return (prefix + flat)[:6000]
+    return (prefix + flat)[:7000]
 
 
 # Edible product types that should carry an ingredient/composition list. The generic default covers
