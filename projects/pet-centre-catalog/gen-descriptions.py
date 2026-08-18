@@ -36,8 +36,25 @@ if GROUND_PATH and os.path.exists(GROUND_PATH):
     _g = json.load(open(GROUND_PATH, encoding="utf-8"))
     GROUND = {int(k): v["page_text"] for k, v in _g.items() if isinstance(v, dict) and v.get("page_text")}
 
+# Persona comes from the catalogue profile; the default names no vertical. The old hard-coded
+# "pet shop's catalog" is the same leak the vision prompt had: framing every product as a pet
+# product skews the prose on any other catalogue.
+def _persona():
+    path = os.environ.get("CATALOG_PROFILE", "")
+    if path:
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f).get("persona") or "an independent shop"
+        except Exception as e:
+            # Same semantics as the engine: a profile that is SET but unreadable stops the run.
+            # Falling back silently here while the engine refuses would run the two halves of the
+            # pipeline under different vertical rules.
+            sys.exit(f"CATALOG_PROFILE {path!r} unreadable: {e}")
+    return "an independent shop"
+
+
 SYSTEM = (
-    "You write product descriptions for a friendly neighbourhood pet shop's catalog. "
+    f"You write product descriptions for {_persona()}'s catalogue. "
     "For each product you get a name, brand, and category. Write ONE to TWO short sentences that are "
     "informative FIRST (what it is, who/what it's for, the useful detail a shopper wants) and warmly, "
     "subtly playful SECOND. Keep the focus on the product. "
@@ -112,6 +129,85 @@ def _no_dashes(text):
     t = re.sub(r"\s+([.,;:!?])", r"\1", t)          # no space before punctuation
     t = re.sub(r",\s*([.;:!?])", r"\1", t)          # ", ." -> "." etc.
     return re.sub(r"\s{2,}", " ", t).strip(" ,")
+
+
+# Deterministic measurement extraction — the safety net under the model. Measured on the pool
+# batch: 16 rows whose stored page_text plainly stated a mass ("3,0 Kg", "18kg") had weight=null,
+# because extraction relied on the model alone. Regexes recover ONLY what is literally printed:
+# mass for weight (never volume — litres are not kilograms), and the same conservative dimension
+# forms export-shopify's name parser uses (single or two-dimension; the ambiguous "A x B x C" form
+# is deliberately refused because nothing says which number is depth). Provenance lands in
+# dims_src per field: "model" (LLM), "page" (regex on source text), "name" (regex on the name).
+_MASS_RX = re.compile(r"(?<![\d.,])(\d{1,3}(?:[.,]\d{1,3})?)\s*(kg|g|gr)\b", re.IGNORECASE)
+# A bare mass ANYWHERE in page text is very often a DIFFERENT product: related-items links, review
+# strips, even image filenames all flatten into page_text (review found a 1-litre bottle shipped at
+# 20 kg off a "Sea salt 20kg" sidebar link). A page mass counts only with a weight word right
+# before it; the name needs no anchor but must not be a capacity ("for dogs up to 15 kg").
+_MASS_ANCHOR_RX = re.compile(
+    r"(?:net\s*weight|weight|contents?|inhalt|gewicht|poids|peso|contenido)\W{0,12}"
+    r"(\d{1,3}(?:[.,]\d{1,3})?)\s*(kg|g|gr)\b", re.IGNORECASE)
+_CAPACITY_BEFORE_RX = re.compile(
+    r"(?:up\s+to|to|max\.?|bis(?:\s+zu)?|jusqu.{0,3}|fino\s+a|hasta|for)\s*$", re.IGNORECASE)
+_DIM1_RX = re.compile(r"(?<![\dx.,])(\d{1,3}(?:[.,]\d)?)\s*(cm|mm)\b(?!\s*[x×])", re.IGNORECASE)
+# The lookbehind on the FIRST number makes the ambiguous "99x191x25 cm" form unmatchable (99 fails
+# the lookahead, 191/25 fail the lookbehind) — nothing in that string says which number is depth,
+# and inventing the mapping was exactly the comment's promise this regex previously broke.
+_DIM2_RX = re.compile(
+    r"(?<![\dx×.,])(\d{1,3}(?:[.,]\d)?)\s*[x×]\s*(\d{1,3}(?:[.,]\d)?)\s*(cm|mm)\b(?!\s*[x×])",
+    re.IGNORECASE)
+# The engine writes an unambiguous "Net weight: X kg." prefix into page_text (from the OFF family);
+# it previously reached only the model, which sometimes ignored it.
+_NETWT_RX = re.compile(r"Net weight:\s*(\d+(?:[.,]\d+)?)\s*kg", re.IGNORECASE)
+
+
+def _to_cm(v, unit):
+    v = float(str(v).replace(",", "."))
+    return round(v / 10.0, 1) if unit.lower() == "mm" else round(v, 1)
+
+
+def _to_kg(v, unit):
+    v = float(str(v).replace(",", "."))
+    return round(v / 1000.0, 3) if unit.lower() in ("g", "gr") else round(v, 3)
+
+
+def measure_fallback(rec, name, page_text):
+    """Fill ONLY the measurements the model left null, from text that literally states them."""
+    src = {}
+    for f in ("depth", "width", "height", "weight"):
+        if rec.get(f) is not None:
+            src[f] = "model"
+    if rec.get("weight") is None:
+        m, origin = _NETWT_RX.search(page_text or ""), "netwt"
+        if not m:
+            m, origin = _MASS_ANCHOR_RX.search(page_text or ""), "page"
+        if not m:
+            nm = _MASS_RX.search(name or "")
+            # a capacity ("for dogs up to 15 kg") is a rating, not the product's weight
+            if nm and not _CAPACITY_BEFORE_RX.search((name or "")[:nm.start()]):
+                m, origin = nm, "name"
+        if m:
+            kg = _to_kg(m.group(1), m.group(2) if m.lastindex and m.lastindex >= 2 else "kg")
+            if kg and 0 < kg < 200:
+                rec["weight"], src["weight"] = kg, origin
+    # Dimensions come from the NAME only. Page text is flattened chrome (sidebars, review strips,
+    # filenames) where a stray "0,1 x 2 cm" belongs to anything but this product — the same trap the
+    # mass rung fell into. The name is confirmed/curated text, and sub-centimetre "dimensions" are
+    # rejected as chrome even there.
+    if rec.get("width") is None and rec.get("height") is None:
+        m = _DIM2_RX.search(name or "")
+        if m:
+            w, h = _to_cm(m.group(1), m.group(3)), _to_cm(m.group(2), m.group(3))
+            if w >= 1 and h >= 1:
+                rec["width"], rec["height"] = w, h
+                src["width"] = src["height"] = "name"
+    if all(rec.get(f) is None for f in ("depth", "width", "height")):
+        m = _DIM1_RX.search(name or "")
+        if m:
+            w = _to_cm(m.group(1), m.group(2))
+            if w >= 1:
+                rec["width"], src["width"] = w, "name"
+    rec["dims_src"] = src
+    return rec
 
 
 def _clean_result(o):
@@ -198,7 +294,11 @@ def main():
             print(f"  batch {i // BATCH} GAVE UP, leaving for next run")
             continue
         for p, o in zip(batch, results):
-            done[p["row"]] = o  # object: {description, depth, width, height, weight}
+            # Regex safety net under the model, from text that literally states the measurement;
+            # dims_src records who supplied each number ("model" / "page" / "name") so the workbook
+            # can colour a measurement by its evidence instead of leaving the cell white.
+            done[p["row"]] = measure_fallback(o, p.get("clean") or p.get("name") or "",
+                                              GROUND.get(p["row"], ""))
         tmp = OUT + ".tmp"  # atomic write so a crash mid-flush can't corrupt the checkpoint
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({str(k): v for k, v in done.items()}, f, ensure_ascii=False, indent=0)

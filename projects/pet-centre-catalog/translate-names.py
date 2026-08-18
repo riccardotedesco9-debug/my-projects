@@ -37,12 +37,18 @@ if not KEY:
 
 # A name is left alone when it is already plain ASCII English-looking AND carries no obvious foreign
 # marker. Cheaper and safer than round-tripping every string through a model.
+# GENERIC across verticals: non-ASCII letters plus the function words and common commerce nouns
+# of the big EU languages. The old list keyed on pool vocabulary (poolpflege, kartuov, bazene...),
+# so a pure-ASCII foreign name from any OTHER vertical was never sent for translation.
 FOREIGN_HINT = re.compile(
-    r"[^\x00-\x7F]"                                   # any non-ASCII letter (é ü ö Ø Greek Cyrillic)
-    r"|\b(?:gonflable|piscine|de|du|des|pour|sur|avec|nettoyant|batterie"    # fr
-    r"|reiniger|ersatzfilter|poolpflege|wasserpflege|siedesalz|randreiniger|fur|mit|und"  # de
-    r"|basenu|sol|do|kartuov|vane|baterijski|robotski|sesalnik|bazene|siva"  # pl/sk/sl
-    r"|filtre|cartouche|lot|piece|pieces|nettoyage)\b",
+    r"[^\x00-\x7F]"                                   # any non-ASCII letter
+    r"|\b(?:de|du|des|le|la|les|pour|sur|avec|sans|piece|pieces|lot"        # fr
+    r"|der|die|das|und|fur|mit|von|ohne|stuck|satz"                          # de
+    r"|het|een|voor|met|stuks"                                               # nl
+    r"|el|los|las|con|para|pieza|juego"                                      # es
+    r"|il|lo|gli|per|pezzo"                                                  # it
+    r"|do|dla|szt|zestaw|sada|kus|kos"                                       # pl/cz/sk/sl
+    r"|och|og|til|med|stk|sett)\b",
     re.IGNORECASE)
 
 
@@ -54,10 +60,10 @@ def call_claude(items):
     """items: [{row, name}] -> {row: english_name}. Fails closed: on any error the originals stand."""
     listing = "\n".join(f'{i["row"]}: {i["name"]}' for i in items)
     prompt = (
-        "Translate each product name into natural English for an online pool and spa shop.\n\n"
+        "Translate each product name into natural English for an online shop.\n\n"
         "RULES — these matter more than fluency:\n"
-        "1. Keep brand names EXACTLY as written (Intex, Bestway, Darlly, Bayrol, hth, Aiper, "
-        "AstralPool, Höfer Chemie, Steinbach, Gre, Aquality...).\n"
+        "1. Keep brand names EXACTLY as written — anything that reads as a maker's name or a "
+        "product line stays verbatim, whatever the industry.\n"
         "2. Keep every model/article code EXACTLY (SC713, C-4401, PRB17.5SF, 58094_26, 28506).\n"
         "3. Keep every measurement and unit EXACTLY, including the original decimal comma "
         "(22 cm, 10.6 x 13.6 cm, 3,0 kg, 1 L, 99x191x25 cm).\n"

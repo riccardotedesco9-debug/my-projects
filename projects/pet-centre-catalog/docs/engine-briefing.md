@@ -104,6 +104,58 @@ and the injection payload is assembled at runtime instead of stored as a literal
 antivirus quarantines the classic spreadsheet-DDE string on sight — that surfaced as an unexplained
 "permission denied" on fixture files before the cause was understood.
 
+## The exhaustion ladder (2026-08-18): red must mean "nothing exists", never "we stopped"
+A row that is not verified escalates until something is adopted or the avenues genuinely run out;
+a verified row still stops instantly. What changed, and why each piece exists:
+- **Article codes from the CONFIRMED name** (`working_ref_from`): the old extractor was anchored to
+  the start of the ingest name, so "Bestway **58094** Pool Filter" carried an invisible code — and a
+  scanned row had no ingest name at all. Codes now unlock a brand+code image search AND literal
+  code-confirmation on pages (len>=5 letter-bearing codes may confirm without brand tokens).
+- **Query ladder** replacing the one-shot name search: brand+code -> full name -> simplified name
+  (sizes/pack counts stripped) -> the name translated to English (one Haiku call, key-gated, only
+  when the earlier rungs found nothing and the name looks foreign). Each rung ~2 credits.
+- **Per-stage exception isolation**: one shared try/except used to let a Stage-1 error silently skip
+  Stages 2-3.
+- **A low-quality DB image no longer ends the search** — kept as fallback while the ladder hunts a
+  cleaner equally-verified photo.
+- **eBay depth**: up to 3 barcode-in-title listings, then a brand+code keyword form that REQUIRES a
+  vision pass to adopt. Still yellow-capped, still outside cross-verification.
+- **Variant policy (owner decision)**: vision reports `variant` (same product line, different pack
+  size/count) separately from `match`; a confident variant is adopted as `likely` with
+  `img_quality="variant"` and an explicit "variant pack shown, verify size" label + hover note.
+  Never green, never silent.
+- **Confirmed-page salvage**: a page that literally confirms the GTIN but has no usable photo still
+  contributes its text as GREEN description grounding (`desc_provenance="source"`). Gated away from
+  barcode DIRECTORIES: a directory search page passes the GTIN check while its text describes other
+  products entirely (measured: a perfume grounding a pool row) — salvage requires a non-reseller
+  domain AND a tidy page name.
+- **The attempts log**: every non-green row records [(stage, query, outcome)]. The red cell cites
+  the count ("searched, none found (7 avenues tried)"), the hover note lists them. Red is provable.
+- **Deterministic measurements** (`gen-descriptions.py measure_fallback`): regexes fill what the
+  model left null, under review-hardened rules — a page mass counts ONLY with a weight-word anchor
+  ("Net weight/Gewicht/Inhalt... X kg"; a bare "20kg" in page chrome is usually a sidebar's other
+  product), litres are never kilograms, a name's capacity rating ("for dogs up to 15 kg") is not a
+  weight, dimensions come from the NAME only (page chrome fabricated a 0.1 cm width) with a >=1 cm
+  floor, and the ambiguous "A x B x C" form is refused. `dims_src` records netwt/page/name/model per
+  field; the workbook colours netwt+name green, page/model yellow.
+- **No white cells** (`finalize-workbook.colour_derived`): Name, Brand, Type, Tags and the four
+  measurements now carry their evidence tier; a derived or model-only value can no longer look
+  identical to a confirmed one. Row Status still counts Image/Description/Ingredients only.
+Known caution: a junk name harvested from a GTIN-bearing junk page can steer the ladder and vision
+toward junk (observed once: a loyalty-card page). The literal-GTIN gate keeps it out of GREEN; the
+curation review is the backstop for yellow. Merging fresh runs into a curated deliverable must
+never downgrade a tier and never overwrite curated names.
+
+## The catalogue profile: vertical knobs in ONE file (2026-08-18)
+`CATALOG_PROFILE=<path>.json` supplies: `signal_tokens` (scoring boost), `off_domains` (penalty),
+`comp_retailers` (composition-scoped paid searches), `edible_regex`, `off_hosts`, `persona`
+(description writer), `query_hint`. **With no profile the engine is vertical-NEUTRAL**: no signal
+scoring, no off-domain penalty, no retailer-scoped searches, a generic edible regex, both
+Open(Pet)FoodFacts hosts tried. `profiles/pet-centre.json` reproduces the historic pet behaviour —
+**pet catalogue runs MUST set it** or scoring/personas silently change. assemble.py reads the same
+profile for its edible test (the old duplicated regex could drift). The stress test asserts
+neutrality and the single-source edible definition.
+
 ## Guarding the IMAGE against non-products
 A URL and a size gate cannot tell you what a picture shows, and two failure modes get through them:
 

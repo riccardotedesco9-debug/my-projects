@@ -68,12 +68,12 @@ MAX_QUALITY_ALTS = 2    # at most this many alternate images get a vision call w
 # Stage 4b (vision-adjudicated fallback for a named row with nothing above THRESHOLD). Bounded so a
 # hopeless row costs at most two vision calls, and floored so we never ask about a candidate the
 # scorer considered unrelated — vision is a tiebreaker for near-misses, not a second search.
-SUBTHRESHOLD_TRIES = 2
+SUBTHRESHOLD_TRIES = 4
 SUBTHRESHOLD_FLOOR = 0.30
 # VERTICAL KNOB. An extra word added to a name-led IMAGE search when the brand is unknown, to
 # steer generic results towards the catalogue's domain ("pet", "pool", "hardware"). Empty by
 # default: a wrong hint is worse than none, because it pulls the search away from the product.
-QUERY_HINT = os.environ.get("CATALOG_QUERY_HINT", "")
+QUERY_HINT = os.environ.get("CATALOG_QUERY_HINT", "")  # profile fallback applied below
 VISION_MAX_PX = 1024    # downscale the long edge before the vision call to bound image-token cost
 VISION_CALL_CAP = 30000  # hard ceiling on vision calls per run (insurance against runaway Anthropic spend)
 GROUND_MIN = 400        # below this many chars of page text, try one supplementary trusted-source fetch
@@ -90,19 +90,35 @@ if VISION and not ANTHROPIC_KEY:
 # run-wide kill-switch once its monthly quota/auth fails (then we fail open to the free sources).
 BARCODELOOKUP_KEY = os.environ.get("BARCODELOOKUP_API_KEY")
 
+# ---- Catalogue profile (VERTICAL KNOBS in one file) -------------------------------------------
+# The engine is vertical-neutral by DEFAULT: no domain-signal scoring, no retailer-scoped paid
+# searches, a generic edible test. A profile JSON (CATALOG_PROFILE=path) restores a vertical's
+# tuned behaviour — profiles/pet-centre.json reproduces the pet catalogue exactly. This replaces
+# the old baked-in PET_SIG/PET_RETAILERS constants, which silently biased every OTHER vertical:
+# a food or hardware candidate without pet words took a flat scoring penalty, and every edible
+# row bought a paid search against pet retailers.
+def _load_profile():
+    path = os.environ.get("CATALOG_PROFILE", "")
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        sys.exit(f"CATALOG_PROFILE {path!r} unreadable: {e}")  # a silently ignored profile would
+        # run the wrong vertical's rules, which is worse than stopping
+
+
+PROFILE = _load_profile()
+QUERY_HINT = QUERY_HINT or PROFILE.get("query_hint", "")
+
 STOP = {"the", "for", "and", "with", "x1", "pcs", "pc", "ass", "cs", "of", "in", "a"}
 BRAND_STOP = {"pet", "pets", "line", "co", "ltd", "the", "my", "and"}
-PET_SIG = re.compile(
-    r"pet|dog|cat|puppy|kitten|zoo|animal|aqua|fish|bird|parrot|reptile|rabbit|hamster|"
-    r"rodent|vet|kennel|paw|collar|leash|groom|terrarium|aviary|litter|chew|aquarium",
-    re.IGNORECASE,
-)
-# Clearly non-pet domains — a high token match here is almost always a wrong-category
-# look-alike (surgical scissors, craft tools, costume jewelry, candy with a similar code).
-OFF_DOMAIN = re.compile(
-    r"surg|medical|pharma|dental|jewel|candy|craft|hardware|welding|tackle|cosmet|beauty",
-    re.IGNORECASE,
-)
+# In-vertical signal words (boost) and clearly-off-vertical domains (penalty). Both come from the
+# profile and are OFF by default: with no profile the engine scores candidates purely on token
+# match, brand and image quality — the only judgements that are true on every vertical.
+SIG = re.compile(PROFILE["signal_tokens"], re.IGNORECASE) if PROFILE.get("signal_tokens") else None
+OFF_DOMAIN = re.compile(PROFILE["off_domains"], re.IGNORECASE) if PROFILE.get("off_domains") else None
 # Image URLs that are clearly NOT the product: site logos, banners, placeholders, og-defaults,
 # icons, sprites. Tuned to avoid false hits on real product photos — e.g. PrestaShop names its
 # product images `..._large_default.jpg` / `_medium_default.jpg`, so we DON'T blanket-match
@@ -173,11 +189,10 @@ def tidy_name(nm, ean=""):
         return ""
     return "" if (len(s) < 4 or re.fullmatch(r"[\d\s\-]+", s)) else s
 
-# Large pet retailers that reliably publish the full composition + analytical constituents (and often the EAN,
-# so the page can barcode-confirm -> GREEN). Targeted directly when an edible still lacks a real ingredient list,
-# since premium/EU compositions live here far more often than on the open barcode databases.
-PET_RETAILERS = ["zooplus.com", "zooplus.co.uk", "zooplus.de", "zooplus.it", "zooplus.fr",
-                 "bitiba.co.uk", "bitiba.de", "fressnapf.de", "petsathome.com", "chewy.com", "petco.com"]
+# Vertical retailers that reliably publish the full composition (and often the EAN, so the page can
+# barcode-confirm -> GREEN). Profile-supplied: the pet profile lists zooplus/bitiba/fressnapf etc.
+# Empty by default — a paid search scoped to pet shops is a wasted credit on a food or hardware run.
+COMP_RETAILERS = list(PROFILE.get("comp_retailers") or [])
 
 
 def domain_of(url):
@@ -317,7 +332,7 @@ def web_search(query, limit=5, domains=None):
     return urls, (res.get("creditsUsed") or 2)
 
 
-DB_UA = "PetCentreCatalog/1.0 (pet-shop catalogue enrichment; contact ricotedesco@gmail.com)"
+DB_UA = "CatalogEnrichment/1.0 (product catalogue enrichment; contact ricotedesco@gmail.com)"
 
 _bl_lock = threading.Lock()
 _bl_count = [0]          # successful (metered) Barcode Lookup lookups this run
@@ -463,52 +478,74 @@ def _ebay_token_get():
         return ""
 
 
-def ebay_by_gtin(ean, marketplace="EBAY_GB"):
-    """eBay Browse API search by GTIN (key-gated by EBAY_CLIENT_ID / EBAY_CLIENT_SECRET).
-
-    DELIBERATELY NOT part of the green cascade. eBay's GTIN field is filled in by the SELLER, not by
-    the brand owner, so a match here is a marketplace assertion rather than a manufacturer one — the
-    same class of evidence as a name match. It can therefore only ever produce YELLOW
-    (`likely`, or `verified-visual` when the vision gate confirms the photo).
-
-    Its value is breadth: it covers the non-food, any-category long tail that the free databases miss,
-    for free. Returns {name, brand, image, source_url} or None.
-    """
+def _ebay_search(query, marketplace="EBAY_GB", limit=5):
+    """Raw eBay Browse keyword search -> itemSummaries list (empty on any failure)."""
     token = _ebay_token_get()
     if not token:
-        return None
-    # Searched as a KEYWORD, not through the documented `gtin=` filter. Measured 2026-08-18: the
-    # filter returns total:0 for every marketplace (GB/DE/IT/ES/FR/US) even for a product eBay
-    # demonstrably sells — a plain `q=` for the same barcode returns it, and a keyword search for its
-    # name returns 6,678 listings. So eBay's GTIN index is effectively empty for this catalogue, and
-    # using the filter meant this whole source silently contributed nothing.
+        return []
     url = ("https://api.ebay.com/buy/browse/v1/item_summary/search"
-           f"?q={urllib.parse.quote(ean)}&limit=5")
+           f"?q={urllib.parse.quote(query)}&limit={limit}")
     try:
         req = urllib.request.Request(url, headers={
             "Authorization": "Bearer " + token,
             "X-EBAY-C-MARKETPLACE-ID": marketplace,
             "Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=25) as r:
-            d = json.loads(r.read())
+            return (json.loads(r.read()).get("itemSummaries") or [])
     except Exception:
-        return None
-    for item in (d.get("itemSummaries") or []):
-        img = (item.get("image") or {}).get("imageUrl") or ""
-        if not (img and is_product_image(img)):
+        return []
+
+
+def _ebay_norm(item):
+    return {"name": (item.get("title") or "")[:200],
+            "brand": item.get("brand") or "",
+            "image": (item.get("image") or {}).get("imageUrl") or "",
+            "source_url": item.get("itemWebUrl") or "",
+            "db": "ebay"}
+
+
+def ebay_by_gtin(ean, marketplace="EBAY_GB"):
+    """eBay Browse candidates for a GTIN (key-gated by EBAY_CLIENT_ID / EBAY_CLIENT_SECRET).
+
+    DELIBERATELY NOT part of the green cascade. eBay's GTIN field is filled in by the SELLER, not by
+    the brand owner, so a match here is a marketplace assertion rather than a manufacturer one — the
+    same class of evidence as a name match. It can therefore only ever produce YELLOW
+    (`likely`, or `verified-visual` when the vision gate confirms the photo).
+
+    Searched as a KEYWORD, not through the documented `gtin=` filter. Measured 2026-08-18: the
+    filter returns total:0 for every marketplace (GB/DE/IT/ES/FR/US) even for a product eBay
+    demonstrably sells — a plain `q=` for the same barcode returns it. Every accepted listing must
+    carry the barcode LITERALLY in its title, so a loose keyword match can never be adopted.
+
+    Returns up to 3 candidates (best first), not just the first: the first listing's photo can fail
+    the image gate or the vision check while the second is perfectly good, and stopping at one threw
+    that second chance away.
+    """
+    out = []
+    for item in _ebay_search(ean, marketplace):
+        c = _ebay_norm(item)
+        if not (c["image"] and is_product_image(c["image"])):
             continue
-        # A keyword search matches loosely, so require the barcode to appear LITERALLY in the listing
-        # title. Without this the first vaguely-related listing on eBay would be adopted, which is the
-        # exact false confidence the engine exists to prevent. The tier stays YELLOW regardless: a
-        # seller typing a barcode into a title is a marketplace claim, not a manufacturer's.
-        if ean not in re.sub(r"\D", "", item.get("title") or ""):
+        if ean not in re.sub(r"\D", "", c["name"]):
             continue
-        return {"name": (item.get("title") or "")[:200],
-                "brand": item.get("brand") or "",
-                "image": img,
-                "source_url": item.get("itemWebUrl") or f"https://www.ebay.com/sch/i.html?_nkw={ean}",
-                "db": "ebay"}
-    return None
+        out.append(c)
+        if len(out) >= 3:
+            break
+    return out
+
+
+def ebay_by_query(query, marketplace="EBAY_GB"):
+    """eBay Browse candidates for a brand+code keyword query — the fallback when the barcode form
+    finds nothing. No literal-barcode gate is possible here, so every candidate MUST pass the vision
+    identity check before adoption, and the tier is still capped at YELLOW. Returns up to 3."""
+    out = []
+    for item in _ebay_search(query, marketplace):
+        c = _ebay_norm(item)
+        if c["image"] and is_product_image(c["image"]):
+            out.append(c)
+        if len(out) >= 3:
+            break
+    return out
 
 
 def _off_family(host, ean):
@@ -596,11 +633,18 @@ def barcode_db_lookup(ean, edible=True):
         ic = None
     if ic:
         take_image(ic)
-    if edible or not out["image"]:   # OpenPetFoodFacts only adds ingredient data; skip it for a non-edible w/ image
-        try:
-            off = _off_family("world.openpetfoodfacts.org", ean)
-        except Exception:
-            off = None
+    if edible or not out["image"]:   # the OFF family only adds ingredient data; skip it for a non-edible w/ image
+        # Both Open*FoodFacts hosts by default: the pet host knows pet food, the human host knows
+        # everything else edible, and each miss is a free 404. Previously only the pet host was ever
+        # queried, so a human-food catalogue silently lost its best free composition source.
+        off = None
+        for _host in (PROFILE.get("off_hosts") or ["world.openpetfoodfacts.org", "world.openfoodfacts.org"]):
+            try:
+                off = _off_family(_host, ean)
+            except Exception:
+                off = None
+            if off:
+                break
         if off:
             take_image(off)
             if off.get("ingredients"):
@@ -653,6 +697,86 @@ def ref_ok(ref):
     """Article codes usable for confirmation must contain a letter and be >=4 chars —
     a bare short number (e.g. '400') collides with prices/weights/other SKUs on a page."""
     return bool(ref) and len(ref) >= 4 and bool(re.search(r"[A-Z]", ref))
+
+
+def working_ref_from(name, ean=""):
+    """Best manufacturer article code found ANYWHERE in a name.
+
+    `extract_ref` is anchored to the START of the ingest name (a POS convention); a confirmed name
+    like "Bestway 58094 Pool Filter Cartridge (II)" carries its code mid-string, where that anchor
+    can never see it — and searching "Bestway 58094" is exactly how a human finds such a product
+    instantly. Measurements (58 g, 100 ml), pack counts, the barcode itself, and short bare numbers
+    are all excluded; letter-bearing codes (SC779) beat pure digits, longer beats shorter.
+    """
+    best = ""
+    for m in re.finditer(r"(?<![A-Za-z0-9])([A-Za-z]{0,4}\d{2,}[A-Za-z0-9/\-]*)(?![A-Za-z0-9])",
+                         name or ""):
+        raw = m.group(1)
+        # Reject by the token's OWN shape first: "250ml"/"40X60CM" swallow their unit into the
+        # match, so a tail check alone lets a measurement through — and a measurement that reaches
+        # page_confirms would "confirm" against ANY page mentioning the same size, minting a false
+        # green. (Review finding: 250ML confirmed a different 250 ml product of the same brand.)
+        if re.fullmatch(r"\d+[.,]?\d*(?:ml|cl|dl|l|lt|g|gr|kg|mg|mm|cm|m|oz|w|v|ah|mah|"
+                        r"pcs?|pk|pz|stk|x\d[\dx×.,cmm ]*)", raw, re.IGNORECASE):
+            continue                                    # number+unit or NxM dimension
+        if re.fullmatch(r"(?:uv|spf|ipx?|en|iso|din|ph|sae|no)\W?\d+", raw, re.IGNORECASE):
+            continue                                    # ubiquitous spec/standard tokens (UV400...)
+        tail = (name or "")[m.end():m.end() + 8].lstrip().lower()
+        if re.match(r"(?:cm|mm|g|gr|kg|ml|lt?|oz|x\s?\d|pcs?|stk|pack|%)\b", tail):
+            continue                                    # a measurement or pack count, not a code
+        cand = re.sub(r"[^A-Z0-9]", "", raw.upper())
+        if not cand or cand == re.sub(r"\D", "", ean or ""):
+            continue                                    # the barcode is not an article code
+        if cand.isdigit() and not (5 <= len(cand) <= 7):
+            continue                                    # short = size/pack; long = another barcode
+        if (bool(re.search(r"[A-Z]", cand)), len(cand)) > (bool(re.search(r"[A-Z]", best)), len(best)):
+            best = cand
+    return best
+
+
+def simplify_name(name):
+    """A name shortened the way a human retypes a failed search: sizes, pack counts and separator
+    chrome dropped, the first handful of distinctive words kept."""
+    s = re.sub(r"\d+[.,]?\d*\s*(?:x\s*\d+[.,]?\d*\s*)*(?:cm|mm|m|g|gr|kg|ml|l|lt|oz)\b\.?",
+               " ", name or "", flags=re.IGNORECASE)
+    s = re.sub(r"\b\d+\s*(?:pcs?|pack|pk|stk|szt|pz|st|tabs?|tablets?|caps?|pieces?)\b", " ",
+               s, flags=re.IGNORECASE)
+    s = re.sub(r"[|/\\,;:()\[\]]+", " ", s)
+    return " ".join(s.split()[:7])
+
+
+# Foreign-language cue for the translation rung: non-ASCII characters, or common function words of
+# the big EU languages. GENERIC on purpose — the old FOREIGN_HINT idea keyed on pool vocabulary,
+# which is useless on any other vertical.
+FOREIGNISH = re.compile(
+    r"[^\x00-\x7F]|\b(?:der|das|und|für|mit|von|het|een|voor|le|la|les|du|des|avec|pour|"
+    r"el|los|las|para|il|gli|dla|och|og|ile)\b", re.IGNORECASE)
+
+
+def english_query(name):
+    """One cheap translation call so the LAST search rung can query in English — the language most
+    of the indexable web sells in. Key-gated; returns '' on any failure (the rung is then skipped).
+    Brand names and model codes are kept verbatim; the result is only ever used as a SEARCH QUERY,
+    never stored, so it cannot contaminate identity."""
+    if not ANTHROPIC_KEY:
+        return ""
+    body = json.dumps({
+        "model": "claude-haiku-4-5-20251001", "max_tokens": 80,
+        "messages": [{"role": "user", "content":
+                      "Translate this product name to English for a web search. Keep brand names "
+                      "and model codes exactly as written. Reply with ONLY the translated name.\n"
+                      + (name or "")}],
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.anthropic.com/v1/messages", data=body,
+        headers={"x-api-key": ANTHROPIC_KEY, "anthropic-version": "2023-06-01",
+                 "content-type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            out = json.loads(r.read())["content"][0]["text"].strip()
+        return " ".join(out.split())[:120]
+    except Exception:
+        return ""
 
 
 def _og_image(html):
@@ -740,13 +864,14 @@ def _grounding(md):
     return (prefix + flat)[:6000]
 
 
-# Edible product types that should carry an ingredient/composition list — NOT just "food": treats, chews,
-# bones, dental sticks, pâtés, etc. Trailing (?:...)s? makes every word plural-tolerant (treat -> "Treats",
-# chew -> "Chews", bone -> "Bones", stick -> "Sticks") — the old \btreat\b silently missed every plural type.
-EDIBLE_TYPE = re.compile(
-    r"\b(?:food|treat|snack|biscuit|cookie|kibble|wet|dry|dental|milk|yog(?:h)?urt|paste|pat[eé]|"
-    r"mousse|gravy|broth|stew|loaf|sausage|meal|topper|nibble|chew|bone|stick|jerky|rawhide)s?\b",
-    re.IGNORECASE)
+# Edible product types that should carry an ingredient/composition list. The generic default covers
+# any vertical's consumables; a profile supplies the tuned regex (the pet one adds kibble, chews,
+# bones, dental sticks, toppers...). assemble.py colours ingredients with the SAME default/profile —
+# the stress test asserts the two stay identical, because a drift silently desyncs the workbook's
+# tier from what the engine actually fetched.
+DEFAULT_EDIBLE_REGEX = (r"\b(?:food|drink|beverage|snack|treat|biscuit|cookie|chocolate|candy|sweet|"
+                        r"milk|yog(?:h)?urt|juice|tea|coffee|sauce|spice|supplement|edible)s?\b")
+EDIBLE_TYPE = re.compile(PROFILE.get("edible_regex") or DEFAULT_EDIBLE_REGEX, re.IGNORECASE)
 
 
 def _has_comp(text):
@@ -852,9 +977,13 @@ def page_confirms(page_url, variants, ref, bt, allow_ref):
     # GTIN in structured data / raw HTML (contiguous) or visible text (spaces tolerated).
     if variants and (gtin_in(html, variants, contiguous=True) or gtin_in(md, variants, contiguous=False)):
         return "ean", used, excerpt, og, name
-    # Article code: letter-bearing, brand present on page, matched on a code boundary.
-    if allow_ref and ref_ok(ref) and bt and (bt & toks(md)):
-        pat = r"(?<![A-Z0-9])" + r"[^A-Z0-9]*".join(re.escape(c) for c in ref) + r"(?![A-Z0-9])"
+    # Article code, matched on a code boundary. Normally the brand must also appear on the page;
+    # when the caller has NO brand tokens (a scanned row whose brand is unknown) a longer code —
+    # 5+ chars with a letter, e.g. SC779A — is distinctive enough to stand alone, and requiring the
+    # brand there made code confirmation unreachable on exactly the rows that need it most.
+    if allow_ref and ref_ok(ref) and ((bt and (bt & toks(md))) or (not bt and len(ref) >= 5)):
+        # {0,2} not *: unbounded separators let "SC779" match S/C/7/7/9 scattered across a table.
+        pat = r"(?<![A-Z0-9])" + r"[^A-Z0-9]{0,2}".join(re.escape(c) for c in ref) + r"(?![A-Z0-9])"
         if re.search(pat, md.upper()):
             return "ref", used, excerpt, og, name
     return None, used, excerpt, og, name
@@ -990,7 +1119,7 @@ def vision_assess(img_url, name, brand, ptype):
     """Ask Opus vision to judge an image for THIS product on three axes -> dict
     {match, single, whole, confidence, reason}. Conservative + fail-open: any error/missing key
     returns all-false, so a vision hiccup can never fabricate a pass or a quality verdict."""
-    fail = {"match": False, "single": False, "whole": False, "confidence": 0.0, "reason": "no-vision"}
+    fail = {"match": False, "variant": False, "single": False, "whole": False, "confidence": 0.0, "reason": "no-vision"}
     if not (ANTHROPIC_KEY and img_url):
         return fail
     block = _vision_image_block(img_url)
@@ -1007,12 +1136,15 @@ def vision_assess(img_url, name, brand, ptype):
         "variant/flavour/size if discernible)? A different brand/product, a generic stock photo, "
         "or packaging you cannot match = false. Judge ONLY against the claimed product above; the "
         "product's category or industry is never itself a reason to reject.\n"
+        "1b. variant — set true ONLY when the image clearly shows the SAME brand and product line "
+        "but a different size, pack count or flavour than claimed (e.g. the 50-tablet pack of the "
+        "claimed 500-tablet product). When variant is true, match must be false.\n"
         "2. single — is exactly ONE unit shown, OR a coherent multipack/set that IS this SKU "
         "(e.g. a 24-can tray sold as one)? Mark false when the SAME item is repeated purely as a "
         "marketing arrangement (e.g. three identical bags fanned out side by side).\n"
         "3. whole — is the entire product visible, not cropped or cut off at an edge?\n"
-        'Reply ONLY with JSON: {"match": true|false, "single": true|false, "whole": true|false, '
-        '"confidence": 0.0-1.0, "reason": "<short>"}.'
+        'Reply ONLY with JSON: {"match": true|false, "variant": true|false, "single": true|false, '
+        '"whole": true|false, "confidence": 0.0-1.0, "reason": "<short>"}.'
     )
     body = json.dumps({
         "model": VISION_MODEL, "max_tokens": 300,
@@ -1049,6 +1181,7 @@ def vision_assess(img_url, name, brand, ptype):
         obj = json.loads(text)
         return {
             "match": bool(obj.get("match")),
+            "variant": bool(obj.get("variant")),
             "single": bool(obj.get("single")),
             "whole": bool(obj.get("whole")),
             "confidence": float(obj.get("confidence", 0) or 0),
@@ -1075,27 +1208,31 @@ def img_pref(url):
 def score(cand, core, bt, offdoms):
     """0..1 relevance. Product-match is measured from the TITLE only (URL paths like
     '/fish/' otherwise leak category words and inflate the match); the URL contributes
-    pet-domain + source-preference signals."""
+    profile-signal + source-preference signals."""
     title = (cand.get("title", "") or "").lower()
     url = (cand.get("url", "") or "").lower()
     dom = domain_of(url)
     tt = toks(title)
-    petsig = bool(PET_SIG.search(title + " " + url))
+    sig = bool(SIG and SIG.search(title + " " + url))
     brandhit = bool(bt & tt)
     base = (len(core & tt) / len(core)) if core else (1.0 if brandhit else 0.0)
     if base < MIN_BASE:
-        return 0.0  # the product itself didn't match — brand/pet cannot rescue it
+        return 0.0  # the product itself didn't match — brand/signal words cannot rescue it
     sc = base
     if bt:
         sc += 0.12 if brandhit else -0.20
-    if petsig:
-        sc += 0.10
-    elif not brandhit:
-        sc -= 0.15
+    # Vertical signal only exists when a profile defines it. Without one there is NO penalty for
+    # lacking it: the old always-on pet regex docked every non-pet candidate 0.15, quietly pushing
+    # good matches on other verticals under THRESHOLD.
+    if SIG:
+        if sig:
+            sc += 0.10
+        elif not brandhit:
+            sc -= 0.15
     if offdoms and any(d in dom for d in offdoms):
         sc += 0.20  # the brand's own official site — prefer it
-    elif OFF_DOMAIN.search(dom) and not petsig:
-        sc -= 0.30  # clearly wrong-category domain (surgical/craft/candy/...)
+    elif OFF_DOMAIN and OFF_DOMAIN.search(dom) and not sig:
+        sc -= 0.30  # profile-declared wrong-category domain
     w = cand.get("imageWidth") or 0
     if w and w < 150:
         sc *= 0.5
@@ -1196,6 +1333,29 @@ def main():
                 return ""
             return max(found_names, key=lambda x: (x[0], len(x[2])))[2]
 
+        attempts = []   # [(stage, what, outcome)] — the exhaustion record. A red row must be able
+        # to PROVE it exhausted its avenues; "no image" with no trail is indistinguishable from
+        # giving up early, which is exactly the failure this engine is not allowed to have.
+
+        def attempt(stage, what, outcome):
+            attempts.append({"stage": stage, "what": str(what)[:90], "outcome": str(outcome)[:90]})
+
+        def vcalls():
+            with lock:                       # reads raced the locked writers under --workers
+                return state["vision_calls"]
+
+        def eff_confirm():
+            """(article_code, allow) for page_confirms, from the best CURRENT name. The ingest-time
+            `ref` is empty for every scanned row, and `allow` was `bool(core)` — so article-code
+            confirmation was doubly unreachable on exactly the rows where the confirmed name is the
+            only place a code exists."""
+            r = ref or working_ref_from(working_name(), ean or "")
+            return r, bool(core) or ref_ok(r)
+
+        salvage = {"excerpt": "", "src": ""}   # grounding text from a GTIN-confirmed page whose
+        # image was unusable: identity proven, photo absent. Without this the row's description
+        # stayed name-only (yellow) even though a verified source page had been read and paid for.
+
         def img_ok(u):
             """(live, good) for an image URL, fetched at most once per product."""
             if u not in img_memo:
@@ -1243,7 +1403,8 @@ def main():
                 scraped.add(pg)
                 checked += 1
                 try:
-                    key, vc, excerpt, og, pname = page_confirms(pg, variants, ref, bt, bool(core))
+                    _r, _a = eff_confirm()
+                    key, vc, excerpt, og, pname = page_confirms(pg, variants, _r, bt, _a)
                     spend(vc)
                 except Exception:
                     continue
@@ -1251,6 +1412,8 @@ def main():
                     dom = domain_of(pg)
                     is_off = bool(offdoms) and any(d in dom for d in offdoms)
                     note_name(dom, pname, is_off)
+                    if excerpt and not salvage["excerpt"] and not RESELLER.search(dom)                             and tidy_name(pname, ean or ""):
+                        salvage.update(excerpt=excerpt, src=pg)
                     confirmed.append((s, im, via, dom, is_off, key, excerpt, og))
                     if is_off:
                         break  # official-site confirmation is the best obtainable
@@ -1268,7 +1431,8 @@ def main():
                 scraped.add(pg)
                 checked += 1
                 try:
-                    key, vc, excerpt, og, pname = page_confirms(pg, variants, ref, bt, bool(core))
+                    _r, _a = eff_confirm()
+                    key, vc, excerpt, og, pname = page_confirms(pg, variants, _r, bt, _a)
                     spend(vc)
                 except Exception:
                     continue
@@ -1278,8 +1442,12 @@ def main():
                 is_off = bool(offdoms) and any(d in dom for d in offdoms)
                 # Record the barcode-confirmed name even when the page carries no usable photo: for a
                 # SCANNED row the name is the primary unknown, and a page that proves the GTIN but
-                # shows no product image still answers "what is this item".
+                # shows no product image still answers "what is this item". Its text is kept the same
+                # way: identity is proven, so the excerpt can ground a GREEN description even if the
+                # photo hunt ultimately fails.
                 note_name(dom, pname, is_off)
+                if excerpt and not salvage["excerpt"] and not RESELLER.search(dom)                         and tidy_name(pname, ean or ""):
+                    salvage.update(excerpt=excerpt, src=pg)
                 if og and is_product_image(og):
                     im = {"imageUrl": og, "url": pg, "title": pname}
                     confirmed.append((0.78, im, via, dom, is_off, key, excerpt, og))
@@ -1323,7 +1491,7 @@ def main():
                 (>= VISION_STRICT_CONF); otherwise it keeps its image and just flags the quality;
               - any GREEN minted by vision alone (verified-visual) needs >= VISION_STRICT_CONF."""
             s, im, via, conf, key, excerpt = chosen
-            if state["vision_calls"] >= VISION_CALL_CAP:
+            if vcalls() >= VISION_CALL_CAP:
                 return chosen, "", ""  # spend ceiling reached — leave the row as resolved
             barcode_verified = conf in BARCODE_TIERS
             src_dom = domain_of(im.get("url", ""))
@@ -1374,91 +1542,161 @@ def main():
             quality = "multi" if not a["single"] else ("crop" if not a["whole"] else "unclear")
             return chosen, base_prov, quality
 
-        try:
-            if ean:  # Stage 0: barcode-keyed DB cascade (Barcode Lookup -> OpenPetFoodFacts -> UPCitemdb) — exact-SKU
-                # image (+ OpenPetFoodFacts ingredients/label/weight), NO Firecrawl credit. A hit short-circuits the
-                # paid image search; a miss falls straight through to Firecrawl below.
-                db_hit = barcode_db_lookup(ean, edible)
-                if db_hit and db_hit.get("image"):
-                    live, good = img_ok(db_hit["image"])
-                    if live:
-                        im = {"imageUrl": db_hit["image"], "url": db_hit.get("source_url", ""),
-                              "title": db_hit.get("name", "")}
-                        pool[db_hit["image"]] = (0.97, im, "db")
-                        nw = db_hit.get("net_weight")
-                        dbexc = (f"Net weight: {nw} kg. " if nw else "") + \
-                                (("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else "")
-                        chosen = (0.97, im, "db:" + db_hit["db"], db_tier(db_hit), "ean-db", dbexc)
-                        db_imgq = "" if good else "unclear"  # flag a low-quality DB image so it yellows even w/o vision
-            # Stage 0b (scanned rows only): a Tier-0 DB hit short-circuits every search stage, which is
-            # right for the IMAGE but wrong for the NAME — a scanned row has no name of its own, and the
-            # barcode databases' titles are transliterated/ASCII-stripped ("Flssig", "Kartuov Filter")
-            # and often thinner than the manufacturer or shop page's. Spend the two deterministic
-            # directory scrapes anyway to harvest a better name. The chosen image and its tier are left
-            # untouched; only note_name is fed, and the usual literal-GTIN check still gates every name.
-            if chosen and ean and not (core or bt) and chosen[4] == "ean-db":
-                for _d in BARCODE_DIRECTORIES:
-                    if time.time() - t0 > PRODUCT_BUDGET:
-                        break
-                    _u = _d.format(ean=ean)
-                    if _u in scraped:
-                        continue
-                    scraped.add(_u)
-                    try:
-                        _k, _vc, _e, _o, _pn = page_confirms(_u, variants, ref, bt, False)
-                        spend(_vc)
-                    except Exception:
-                        continue
-                    if _k:
-                        note_name(base_domain(domain_of(_u)), _pn)
+        def guard(stage, fn):
+            """Run one stage in isolation. These all sat in a single try/except, so an exception in
+            Stage 1 silently skipped Stages 2 and 3 — the row then looked exhaustively searched when
+            most of the cascade never ran."""
+            nonlocal had_error
+            try:
+                fn()
+            except Exception as e:
+                had_error = True
+                attempt(stage, "stage", f"error: {type(e).__name__}")
+                print(f"  row {p['row']} {stage} err: {e}")
 
-            if not chosen and (ean or ref):  # Stage 1: barcode/code image search + confirm
-                imgs, c = img_search(ean or (p["brand"] + " " + ref))
-                spend(c)
-                add(imgs, "barcode")
-                chosen = verify_top()
-            if not chosen and ean and time.time() - t0 < PRODUCT_BUDGET:  # Stage 2: EAN web search (official-scoped first, then general)
-                urls = []
-                scoped = [d for d in offdoms if "." in d]  # real domains only (bare frags can't scope)
-                if scoped:
-                    w, c = web_search(f'{ean} {p["brand"]}', domains=scoped)
-                    spend(c)
-                    urls += w
-                w, c = web_search(ean)
+        def stage0_db():
+            nonlocal chosen, db_hit, db_imgq
+            if not ean:
+                return
+            # Stage 0: barcode-keyed DB cascade (Barcode Lookup -> Icecat -> OFF family -> UPCitemdb)
+            # — exact-SKU image (+ composition/label/weight), NO Firecrawl credit.
+            db_hit = barcode_db_lookup(ean, edible)
+            if db_hit and db_hit.get("image"):
+                live, good = img_ok(db_hit["image"])
+                if live:
+                    im = {"imageUrl": db_hit["image"], "url": db_hit.get("source_url", ""),
+                          "title": db_hit.get("name", "")}
+                    pool[db_hit["image"]] = (0.97, im, "db")
+                    nw = db_hit.get("net_weight")
+                    dbexc = (f"Net weight: {nw} kg. " if nw else "") + \
+                            (("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else "")
+                    chosen = (0.97, im, "db:" + db_hit["db"], db_tier(db_hit), "ean-db", dbexc)
+                    db_imgq = "" if good else "unclear"
+            attempt("db", ean, ("hit: " + db_hit["db"]) if (db_hit and db_hit.get("image"))
+                    else ("record, no image" if db_hit else "miss"))
+
+        guard("db", stage0_db)
+        db_chosen = chosen
+        # A LOW-QUALITY database image used to end the whole search: the row shipped a blurry or
+        # odd-ratio photo while a clean, equally-verified one sat one search away. Keep it as the
+        # fallback of last resort and let the cascade keep hunting for better.
+        db_fallback = None
+        if chosen and db_imgq:
+            db_fallback, chosen = chosen, None
+            attempt("db", "image quality " + db_imgq, "kept as fallback, hunting for better")
+
+        def stage0b_directories():
+            # Stage 0b (scanned rows only): a Tier-0 DB hit is right for the IMAGE but its title is
+            # transliterated/thin — spend the two deterministic directory scrapes to harvest a better
+            # name. Image and tier untouched; the literal-GTIN check still gates every name.
+            if not (db_chosen and ean and not (core or bt) and db_chosen[4] == "ean-db"):
+                return
+            for _d in BARCODE_DIRECTORIES:
+                if time.time() - t0 > PRODUCT_BUDGET:
+                    break
+                _u = _d.format(ean=ean)
+                if _u in scraped:
+                    continue
+                scraped.add(_u)
+                try:
+                    _k, _vc, _e, _o, _pn = page_confirms(_u, variants, ref, bt, False)
+                    spend(_vc)
+                except Exception:
+                    continue
+                if _k:
+                    note_name(base_domain(domain_of(_u)), _pn)
+
+        guard("directories", stage0b_directories)
+
+        def stage1_barcode_image():
+            nonlocal chosen
+            if chosen or not (ean or ref):
+                return
+            q = ean or (p["brand"] + " " + ref)
+            imgs, c = img_search(q)
+            spend(c)
+            attempt("barcode-image", q, f"{len(imgs)} candidates")
+            add(imgs, "barcode")
+            chosen = verify_top()
+
+        guard("barcode-image", stage1_barcode_image)
+
+        def stage2_ean_web():
+            nonlocal chosen
+            if chosen or not ean or time.time() - t0 > PRODUCT_BUDGET:
+                return
+            urls = []
+            scoped = [d for d in offdoms if "." in d]  # real domains only (bare frags can't scope)
+            if scoped:
+                w, c = web_search(f'{ean} {p["brand"]}', domains=scoped)
                 spend(c)
                 urls += w
-                if not (core or bt):
-                    # Scanned row (no name): a bare-number search ranks near-random products, so put
-                    # the deterministic barcode directories first. They cost no search credit and
-                    # must still pass the same literal-GTIN check to confirm anything.
-                    urls = [d.format(ean=ean) for d in BARCODE_DIRECTORIES] + urls
-                # dedupe preserving order
-                seen, ordered = set(), []
-                for u in urls:
-                    if u not in seen:
-                        seen.add(u)
-                        ordered.append(u)
-                if DEBUG and not ordered:
-                    print(f"  row {p['row']} ean-web: 0 page urls (stage no-op)")
-                chosen = verify_urls(ordered[:6], "ean-web")
-            # Stage 3: name image search to broaden, confirm again. Runs on the best name available
-            # now — the catalogue's own, or the one the barcode stages just confirmed. It is still
-            # skipped when there is NO name at all, because the query would be empty and the API
-            # rejects that, erroring the row out and burning every retry sweep.
-            wname = working_name()
-            if not chosen and (core or bt or wname) and time.time() - t0 < PRODUCT_BUDGET:
-                # QUERY_HINT is a vertical knob, empty by default. This used to append the literal
-                # word "pet" whenever the brand was unknown — harmless in the pet shop it was written
-                # for, actively wrong anywhere else, since it steers an image search for pool chemicals
-                # towards pet products.
-                parts = [p["brand"], wname, p["type"], QUERY_HINT if not bt else ""]
-                imgs, c = img_search(" ".join(filter(None, parts)) or wname)
+            w, c = web_search(ean)
+            spend(c)
+            urls += w
+            if not (core or bt):
+                # Scanned row (no name): a bare-number search ranks near-random products, so put
+                # the deterministic barcode directories first. They cost no search credit and
+                # must still pass the same literal-GTIN check to confirm anything.
+                urls = [d.format(ean=ean) for d in BARCODE_DIRECTORIES] + urls
+            seen, ordered = set(), []
+            for u in urls:
+                if u not in seen:
+                    seen.add(u)
+                    ordered.append(u)
+            attempt("ean-web", ean, f"{len(ordered)} pages found")
+            chosen = verify_urls(ordered[:6], "ean-web")
+
+        guard("ean-web", stage2_ean_web)
+
+        def stage3_name_ladder():
+            # The name search used to be ONE query, one shot. A human who finds nothing retries:
+            # brand+model code first (language-neutral, highest precision), then the full name, then
+            # a simplified name, then the name in English. Each rung ~2 credits; the ladder stops the
+            # instant anything is adopted, and a verified row never enters it at all.
+            nonlocal chosen
+            wn = working_name()
+            if chosen or not (core or bt or wn):
+                return
+            wr = ref or working_ref_from(wn, ean or "")
+            rungs, seen_q = [], set()
+
+            def push(rung, q):
+                q = " ".join((q or "").split())
+                if q and q.lower() not in seen_q:
+                    seen_q.add(q.lower())
+                    rungs.append((rung, q))
+
+            if wr:
+                push("name-ladder:code", " ".join(filter(None, [p["brand"], wr])))
+            push("name-ladder:full", " ".join(filter(None, [p["brand"], wn, p["type"],
+                                                            QUERY_HINT if not bt else ""])) or wn)
+            push("name-ladder:simple", simplify_name(wn))
+            for rung, q in rungs:
+                if chosen or time.time() - t0 > PRODUCT_BUDGET:
+                    return
+                imgs, c = img_search(q)
                 spend(c)
+                attempt(rung, q, f"{len(imgs)} candidates")
                 add(imgs, "name")
                 chosen = verify_top()
-        except Exception as e:
-            had_error = True
-            print(f"  row {p['row']} search err: {e}")
+            # Last rung: most of the indexable web sells in English, and a Danish or Greek name can
+            # simply not exist there. One cheap translation, used as a QUERY only.
+            if not chosen and FOREIGNISH.search(wn) and time.time() - t0 < PRODUCT_BUDGET:
+                eq = english_query(wn)
+                if eq and eq.lower() not in seen_q:
+                    imgs, c = img_search(" ".join(filter(None, [p["brand"], eq])))
+                    spend(c)
+                    attempt("name-ladder:english", eq, f"{len(imgs)} candidates")
+                    add(imgs, "name")
+                    chosen = verify_top()
+
+        guard("name-ladder", stage3_name_ladder)
+
+        # Nothing verified anywhere: fall back to the flagged DB image rather than shipping nothing.
+        if not chosen and db_fallback:
+            chosen = db_fallback
+            attempt("db", "no better image found anywhere", "low-quality DB image adopted")
 
         order = sorted(pool.values(), key=lambda x: x[0], reverse=True)
         # Stage 4: unverified fallback — top candidate that clears the bar AND has a good
@@ -1474,28 +1712,60 @@ def main():
                     chosen = (s, im, via, "likely", "", "")
                     break
 
-        # Stage 4a: eBay Browse by GTIN. Runs only once the green cascade has failed, and its result
-        # is capped at YELLOW — eBay's GTIN is seller-asserted, so it is a marketplace claim, not a
-        # manufacturer one. With --vision the photo still has to pass the same identity check, which
-        # promotes it to `verified-visual`; without vision it stays `likely`. Key-gated: no key, no-op.
+        # Stage 4a: eBay Browse. Runs only once the green cascade has failed; capped at YELLOW —
+        # eBay's GTIN/title is seller-asserted, a marketplace claim, not a manufacturer one. Two
+        # forms: barcode-in-title (adoptable without vision — the code is literally printed), then
+        # brand+article-code keyword (vision-REQUIRED: nothing literal ties the listing to the code).
+        # Up to 3 listings each — the first listing's photo failing the gate no longer kills the
+        # whole source. Key-gated: no key, no-op.
+        forced_imgq = ""
         if not chosen and ean and os.environ.get("EBAY_CLIENT_ID"):
             try:
-                eb = ebay_by_gtin(ean)
-            except Exception:
-                eb = None
-            if eb and eb.get("image") and img_ok(eb["image"])[1]:
+                eb_cands = [(False, e) for e in ebay_by_gtin(ean)]
+                if not eb_cands:
+                    # Keyword form ONLY with a real code to search AND a real name for vision to
+                    # judge against: brand alone returns arbitrary listings, and with no working
+                    # name the vision check would compare the listing's image to its own title —
+                    # a guaranteed self-match.
+                    _wr = working_ref_from(working_name(), ean or "")
+                    wq = " ".join(filter(None, [p["brand"], _wr]))
+                    if _wr and working_name():
+                        eb_cands = [(True, e) for e in ebay_by_query(wq)]
+                attempt("ebay", ean, f"{len(eb_cands)} listing(s)")
+            except Exception as e:
+                had_error = True
+                eb_cands = []
+                attempt("ebay", ean, f"error: {type(e).__name__}")
+            for needs_vision, eb in eb_cands:
+                if chosen or time.time() - t0 > PRODUCT_BUDGET:
+                    break
+                if not img_ok(eb["image"])[1]:
+                    attempt("ebay", eb["name"][:40], "image failed the quality gate")
+                    continue
                 im = {"imageUrl": eb["image"], "url": eb.get("source_url", ""), "title": eb.get("name", "")}
                 tier = "likely"
-                if VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
+                if VISION and ANTHROPIC_KEY and vcalls() < VISION_CALL_CAP:
                     a = vision_assess(eb["image"], working_name() or eb.get("name", ""), p["brand"], p["type"])
                     vbump()
-                    if not (a["match"] and a["confidence"] >= VISION_MIN_CONF):
-                        im = None
-                    elif a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
+                    vision_notes.append(f"{a.get('confidence')}: {str(a.get('reason'))[:70]}")
+                    if a.get("variant") and a["confidence"] >= VISION_MIN_CONF:
+                        tier, forced_imgq = "likely", "variant"   # owner policy: usable, flagged, never green
+                    elif a["match"] and a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
                         tier = "verified-visual"
-                if im:
+                    elif a["match"] and a["confidence"] >= VISION_MIN_CONF:
+                        tier = "likely"
+                    else:
+                        attempt("ebay", eb["name"][:40], "vision rejected: " + str(a.get("reason"))[:40])
+                        continue
+                elif needs_vision:
+                    attempt("ebay", eb["name"][:40], "keyword match needs vision to adopt; --vision off")
+                    continue
+                if not needs_vision:
+                    # Only the barcode-in-title form may contribute a name: a keyword listing's
+                    # title is vision-matched, not code-confirmed, and found_names is documented
+                    # as literal-confirmation-only (it feeds name_found and identity_confirmed).
                     note_name("ebay.com", eb.get("name", ""))
-                    chosen = (0.6, im, "ebay-gtin", tier, "", "")
+                chosen = (0.6, im, "ebay-kw" if needs_vision else "ebay-gtin", tier, "", "")
 
         # Stage 4b: vision-adjudicated fallback. A row with a real name but nothing above THRESHOLD
         # would otherwise be blank, even when the right photo sits just under the bar — the title
@@ -1506,7 +1776,7 @@ def main():
         # This can only ever mint YELLOW: the tier is `verified-visual`, and green stays reserved for
         # a literal barcode/article-code confirmation. Requires --vision; without it, nothing changes.
         vname = working_name()   # a scanned row is only judgeable once its name is confirmed
-        if not chosen and vname and VISION and ANTHROPIC_KEY and state["vision_calls"] < VISION_CALL_CAP:
+        if not chosen and vname and VISION and ANTHROPIC_KEY and vcalls() < VISION_CALL_CAP:
             for s, im, via in order[:SUBTHRESHOLD_TRIES]:
                 if s < SUBTHRESHOLD_FLOOR or time.time() - t0 > PRODUCT_BUDGET:
                     break
@@ -1515,7 +1785,7 @@ def main():
                 a = vision_assess(im["imageUrl"], vname, p["brand"], p["type"])
                 vbump()
                 vision_notes.append(f"{a.get('confidence')}: {str(a.get('reason'))[:70]}")
-                if a["match"] and a["single"] and a["whole"]:
+                if a["match"] and not a.get("variant") and a["single"] and a["whole"]:
                     # Two YELLOW bands, because discarding everything under the strict bar threw away
                     # usable candidates and reported them as "no image found" — which reads as "we
                     # looked and there is nothing", when really vision was only fairly sure.
@@ -1525,15 +1795,23 @@ def main():
                     if a["confidence"] >= VISION_MIN_CONF:
                         chosen = (s, im, via, "likely", "", "")
                         break
+                elif a.get("variant") and a["single"] and a["whole"] and a["confidence"] >= VISION_MIN_CONF:
+                    # Owner policy: the right product line in the wrong pack size is USABLE — adopted
+                    # yellow with an explicit "variant" flag for the reviewer — never green, and never
+                    # silently: an empty cell helps nobody when a recognisable photo exists.
+                    chosen = (s, im, via, "likely", "", "")
+                    forced_imgq = "variant"
+                    break
 
         # Stage 5 (opt-in `--vision`): quality + identity judgement on the chosen image. May swap a
         # multi-pack/cropped image for a clean pooled alternate (tagged when off-source), promote a
         # `likely` whose image vision confirms, or flag an unfixable image for manual swap.
         img_provenance, img_quality = "", ""
-        if VISION and ANTHROPIC_KEY and chosen and chosen[1].get("imageUrl"):
+        if VISION and ANTHROPIC_KEY and chosen and chosen[1].get("imageUrl") and not forced_imgq:
             chosen, img_provenance, img_quality = quality_pass(chosen)
         elif chosen and chosen[4] == "ean-db":  # no vision pass: still record the DB photo provenance + quality flag
             img_provenance, img_quality = "source", db_imgq
+        img_quality = img_quality or forced_imgq
 
         # Description grounding + provenance. A verified row draws its description from the SAME page
         # the identity/image came from; a row with thin/no page text gets ONE bounded trusted-source
@@ -1587,7 +1865,13 @@ def main():
             # skipped even after the barcode confirmed one — leaving a verified product described from
             # its name alone (a YELLOW description beside a GREEN photo) when a real page was reachable.
             sname = working_name()
-            if chosen[3].startswith("verified") and (thin or need_comp) and (core or bt or sname) \
+            # Identity-confirmed means EITHER a verified image tier OR a GTIN-confirmed name
+            # (found_names only ever holds names from pages/DBs that literally carried the code).
+            # The old gate demanded the verified IMAGE, so an identified row whose photo was merely
+            # `likely` never got its description grounded — the adopted text still tiers by its own
+            # evidence below, so relaxing WHO gets supplemented cannot relax what turns green.
+            identity_confirmed = chosen[3].startswith("verified") or bool(found_names)
+            if identity_confirmed and (thin or need_comp) and (core or bt or sname) \
                     and time.time() - t0 < PRODUCT_BUDGET:
                 q = " ".join(filter(None, [p["brand"], sname, p["type"]]))
                 if need_comp:
@@ -1601,14 +1885,15 @@ def main():
                     # is unaffected: any composition adopted below still must pass the same barcode + _has_comp
                     # + flavour checks; this only widens WHERE we look, never the bar for going green.
                     conf_dom = base_domain(domain_of((chosen[1] or {}).get("url") or ""))
-                    if conf_dom and conf_dom not in scoped and not OFF_DOMAIN.search(conf_dom):
+                    if conf_dom and conf_dom not in scoped \
+                            and not (OFF_DOMAIN and OFF_DOMAIN.search(conf_dom)):
                         scoped.append(conf_dom)
                     if scoped:
                         w, c = web_search(q, domains=scoped)
                         spend(c)
                         urls += w
-                    if need_comp:   # composition reliably lives on big pet retailers — target them directly
-                        w, c = web_search(q, domains=PET_RETAILERS)
+                    if need_comp and COMP_RETAILERS:   # profile-declared composition retailers
+                        w, c = web_search(q, domains=COMP_RETAILERS)
                         spend(c)
                         urls += w
                     w, c = web_search(q)
@@ -1618,10 +1903,10 @@ def main():
                     urls = [u for u in urls if not (u in seen_u or seen_u.add(u))]
                     pref = lambda u: (2 if (offdoms and any(x in domain_of(u) for x in offdoms))
                                            or (conf_dom and conf_dom in domain_of(u))
-                                      else (1 if (PET_SIG.search(u)
-                                                  or any(rt in domain_of(u) for rt in PET_RETAILERS)) else 0))
+                                      else (1 if ((SIG and SIG.search(u))
+                                                  or any(rt in domain_of(u) for rt in COMP_RETAILERS)) else 0))
                     cands = [u for u in sorted(urls, key=pref, reverse=True)
-                             if u not in scraped and not OFF_DOMAIN.search(domain_of(u))]
+                             if u not in scraped and not (OFF_DOMAIN and OFF_DOMAIN.search(domain_of(u)))]
                     nm = []  # name-matched composition from DISTINCT domains: [(dom, comp_text, merged, url)]
                     for u in cands[:2]:
                         if time.time() - t0 > PRODUCT_BUDGET:
@@ -1630,7 +1915,8 @@ def main():
                         dom = domain_of(u)
                         # barcode-confirm the supplement page with the SAME GTIN check as the main
                         # verification, so a composition we adopt is tied to THIS exact item -> green.
-                        key, vc, exc, _og, _pn = page_confirms(u, variants, ref, bt, bool(core))
+                        _r, _a = eff_confirm()
+                        key, vc, exc, _og, _pn = page_confirms(u, variants, _r, bt, _a)
                         spend(vc)
                         if not exc:
                             continue
@@ -1693,6 +1979,8 @@ def main():
                        ingredients_img=(db_hit or {}).get("ingredients_img", ""))
             if excerpt:
                 rec["page_text"] = excerpt  # grounds the description with real product info
+            if not conf.startswith("verified"):
+                rec["attempts"] = attempts   # a yellow row should also show its working
             return rec, ("ver" if conf.startswith("verified") else "lik")
         # Network error with nothing to show -> leave unrecorded for a retry sweep. A SCANNED row that
         # captured a barcode-confirmed name did learn something, so it is recorded rather than retried;
@@ -1709,6 +1997,13 @@ def main():
                    # Why the best candidate was not adopted. Without this a red image cell cannot tell
                    # "nothing was found" apart from "something was found and judged wrong".
                    vision_verdict="; ".join(vision_notes[:2]))
+        # Identity proven, photo not: the GTIN-confirmed page's text still grounds a GREEN
+        # description, and its URL gives the description a clickable source.
+        if salvage["excerpt"]:
+            rec["page_text"] = salvage["excerpt"]
+            rec["desc_provenance"] = "source"
+            rec["src"] = salvage["src"]
+        rec["attempts"] = attempts   # the exhaustion record: red must be able to prove it tried
         return rec, "blank"
 
     def flush():

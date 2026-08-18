@@ -488,8 +488,102 @@ def explain_red_images(ws, resolved, catalog):
                     "source we search: the barcode databases, the barcode directories, an image search "
                     "on the confirmed name, and eBay.\n\nNothing left to try automatically. Photograph "
                     "it in the garage.")
-        ws.cell(r, col).comment = Comment(note, "catalogue engine", height=190, width=380)
+        tried = rec.get("attempts") or []
+        if tried:
+            listing = "\n".join(f"- {a.get('stage')}: {a.get('what')} -> {a.get('outcome')}"
+                                 for a in tried[:10])
+            note += f"\n\nAvenues tried ({len(tried)}):\n" + listing
+        ws.cell(r, col).comment = Comment(note, "catalogue engine", height=240, width=420)
         added += 1
+    return added
+
+
+TIER_FILL = {"verified": PatternFill("solid", fgColor="C6EFCE"),
+             "likely": PatternFill("solid", fgColor="FFEB9C"),
+             "blank": PatternFill("solid", fgColor="FFC7CE"),
+             "na": PatternFill("solid", fgColor="EDEDED")}
+
+
+def colour_derived(ws, resolved, desc, catalog):
+    """Colour every DERIVED cell by its evidence, so no unverified value hides behind white.
+
+    The engine's own three fields (Image / Description / Ingredients) were always coloured; Name,
+    Brand, Product Type, Tags and the four measurements rendered white regardless of evidence, so a
+    value that was merely derived or model-extracted looked exactly like a confirmed one. Mapping:
+      Name          green = barcode-confirmed; red = a GTIN row nothing could identify;
+                    white = the catalogue supplied it (a POS export input, not an enrichment).
+      Brand/Type/   follow the name they were derived from (green name -> green, else yellow);
+      Tags          red when an identified row derived nothing; grey when unidentified (nothing to
+                    derive FROM — the red already lives on Name).
+      Dims/Weight   green when the number was literally stated (page text or the confirmed name),
+                    yellow when only the model produced it, grey when not stated anywhere.
+    Row Status stays worst-of Image/Description/Ingredients — this is visual truth, not a new
+    status input, so today's READY/REVIEW/HOLD counts cannot shift under the owner.
+    """
+    headers = [c.value for c in ws[1]]
+    col = {h: i + 1 for i, h in enumerate(headers) if h}
+    by_barcode = {c["barcode"]: c for c in catalog if c.get("barcode")}
+    painted = 0
+    for r in range(2, ws.max_row + 1):
+        row = by_barcode.get(str(ws.cell(r, col["Barcode"]).value or "").strip())
+        if row is None:
+            continue
+        key = str(row["row"])
+        rec = resolved.get(key, {}) or {}
+        d = desc.get(key, {}) or {}
+        scan = not (row.get("name") or "").strip() or bool(rec.get("name_found"))
+        identified = bool(rec.get("name_found") or (row.get("name") or "").strip())
+        if scan:
+            name_tier = "verified" if rec.get("name_found") else "blank"
+        else:
+            name_tier = None      # catalogue input, not an enrichment — stays white
+        if name_tier and "Name" in col:
+            ws.cell(r, col["Name"]).fill = TIER_FILL[name_tier]
+            painted += 1
+        for h in ("Brand Name", "Product Type", "Tags"):
+            if h not in col:
+                continue
+            has = bool(str(ws.cell(r, col[h]).value or "").strip())
+            if not scan and has:
+                continue          # POS-supplied input
+            t = ("verified" if name_tier in (None, "verified") else "likely") if has \
+                else ("blank" if identified else "na")
+            ws.cell(r, col[h]).fill = TIER_FILL[t]
+            painted += 1
+        dsrc = d.get("dims_src") or {}
+        for h, f in (("Depth (cm)", "depth"), ("Width (cm)", "width"),
+                     ("Height (cm)", "height"), ("Weight (kg)", "weight")):
+            if h not in col:
+                continue
+            has = ws.cell(r, col[h]).value not in (None, "")
+            # GREEN only for text whose provenance is airtight: the engine-written Net-weight prefix
+            # (GTIN-keyed) or the confirmed NAME. A "page" match is anchored but the page itself may
+            # be a likely-tier page, so it reviews as yellow like any other unverified specific.
+            t = ("verified" if dsrc.get(f) in ("netwt", "name") else "likely") if has else "na"
+            ws.cell(r, col[h]).fill = TIER_FILL[t]
+            painted += 1
+    return painted
+
+
+def annotate_variant_images(ws, resolved, catalog):
+    """Hover note on a yellow image adopted under the variant policy: the photo shows the right
+    product line in a DIFFERENT pack size, by explicit owner decision — usable, flagged, never green."""
+    headers = [c.value for c in ws[1]]
+    if "Image Source" not in headers:
+        return 0
+    col = headers.index("Image Source") + 1
+    bc = headers.index("Barcode") + 1
+    by_barcode = {c["barcode"]: str(c["row"]) for c in catalog if c.get("barcode")}
+    added = 0
+    for r in range(2, ws.max_row + 1):
+        rec = resolved.get(by_barcode.get(str(ws.cell(r, bc).value or "").strip(), ""), {}) or {}
+        if rec.get("url") and rec.get("img_quality") == "variant":
+            ws.cell(r, col).comment = Comment(
+                "The image AI judged this photo to be the SAME product line in a DIFFERENT pack "
+                "size or count than this barcode's. Adopted as yellow by policy: a recognisable "
+                "variant photo beats an empty cell, but verify the size before it goes live.",
+                "catalogue engine", height=150, width=360)
+            added += 1
     return added
 
 
@@ -581,6 +675,8 @@ def main():
     notes = annotate_headers(wb["Curation"])
     where = add_note(wb["Curation"])
     explained = explain_red_images(wb["Curation"], resolved, catalog)
+    painted = colour_derived(wb["Curation"], resolved, desc, catalog)
+    variants = annotate_variant_images(wb["Curation"], resolved, catalog)
     defused = defuse_formulas(wb)
     wb.save(WORKBOOK)
 
@@ -594,6 +690,8 @@ def main():
     print(f"  colour guide    inline note at {where} + {notes} header hover notes (no explainer tab)")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  red images      {explained} carry the verdict that rejected their candidate")
+    print(f"  derived colour  {painted} cell(s) now show their evidence tier (no white unknowns)"
+          + (f" | {variants} variant image(s) flagged" if variants else ""))
     print(f"  formula safety  {'no live formulas' if not defused else str(defused) + ' scraped cell(s) forced to text'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")

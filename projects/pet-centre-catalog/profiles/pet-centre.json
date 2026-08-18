@@ -1,0 +1,11 @@
+{
+  "_comment": "Catalogue profile for the Pet Centre (Hike POS) runs. Set CATALOG_PROFILE to this file's path to restore the pet-tuned behaviour the engine used to hard-code. With NO profile the engine is vertical-neutral: no signal scoring, no off-domain penalty, no retailer-scoped composition searches, a generic edible test. See docs/engine-briefing.md -> 'Adapting to a NEW catalogue'.",
+  "signal_tokens": "pet|dog|cat|puppy|kitten|zoo|animal|aqua|fish|bird|parrot|reptile|rabbit|hamster|rodent|vet|kennel|paw|collar|leash|groom|terrarium|aviary|litter|chew|aquarium",
+  "off_domains": "surg|medical|pharma|dental|jewel|candy|craft|hardware|welding|tackle|cosmet|beauty",
+  "comp_retailers": ["zooplus.com", "zooplus.co.uk", "zooplus.de", "zooplus.it", "zooplus.fr",
+                     "bitiba.co.uk", "bitiba.de", "fressnapf.de", "petsathome.com", "chewy.com", "petco.com"],
+  "edible_regex": "\\b(?:food|treat|snack|biscuit|cookie|kibble|wet|dry|dental|milk|yog(?:h)?urt|paste|pat[e\u00e9]|mousse|gravy|broth|stew|loaf|sausage|meal|topper|nibble|chew|bone|stick|jerky|rawhide)s?\\b",
+  "off_hosts": ["world.openpetfoodfacts.org", "world.openfoodfacts.org"],
+  "persona": "a friendly neighbourhood pet shop",
+  "query_hint": "pet"
+}

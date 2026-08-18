@@ -78,12 +78,30 @@ LEFT_TOP = Alignment(vertical="top", horizontal="left")  # left-align numbers to
 FILL = {"verified": GREEN, "likely": YELLOW, "blank": RED, "na": GREY}
 TIER_WORD = {"verified": "Verified", "likely": "Likely", "blank": "Blank", "na": "N/A"}
 
-# An item is EDIBLE (must carry an ingredient list) if its type names any consumable category — NOT just
-# "food": treats, chews, bones, dental sticks, pâtés, etc. (?:...)s? keeps every word plural-tolerant.
-EDIBLE_TYPE = re.compile(
-    r"\b(?:food|treat|snack|biscuit|cookie|kibble|wet|dry|dental|milk|yog(?:h)?urt|paste|pat[eé]|"
-    r"mousse|gravy|broth|stew|loaf|sausage|meal|topper|nibble|chew|bone|stick|jerky|rawhide)s?\b",
-    re.IGNORECASE)
+# An item is EDIBLE (must carry an ingredient list) if its type names a consumable category.
+# EXACTLY the engine's default + profile override (CATALOG_PROFILE) — this used to be a verbatim
+# copy of the engine's regex, and two copies edited in lockstep is how the workbook's ingredient
+# tier silently drifts from what the engine actually fetched.
+DEFAULT_EDIBLE_REGEX = (r"\b(?:food|drink|beverage|snack|treat|biscuit|cookie|chocolate|candy|sweet|"
+                        r"milk|yog(?:h)?urt|juice|tea|coffee|sauce|spice|supplement|edible)s?\b")
+
+
+def _edible_re():
+    path = os.environ.get("CATALOG_PROFILE", "")
+    if path:
+        try:
+            with open(path, encoding="utf-8") as fh:
+                prof = json.load(fh)
+        except Exception as e:
+            # Same semantics as the engine: a SET-but-unreadable profile stops the run rather than
+            # silently colouring ingredients under different rules than the engine fetched them.
+            raise SystemExit(f"CATALOG_PROFILE {path!r} unreadable: {e}")
+        if prof.get("edible_regex"):
+            return re.compile(prof["edible_regex"], re.IGNORECASE)
+    return re.compile(DEFAULT_EDIBLE_REGEX, re.IGNORECASE)
+
+
+EDIBLE_TYPE = _edible_re()
 
 
 def is_edible(p):
@@ -382,11 +400,14 @@ def img_method(rec):
         # is the wrong product. The last one means stop searching the web and go photograph the shelf.
         # Written so the CELL ITSELF answers "why is this red?". The hover note carries the detail,
         # but a note is only found by someone who already suspects it is there.
+        tries = len(r.get("attempts") or [])
+        suffix = f" ({tries} avenues tried)" if tries else ""
         if r.get("vision_verdict"):
-            return "found one, wrong product"
+            return "found one, wrong product" + suffix
         if r.get("best_url"):
-            return "best guess (unverified)"
-        return "searched, none found" if r.get("name_found") else "not identified, cannot search"
+            return "best guess (unverified)" + suffix
+        return ("searched, none found" + suffix) if r.get("name_found") \
+            else ("not identified, cannot search" + suffix)
     conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
     # Describe where the PHOTO came from first: an off-site / vision-picked image is yellow even when the
     # product IDENTITY is barcode-solid, so the image cell must say so (not parrot the identity method).
@@ -408,7 +429,8 @@ def img_method(rec):
     else:
         m = "best guess"
     if q:
-        m += " (" + {"multi": "multi-product", "crop": "cropped", "unclear": "unclear"}.get(q, q) + ")"
+        m += " (" + {"multi": "multi-product", "crop": "cropped", "unclear": "unclear",
+                     "variant": "variant pack shown, verify size"}.get(q, q) + ")"
     return m
 
 

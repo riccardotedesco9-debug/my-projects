@@ -16,6 +16,12 @@ literally on the page) — a flavour/protein/name match alone is never enough. *
 unverified** (vision-only image, name match, brand-site or 2-source composition) → a human checks it.
 **RED = missing** → manual sourcing. Applied per field (Description, Ingredients, Image), not just per row.
 
+## IMPORTANT (2026-08-18): pet runs need `CATALOG_PROFILE=profiles/pet-centre.json`
+The engine's vertical knobs moved into a profile file and the DEFAULT is now vertical-neutral (no
+pet signal scoring, no zooplus-scoped searches, generic edible regex). Running this catalogue
+without the profile still works but scores/persona lose their pet tuning. Set the env var for any
+resolve/describe run here. Other verticals: run with NO profile, or write their own JSON.
+
 ## Pipeline (Python; run via the skills venv + a gitignored `.env` for secrets)
 
 `~/.claude/skills/.venv/Scripts/python.exe`. Keys come from the workspace-root **`.env`** (no popup):

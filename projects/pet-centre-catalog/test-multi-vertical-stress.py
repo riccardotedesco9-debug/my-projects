@@ -74,6 +74,14 @@ def build(tmp):
                          "url": "" if row == 5 else f"https://images.example.com/{row}.jpg",
                          "src": f"https://shop{row}.example.com/p/{bc}",
                          "confidence": "verified", "desc_provenance": "source"}
+        if row == 5:   # red row: must carry its exhaustion record
+            img[str(row)]["attempts"] = [
+                {"stage": "barcode-image", "what": bc, "outcome": "0 candidates"},
+                {"stage": "name-ladder:full", "what": name, "outcome": "6 candidates"},
+                {"stage": "ebay", "what": bc, "outcome": "0 listing(s)"}]
+        if row == 3:   # variant-policy row: right product line, wrong pack, adopted yellow + flagged
+            img[str(row)]["confidence"] = "likely"
+            img[str(row)]["img_quality"] = "variant"
     paths = {n: os.path.join(tmp, f"{n}.json") for n in ("rows", "desc", "img")}
     for n, obj in (("rows", rows), ("desc", desc), ("img", img)):
         json.dump(obj, open(paths[n], "w", encoding="utf-8"), ensure_ascii=False)
@@ -102,7 +110,8 @@ def main():
         print("\n=== assertions")
         check(len(rows) == len(FIXTURE) - 2, "unidentified and whitespace-only rows are skipped",
               f"{len(rows)} exported")
-        blank = [r for r in rows if not any(w in r["Title"].lower() for w in ("filter", "cartridge"))]
+        POOL_FIXTURE_BC = {"6941607353615", "6941607353592"}   # the two rows that ARE pool items
+        blank = [r for r in rows if r["Barcode"] not in POOL_FIXTURE_BC]
         check(all(not r["Product category"] for r in blank),
               "no category is invented for products outside the configured vertical",
               str([r["Title"][:20] for r in blank if r["Product category"]]))
@@ -131,6 +140,75 @@ def main():
         check(any(n.startswith("=") for n in names),
               "the hostile name is still present as text (defused, not deleted)")
         check(ws.max_row - 1 == len(FIXTURE), "every catalogue row reaches the workbook, identified or not")
+        headers = [c.value for c in ws[1]]
+        isrc = headers.index("Image Source") + 1
+        bcol = headers.index("Barcode") + 1
+        labels = {str(ws.cell(r, bcol).value): str(ws.cell(r, isrc).value) for r in range(2, ws.max_row + 1)}
+        red_lbl = next((v for k, v in labels.items() if "4006381333931" in k), "")
+        check("avenues tried" in red_lbl, "a red image cell cites its exhaustion record", red_lbl)
+        var_lbl = next((v for k, v in labels.items() if "0196966418853" in k), "")
+        check("variant pack shown" in var_lbl, "a variant image is labelled, never silent", var_lbl)
+
+        print("\n=== engine neutrality (no profile)")
+        import importlib.util
+        os.environ.pop("CATALOG_PROFILE", None)
+        os.environ.setdefault("FIRECRAWL_API_KEY", "unused-by-test")
+        spec = importlib.util.spec_from_file_location("eng", os.path.join(HERE, "resolve-images.py"))
+        eng = importlib.util.module_from_spec(spec)
+        argv_keep, sys.argv = sys.argv, [sys.argv[0], "in", "out"]
+        spec.loader.exec_module(eng)
+        sys.argv = argv_keep
+        print("\n=== assertions")
+        check(eng.SIG is None and eng.OFF_DOMAIN is None and eng.COMP_RETAILERS == [],
+              "no profile => no vertical bias objects exist")
+        cand_a = {"title": "widget pro 3000", "url": "https://shop.example/a"}
+        cand_b = {"title": "widget pro 3000 pet dog", "url": "https://petshop.example/b"}
+        core = {"widget", "pro", "3000"}
+        check(eng.score(cand_a, core, set(), []) == eng.score(dict(cand_b, title="widget pro 3000"),
+                                                              core, set(), []),
+              "scoring is vertical-neutral without a profile")
+        import importlib.util as _ilu
+        spec2 = _ilu.spec_from_file_location("asm", os.path.join(HERE, "assemble.py"))
+        asm = _ilu.module_from_spec(spec2)
+        spec2.loader.exec_module(asm)
+        check(eng.DEFAULT_EDIBLE_REGEX == asm.DEFAULT_EDIBLE_REGEX,
+              "engine and workbook share ONE edible definition (no drift)")
+        check(eng.working_ref_from("Bestway 58094 Pool Filter Cartridge (II)", "6941607353615") == "58094"
+              and eng.working_ref_from("Scrub brush 15 x 9 x 8 cm", "1") == ""
+              and eng.working_ref_from("Barilla No.5 500 g", "2") == "",
+              "article-code extraction finds mid-name codes and refuses measurements")
+        check(eng.working_ref_from("Dog Shampoo Aloe 250ml", "3") == ""
+              and eng.working_ref_from("Barilla Fusilli 500g", "4") == ""
+              and eng.working_ref_from("Bath mat blue 40X60CM", "5") == ""
+              and eng.working_ref_from("Sunglasses black UV400", "6") == "",
+              "attached units, NxM dims and spec tokens are never article codes")
+        spec3 = _ilu.spec_from_file_location("gen", os.path.join(HERE, "gen-descriptions.py"))
+        gen = _ilu.module_from_spec(spec3)
+        argv_keep, sys.argv = sys.argv, [sys.argv[0], "in.json", "out.json", "20"]
+        os.environ.setdefault("ANTHROPIC_API_KEY", "unused-by-test")
+        try:
+            spec3.loader.exec_module(gen)
+        finally:
+            sys.argv = argv_keep
+        base = {"description": "d", "depth": None, "width": None, "height": None, "weight": None,
+                "ingredients": ""}
+        r1 = gen.measure_fallback(dict(base), "Pool cleaner 1L",
+                                  "Related: SAILOR Sea salt no.5 20kg | reviews: pH Minus 1,50 kg")
+        check(r1["weight"] is None, "a bare mass in page chrome never becomes the product's weight",
+              str(r1["weight"]))
+        r2 = gen.measure_fallback(dict(base), "Chlorine granules",
+                                  "Spec sheet. Net weight: 4,5 kg. For pools.")
+        check(r2["weight"] == 4.5 and r2["dims_src"].get("weight") == "netwt",
+              "an anchored net weight IS extracted, with airtight provenance", str(r2))
+        r3 = gen.measure_fallback(dict(base), "Flexi lead for dogs up to 15 kg", "")
+        check(r3["weight"] is None, "a capacity rating in the name is not the product's weight",
+              str(r3["weight"]))
+        r4 = gen.measure_fallback(dict(base), "Air bed 99x191x25 cm", "")
+        check(r4["width"] is None and r4["height"] is None,
+              "the ambiguous A x B x C form is refused, as documented", str(r4))
+        r5 = gen.measure_fallback(dict(base), "Bestway cartridge 10.6 x 13.6 cm", "")
+        check(r5["width"] == 10.6 and r5["height"] == 13.6,
+              "the unambiguous two-dimension form still extracts")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

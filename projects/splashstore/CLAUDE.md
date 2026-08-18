@@ -257,6 +257,17 @@ GTIN is entered by the seller. Both are no-ops until their key exists, so nothin
 - Image URLs are HTML-unescaped at the source (`&amp;` in a query string breaks `=IMAGE()` and some
   hosts); if a new extraction path is added, unescape there too.
 
+### Exhaustion ladder results (2026-08-18)
+The 16 incomplete rows re-ran through the new ladder (197 credits, 18 vision calls, 3 BL calls):
+**+2 images** (row 20 Water-ID as a FLAGGED VARIANT — right product line, wrong pack size, owner's
+policy; row 32 Spa Industries from the maker's own site), **weights 7 -> 13**, **any-dimension
+13 -> 16** via the deterministic extraction pass, and every red row now carries its attempts log
+("searched, none found (7 avenues tried)" + hover list). Merge was accuracy-first: no tier
+downgrades, curated names untouched, row 33's junk-name adoption REJECTED (its harvested name
+"Deutschland Card" vision-matched a cartoon — the curated name is the real product), directory-page
+salvage dropped (engine now gates it). Sheet totals: **39 photos of 44**, colour rule HOLDS.
+This catalogue runs with NO profile (vertical-neutral is correct for pool goods).
+
 ### Current state (2026-08-16)
 51 codes scanned → 44 lookupable → **41 identified, 36 with photos, 41 descriptions, 13 with dimensions**.
 Sheet status: **27 READY / 9 REVIEW / 8 HOLD** (5 identified-but-no-photo + 3 unidentified) + 7 non-barcodes
