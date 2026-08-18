@@ -1127,6 +1127,7 @@ def main():
                 state["vision_calls"] += 1
 
         found_names = []  # [(rank, dom, name)] barcode-confirmed names this page/DB stated for the code
+        vision_notes = []  # why a candidate image was passed over, so a red row can explain itself
 
         def note_name(dom, nm, is_off=False):
             """Collect a name stated by a source that CONFIRMED the barcode. Ranked so a
@@ -1164,7 +1165,17 @@ def main():
             return img_memo[u]
 
         def add(images, via):
-            for s, im in ranked(images, core, bt, offdoms):
+            # Ranking scores a candidate against the product's OWN words, and `core` comes from the
+            # ingest name — empty for a scanned row. `ranked` drops everything scoring 0, so the
+            # name-led search would fetch results and then throw every one of them away, leaving a
+            # row that looks like "we searched and found nothing" when we had simply scored it blind.
+            # Fall back to the tokens of whatever name the barcode stages have confirmed by now.
+            ck = core
+            if not ck:
+                wn = working_name()
+                if wn:
+                    ck = toks(wn) - brand_toks(p["brand"])
+            for s, im in ranked(images, ck, bt, offdoms):
                 u = im["imageUrl"]
                 if u not in pool or s > pool[u][0]:
                     pool[u] = (s, im, via)
@@ -1462,9 +1473,17 @@ def main():
                     continue
                 a = vision_assess(im["imageUrl"], vname, p["brand"], p["type"])
                 vbump()
-                if a["match"] and a["single"] and a["whole"] and a["confidence"] >= VISION_STRICT_CONF:
-                    chosen = (s, im, via, "verified-visual", "", "")
-                    break
+                vision_notes.append(f"{a.get('confidence')}: {str(a.get('reason'))[:70]}")
+                if a["match"] and a["single"] and a["whole"]:
+                    # Two YELLOW bands, because discarding everything under the strict bar threw away
+                    # usable candidates and reported them as "no image found" — which reads as "we
+                    # looked and there is nothing", when really vision was only fairly sure.
+                    if a["confidence"] >= VISION_STRICT_CONF:
+                        chosen = (s, im, via, "verified-visual", "", "")
+                        break
+                    if a["confidence"] >= VISION_MIN_CONF:
+                        chosen = (s, im, via, "likely", "", "")
+                        break
 
         # Stage 5 (opt-in `--vision`): quality + identity judgement on the chosen image. May swap a
         # multi-pack/cropped image for a clean pooled alternate (tagged when off-source), promote a
@@ -1645,7 +1664,10 @@ def main():
                    # a partial success, not a miss, so don't file it under "no-results".
                    reason=("identified-no-image" if rec.get("name_found")
                            else ("low-confidence" if order else "no-results")),
-                   best_title=top.get("title", ""), best_url=top.get("imageUrl", ""))
+                   best_title=top.get("title", ""), best_url=top.get("imageUrl", ""),
+                   # Why the best candidate was not adopted. Without this a red image cell cannot tell
+                   # "nothing was found" apart from "something was found and judged wrong".
+                   vision_verdict="; ".join(vision_notes[:2]))
         return rec, "blank"
 
     def flush():

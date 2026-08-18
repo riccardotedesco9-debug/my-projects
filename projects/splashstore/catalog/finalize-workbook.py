@@ -292,11 +292,23 @@ def check_thumbnails(ws, resolved, catalog):
         key = by_barcode.get(code)
         if key and (resolved.get(key, {}) or {}).get("url") and r not in have:
             missing.append((r, code))
+    # And the other direction, which is the dangerous one: a photo shown on a row the catalogue says
+    # has NO image. A missing thumbnail looks broken and gets noticed; a surplus one looks like data
+    # and gets believed, even when it is a candidate the engine already rejected.
+    orphan = []
+    for r in range(2, ws.max_row + 1):
+        key = by_barcode.get(str(ws.cell(r, bc_col).value or "").strip())
+        if r in have and not (resolved.get(key, {}) or {}).get("url"):
+            orphan.append(r)
     if missing:
         print("  !! rows with an image URL but NO embedded thumbnail (will render broken):")
         for r, code in missing:
             print(f"       sheet row {r}  barcode {code}  -> delete .tmp/normalized/<row>.jpg and re-run step 4")
-    return len(missing)
+    if orphan:
+        print(f"  !! {len(orphan)} row(s) DISPLAY a photo but hold no image URL "
+              f"(sheet rows {', '.join(map(str, orphan))}) -> a stale .tmp/normalized/<row>.jpg, "
+              f"or a best-guess being embedded. The row would show a picture it does not own.")
+    return len(missing) + len(orphan)
 
 
 # The colour contract, stated once so a run can be checked against it rather than eyeballed:
@@ -413,6 +425,34 @@ def strip_note(ws):
     return False
 
 
+def explain_red_images(ws, resolved, catalog):
+    """Hover the engine's actual verdict onto a red Image Source cell.
+
+    A red cell says a photo is missing. It cannot say whether the web had nothing to offer, or whether
+    a candidate WAS found and the image AI judged it a different product. That difference decides what
+    the owner does next — search harder, or go photograph the shelf — and the engine already recorded
+    it, so put it where the question gets asked.
+    """
+    headers = [c.value for c in ws[1]]
+    if "Image Source" not in headers:
+        return 0
+    col = headers.index("Image Source") + 1
+    bc_col = headers.index("Barcode") + 1
+    by_barcode = {c["barcode"]: str(c["row"]) for c in catalog if c.get("barcode")}
+    added = 0
+    for r in range(2, ws.max_row + 1):
+        rec = resolved.get(by_barcode.get(str(ws.cell(r, bc_col).value or "").strip(), ""), {}) or {}
+        if rec.get("url") or not rec.get("vision_verdict"):
+            continue
+        note = ("A photo WAS found and checked against this product's confirmed name.\n"
+                "The image AI judged it a different product, so it was not used:\n\n"
+                + str(rec["vision_verdict"])[:400]
+                + "\n\nThis one wants photographing in the garage, not more searching.")
+        ws.cell(r, col).comment = Comment(note, "catalogue engine", height=190, width=380)
+        added += 1
+    return added
+
+
 def defuse_formulas(wb):
     """Re-assert the engine's no-live-formula rule across every sheet, and report the count.
 
@@ -492,6 +532,7 @@ def main():
     fit_layout(wb["Needs re-scan"], ["What it is", "What to do"])
     notes = annotate_headers(wb["Curation"])
     where = add_note(wb["Curation"])
+    explained = explain_red_images(wb["Curation"], resolved, catalog)
     defused = defuse_formulas(wb)
     wb.save(WORKBOOK)
 
@@ -504,6 +545,7 @@ def main():
     print(f"  thumbnails      {'ALL PRESENT' if not broken else str(broken) + ' MISSING - see above'}")
     print(f"  colour guide    inline note at {where} + {notes} header hover notes (no explainer tab)")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
+    print(f"  red images      {explained} carry the verdict that rejected their candidate")
     print(f"  formula safety  {'no live formulas' if not defused else str(defused) + ' scraped cell(s) forced to text'}")
     print(f"  total scanned accounted for: {wb['Curation'].max_row - 1} + {n_skip} = "
           f"{wb['Curation'].max_row - 1 + n_skip}")

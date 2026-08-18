@@ -377,6 +377,11 @@ def img_method(rec):
     """How the image was confirmed, in plain words (the subtag after the tier)."""
     r = rec or {}
     if not r.get("url"):
+        # Three different reds, and the difference matters to whoever has to fix the row: nothing was
+        # found at all / something was found but never judged / something was found and vision said it
+        # is the wrong product. The last one means stop searching the web and go photograph the shelf.
+        if r.get("vision_verdict"):
+            return "checked, not the product"
         return "best guess (unverified)" if r.get("best_url") else "no image"
     conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
     # Describe where the PHOTO came from first: an off-site / vision-picked image is yellow even when the
@@ -561,7 +566,13 @@ def main():
             if it in FILL:
                 ws.cell(row=r, column=1).fill = FILL[it]
             if a.embed:  # embed the product thumbnail in column A (or a flagged best-guess candidate when blank)
-                thumb = thumb_for(p["row"], img_url(rec) or best_guess_url(rec), a.imgdir, box=150)
+                # ONLY an adopted image is ever shown. This used to fall back to the best-guess URL so
+                # a reviewer could eyeball a near-miss, but that put a picture in a row whose Image
+                # cell is RED — and red is supposed to mean "we have nothing here". Worse, once vision
+                # started judging candidates, the thing on display could be one it had already ruled
+                # out (a rejected candidate rendered as a purple cartoon dinosaur on a sauna cleaner).
+                # The guess is not lost: it stays one click away in "Best guess (manual)".
+                thumb = thumb_for(p["row"], img_url(rec), a.imgdir, box=150) if img_url(rec) else None
                 if thumb:
                     ws.add_image(XLImage(thumb), f"A{r}")
                     ws.row_dimensions[r].height = 120

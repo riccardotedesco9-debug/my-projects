@@ -86,6 +86,19 @@ def main():
     img = json.load(open(IMG, encoding="utf-8"))
     todo = [(int(k), v["url"]) for k, v in img.items()
             if isinstance(v, dict) and v.get("url")]
+    # Prune first. A row whose image was corrected or withdrawn leaves its old JPG behind, and the
+    # workbook re-embeds whatever it finds on disk — so the sheet keeps showing a photo the catalogue
+    # no longer claims. This was a documented "remember to delete it" step, which is exactly the kind
+    # of instruction that gets forgotten; the invariant is cheap to just enforce.
+    keep = {row for row, _ in todo}
+    stale = [f for f in os.listdir(OUTDIR)
+             if f.endswith(".jpg") and f[:-4].isdigit() and int(f[:-4]) not in keep]
+    for f in stale:
+        os.remove(os.path.join(OUTDIR, f))
+    if stale:
+        print(f"pruned {len(stale)} stale thumbnail(s) for rows that no longer have an image: "
+              + ", ".join(sorted(f[:-4] for f in stale)))
+
     done = ok = fail = 0
     for row, url in todo:
         out = os.path.join(OUTDIR, f"{row}.jpg")
