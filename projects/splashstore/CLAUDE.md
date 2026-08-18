@@ -173,11 +173,13 @@ issues to Full subscribers on request. Both fail open.
 
 Swept all 44 codes: **3 free-tier hits, 5 full-only, 36 absent** — and all 8 covered rows *already*
 had a confirmed name and photo, while the 8 rows that still need something got **zero** hits, free or
-paid. So **do not buy Full Icecat for this catalogue**. Note also that Barcode Lookup runs BEFORE
-Icecat in the cascade and short-circuits on an image, so with BL enabled Icecat is only ever reached
-on rows BL missed. Keep it wired anyway: free, fails open, and future stock may differ. Its one
-untapped edge is naming — it returns brand + model code (`Bestway 58094 Pool Filter Cartridge (II)`)
-where the current name for that row carries dimensions but no brand.
+paid. So **do not buy Full Icecat for this catalogue**. Icecat is queried on EVERY row since
+2026-08-18, even when Barcode Lookup already supplied the image — it is free and GTIN-keyed, and a
+second database holding a record for the same code is exactly the agreement `verified-cross` exists
+to reward. Proven live on the 3 Bestway cartridges: BL + Icecat each hold the record, names agree,
+tier upgraded to **"Verified — 2 sources"** in the sheet. Its other edge is naming — it returns brand
++ model code (`Bestway 58094 Pool Filter Cartridge (II)`) where the current name for that row
+carries dimensions but no brand.
 `EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET` -> free eBay Browse GTIN search, global and all-category, the
 closest free substitute for Barcode Lookup's non-food coverage — but capped at YELLOW, because eBay's
 GTIN is entered by the seller. Both are no-ops until their key exists, so nothing changes until then.

@@ -567,13 +567,16 @@ def barcode_db_lookup(ean, edible=True):
     the merged dict or None."""
     if not ean:
         return None
-    out = {"name": "", "image": "", "source_url": "", "db": "",
+    out = {"name": "", "image": "", "source_url": "", "db": "", "db_sources": [],
            "ingredients": "", "ingredients_db": "", "ingredients_url": "", "ingredients_img": "", "net_weight": None}
     got = False
 
     def take_image(rec):
         nonlocal got
         got = True
+        # Every database that HOLDS a record for this GTIN is an independent confirmation of identity,
+        # whether or not its image is the one adopted. Recorded so the tier can reflect agreement.
+        out["db_sources"].append({"db": rec.get("db", ""), "name": rec.get("name", "")})
         if not out["image"] and rec.get("image"):
             out["image"], out["source_url"], out["db"] = rec["image"], rec["source_url"], rec["db"]
         if not out["name"]:
@@ -582,13 +585,17 @@ def barcode_db_lookup(ean, edible=True):
     bl = _barcodelookup(ean)
     if bl:
         take_image(bl)
-    if not out["image"]:
-        try:
-            ic = _icecat(ean)
-        except Exception:
-            ic = None
-        if ic:
-            take_image(ic)
+    # Icecat is queried EVEN WHEN an image is already in hand. It is free and GTIN-keyed, so the only
+    # thing skipping it saved was a few hundred milliseconds — while costing the one piece of evidence
+    # the tier system values most: a second, independent source holding a record for this exact code.
+    # Cross-confirmation was previously reachable only by scraping two web pages, which meant the
+    # barcode databases could never corroborate each other no matter how many agreed.
+    try:
+        ic = _icecat(ean)
+    except Exception:
+        ic = None
+    if ic:
+        take_image(ic)
     if edible or not out["image"]:   # OpenPetFoodFacts only adds ingredient data; skip it for a non-edible w/ image
         try:
             off = _off_family("world.openpetfoodfacts.org", ean)
@@ -612,6 +619,26 @@ def barcode_db_lookup(ean, edible=True):
         if up:
             take_image(up)
     return out if got else None
+
+
+def db_tier(db_hit):
+    """`verified-cross` when two independent barcode databases hold a record for this GTIN, else
+    `verified`. Both are GREEN — the barcode is confirmed either way — but agreement is the stronger
+    claim, and the workbook says so ("verified (2+ sources)").
+
+    Promotion additionally requires the two records to be TALKING ABOUT THE SAME THING: GTIN-keyed
+    lookups are about one code by construction, but databases do carry the occasional mis-keyed row,
+    and two sources contradicting each other is a reason to look harder, not to trust it more. Names
+    with no shared word leave the tier at plain `verified` rather than promoting on a disagreement.
+    """
+    srcs = [s for s in (db_hit or {}).get("db_sources") or [] if s.get("db")]
+    if len({s["db"] for s in srcs}) < 2:
+        return "verified"
+    named = [toks(s.get("name") or "") for s in srcs if (s.get("name") or "").strip()]
+    named = [t for t in named if t]
+    if len(named) >= 2 and not any(a & b for i, a in enumerate(named) for b in named[i + 1:]):
+        return "verified"          # they hold the same code but describe different products
+    return "verified-cross"
 
 
 def extract_ref(name):
@@ -1361,7 +1388,7 @@ def main():
                         nw = db_hit.get("net_weight")
                         dbexc = (f"Net weight: {nw} kg. " if nw else "") + \
                                 (("Ingredients: " + db_hit["ingredients"]) if db_hit.get("ingredients") else "")
-                        chosen = (0.97, im, "db:" + db_hit["db"], "verified", "ean-db", dbexc)
+                        chosen = (0.97, im, "db:" + db_hit["db"], db_tier(db_hit), "ean-db", dbexc)
                         db_imgq = "" if good else "unclear"  # flag a low-quality DB image so it yellows even w/o vision
             # Stage 0b (scanned rows only): a Tier-0 DB hit short-circuits every search stage, which is
             # right for the IMAGE but wrong for the NAME — a scanned row has no name of its own, and the

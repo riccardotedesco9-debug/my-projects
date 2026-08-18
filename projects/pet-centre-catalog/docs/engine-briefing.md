@@ -172,10 +172,17 @@ Every step that confirms the unique identifier is GREEN; vision/name is YELLOW.
     already had a name and a photo, while the rows still missing something got zero hits.** Skewed hard
     to IT and consumer electronics. Keep it wired (free, fails open), but never plan around it, and do
     not buy Full Icecat for a non-electronics catalogue on the strength of it.
-  - Ordering caveat: Barcode Lookup runs FIRST and short-circuits on an image, so with a BL key set,
-    Icecat is only ever consulted on rows BL missed.
-- **eBay Browse** (`EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`, free) — GTIN search across a global,
+  - Queried on EVERY row (since 2026-08-18), even when Barcode Lookup already returned an image: the
+    IMAGE short-circuit still stands, but the QUERY is evidence — a second GTIN-keyed database holding
+    a record for the same code upgrades the tier to `verified-cross` via `db_tier()`, provided the two
+    records' names actually agree (a shared token). Two DBs contradicting each other stay at plain
+    `verified`: contradiction is a reason to look harder, not to trust more.
+- **eBay Browse** (`EBAY_CLIENT_ID` + `EBAY_CLIENT_SECRET`, free) — barcode search across a global,
   all-category marketplace, which is exactly the long tail the free databases miss.
+  **Do NOT use the documented `gtin=` filter — it is dead.** Measured 2026-08-18: it returns total:0
+  on every marketplace (GB/DE/IT/ES/FR/US) even for a product eBay demonstrably sells. The barcode is
+  sent as a plain `q=` keyword instead, and a result is accepted only when the code appears LITERALLY
+  in the listing title. eBay never joins cross-verification: its GTIN is seller-asserted.
   **Capped at YELLOW on purpose**: eBay's GTIN field is filled in by the SELLER, not the brand owner, so
   a hit is a marketplace claim, not a manufacturer one. It runs only after every green avenue has failed
   and yields `likely`, or `verified-visual` when the vision gate confirms the photo.
