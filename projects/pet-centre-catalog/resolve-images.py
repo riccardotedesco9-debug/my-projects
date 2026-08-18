@@ -1436,7 +1436,10 @@ def main():
         order = sorted(pool.values(), key=lambda x: x[0], reverse=True)
         # Stage 4: unverified fallback — top candidate that clears the bar AND has a good
         # full-product image (identity unconfirmed, so a crop/thumbnail is not worth showing).
-        if not chosen and core:
+        # `core or working_name()`: this was the last stage still gated on the name the row ARRIVED
+        # with, so on a scanned catalogue a candidate could clear the score bar and still be skipped,
+        # dropping the row straight past the yellow tier into eBay and vision.
+        if not chosen and (core or working_name()):
             for s, im, via in order:
                 if s < THRESHOLD:
                     break

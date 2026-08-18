@@ -76,6 +76,29 @@ CURATION_ORDER = [
 ]
 
 
+# Column widths by HEADER NAME, applied after the reorder. They have to be re-asserted by name
+# because openpyxl's delete_cols moves cells but NOT column_dimensions, so every re-run of
+# enrich_curation shifted the widths one place out of step with their headers: Description ended up
+# 14 wide while its Source column had 56, which is what made the text stack into tall thin ribbons.
+# Sized for reading: the two long prose fields get real room, the numeric ones stay narrow.
+CURATION_WIDTHS = {
+    "Status": 10, "Name": 42, "Barcode": 16, "Confirmed by": 26,
+    "Brand Name": 18, "Product Type": 20,
+    "Description": 62, "Description Source": 30, "Tags": 30,
+    "Depth (cm)": 10, "Width (cm)": 10, "Height (cm)": 10, "Weight (kg)": 10,
+    "Image URL": 26, "Image Source": 30,
+    "Ingredients": 34, "Ingredients Source": 24,
+    "Best guess (manual)": 22,
+}
+
+
+def apply_widths(ws, widths):
+    """Set column widths by header name, so they cannot drift out of step with their columns."""
+    for i, h in enumerate([c.value for c in ws[1]], start=1):
+        if h in widths:
+            ws.column_dimensions[get_column_letter(i)].width = widths[h]
+
+
 def reorder_columns(ws, order):
     """Rearrange columns to `order`, carrying values, styling, hyperlinks and widths.
 
@@ -540,9 +563,17 @@ def main():
     for r, field, why in violations:
         print(f"  !! colour rule: sheet row {r} {field} — {why}")
 
+    # Widths first: fit_layout estimates how many lines a cell wraps to from its column width, so a
+    # width fixed afterwards would leave every row height computed against the wrong number.
+    apply_widths(wb["Curation"], CURATION_WIDTHS)
+
     # Last: size everything so no photo and no sentence is clipped in the browser.
+    # The two Source columns belong in here as well: they wrap like any other text, and leaving them
+    # out meant their rows were sized from the OTHER columns only, so a two-line provenance label sat
+    # in a row built for one line.
     fit_layout(wb["Curation"],
-               ["Name", "Description", "Tags", "Confirmed by", "Ingredients", "Best guess (manual)"],
+               ["Name", "Description", "Tags", "Confirmed by", "Ingredients", "Best guess (manual)",
+                "Image Source", "Description Source", "Ingredients Source"],
                img_col_width_px=True)
     fit_layout(wb["Shopify import"],
                ["Title", "Description", "Tags", "Collection", "Image alt text", "URL handle"])

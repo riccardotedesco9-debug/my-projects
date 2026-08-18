@@ -380,9 +380,13 @@ def img_method(rec):
         # Three different reds, and the difference matters to whoever has to fix the row: nothing was
         # found at all / something was found but never judged / something was found and vision said it
         # is the wrong product. The last one means stop searching the web and go photograph the shelf.
+        # Written so the CELL ITSELF answers "why is this red?". The hover note carries the detail,
+        # but a note is only found by someone who already suspects it is there.
         if r.get("vision_verdict"):
-            return "checked, not the product"
-        return "best guess (unverified)" if r.get("best_url") else "no image"
+            return "found one, wrong product"
+        if r.get("best_url"):
+            return "best guess (unverified)"
+        return "searched, none found" if r.get("name_found") else "not identified, cannot search"
     conf, prov, q = r.get("confidence") or "", r.get("img_provenance") or "", r.get("img_quality") or ""
     # Describe where the PHOTO came from first: an off-site / vision-picked image is yellow even when the
     # product IDENTITY is barcode-solid, so the image cell must say so (not parrot the identity method).
