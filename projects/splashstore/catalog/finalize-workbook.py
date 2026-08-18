@@ -60,19 +60,19 @@ KIND_NOTE = {
 #   URL handle is derived from Name and belongs with the import schema, not the review view.
 # What survives is genuinely new: the tag set, and HOW MANY independent domains confirmed the barcode
 # (the tier label says "Verified", not whether one source or three agreed).
-EXTRA = ["Tags", "Confirmed by"]
+EXTRA = ["Tags", "Name confirmed by"]
 
 # Review order: triage signal first (photo + status), then identity and the evidence for it, then the
 # enriched content, then measurements, then raw source URLs. Ingredients sit late — for a non-edible
 # vertical they are N/A on almost every row and would otherwise split the useful columns in half.
 CURATION_ORDER = [
-    "Image", "Status", "Name", "Barcode", "Confirmed by",
+    "Image", "Status", "Name", "Barcode", "Name confirmed by",
     "Brand Name", "Product Type",
     "Description", "Description Source", "Tags",
     "Depth (cm)", "Width (cm)", "Height (cm)", "Weight (kg)",
     "Image URL", "Image Source",
     "Ingredients", "Ingredients Source",
-    "Best guess (manual)",
+    "Image best guess (manual)",
 ]
 
 
@@ -82,13 +82,13 @@ CURATION_ORDER = [
 # 14 wide while its Source column had 56, which is what made the text stack into tall thin ribbons.
 # Sized for reading: the two long prose fields get real room, the numeric ones stay narrow.
 CURATION_WIDTHS = {
-    "Status": 10, "Name": 42, "Barcode": 16, "Confirmed by": 26,
+    "Status": 10, "Name": 42, "Barcode": 16, "Name confirmed by": 26,
     "Brand Name": 18, "Product Type": 20,
     "Description": 62, "Description Source": 30, "Tags": 30,
     "Depth (cm)": 10, "Width (cm)": 10, "Height (cm)": 10, "Weight (kg)": 10,
     "Image URL": 26, "Image Source": 30,
     "Ingredients": 34, "Ingredients Source": 24,
-    "Best guess (manual)": 22,
+    "Image best guess (manual)": 22,
 }
 
 
@@ -243,7 +243,7 @@ def enrich_curation(ws, by_barcode, resolved_by_barcode):
         for col, key in (("Brand Name", "Vendor"), ("Product Type", "Type")):
             if col in headers and row.get(key) and not ws.cell(r, headers.index(col) + 1).value:
                 ws.cell(r, headers.index(col) + 1, row[key])
-    widths = {"Tags": 34, "Confirmed by": 30}
+    widths = {"Tags": 34, "Name confirmed by": 30}
     for i, name in enumerate(EXTRA):
         ws.column_dimensions[get_column_letter(start + i)].width = widths[name]
     style_header(ws)
@@ -418,7 +418,10 @@ HEADER_NOTES = {
                            "GREEN = composition from a barcode-confirmed source.\n"
                            "YELLOW = composition from a brand or retailer page that was not "
                            "barcode-confirmed.\nRED = missing on an edible product."),
-    "Confirmed by": ("How many INDEPENDENT domains printed this barcode.\n"
+    "Barcode": ("The product's unique identifier - the fact every verification hangs off.\n"
+                "Blue = an identity field, not a verdict: this column is never judged, it is "
+                "what the other columns are judged AGAINST."),
+    "Name confirmed by": ("How many INDEPENDENT domains printed this barcode.\n"
                      "Three sources agreeing is stronger evidence than one, though both are green."),
 }
 
@@ -428,7 +431,8 @@ HEADER_NOTES = {
 # earlier version was a whole "How to read this" tab; that was more sheet than the point deserved.
 NOTE_TEXT = ("Colours are per field, not per row. Green: the barcode was found literally at that "
              "source. Yellow: plausible, but not confirmed that way. Red: nothing. Grey: not "
-             "applicable. A green photo beside a yellow description is normal. "
+             "applicable. Blue tints mark IDENTITY fields (barcode, who confirmed it) - a "
+             "category, not a verdict. A green photo beside a yellow description is normal. "
              "Hover any header for detail.")
 NOTE_MARKER = "Colours are per field"
 LEGACY_TAB = "How to read this"
@@ -478,7 +482,7 @@ def explain_red_images(ws, resolved, catalog):
         elif rec.get("best_url"):
             note = ("A candidate photo was found but never judged, so it was not used.\n\n"
                     "Best candidate: " + str(rec.get("best_title") or rec["best_url"])[:130]
-                    + "\n\nIt is linked under 'Best guess (manual)' if you want to look at it.")
+                    + "\n\nIt is linked under 'Image best guess (manual)' if you want to look at it.")
         elif not rec.get("name_found"):
             note = ("No source anywhere confirmed this barcode, so the product has no name — and with "
                     "no name there is nothing to search an image with.\n\nIdentify it by hand: check "
@@ -496,6 +500,30 @@ def explain_red_images(ws, resolved, catalog):
         ws.cell(r, col).comment = Comment(note, "catalogue engine", height=240, width=420)
         added += 1
     return added
+
+
+# Identity fields get their own colour FAMILY, deliberately outside the verdict palette: blue
+# means "this is who the product IS and who vouched for it", never a quality judgement. Left
+# white they read as uncoloured gaps in a sheet where every other cell's colour carries meaning.
+IDENTITY_FILLS = {
+    "Barcode":      PatternFill("solid", fgColor="DDEBF7"),   # light blue - the unique identifier
+    "Name confirmed by": PatternFill("solid", fgColor="E4DFEC"),   # soft lavender - the evidence trail
+}
+
+
+def colour_identity(ws):
+    """Tint the identity columns on every data row, uniformly - the colour marks the CATEGORY
+    of the field, so it stays constant whether the row is complete or not."""
+    headers = [c.value for c in ws[1]]
+    painted = 0
+    for name, fill in IDENTITY_FILLS.items():
+        if name not in headers:
+            continue
+        c = headers.index(name) + 1
+        for r in range(2, ws.max_row + 1):
+            ws.cell(r, c).fill = fill
+            painted += 1
+    return painted
 
 
 TIER_FILL = {"verified": PatternFill("solid", fgColor="C6EFCE"),
@@ -666,7 +694,7 @@ def main():
     # out meant their rows were sized from the OTHER columns only, so a two-line provenance label sat
     # in a row built for one line.
     fit_layout(wb["Curation"],
-               ["Name", "Description", "Tags", "Confirmed by", "Ingredients", "Best guess (manual)",
+               ["Name", "Description", "Tags", "Name confirmed by", "Ingredients", "Image best guess (manual)",
                 "Image Source", "Description Source", "Ingredients Source"],
                img_col_width_px=True)
     fit_layout(wb["Shopify import"],
@@ -676,6 +704,7 @@ def main():
     where = add_note(wb["Curation"])
     explained = explain_red_images(wb["Curation"], resolved, catalog)
     painted = colour_derived(wb["Curation"], resolved, desc, catalog)
+    identity = colour_identity(wb["Curation"])
     variants = annotate_variant_images(wb["Curation"], resolved, catalog)
     defused = defuse_formulas(wb)
     wb.save(WORKBOOK)
@@ -690,6 +719,7 @@ def main():
     print(f"  colour guide    inline note at {where} + {notes} header hover notes (no explainer tab)")
     print(f"  colour rule     {'HOLDS (green = factually verified only)' if not violations else str(len(violations)) + ' VIOLATIONS - see above'}")
     print(f"  red images      {explained} carry the verdict that rejected their candidate")
+    print(f"  identity tint   {identity} cell(s) in the blue family (Barcode, Name confirmed by)")
     print(f"  derived colour  {painted} cell(s) now show their evidence tier (no white unknowns)"
           + (f" | {variants} variant image(s) flagged" if variants else ""))
     print(f"  formula safety  {'no live formulas' if not defused else str(defused) + ' scraped cell(s) forced to text'}")

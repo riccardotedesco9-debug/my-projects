@@ -544,7 +544,7 @@ CURATION_COLS = [
     ("Width (cm)",    lambda p, rec, d: d.get("width") or "",       None, None, 11, False),
     ("Height (cm)",   lambda p, rec, d: d.get("height") or "",      None, None, 11, False),
     ("Weight (kg)",   lambda p, rec, d: d.get("weight") or "",      None, None, 12, False),
-    ("Best guess (manual)", lambda p, rec, d: best_guess_text(rec),
+    ("Image best guess (manual)", lambda p, rec, d: best_guess_text(rec),
                            lambda p, rec, d: best_guess_url(rec), None, 40, True),
 ]
 

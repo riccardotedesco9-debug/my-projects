@@ -111,7 +111,7 @@ shop is the false confidence this whole engine exists to avoid.
 
 **The colour contract is explained ON the Curation table, not in a tab.** One line in the frozen
 header row just past the last column (`T1`), plus hover notes on Status / Image Source / Description
-Source / Ingredients Source / Confirmed by. A fourth "How to read this" tab was built and removed at
+Source / Ingredients Source / Name confirmed by / Barcode. A fourth "How to read this" tab was built and removed at
 the owner's request: the question ("why is the photo green and the description yellow?") is asked
 while reading a row, and an explainer tab is somewhere you have to remember to go. Do not re-add one.
 
@@ -256,6 +256,16 @@ GTIN is entered by the seller. Both are no-ops until their key exists, so nothin
   `CLOUDFLARE_ACCOUNT_ID` exists, with no bucket or R2 token.
 - Image URLs are HTML-unescaped at the source (`&amp;` in a query string breaks `=IMAGE()` and some
   hosts); if a new extraction path is added, unescape there too.
+
+### Green audit (2026-08-18): every green re-verified two layers deep
+All greens trace to a recorded literal mechanism (0 failures), and every page-backed green was
+re-checked against its LIVE source page: 34 pages still print the GTIN today (2 needed Firecrawl's
+JS render — carrefour.fr and allegro.cz block plain fetches), 20 rest on barcode-keyed DB records,
+1 carries the GTIN in its URL, and 2 pages changed since capture (cdiscount rotates listings) but
+the ARCHIVED capture literally contains the code, which is the evidence the green was minted on.
+Identity columns (Barcode, Name confirmed by) are tinted BLUE — a category marker, not a verdict.
+Headers scope themselves: "Name confirmed by" and "Image best guess (manual)" say which field they
+belong to, because an unscoped "Confirmed by" read as row-wide.
 
 ### Exhaustion ladder results (2026-08-18)
 The 16 incomplete rows re-ran through the new ladder (197 credits, 18 vision calls, 3 BL calls):
