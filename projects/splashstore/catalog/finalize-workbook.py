@@ -442,12 +442,29 @@ def explain_red_images(ws, resolved, catalog):
     added = 0
     for r in range(2, ws.max_row + 1):
         rec = resolved.get(by_barcode.get(str(ws.cell(r, bc_col).value or "").strip(), ""), {}) or {}
-        if rec.get("url") or not rec.get("vision_verdict"):
+        if rec.get("url"):
             continue
-        note = ("A photo WAS found and checked against this product's confirmed name.\n"
-                "The image AI judged it a different product, so it was not used:\n\n"
-                + str(rec["vision_verdict"])[:400]
-                + "\n\nThis one wants photographing in the garage, not more searching.")
+        # EVERY red row explains itself, not only the ones vision rejected. A blank cell with no note
+        # is the worst of all outcomes: it reads as an engine that gave up silently, when these are
+        # four different situations with four different next actions.
+        if rec.get("vision_verdict"):
+            note = ("A photo WAS found and checked against this product's confirmed name.\n"
+                    "The image AI judged it a different product, so it was not used:\n\n"
+                    + str(rec["vision_verdict"])[:400]
+                    + "\n\nThis one wants photographing in the garage, not more searching.")
+        elif rec.get("best_url"):
+            note = ("A candidate photo was found but never judged, so it was not used.\n\n"
+                    "Best candidate: " + str(rec.get("best_title") or rec["best_url"])[:130]
+                    + "\n\nIt is linked under 'Best guess (manual)' if you want to look at it.")
+        elif not rec.get("name_found"):
+            note = ("No source anywhere confirmed this barcode, so the product has no name — and with "
+                    "no name there is nothing to search an image with.\n\nIdentify it by hand: check "
+                    "the packaging, or search the code on the brand's own site.")
+        else:
+            note = ("The product IS identified from its barcode, but no usable photo was found by any "
+                    "source we search: the barcode databases, the barcode directories, an image search "
+                    "on the confirmed name, and eBay.\n\nNothing left to try automatically. Photograph "
+                    "it in the garage.")
         ws.cell(r, col).comment = Comment(note, "catalogue engine", height=190, width=380)
         added += 1
     return added

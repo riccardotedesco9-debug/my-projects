@@ -477,8 +477,13 @@ def ebay_by_gtin(ean, marketplace="EBAY_GB"):
     token = _ebay_token_get()
     if not token:
         return None
+    # Searched as a KEYWORD, not through the documented `gtin=` filter. Measured 2026-08-18: the
+    # filter returns total:0 for every marketplace (GB/DE/IT/ES/FR/US) even for a product eBay
+    # demonstrably sells — a plain `q=` for the same barcode returns it, and a keyword search for its
+    # name returns 6,678 listings. So eBay's GTIN index is effectively empty for this catalogue, and
+    # using the filter meant this whole source silently contributed nothing.
     url = ("https://api.ebay.com/buy/browse/v1/item_summary/search"
-           f"?gtin={urllib.parse.quote(ean)}&limit=3")
+           f"?q={urllib.parse.quote(ean)}&limit=5")
     try:
         req = urllib.request.Request(url, headers={
             "Authorization": "Bearer " + token,
@@ -491,6 +496,12 @@ def ebay_by_gtin(ean, marketplace="EBAY_GB"):
     for item in (d.get("itemSummaries") or []):
         img = (item.get("image") or {}).get("imageUrl") or ""
         if not (img and is_product_image(img)):
+            continue
+        # A keyword search matches loosely, so require the barcode to appear LITERALLY in the listing
+        # title. Without this the first vaguely-related listing on eBay would be adopted, which is the
+        # exact false confidence the engine exists to prevent. The tier stays YELLOW regardless: a
+        # seller typing a barcode into a title is a marketplace claim, not a manufacturer's.
+        if ean not in re.sub(r"\D", "", item.get("title") or ""):
             continue
         return {"name": (item.get("title") or "")[:200],
                 "brand": item.get("brand") or "",
