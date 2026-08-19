@@ -263,7 +263,7 @@ re-checked against its LIVE source page: 34 pages still print the GTIN today (2 
 JS render — carrefour.fr and allegro.cz block plain fetches), 20 rest on barcode-keyed DB records,
 1 carries the GTIN in its URL, and 2 pages changed since capture (cdiscount rotates listings) but
 the ARCHIVED capture literally contains the code, which is the evidence the green was minted on.
-Identity columns (Barcode, Name confirmed by) are tinted BLUE — a category marker, not a verdict.
+Identity columns are tinted BLUE — a category marker, not a verdict: Barcode carries the stronger blue (`9BC2E6`) as the anchor fact, `Name confirmed by` the lighter tint (`DDEBF7`) as its evidence trail. A verified source cell that LINKS to its proving page is deepened to `A9D08E` (dark green), so 'verified and the evidence is one click away' reads at a glance. Empty Depth/Width/Height/Weight cells are GREY, never red: an unstated optional measurement is not a failure to source.
 Headers scope themselves: "Name confirmed by" and "Image best guess (manual)" say which field they
 belong to, because an unscoped "Confirmed by" read as row-wide.
 

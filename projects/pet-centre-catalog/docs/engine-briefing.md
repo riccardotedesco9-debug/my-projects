@@ -146,6 +146,32 @@ toward junk (observed once: a loyalty-card page). The literal-GTIN gate keeps it
 curation review is the backstop for yellow. Merging fresh runs into a curated deliverable must
 never downgrade a tier and never overwrite curated names.
 
+## Foot-of-page specs: what the scrape really recovers (live-tested 2026-08-19)
+`_spec_lines()` harvests every LABELLED spec line from the WHOLE markdown — `| Gewicht | 18 kg |`,
+`SKU: 11762696`, `Contenu : 1 L`, `Dimensions: 99x191x25 cm` — and pins them to the FRONT of the
+excerpt so they survive the cap. Before this, a first-match prose selector plus a 6000-char cap
+quietly dropped exactly the scroll-down micro-detail a shopper looks for.
+
+**Measured on the real discovery path**, neutral profile, verticals the engine was never tuned for
+(food / electronics / beverage / household GTINs, 12 pages): the harvester fires on server-rendered
+retail pages, recovering real tables — `Weight | 2.337 lbs | 220mm`, `SKU:101926EN00 ; Model |
+101926EN00`, `Mpn: 5443P18c ; Color: Chrome`. On the SplashStore corpus it upgraded 20 of 30
+confirmed pages. That is the shape of page the engine actually confirms on.
+
+**Where it cannot work, and why that is fine.** Brand marketing SPAs (logitech.com, ikea.com,
+screwfix.com) never put their spec table in the DOM snapshot: the markdown is navigation chrome,
+and `waitFor: 6000` changes nothing because the table sits behind an accordion the crawler never
+clicks. Do not "fix" this with Firecrawl's schema extraction — **tested and rejected**: at 5 credits
+per page it returned `"weight": "7.78 kg CO2e carbon footprint"` for a computer MOUSE (a carbon
+figure read as a weight) and `"N/A"` for every IKEA field. A fabricated measurement is far worse
+than a missing one, and this engine's whole contract is that it never invents.
+
+**The same test proved the accuracy spine.** A bare-barcode web search for the electronics,
+beverage and household GTINs surfaced entirely wrong products (a chandelier, an action figure, a
+polishing kit) — and `page_confirms` refused every one: 0 of 9 confirmed, so none could ever have
+minted green. Only the food GTIN's pages confirmed (3 of 3). Wrong search results are normal; the
+literal-GTIN gate is what makes them harmless.
+
 ## The catalogue profile: vertical knobs in ONE file (2026-08-18)
 `CATALOG_PROFILE=<path>.json` supplies: `signal_tokens` (scoring boost), `off_domains` (penalty),
 `comp_retailers` (composition-scoped paid searches), `edible_regex`, `off_hosts`, `persona`

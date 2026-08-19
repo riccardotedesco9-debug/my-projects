@@ -508,8 +508,11 @@ def explain_red_images(ws, resolved, catalog):
 # means "this is who the product IS and who vouched for it", never a quality judgement. Left
 # white they read as uncoloured gaps in a sheet where every other cell's colour carries meaning.
 IDENTITY_FILLS = {
-    "Barcode":      PatternFill("solid", fgColor="DDEBF7"),   # light blue - the unique identifier
-    "Name confirmed by": PatternFill("solid", fgColor="E4DFEC"),   # soft lavender - the evidence trail
+    # ONE hue, two weights. The barcode is the anchor fact every verification hangs off, so it
+    # carries the stronger blue; its evidence trail sits a shade lighter right beside it. A
+    # different hue for the second column read as a separate category rather than the same one.
+    "Barcode":           PatternFill("solid", fgColor="9BC2E6"),   # medium blue - the anchor fact
+    "Name confirmed by": PatternFill("solid", fgColor="DDEBF7"),   # light blue - its evidence trail
 }
 
 
